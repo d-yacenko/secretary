@@ -19,7 +19,7 @@ PHASE 02 — core database model (waiting for user go-ahead)
 - Path: `/opt/secretary`
 - Domain on host: `web-itx.duckdns.org` (nginx 80/443 — existing site)
 - Secretary API: `http://127.0.0.1:18080/health` (localhost only; HTTPS proxy later)
-- Update: `cd /opt/secretary && git pull && cd infra && docker compose -f compose.yaml -f compose.deploy.yaml up -d --build`
+- Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ## Known blockers
 
