@@ -411,7 +411,7 @@ def test_current_user_dependency_returns_bootstrap_owner() -> None:
     assert ctx.user_id == BOOTSTRAP_USER_ID
 
 
-def test_gmail_second_sync_fetches_unchanged_without_duplicate_object_or_job(
+def test_gmail_second_sync_skips_get_for_known_id_without_duplicate_work(
     db_session, tmp_path
 ) -> None:
     key = Fernet.generate_key().decode()
@@ -457,6 +457,65 @@ def test_gmail_second_sync_fetches_unchanged_without_duplicate_object_or_job(
     second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     assert first["created"] == 1
     assert second["unchanged"] == 1
+    assert get_calls == 1
+
+
+def test_user_a_known_gmail_id_does_not_skip_fetch_for_user_b(
+    db_session, user_b_id, tmp_path
+) -> None:
+    key = Fernet.generate_key().decode()
+    oauth_file = tmp_path / "oauth.json"
+    oauth_file.write_text(
+        json.dumps({"web": {"client_id": "id", "client_secret": "secret"}}),
+        encoding="utf-8",
+    )
+    get_calls = 0
+
+    class FakeHttpClient:
+        def get(self, url, params=None, headers=None, **kwargs):
+            nonlocal get_calls
+            if url.endswith("/messages"):
+                return httpx.Response(200, json={"messages": [{"id": "cross-user-x"}]})
+            get_calls += 1
+            return httpx.Response(200, json=_sample_gmail_message("cross-user-x"))
+
+        def post(self, url, data=None, **kwargs):
+            raise AssertionError("unexpected post")
+
+    store_a = GoogleAccountStore(db_session, CredentialEncryption(key))
+    account_a = store_a.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="owner@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="token",
+        refresh_token="refresh",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.flush()
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=key,
+        client_file=str(oauth_file),
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=FakeHttpClient(),
+    )
+    sync_service.sync_account(account_a.id, BOOTSTRAP_USER_ID, limit=1)
+    assert get_calls == 1
+
+    store_b = GoogleAccountStore(db_session, CredentialEncryption(key))
+    account_b = store_b.upsert_tokens(
+        user_id=user_b_id,
+        email="user-b@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="token",
+        refresh_token="refresh",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.flush()
+    sync_service.sync_account(account_b.id, user_b_id, limit=1)
     assert get_calls == 2
 
 
