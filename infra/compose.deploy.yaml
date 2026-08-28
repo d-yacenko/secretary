@@ -3,5 +3,4 @@ services:
   db:
     ports: !reset []
   api:
-    ports: !reset
-      - "127.0.0.1:18080:8000"
+    ports: !reset ["127.0.0.1:18080:8000"]
