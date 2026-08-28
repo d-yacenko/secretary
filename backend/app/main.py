@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.api.google import router as google_router
+from app.api.yandex import router as yandex_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.notifications import router as notifications_router
 from app.core.config import settings
@@ -25,6 +26,7 @@ app = FastAPI(title="Personal Secretary", lifespan=lifespan)
 app.include_router(graph_router)
 app.include_router(notifications_router)
 app.include_router(google_router)
+app.include_router(yandex_router)
 
 
 if settings.mcp_enabled:

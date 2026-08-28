@@ -1,29 +1,33 @@
-# Current task — PHASE 16 (not started)
+# Current task — PHASE 17 (not started)
 
 ## Status
 
-PHASE 15 complete. Awaiting user acceptance before starting PHASE 16.
+PHASE 16 complete. Awaiting user acceptance before starting PHASE 17.
 
 ## Goal (when approved)
 
-Synchronize Yandex Mail into the same normalized `email` object model as Gmail.
+Synchronize Yandex Calendar via CalDAV into user-scoped `event` objects.
 
 ## Prerequisites
 
-- PHASE 15 accepted.
-- IMAP or OAuth credentials strategy for Yandex.
+- PHASE 16 accepted.
+- Same global ownership/sync invariants as PHASE 14.5+.
 
 ## Do (when approved)
 
-1. Add `YandexMailConnector` with UID/UIDVALIDITY incremental sync.
-2. Normalize to `objects(kind=email, …)` — same shape as Gmail.
-3. User-scoped ownership and bounded initial history.
+1. Add `YandexCalendarConnector` with CalDAV transport + normalization.
+2. User-scoped objects; bounded initial history; incremental when supported.
+3. Cross-user isolation test.
 
 ## Defer
 
-- IMAP IDLE unless easy/reliable.
-- Second mail domain model (reuse Gmail email shape).
+- Calendar write.
+- Deep historical import without explicit user request.
+
+## Roadmap note
+
+PHASE 19.5 — Secretary Authentication & Connections must land before PHASE 20 Flutter.
 
 ## Note
 
-Stop after phase for user review.
+Stop after phase for user review. Do not auto-start PHASE 18.

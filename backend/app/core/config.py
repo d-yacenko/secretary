@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     calendar_sync_default_limit: int = 100
     calendar_sync_max_limit: int = 100
     calendar_sync_max_calendars: int = 10
+    yandex_mail_sync_days: int = 30
+    yandex_mail_sync_default_limit: int = 50
+    yandex_mail_sync_max_limit: int = 100
 
     @property
     def database_url(self) -> str:

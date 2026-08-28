@@ -28,4 +28,6 @@ Being inside the synchronization time window does **not** mean the full object m
 
 **Gmail (normal bounded sync):** `messages.list` → batch known external IDs for current user → `messages.get(full)` only for unknown IDs. Known imported message bodies are treated as stable until Gmail History / provider reconciliation exists. Label/deletion changes are deferred.
 
-**Google Calendar (PHASE 15):** bounded window (~60d back / ~90d forward, max 100 events). Events are mutable; bounded re-fetch with field comparison is acceptable for now. Future: provider sync tokens / incremental change tracking instead of indefinite history rescans.
+**Yandex Mail (PHASE 16):** IMAP SEARCH within bounded window → batch known external IDs → FETCH only for unknown; store UIDVALIDITY/last UID checkpoint on account.
+
+**Future:** when a provider offers reliable cursor/history/sync tokens, prefer that over rescans; unchanged processed content must not be repeatedly downloaded/embedded/analyzed.

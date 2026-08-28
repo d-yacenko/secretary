@@ -380,4 +380,41 @@ class OAuthState(Base):
         server_default=func.now(),
     )
 
-    __table_args__ = (Index("ix_oauth_states_state_hash", "state_hash"),)
+    __table_args__ = (
+        Index("ix_oauth_states_state_hash", "state_hash"),
+    )
+
+
+class YandexMailAccount(Base):
+    __tablename__ = "yandex_mail_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(nullable=False)
+    app_password_encrypted: Mapped[str] = mapped_column(nullable=False)
+    imap_host: Mapped[str] = mapped_column(nullable=False, server_default="imap.yandex.ru")
+    imap_port: Mapped[int] = mapped_column(nullable=False, server_default=text("993"))
+    sync_state: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_yandex_mail_accounts_user_id", "user_id"),
+        sa.UniqueConstraint("user_id", "email", name="uq_yandex_mail_accounts_user_id_email"),
+    )
