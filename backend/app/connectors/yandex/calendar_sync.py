@@ -9,7 +9,7 @@ from app.connectors.yandex.calendar_credentials import (
     YandexCalendarAccountStore,
     YandexCalendarSyncSnapshot,
 )
-from app.connectors.yandex.calendar_normalize import normalize_caldav_event
+from app.connectors.yandex.calendar_normalize import normalize_caldav_events
 from app.connectors.yandex.caldav_transport import CalDavHttpTransport, CalDavTransport
 from app.connectors.yandex.constants import (
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
@@ -77,6 +77,7 @@ class YandexCalendarSyncService:
         jobs_enqueued = 0
         synchronized = 0
         unchanged = 0
+        tombstoned = 0
         remaining = effective_limit
         calendar_state = dict(snapshot.sync_state.get("calendars", {}))
 
@@ -87,9 +88,11 @@ class YandexCalendarSyncService:
             stored = dict(calendar_state.get(calendar_href, {}))
             stored_token = stored.get("sync_token")
             calendar_summary = calendar.display_name or stored.get("display_name")
+            used_incremental = False
 
             try:
                 if stored_token:
+                    used_incremental = True
                     fetch_result = transport.sync_collection(
                         calendar_href=calendar_href,
                         sync_token=str(stored_token),
@@ -109,75 +112,56 @@ class YandexCalendarSyncService:
                     time_max=time_max,
                     max_results=remaining,
                 )
+                used_incremental = False
                 stored_token = None
 
-            new_token = fetch_result.sync_token or stored_token or calendar.sync_token
-            if new_token:
-                stored["sync_token"] = new_token
-            if calendar_summary:
-                stored["display_name"] = calendar_summary
-            calendar_state[calendar_href] = stored
+            for deleted_href in fetch_result.deleted_hrefs:
+                if remaining <= 0:
+                    break
+                self._session.commit()
+                tombstone = self._tombstone_deleted_event(snapshot.user_id, deleted_href)
+                if tombstone is None:
+                    continue
+                tombstoned += 1
+                synchronized += 1
+                remaining -= 1
+                self._session.commit()
 
             for raw_event in fetch_result.events:
                 if remaining <= 0:
                     break
-                normalized = normalize_caldav_event(
+                normalized_list = normalize_caldav_events(
                     raw_event.calendar_data,
                     calendar_href=calendar_href,
                     calendar_summary=calendar_summary,
                     etag=raw_event.etag,
                     event_href=raw_event.event_href,
+                    time_min=time_min if not used_incremental else None,
+                    time_max=time_max if not used_incremental else None,
                 )
-                if normalized is None:
-                    continue
+                for normalized in normalized_list:
+                    if remaining <= 0:
+                        break
+                    change = self._upsert_event(snapshot.user_id, normalized)
+                    synchronized += 1
+                    remaining -= 1
+                    if change == "created":
+                        created += 1
+                        jobs_enqueued += 1
+                    elif change == "updated":
+                        updated += 1
+                        jobs_enqueued += 1
+                    else:
+                        unchanged += 1
+                    self._session.commit()
 
-                existing = self._find_existing_event(snapshot.user_id, normalized["external_id"])
-                if existing is None:
-                    self._session.commit()
-                    obj = Object(
-                        user_id=snapshot.user_id,
-                        kind=normalized["kind"],
-                        provider=normalized["provider"],
-                        external_id=normalized["external_id"],
-                        origin=normalized["origin"],
-                        state=normalized["state"],
-                        title=normalized["title"],
-                        body=normalized.get("body"),
-                        start_at=normalized.get("start_at"),
-                        due_at=normalized.get("due_at"),
-                        metadata_=normalized["metadata"],
-                    )
-                    self._session.add(obj)
-                    self._session.flush()
-                    created += 1
-                    synchronized += 1
-                    remaining -= 1
-                    self._job_queue.enqueue(
-                        "embed_object",
-                        {"object_id": str(obj.id)},
-                        user_id=snapshot.user_id,
-                    )
-                    jobs_enqueued += 1
-                    self._session.commit()
-                    continue
-
-                if self._event_changed(existing, normalized):
-                    self._apply_normalized_event(existing, normalized)
-                    updated += 1
-                    synchronized += 1
-                    remaining -= 1
-                    self._job_queue.enqueue(
-                        "embed_object",
-                        {"object_id": str(existing.id)},
-                        user_id=snapshot.user_id,
-                    )
-                    jobs_enqueued += 1
-                    self._session.commit()
-                else:
-                    synchronized += 1
-                    unchanged += 1
-                    remaining -= 1
-                    self._session.commit()
+            if fetch_result.sync_token:
+                stored["sync_token"] = fetch_result.sync_token
+            elif not used_incremental and calendar.sync_token:
+                stored["sync_token"] = calendar.sync_token
+            if calendar_summary:
+                stored["display_name"] = calendar_summary
+            calendar_state[calendar_href] = stored
 
         account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
@@ -191,8 +175,57 @@ class YandexCalendarSyncService:
             "created": created,
             "updated": updated,
             "unchanged": unchanged,
+            "tombstoned": tombstoned,
             "jobs_enqueued": jobs_enqueued,
         }
+
+    def _upsert_event(self, user_id: UUID, normalized: dict[str, Any]) -> str:
+        existing = self._find_existing_event(user_id, normalized["external_id"])
+        if existing is None:
+            obj = Object(
+                user_id=user_id,
+                kind=normalized["kind"],
+                provider=normalized["provider"],
+                external_id=normalized["external_id"],
+                origin=normalized["origin"],
+                state=normalized["state"],
+                title=normalized["title"],
+                body=normalized.get("body"),
+                start_at=normalized.get("start_at"),
+                due_at=normalized.get("due_at"),
+                metadata_=normalized["metadata"],
+            )
+            self._session.add(obj)
+            self._session.flush()
+            self._job_queue.enqueue(
+                "embed_object",
+                {"object_id": str(obj.id)},
+                user_id=user_id,
+            )
+            return "created"
+
+        if self._event_changed(existing, normalized):
+            self._apply_normalized_event(existing, normalized)
+            self._job_queue.enqueue(
+                "embed_object",
+                {"object_id": str(existing.id)},
+                user_id=user_id,
+            )
+            return "updated"
+        return "unchanged"
+
+    def _tombstone_deleted_event(self, user_id: UUID, event_href: str) -> Object | None:
+        obj = self._find_by_event_href(user_id, event_href)
+        if obj is None:
+            return None
+        if obj.status == "deleted":
+            return None
+        metadata = dict(obj.metadata_ or {})
+        metadata["caldav_deleted"] = True
+        metadata["deleted_at"] = utcnow().isoformat()
+        obj.status = "deleted"
+        obj.metadata_ = metadata
+        return obj
 
     def _open_transport(self, snapshot: YandexCalendarSyncSnapshot) -> CalDavTransport:
         if self._transport_factory is not None:
@@ -214,7 +247,19 @@ class YandexCalendarSyncService:
             )
         )
 
+    def _find_by_event_href(self, user_id: UUID, event_href: str) -> Object | None:
+        return self._session.scalar(
+            select(Object).where(
+                Object.user_id == user_id,
+                Object.provider == "yandex_calendar",
+                Object.kind == "event",
+                Object.metadata_["event_href"].as_string() == event_href,
+            )
+        )
+
     def _event_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
+        if obj.status == "deleted":
+            return True
         if obj.title != normalized["title"]:
             return True
         if obj.body != normalized.get("body"):
@@ -233,6 +278,7 @@ class YandexCalendarSyncService:
         obj.start_at = normalized.get("start_at")
         obj.due_at = normalized.get("due_at")
         obj.metadata_ = normalized["metadata"]
+        obj.status = None
 
 
 def build_yandex_calendar_sync_service(

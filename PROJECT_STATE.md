@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 17 — Yandex Calendar (implemented; awaiting code review)
+PHASE 17 — Yandex Calendar (corrective applied; awaiting code review)
 
 PHASE 18 — files/cloud links (not started)
 
@@ -12,14 +12,13 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 
 ## Working components
 
-- PHASE 00–16: (prior phases, including live Yandex Mail)
+- PHASE 00–16: (prior phases)
 - PHASE 17: Yandex Calendar CalDAV sync
-  - `yandex_calendar_accounts` + migration `0012`
-  - Separate encrypted **Calendar** app password (not Mail password)
-  - `POST /connectors/yandex/calendar/connect`, `POST /connectors/yandex/calendar/sync`
-  - Read-only CalDAV: discover calendars, bounded time-range query, sync-token incremental
-  - Objects: `kind=event`, `provider=yandex_calendar` (same shape as Google Calendar)
-  - Bounded ~60d back / 90d forward / max 100 events / 10 calendars
+  - Separate encrypted Calendar app password (`yandex_calendar_accounts`, migration `0012`)
+  - Principal discovery → calendar-home-set → calendars
+  - Bounded query with recurrence expand; sync-collection Depth 0 + partial tokens
+  - Deletion tombstones via `status=deleted` + `metadata.caldav_deleted`
+  - TZID/all-day parsing; occurrence external_id includes RECURRENCE-ID
   - Offline tests: `tests/test_yandex_calendar.py`
 
 ## Not done
@@ -29,4 +28,4 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 
 ## Next phase
 
-PHASE 18 after PHASE 17 acceptance (do not start without user go-ahead).
+PHASE 18 after PHASE 17 acceptance.

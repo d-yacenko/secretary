@@ -154,7 +154,7 @@ class ContextService:
                         Object.user_id == self._user_id,
                     )
                 )
-                if obj is None or obj.state == "rejected":
+                if obj is None or obj.state == "rejected" or obj.status == "deleted":
                     continue
                 included_object_ids.add(obj.id)
                 representation_object_ids.add(obj.id)

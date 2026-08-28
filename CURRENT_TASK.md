@@ -1,30 +1,23 @@
-# Current task — PHASE 17 (implemented; awaiting review)
+# Current task — PHASE 17 corrective (awaiting review)
 
 ## Status
 
-PHASE 17 code complete. Offline tests pass. Not deployed; no live CalDAV smoke.
+PHASE 17 corrective applied. Offline tests pass. Not deployed.
 
-## Goal
+## Corrective scope
 
-Synchronize Yandex Calendar via read-only CalDAV into user-scoped `event` objects.
-
-## Implemented
-
-- `yandex_calendar_accounts` + migration `0012` (separate Calendar app password)
-- `POST /connectors/yandex/calendar/connect`, `POST /connectors/yandex/calendar/sync`
-- CalDAV discover → bounded query or sync-collection incremental
-- Objects: `kind=event`, `provider=yandex_calendar`
-- Tests: `tests/test_yandex_calendar.py`
+- Principal-based CalDAV discovery (`/principals/users/{login}/`)
+- sync-collection Depth 0 + DAV:nresults batching with partial tokens
+- CalDAV deletion tombstones (`status=deleted`)
+- TZID / all-day iCalendar parsing
+- Expanded recurring occurrence identity (UID + RECURRENCE-ID)
+- Transport/sync regression tests
 
 ## Defer
 
-- Calendar write.
-- Deploy / live smoke until code review acceptance.
-
-## Roadmap note
-
-PHASE 19.5 — Secretary Authentication & Connections must land before PHASE 20 Flutter.
+- Deploy / live CalDAV smoke until acceptance
+- PHASE 18
 
 ## Note
 
-Stop for review. Do not auto-start PHASE 18.
+STOP for review.
