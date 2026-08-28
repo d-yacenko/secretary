@@ -9,12 +9,22 @@ mkdir -p /opt/secretary
 cd /opt/secretary
 git clone https://github.com/d-yacenko/secretary.git .
 cp .env.example .env
+# VDS: bind API on localhost, avoid port clashes with other services
+echo 'SECRETARY_API_BIND=127.0.0.1:18080' >> .env
 cd infra
 docker compose -f compose.yaml -f compose.deploy.yaml up -d --build
 curl -s http://127.0.0.1:18080/health
 ```
 
-## Update
+## Local dev
+
+```bash
+cd infra
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+curl -s http://localhost:8000/health
+```
+
+## Update (VDS)
 
 ```bash
 cd /opt/secretary
@@ -23,6 +33,6 @@ cd infra
 docker compose -f compose.yaml -f compose.deploy.yaml up -d --build
 ```
 
-`compose.deploy.yaml` binds API to `127.0.0.1:18080` and does not publish PostgreSQL on the host.
+PostgreSQL is not published on the host in production. API listens on `127.0.0.1:18080` on the VDS.
 
 HTTPS via nginx + Certbot on `web-itx.duckdns.org` is a later step.

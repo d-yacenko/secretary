@@ -1,6 +1,2 @@
-# Production overlay: API on localhost only; DB not exposed on the host.
-services:
-  db:
-    ports: !reset []
-  api:
-    ports: !reset ["127.0.0.1:18080:8000"]
+# VDS overlay: set SECRETARY_API_BIND in /opt/secretary/.env (see .env.example).
+# No extra services; DB stays on the internal Docker network only.
