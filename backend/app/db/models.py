@@ -246,3 +246,45 @@ class Job(Base):
     __table_args__ = (
         Index("ix_jobs_status_run_after", "status", "run_after"),
     )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(nullable=False)
+    body: Mapped[str | None] = mapped_column(nullable=True)
+    priority: Mapped[str] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(nullable=False)
+    source_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("objects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    related_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("objects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    proposal_: Mapped[dict] = mapped_column(
+        "proposal",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_notifications_status", "status"),
+        Index("ix_notifications_priority", "priority"),
+        Index("ix_notifications_created_at", "created_at"),
+    )

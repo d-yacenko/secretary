@@ -220,30 +220,24 @@ def test_worker_continues_after_one_failed_job(fake_embedding_service) -> None:
         _delete_object(obj_id)
 
 
-def test_embed_object_job_refreshes_embedding(
-    db_session, fake_embedding_service
-) -> None:
-    obj = _create_object(db_session)
-    obj.embedding = None
-    db_session.flush()
-
-    queue = JobQueueService(db_session)
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(obj.id)})
-    claimed = queue.claim_next()
-    assert claimed is not None
-    handler = get_handler(JOB_TYPE_EMBED_OBJECT)
-    assert handler is not None
-    handler(db_session, fake_embedding_service, claimed.payload)
-    queue.mark_done(claimed.id)
-    db_session.flush()
-
-    stored = db_session.get(Object, obj.id)
-    assert stored is not None
-    assert stored.embedding is not None
-    assert len(stored.embedding) > 0
-    done_job = queue.get_job(job.id)
-    assert done_job is not None
-    assert done_job.status == JOB_STATUS_DONE
+def test_embed_object_job_refreshes_embedding(fake_embedding_service) -> None:
+    obj_id = _persist_object()
+    job_id = _persist_enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(obj_id)})
+    try:
+        assert process_one_job(fake_embedding_service)
+        conn = engine.connect()
+        session = Session(bind=conn)
+        obj = session.get(Object, obj_id)
+        assert obj is not None
+        assert obj.embedding is not None
+        assert len(obj.embedding) > 0
+        stored = _get_job(job_id)
+        assert stored is not None
+        assert stored.status == JOB_STATUS_DONE
+        conn.close()
+    finally:
+        _delete_job(job_id)
+        _delete_object(obj_id)
 
 
 def test_job_payload_stays_small_reference_based(queue) -> None:
@@ -287,4 +281,43 @@ def test_two_claimers_do_not_receive_same_job() -> None:
     cleanup_session.execute(delete(Job).where(Job.id == job_id))
     cleanup_trans.commit()
     cleanup_conn.close()
+
+
+class FailingEmbeddingService:
+    def embed(self, text: str) -> list[float]:
+        raise RuntimeError("embedding provider unavailable")
+
+
+def test_embedding_failure_schedules_retry_not_done() -> None:
+    obj_id = _persist_object()
+    job_id = _persist_enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(obj_id)})
+    before = utcnow()
+    try:
+        assert process_one_job(FailingEmbeddingService())
+        stored = _get_job(job_id)
+        assert stored is not None
+        assert stored.status == JOB_STATUS_PENDING
+        assert stored.attempts == 1
+        assert stored.run_after > before
+        assert stored.last_error == "embedding provider unavailable"
+    finally:
+        _delete_job(job_id)
+        _delete_object(obj_id)
+
+
+def test_stale_running_job_at_max_attempts_marks_failed(queue) -> None:
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    claimed = queue.claim_next()
+    assert claimed is not None
+    stored = queue.get_job(job.id)
+    assert stored is not None
+    stored.attempts = MAX_JOB_ATTEMPTS
+    stored.status = JOB_STATUS_RUNNING
+    stored.locked_at = utcnow() - timedelta(minutes=16)
+
+    assert queue.claim_next() is None
+    stored = queue.get_job(job.id)
+    assert stored is not None
+    assert stored.status == JOB_STATUS_FAILED
+    assert stored.locked_at is None
 

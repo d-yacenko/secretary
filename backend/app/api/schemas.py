@@ -198,3 +198,39 @@ class ContextBuildResult(BaseModel):
     items: list[ContextItem]
     total_chars: int
     truncated: bool
+
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    title: str
+    body: str | None
+    priority: str
+    status: str
+    source_object_id: UUID | None
+    related_object_id: UUID | None
+    proposal: dict[str, Any]
+    read_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, notification: Any) -> "NotificationOut":
+        return cls(
+            id=notification.id,
+            title=notification.title,
+            body=notification.body,
+            priority=notification.priority,
+            status=notification.status,
+            source_object_id=notification.source_object_id,
+            related_object_id=notification.related_object_id,
+            proposal=notification.proposal_,
+            read_at=notification.read_at,
+            created_at=notification.created_at,
+            updated_at=notification.updated_at,
+        )
+
+
+class NotificationListOut(BaseModel):
+    notifications: list[NotificationOut]

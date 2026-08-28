@@ -80,6 +80,19 @@ class JobQueueService:
         if job is None:
             return None
 
+        if (
+            job.status == JOB_STATUS_RUNNING
+            and job.attempts >= MAX_JOB_ATTEMPTS
+        ):
+            job.status = JOB_STATUS_FAILED
+            job.last_error = (job.last_error or "stale lock exceeded max attempts")[
+                :MAX_LAST_ERROR_LENGTH
+            ]
+            job.locked_at = None
+            job.updated_at = now
+            self._session.flush()
+            return None
+
         job.status = JOB_STATUS_RUNNING
         job.attempts += 1
         job.locked_at = now

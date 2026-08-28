@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.api.schemas import ContextItem, EdgeOut, ObjectOut
+from app.api.schemas import ContextItem, EdgeOut, NotificationOut, ObjectOut
 
 MAX_CONTEXT_CHARS = 12000
 DEFAULT_CONTEXT_CHARS = 8000
@@ -104,3 +104,12 @@ class LinkObjectsOutput(BaseModel):
 class GetTodayOutput(BaseModel):
     datetime: datetime
     timezone: str
+
+
+class ListNotificationsInput(BaseModel):
+    status: str | None = None
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class ListNotificationsOutput(BaseModel):
+    notifications: list[NotificationOut]

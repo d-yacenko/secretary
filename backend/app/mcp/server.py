@@ -19,6 +19,8 @@ from app.tools.schemas import (
     LinkObjectsOutput,
     ListNeighborsInput,
     ListNeighborsOutput,
+    ListNotificationsInput,
+    ListNotificationsOutput,
     SearchObjectsInput,
     SearchObjectsOutput,
     ToolError,
@@ -38,6 +40,7 @@ MCP_TOOL_NAMES = frozenset(
         "update_task",
         "link_objects",
         "get_today",
+        "list_notifications",
     }
 )
 
@@ -175,6 +178,19 @@ def create_mcp_server() -> MCPServer:
                     relation_type=relation_type,
                     confidence=confidence,
                 )
+            ),
+        )
+
+    @mcp.tool()
+    def list_notifications(
+        status: str | None = None,
+        limit: int = 50,
+    ) -> ListNotificationsOutput:
+        """List inbox notifications with optional status filter."""
+        return _run_tool(
+            "list_notifications",
+            lambda tools: tools.list_notifications(
+                ListNotificationsInput(status=status, limit=limit)
             ),
         )
 

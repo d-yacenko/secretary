@@ -9,6 +9,7 @@ from app.tools.schemas import (
     GetObjectInput,
     LinkObjectsInput,
     ListNeighborsInput,
+    ListNotificationsInput,
     SearchObjectsInput,
     ToolError,
     ToolResult,
@@ -79,6 +80,8 @@ def _dispatch(tools: DomainToolService, tool_name: str, arguments: dict[str, Any
         return tools.get_context(GetContextInput.model_validate(arguments))
     if tool_name == "list_neighbors":
         return tools.list_neighbors(ListNeighborsInput.model_validate(arguments))
+    if tool_name == "list_notifications":
+        return tools.list_notifications(ListNotificationsInput.model_validate(arguments))
     if tool_name == "create_task":
         return tools.create_task(CreateTaskInput.model_validate(arguments))
     if tool_name == "update_task":

@@ -19,7 +19,8 @@ from app.tools.schemas import MAX_CONTEXT_CHARS
 
 FORBIDDEN_MCP_TOOLS = frozenset(
     {
-        "list_notifications",
+        "create_notification",
+        "send_notification",
         "search_calendar",
         "propose_calendar_event",
         "send_email",
@@ -44,6 +45,7 @@ async def test_mcp_lists_only_expected_tools(mcp_server) -> None:
         result = await client.list_tools()
     names = {tool.name for tool in result.tools}
     assert names == MCP_TOOL_NAMES
+    assert "list_notifications" in names
     assert not names.intersection(FORBIDDEN_MCP_TOOLS)
 
 
@@ -117,6 +119,25 @@ async def test_mcp_create_task_agent_proposed(db_session, mcp_server) -> None:
     assert obj["origin"] == AGENT_ORIGIN
     assert obj["state"] == PROPOSED_STATE
     assert obj["confidence"] == 0.81
+
+
+@pytest.mark.asyncio
+async def test_mcp_list_notifications(db_session, mcp_server) -> None:
+    from app.services.notification_service import NotificationService
+
+    NotificationService(db_session).create(
+        title="MCP inbox item",
+        body="From MCP test",
+        priority="normal",
+        proposal={"type": "note", "confidence": 0.5, "evidence": []},
+    )
+
+    async with Client(mcp_server) as client:
+        result = await client.call_tool("list_notifications", {"limit": 10})
+
+    assert not result.is_error
+    notifications = result.structured_content["notifications"]
+    assert any(row["title"] == "MCP inbox item" for row in notifications)
 
 
 @pytest.mark.asyncio

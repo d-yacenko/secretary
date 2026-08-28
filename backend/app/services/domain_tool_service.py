@@ -3,12 +3,13 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.api.schemas import EdgeCreate, EdgeOut, ObjectCreate, ObjectOut, ObjectUpdate
+from app.api.schemas import EdgeCreate, EdgeOut, NotificationOut, ObjectCreate, ObjectOut, ObjectUpdate
 from app.core.config import settings
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.notification_service import NotificationService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.search_service import SearchService
 from app.tools.datetime_utils import normalize_tool_datetime
@@ -24,6 +25,8 @@ from app.tools.schemas import (
     LinkObjectsOutput,
     ListNeighborsInput,
     ListNeighborsOutput,
+    ListNotificationsInput,
+    ListNotificationsOutput,
     NeighborItem,
     SearchObjectsInput,
     SearchObjectsOutput,
@@ -39,6 +42,19 @@ class DomainToolService:
         self._graph = GraphService(session, embedding_service)
         self._search = SearchService(session, embedding_service)
         self._context = ContextService(session, embedding_service)
+        self._notifications = NotificationService(session)
+
+    def list_notifications(self, input: ListNotificationsInput) -> ListNotificationsOutput:
+        try:
+            rows = self._notifications.list_notifications(
+                status=input.status,
+                limit=input.limit,
+            )
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        return ListNotificationsOutput(
+            notifications=[NotificationOut.from_model(row) for row in rows]
+        )
 
     def search_objects(self, input: SearchObjectsInput) -> SearchObjectsOutput:
         objects = self._search.search(

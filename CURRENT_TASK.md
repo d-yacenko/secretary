@@ -1,25 +1,30 @@
-# Current task — PHASE 13
+# Current task — PHASE 14
 
 ## Goal
 
-Turn important inferred events into actionable inbox items (notifications).
+Synchronize Gmail into graph objects via Google OAuth.
+
+## Prerequisites (credentials checkpoint)
+
+- Google Cloud project with OAuth client credentials.
+- Store refresh/access tokens encrypted at rest.
+- Do not commit credentials or request Google secrets during planning.
 
 ## Do
 
-1. Create `notifications` table (`title`, `body`, `priority`, `status`, `source_object_id`, `related_object_id`, `proposal` JSONB, `read_at`, timestamps).
-2. Priority: `low`, `normal`, `high`, `urgent`.
-3. Status: `new`, `read`, `accepted`, `ignored`, `resolved`.
-4. Wire notification creation to meaningful Secretary/agent events where infrastructure exists.
-5. Defer external delivery (email/push) until connector phases.
+1. Google OAuth web flow.
+2. `GoogleAccount` storage with encrypted tokens.
+3. Bounded initial Gmail sync → `objects(kind=email)`.
+4. Queue embedding + analysis jobs for synced mail.
 
 ## Defer
 
-- `send_notification` job type until notification writes are defined.
-- Public MCP exposure.
+- Gmail push/Pub/Sub until base sync is stable.
+- External notification delivery.
 
 ## Accept
 
-Important inferred events appear as inbox notifications with provenance links to source objects.
+OAuth connect works; recent Gmail messages appear as graph email objects with provenance.
 
 ## Note
 
