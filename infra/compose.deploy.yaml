@@ -1,7 +1,7 @@
 # Production overlay: API on localhost only; DB not exposed on the host.
 services:
   db:
-    ports: []
+    ports: !reset []
   api:
-    ports:
-      - "127.0.0.1:8000:8000"
+    ports: !reset
+      - "127.0.0.1:18080:8000"

@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 02 — core database model
+PHASE 02 — core database model (waiting for user go-ahead)
 
 ## Working components
 
@@ -12,10 +12,19 @@ PHASE 02 — core database model
 - FastAPI `/health` with DB check
 - Worker stub logs alive
 - Backend tests: health + DB connection
+- VDS deploy: `/opt/secretary`, `infra/compose.deploy.yaml` (API `127.0.0.1:18080`)
+
+## VDS (185.233.107.66)
+
+- Path: `/opt/secretary`
+- Domain on host: `web-itx.duckdns.org` (nginx 80/443 — existing site)
+- Secretary API: `http://127.0.0.1:18080/health` (localhost only; HTTPS proxy later)
+- Update: `cd /opt/secretary && git pull && cd infra && docker compose -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ## Known blockers
 
-- `docker compose` plugin not installed on dev host (`docker compose up` fails). Stack verified via `docker run` + local pytest. Install Compose v2 plugin to use `infra/compose.yaml` directly.
+- Dev host: `docker compose` plugin missing; use `docker run` or install Compose v2.
+- HTTPS for Secretary API not configured yet (nginx + Certbot on subdomain/path — later).
 
 ## Next phase
 

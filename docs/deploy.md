@@ -11,7 +11,7 @@ git clone https://github.com/d-yacenko/secretary.git .
 cp .env.example .env
 cd infra
 docker compose -f compose.yaml -f compose.deploy.yaml up -d --build
-curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:18080/health
 ```
 
 ## Update
@@ -23,6 +23,6 @@ cd infra
 docker compose -f compose.yaml -f compose.deploy.yaml up -d --build
 ```
 
-`compose.deploy.yaml` binds API to `127.0.0.1:8000` and does not publish PostgreSQL on the host.
+`compose.deploy.yaml` binds API to `127.0.0.1:18080` and does not publish PostgreSQL on the host.
 
 HTTPS via nginx + Certbot on `web-itx.duckdns.org` is a later step.
