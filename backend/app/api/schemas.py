@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.services.provenance import default_object_state, validate_agent_proposal
+
 
 class ObjectCreate(BaseModel):
     kind: str
@@ -14,10 +16,17 @@ class ObjectCreate(BaseModel):
     external_id: str | None = None
     canonical_uri: str | None = None
     status: str | None = None
+    state: str | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
+
+    @model_validator(mode="after")
+    def validate_provenance(self) -> Self:
+        state = default_object_state(self.origin, self.state)
+        validate_agent_proposal(self.origin, state, self.confidence, "object")
+        return self
 
 
 class ObjectUpdate(BaseModel):
@@ -28,6 +37,7 @@ class ObjectUpdate(BaseModel):
     external_id: str | None = None
     canonical_uri: str | None = None
     status: str | None = None
+    state: str | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     metadata: dict[str, Any] | None = None
@@ -40,7 +50,6 @@ class ObjectUpdate(BaseModel):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
-
 
 class ObjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -57,6 +66,7 @@ class ObjectOut(BaseModel):
     due_at: datetime | None
     metadata: dict[str, Any]
     origin: str
+    state: str
     confidence: float | None
     created_at: datetime
     updated_at: datetime
@@ -76,6 +86,7 @@ class ObjectOut(BaseModel):
             due_at=obj.due_at,
             metadata=obj.metadata_,
             origin=obj.origin,
+            state=obj.state,
             confidence=obj.confidence,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
@@ -90,6 +101,11 @@ class EdgeCreate(BaseModel):
     state: str
     confidence: float | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_provenance(self) -> Self:
+        validate_agent_proposal(self.origin, self.state, self.confidence, "edge")
+        return self
 
 
 class EdgeOut(BaseModel):
@@ -144,8 +160,14 @@ class ContextItem(BaseModel):
     kind: str
     title: str
     content: str
+    origin: str
+    state: str
+    confidence: float | None = None
     representation_kind: str | None = None
     relation_type: str | None = None
+    relation_origin: str | None = None
+    relation_state: str | None = None
+    relation_confidence: float | None = None
     why_included: str
     canonical_uri: str | None = None
 

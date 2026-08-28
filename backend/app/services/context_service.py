@@ -1,12 +1,12 @@
+import logging
 import math
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ContextBuildResult, ContextItem
-from app.db.models import Object, Representation
+from app.db.models import Edge, Object, Representation
 from app.llm.embedding_service import EmbeddingService
 from app.services.graph_service import GraphService
 from app.services.representation_service import (
@@ -19,6 +19,8 @@ from app.services.representation_service import (
     RepresentationService,
 )
 from app.services.search_service import SearchService
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CHARS = 8000
 MAX_NEIGHBORS = 10
@@ -47,7 +49,6 @@ EDGE_TYPE_PRIORITY = {
     "part_of": 6,
 }
 
-# Higher trim_order values are removed first when trimming the budget.
 _TRIM_SEMANTIC = 400
 _TRIM_NEIGHBOR = 300
 _TRIM_CHUNK = 200
@@ -91,6 +92,7 @@ class ContextService:
         if object_id is not None:
             target = self._graph.get_object(object_id)
             included_object_ids.add(target.id)
+            representation_object_ids.add(target.id)
             slots.append(
                 _Slot(
                     sort_key=(0, str(target.id), "", -1),
@@ -98,7 +100,7 @@ class ContextService:
                     protected=True,
                     item=self._object_item(
                         target,
-                        content=self._object_content(target),
+                        content=self._target_reference_content(target),
                         why_included="target object",
                     ),
                 )
@@ -128,7 +130,7 @@ class ContextService:
                         item=self._object_item(
                             neighbor,
                             content=self._neighbor_reference_content(neighbor),
-                            relation_type=edge.type,
+                            edge=edge,
                             why_included=(
                                 f"structural graph relation ({edge.type})"
                                 if is_structural
@@ -138,16 +140,14 @@ class ContextService:
                     )
                 )
 
-        semantic_objects: list[Object] = []
         if query:
             semantic_results = self._search.search(query=query, limit=MAX_SEMANTIC_CANDIDATES)
             for result in semantic_results:
                 if result.id in included_object_ids:
                     continue
                 obj = self._session.get(Object, result.id)
-                if obj is None:
+                if obj is None or obj.state == "rejected":
                     continue
-                semantic_objects.append(obj)
                 included_object_ids.add(obj.id)
                 representation_object_ids.add(obj.id)
                 slots.append(
@@ -179,10 +179,12 @@ class ContextService:
 
         slots.sort(key=lambda slot: slot.sort_key)
         trimmed_slots, truncated = self._trim_to_budget(slots, max_chars)
+        trimmed_slots, truncated_content = self._truncate_to_budget(trimmed_slots, max_chars)
+        trimmed = truncated or truncated_content
         trimmed_slots.sort(key=lambda slot: slot.sort_key)
         items = [slot.item for slot in trimmed_slots]
         total_chars = sum(_item_chars(item) for item in items)
-        return ContextBuildResult(items=items, total_chars=total_chars, truncated=truncated)
+        return ContextBuildResult(items=items, total_chars=total_chars, truncated=trimmed)
 
     def _trim_to_budget(self, slots: list[_Slot], max_chars: int) -> tuple[list[_Slot], bool]:
         working = list(slots)
@@ -202,6 +204,26 @@ class ContextService:
             )
             working.pop(remove_index)
             truncated = True
+
+        return working, truncated
+
+    def _truncate_to_budget(self, slots: list[_Slot], max_chars: int) -> tuple[list[_Slot], bool]:
+        working = list(slots)
+        truncated = False
+
+        while _slots_chars(working) > max_chars:
+            protected = [slot for slot in working if slot.protected]
+            if not protected:
+                break
+            slot = max(protected, key=lambda item: len(item.item.content))
+            if not slot.item.content:
+                break
+            truncated = True
+            excess = _slots_chars(working) - max_chars
+            new_len = max(0, len(slot.item.content) - excess)
+            slot.item = slot.item.model_copy(
+                update={"content": _truncate_text(slot.item.content, new_len)}
+            )
 
         return working, truncated
 
@@ -300,9 +322,14 @@ class ContextService:
     def _rank_chunks(self, chunk_reps: list[Representation], query: str) -> list[Representation]:
         embedded = [rep for rep in chunk_reps if rep.embedding is not None]
         if not embedded:
-            return sorted(chunk_reps, key=lambda rep: (rep.part_index or 0, str(rep.id)))
+            return []
 
-        query_vector = self._embedding_service.embed(query)
+        try:
+            query_vector = self._embedding_service.embed(query)
+        except Exception:
+            logger.warning("chunk ranking embedding failed; omitting semantic chunks")
+            return []
+
         return sorted(
             embedded,
             key=lambda rep: (
@@ -317,14 +344,20 @@ class ContextService:
         obj: Object,
         content: str,
         why_included: str,
-        relation_type: str | None = None,
+        edge: Edge | None = None,
     ) -> ContextItem:
         return ContextItem(
             object_id=obj.id,
             kind=obj.kind,
             title=obj.title,
             content=content,
-            relation_type=relation_type,
+            origin=obj.origin,
+            state=obj.state,
+            confidence=obj.confidence,
+            relation_type=edge.type if edge is not None else None,
+            relation_origin=edge.origin if edge is not None else None,
+            relation_state=edge.state if edge is not None else None,
+            relation_confidence=edge.confidence if edge is not None else None,
             why_included=why_included,
             canonical_uri=obj.canonical_uri,
         )
@@ -340,18 +373,20 @@ class ContextService:
             kind=obj.kind,
             title=obj.title,
             content=rep.text or "",
+            origin=obj.origin,
+            state=obj.state,
+            confidence=obj.confidence,
             representation_kind=rep.kind,
             why_included=why_included,
             canonical_uri=obj.canonical_uri,
         )
 
-    def _object_content(self, obj: Object) -> str:
+    def _target_reference_content(self, obj: Object) -> str:
         reps = self._representations.list_for_object(obj.id)
-        if any(rep.kind == KIND_CHUNK for rep in reps):
-            parts = [obj.title]
-            if obj.status:
-                parts.append(f"status: {obj.status}")
-            return "\n".join(parts)
+        if any(rep.kind in {KIND_CHUNK, KIND_SCHEMA} for rep in reps):
+            if obj.canonical_uri:
+                return f"reference: {obj.canonical_uri}"
+            return f"{obj.title} (resource with representations)"
         if obj.body:
             return f"{obj.title}\n{obj.body}"
         return obj.title
@@ -373,6 +408,16 @@ def _item_chars(item: ContextItem) -> int:
 
 def _slots_chars(slots: list[_Slot]) -> int:
     return sum(_item_chars(slot.item) for slot in slots)
+
+
+def _truncate_text(text: str, max_len: int) -> str:
+    if max_len <= 0:
+        return ""
+    if len(text) <= max_len:
+        return text
+    if max_len == 1:
+        return "…"
+    return text[: max_len - 1].rstrip() + "…"
 
 
 def _cosine_distance(left: list[float], right: list[float]) -> float:

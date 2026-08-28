@@ -9,7 +9,8 @@ from app.db.models import Edge, Object
 from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
 from app.services.embedding_index import refresh_object_embedding
-from app.services.errors import ConflictError, NotFoundError
+from app.services.errors import ConflictError, NotFoundError, ValidationError
+from app.services.provenance import default_object_state, validate_agent_proposal
 
 _SEARCHABLE_FIELDS = frozenset({"kind", "title", "body", "metadata"})
 
@@ -32,10 +33,17 @@ class GraphService:
             raise
 
     def create_object(self, data: ObjectCreate) -> Object:
+        state = default_object_state(data.origin, data.state)
+        try:
+            validate_agent_proposal(data.origin, state, data.confidence, "object")
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
         obj = Object(
             kind=data.kind,
             title=data.title,
             origin=data.origin,
+            state=state,
             body=data.body,
             provider=data.provider,
             external_id=data.external_id,
@@ -68,6 +76,7 @@ class GraphService:
         changed_fields = set(updates.keys())
         if metadata_updated:
             changed_fields.add("metadata")
+        self._validate_object_provenance(obj)
         self._maybe_refresh_embedding(obj, changed_fields)
         self._flush_object()
         return obj
@@ -94,6 +103,11 @@ class GraphService:
         self._session.expire_all()
 
     def create_edge(self, data: EdgeCreate) -> Edge:
+        try:
+            validate_agent_proposal(data.origin, data.state, data.confidence, "edge")
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
         if self._session.get(Object, data.source_id) is None:
             raise NotFoundError("object", data.source_id)
         if self._session.get(Object, data.target_id) is None:
@@ -119,7 +133,11 @@ class GraphService:
         self._session.delete(edge)
         self._session.flush()
 
-    def get_neighbors(self, object_id: UUID) -> list[tuple[Object, Edge, str]]:
+    def get_neighbors(
+        self,
+        object_id: UUID,
+        include_rejected: bool = False,
+    ) -> list[tuple[Object, Edge, str]]:
         self.get_object(object_id)
         edges = self._session.scalars(
             select(Edge).where(
@@ -129,23 +147,40 @@ class GraphService:
 
         results: list[tuple[Object, Edge, str]] = []
         for edge in edges:
+            if not include_rejected and edge.state == "rejected":
+                continue
             if edge.source_id == object_id:
                 neighbor = self._session.get(Object, edge.target_id)
                 direction = "outgoing"
             else:
                 neighbor = self._session.get(Object, edge.source_id)
                 direction = "incoming"
-            if neighbor is not None:
-                results.append((neighbor, edge, direction))
+            if neighbor is None:
+                continue
+            if not include_rejected and neighbor.state == "rejected":
+                continue
+            results.append((neighbor, edge, direction))
         return results
 
-    def get_context(self, object_id: UUID) -> tuple[Object, list[Edge], list[Object]]:
+    def _validate_object_provenance(self, obj: Object) -> None:
+        try:
+            validate_agent_proposal(obj.origin, obj.state, obj.confidence, "object")
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+    def get_context(
+        self,
+        object_id: UUID,
+        include_rejected: bool = False,
+    ) -> tuple[Object, list[Edge], list[Object]]:
         obj = self.get_object(object_id)
         edges = self._session.scalars(
             select(Edge).where(
                 or_(Edge.source_id == object_id, Edge.target_id == object_id)
             )
         ).all()
+        if not include_rejected:
+            edges = [edge for edge in edges if edge.state != "rejected"]
 
         neighbor_ids: set[UUID] = set()
         for edge in edges:
@@ -159,5 +194,7 @@ class GraphService:
             neighbors = list(
                 self._session.scalars(select(Object).where(Object.id.in_(neighbor_ids))).all()
             )
+            if not include_rejected:
+                neighbors = [neighbor for neighbor in neighbors if neighbor.state != "rejected"]
 
         return obj, edges, neighbors

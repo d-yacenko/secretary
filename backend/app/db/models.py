@@ -30,6 +30,7 @@ class Object(Base):
         server_default=text("'{}'::jsonb"),
     )
     origin: Mapped[str] = mapped_column(nullable=False)
+    state: Mapped[str] = mapped_column(nullable=False, server_default="confirmed")
     confidence: Mapped[float | None] = mapped_column(nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -47,6 +48,7 @@ class Object(Base):
     __table_args__ = (
         Index("ix_objects_kind", "kind"),
         Index("ix_objects_status", "status"),
+        Index("ix_objects_state", "state"),
         Index("ix_objects_due_at", "due_at"),
         Index(
             "uq_objects_provider_kind_external_id",

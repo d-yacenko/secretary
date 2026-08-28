@@ -15,7 +15,7 @@ from app.api.schemas import (
     ObjectUpdate,
 )
 from app.llm.embedding_service import EmbeddingService
-from app.services.errors import ConflictError, NotFoundError
+from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.search_service import SearchService
 
@@ -42,6 +42,8 @@ def create_object(data: ObjectCreate, service: GraphService = Depends(_service))
         obj = service.create_object(data)
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message) from exc
     return ObjectOut.from_model(obj)
 
 
@@ -66,6 +68,8 @@ def patch_object(
         raise _not_found(exc) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message) from exc
     return ObjectOut.from_model(obj)
 
 
@@ -86,6 +90,8 @@ def create_edge(data: EdgeCreate, service: GraphService = Depends(_service)) -> 
         edge = service.create_edge(data)
     except NotFoundError as exc:
         raise _not_found(exc) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message) from exc
     return EdgeOut.from_model(edge)
 
 

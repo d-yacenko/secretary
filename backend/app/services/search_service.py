@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ObjectOut
 from app.db.models import Edge, Object
 from app.llm.embedding_service import EmbeddingService
+
+logger = logging.getLogger(__name__)
 
 
 class SearchService:
@@ -25,11 +28,15 @@ class SearchService:
         stmt = select(Object)
         stmt = self._apply_filters(stmt, kind=kind, provider=provider, project_id=project_id)
 
-        query_vector = self._embedding_service.embed(query)
-        semantic_stmt = stmt.where(Object.embedding.is_not(None)).order_by(
-            Object.embedding.cosine_distance(query_vector)
-        )
-        semantic_results = list(self._session.scalars(semantic_stmt.limit(limit)).all())
+        semantic_results: list[Object] = []
+        try:
+            query_vector = self._embedding_service.embed(query)
+            semantic_stmt = stmt.where(Object.embedding.is_not(None)).order_by(
+                Object.embedding.cosine_distance(query_vector)
+            )
+            semantic_results = list(self._session.scalars(semantic_stmt.limit(limit)).all())
+        except Exception:
+            logger.warning("semantic search embedding failed; using lexical fallback")
 
         if len(semantic_results) >= limit:
             return [ObjectOut.from_model(obj) for obj in semantic_results[:limit]]

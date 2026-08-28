@@ -1,20 +1,27 @@
-# Current task — PHASE 08
+# Current task — PHASE 09
 
 ## Goal
 
-Never confuse source facts with LLM guesses.
+Add one Secretary LLM service, not many.
 
 ## Do
 
-1. Use edge/object states: `observed`, `proposed`, `confirmed`, `rejected`.
-2. Use `origin`: `source`, `user`, `agent`, `system`.
-3. Store confidence for inferred items.
-4. Tests: email text → observed source; proposed meeting relation; confirmed after approval.
+1. Create `SecretaryService` using OpenAI Responses API.
+2. Model ID from env.
+3. Structured Pydantic output for analysis (importance, urgency, possible task/deadline/meeting, relations, next action).
+4. Pass bounded Context Resolver output only.
+5. Fixture test for meeting + deadline from sample email context.
+
+## Do not
+
+- Add another agent.
+- Expose SQL to the model.
+- Execute external writes.
 
 ## Accept
 
-Agent-created facts are distinguishable from observed source facts in storage and API responses.
+Sample email context produces typed proposals; tests pass offline with fixtures.
 
 ## Note
 
-No Secretary LLM yet. No job queues. Secrets only in `.env`.
+No notifications or approval UI yet. Secrets only in `.env`.
