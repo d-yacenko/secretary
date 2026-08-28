@@ -229,7 +229,34 @@ def test_secretary_analysis_creates_notifications_with_evidence(db_session) -> N
     )
     assert meeting.proposal_["confidence"] == 0.84
     assert meeting.proposal_["evidence"][0]["object_id"] == str(context.items[0].object_id)
+    assert meeting.proposal_["evidence"][0]["origin"] == "source"
+    assert meeting.proposal_["evidence"][0]["state"] == "observed"
     assert meeting.source_object_id == context.items[0].object_id
+
+
+def test_secretary_notification_ignores_nonexistent_target_object_id(db_session) -> None:
+    from app.llm.secretary_models import SecretaryAnalysis, SecretaryProposal
+
+    service = NotificationService(db_session)
+    context = _email_context(db_session)
+    missing_target = uuid.uuid4()
+    analysis = SecretaryAnalysis(
+        proposals=[
+            SecretaryProposal(
+                type="relation",
+                title="Link to missing object",
+                confidence=0.72,
+                evidence_item_indices=[0],
+                relation_type="related_to",
+                target_object_id=missing_target,
+            )
+        ]
+    )
+    notifications = create_notifications_from_analysis(service, analysis, context)
+    assert len(notifications) == 1
+    notification = notifications[0]
+    assert notification.related_object_id is None
+    assert notification.proposal_["target_object_id"] == str(missing_target)
 
 
 def test_secretary_notifications_do_not_create_tasks_or_edges(db_session) -> None:
@@ -277,5 +304,41 @@ def test_notification_api_list_and_read(db_session) -> None:
     assert read.status_code == 200
     assert read.json()["status"] == NOTIFICATION_STATUS_READ
     assert read.json()["read_at"] is not None
+
+    app.dependency_overrides.clear()
+
+
+def test_notification_api_invalid_status_returns_422(db_session) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_db
+    from app.main import app
+
+    def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_db
+    client = TestClient(app)
+
+    response = client.get("/notifications", params={"status": "invalid"})
+    assert response.status_code == 422
+
+    app.dependency_overrides.clear()
+
+
+def test_notification_api_invalid_status_returns_422(db_session) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_db
+    from app.main import app
+
+    def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_db
+    client = TestClient(app)
+
+    response = client.get("/notifications", params={"status": "invalid"})
+    assert response.status_code == 422
 
     app.dependency_overrides.clear()

@@ -25,14 +25,17 @@ def _not_found(exc: NotFoundError) -> HTTPException:
 
 @router.get("", response_model=NotificationListOut)
 def list_notifications(
-    status: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
     service: NotificationService = Depends(_service),
 ) -> NotificationListOut:
     try:
-        rows = service.list_notifications(status=status, limit=limit)
+        rows = service.list_notifications(status=status_filter, limit=limit)
     except ValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        )
     return NotificationListOut(
         notifications=[NotificationOut.from_model(row) for row in rows]
     )
