@@ -1,22 +1,26 @@
-# Current task — PHASE 17 last correctness fix (awaiting review)
+# Current task — PHASE 17 deploy + live smoke
 
 ## Status
 
-PHASE 17 last correctness fix applied. Full offline suite: 246 passed, 2 skipped. Not deployed.
+Deploy complete (`17fd823` on VDS). Migration `0012` applied. Health OK. Data preserved.
 
-## Last fix scope
+**STOP** — awaiting Yandex Calendar connection from operator, then first/second sync smoke.
 
-- Baseline `pending_sync_token` captured at backfill start, never replaced by later discovery
-- Adaptive time-slice splitting for dense backfill (no href cursor over truncated query)
-- Incremental reconcile tombstones for all changed resources (including single VEVENT)
-- Stale sync-token only on `valid-sync-token` precondition; ordinary 403/409 surface as errors
+## Deploy verification (done)
+
+- `/health` → ok
+- `api` + `worker` + `db` up
+- Alembic `0012 (head)`
+- Bootstrap user `00000000-0000-4000-8000-000000000001`
+- Gmail 50, Yandex Mail 50 objects preserved
+- `yandex_calendar_accounts`: 0 rows (not connected)
+
+## Next (after operator confirms connect)
+
+1. First `POST /connectors/yandex/calendar/sync`
+2. Second sync
+3. Live-smoke report
 
 ## Defer
 
-- Deploy / live CalDAV smoke until acceptance
-- Calendar app password request
 - PHASE 18
-
-## Note
-
-STOP for review.
