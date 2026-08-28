@@ -21,13 +21,14 @@ from app.jobs.worker import process_one_job
 from app.llm.embedding_service import FakeEmbeddingService
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService, utcnow
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 def _persist_enqueue(job_type: str, payload: dict) -> uuid.UUID:
     conn = engine.connect()
     trans = conn.begin()
     session = Session(bind=conn)
-    job_id = JobQueueService(session).enqueue(job_type, payload).id
+    job_id = JobQueueService(session).enqueue(job_type, payload, BOOTSTRAP_USER_ID).id
     trans.commit()
     conn.close()
     return job_id
@@ -54,7 +55,7 @@ def _persist_object() -> uuid.UUID:
     conn = engine.connect()
     trans = conn.begin()
     session = Session(bind=conn)
-    obj = GraphService(session, FakeEmbeddingService()).create_object(
+    obj = GraphService(session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).create_object(
         ObjectCreate(
             kind="task",
             title=f"Persisted job object {uuid.uuid4()}",
@@ -101,18 +102,18 @@ def queue(db_session) -> JobQueueService:
 
 
 def _create_object(db_session) -> Object:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     return graph.create_object(ObjectCreate(kind="task", title="Job test object", origin="user"))
 
 
 def test_enqueue_creates_pending_job(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     assert job.status == JOB_STATUS_PENDING
     assert job.attempts == 0
 
 
 def test_claim_marks_running_and_increments_attempts(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     claimed = queue.claim_next()
     assert claimed is not None
     assert claimed.id == job.id
@@ -124,7 +125,7 @@ def test_claim_marks_running_and_increments_attempts(queue) -> None:
 
 
 def test_mark_done_sets_status_done(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     claimed = queue.claim_next()
     assert claimed is not None
     queue.mark_done(claimed.id)
@@ -135,7 +136,7 @@ def test_mark_done_sets_status_done(queue) -> None:
 
 
 def test_failure_schedules_retry_with_future_run_after(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     claimed = queue.claim_next()
     assert claimed is not None
     before = utcnow()
@@ -148,7 +149,7 @@ def test_failure_schedules_retry_with_future_run_after(queue) -> None:
 
 
 def test_final_failure_marks_failed(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     for attempt in range(MAX_JOB_ATTEMPTS):
         stored = queue.get_job(job.id)
         assert stored is not None
@@ -165,12 +166,12 @@ def test_final_failure_marks_failed(queue) -> None:
 
 def test_future_run_after_job_is_not_claimed_early(queue) -> None:
     future = utcnow() + timedelta(hours=1)
-    queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, run_after=future)
+    queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID, run_after=future)
     assert queue.claim_next() is None
 
 
 def test_stale_running_job_can_be_recovered(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     claimed = queue.claim_next()
     assert claimed is not None
     stored = queue.get_job(job.id)
@@ -242,7 +243,7 @@ def test_embed_object_job_refreshes_embedding(fake_embedding_service) -> None:
 
 def test_job_payload_stays_small_reference_based(queue) -> None:
     object_id = uuid.uuid4()
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(object_id)})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(object_id)}, BOOTSTRAP_USER_ID)
     assert job.payload == {"object_id": str(object_id)}
     assert len(str(job.payload)) < 200
 
@@ -254,6 +255,7 @@ def test_two_claimers_do_not_receive_same_job() -> None:
     job_id = JobQueueService(setup_session).enqueue(
         JOB_TYPE_EMBED_OBJECT,
         {"object_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
     ).id
     setup_trans.commit()
     setup_conn.close()
@@ -306,7 +308,7 @@ def test_embedding_failure_schedules_retry_not_done() -> None:
 
 
 def test_stale_running_job_at_max_attempts_marks_failed(queue) -> None:
-    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())})
+    job = queue.enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(uuid.uuid4())}, BOOTSTRAP_USER_ID)
     claimed = queue.claim_next()
     assert claimed is not None
     stored = queue.get_job(job.id)

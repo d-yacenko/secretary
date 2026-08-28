@@ -10,10 +10,32 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Object(Base):
     __tablename__ = "objects"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     kind: Mapped[str] = mapped_column(nullable=False)
     title: Mapped[str] = mapped_column(nullable=False)
     body: Mapped[str | None] = mapped_column(nullable=True)
@@ -46,12 +68,14 @@ class Object(Base):
     )
 
     __table_args__ = (
+        Index("ix_objects_user_id", "user_id"),
         Index("ix_objects_kind", "kind"),
         Index("ix_objects_status", "status"),
         Index("ix_objects_state", "state"),
         Index("ix_objects_due_at", "due_at"),
         Index(
-            "uq_objects_provider_kind_external_id",
+            "uq_objects_user_provider_kind_external_id",
+            "user_id",
             "provider",
             "kind",
             "external_id",
@@ -65,6 +89,10 @@ class Edge(Base):
     __tablename__ = "edges"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("objects.id", ondelete="RESTRICT"),
         nullable=False,
@@ -106,6 +134,10 @@ class View(Base):
     __tablename__ = "views"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(nullable=False)
     view_type: Mapped[str] = mapped_column(nullable=False)
     root_object_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -129,6 +161,8 @@ class View(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    __table_args__ = (Index("ix_views_user_id", "user_id"),)
 
 
 class ViewItem(Base):
@@ -216,6 +250,10 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     type: Mapped[str] = mapped_column(nullable=False)
     payload: Mapped[dict] = mapped_column(
         JSONB,
@@ -244,7 +282,7 @@ class Job(Base):
     )
 
     __table_args__ = (
-        Index("ix_jobs_status_run_after", "status", "run_after"),
+        Index("ix_jobs_user_id_status_run_after", "user_id", "status", "run_after"),
     )
 
 
@@ -252,6 +290,10 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     title: Mapped[str] = mapped_column(nullable=False)
     body: Mapped[str | None] = mapped_column(nullable=True)
     priority: Mapped[str] = mapped_column(nullable=False)
@@ -284,7 +326,7 @@ class Notification(Base):
     )
 
     __table_args__ = (
-        Index("ix_notifications_status", "status"),
+        Index("ix_notifications_user_id_status", "user_id", "status"),
         Index("ix_notifications_priority", "priority"),
         Index("ix_notifications_created_at", "created_at"),
     )
@@ -294,7 +336,11 @@ class GoogleAccount(Base):
     __tablename__ = "google_accounts"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(nullable=False, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(nullable=False)
     scopes: Mapped[list] = mapped_column(JSONB, nullable=False)
     access_token_encrypted: Mapped[str | None] = mapped_column(nullable=True)
     refresh_token_encrypted: Mapped[str | None] = mapped_column(nullable=True)
@@ -311,11 +357,20 @@ class GoogleAccount(Base):
         onupdate=func.now(),
     )
 
+    __table_args__ = (
+        Index("ix_google_accounts_user_id", "user_id"),
+        sa.UniqueConstraint("user_id", "email", name="uq_google_accounts_user_id_email"),
+    )
+
 
 class OAuthState(Base):
     __tablename__ = "oauth_states"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     state_hash: Mapped[str] = mapped_column(nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

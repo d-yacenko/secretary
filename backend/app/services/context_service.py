@@ -3,6 +3,7 @@ import math
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ContextBuildResult, ContextItem
@@ -67,12 +68,14 @@ class ContextService:
     def __init__(
         self,
         session: Session,
+        user_id: UUID,
         embedding_service: EmbeddingService,
     ) -> None:
         self._session = session
+        self._user_id = user_id
         self._embedding_service = embedding_service
-        self._graph = GraphService(session, embedding_service)
-        self._search = SearchService(session, embedding_service)
+        self._graph = GraphService(session, user_id, embedding_service)
+        self._search = SearchService(session, user_id, embedding_service)
         self._representations = RepresentationService(session, embedding_service)
 
     def build_context(
@@ -145,7 +148,12 @@ class ContextService:
             for result in semantic_results:
                 if result.id in included_object_ids:
                     continue
-                obj = self._session.get(Object, result.id)
+                obj = self._session.scalar(
+                    select(Object).where(
+                        Object.id == result.id,
+                        Object.user_id == self._user_id,
+                    )
+                )
                 if obj is None or obj.state == "rejected":
                     continue
                 included_object_ids.add(obj.id)
@@ -166,7 +174,9 @@ class ContextService:
             reps = self._representations.list_for_object(obj_id)
             if not reps:
                 continue
-            obj = self._session.get(Object, obj_id)
+            obj = self._session.scalar(
+                select(Object).where(Object.id == obj_id, Object.user_id == self._user_id)
+            )
             if obj is None:
                 continue
             slots.extend(

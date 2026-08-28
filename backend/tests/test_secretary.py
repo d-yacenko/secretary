@@ -11,6 +11,7 @@ from app.llm.secretary_provider import SecretaryAnalysisError
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.secretary_service import SecretaryService
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 FIXED_REFERENCE = datetime(2026, 8, 28, 10, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
@@ -188,7 +189,7 @@ def test_confidence_outside_range_rejected() -> None:
 
 
 def test_edge_state_transition_to_confirmed(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = graph.create_object(ObjectCreate(kind="task", title="Source", origin="user"))
     target = graph.create_object(
         ObjectCreate(
@@ -219,7 +220,7 @@ def test_edge_state_transition_to_confirmed(db_session) -> None:
 
 
 def test_edge_state_transition_to_rejected(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = graph.create_object(ObjectCreate(kind="task", title="Source", origin="user"))
     target = graph.create_object(
         ObjectCreate(
@@ -247,14 +248,14 @@ def test_edge_state_transition_to_rejected(db_session) -> None:
 
 
 def test_patch_null_state_returns_validation_error(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     obj = graph.create_object(ObjectCreate(kind="task", title="Task", origin="user"))
     with pytest.raises(PydanticValidationError):
         ObjectUpdate(state=None)
 
 
 def test_origin_immutable_on_update(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     event = graph.create_object(
         ObjectCreate(
             kind="event",

@@ -34,6 +34,7 @@ class ClaimedJob:
     type: str
     payload: dict
     attempts: int
+    user_id: UUID
 
 
 class JobQueueService:
@@ -44,9 +45,11 @@ class JobQueueService:
         self,
         job_type: str,
         payload: dict,
+        user_id: UUID,
         run_after: datetime | None = None,
     ) -> Job:
         job = Job(
+            user_id=user_id,
             type=job_type,
             payload=payload,
             status=JOB_STATUS_PENDING,
@@ -103,6 +106,7 @@ class JobQueueService:
             type=job.type,
             payload=dict(job.payload),
             attempts=job.attempts,
+            user_id=job.user_id,
         )
 
     def mark_done(self, job_id: UUID) -> None:

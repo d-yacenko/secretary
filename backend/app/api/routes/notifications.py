@@ -3,7 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
+from app.core.current_user import CurrentUserContext
 from app.api.schemas import NotificationListOut, NotificationOut
 from app.notifications.constants import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 from app.services.errors import NotFoundError, ValidationError
@@ -12,8 +13,11 @@ from app.services.notification_service import NotificationService
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-def _service(session: Session = Depends(get_db)) -> NotificationService:
-    return NotificationService(session)
+def _service(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> NotificationService:
+    return NotificationService(session, current_user.user_id)
 
 
 def _not_found(exc: NotFoundError) -> HTTPException:

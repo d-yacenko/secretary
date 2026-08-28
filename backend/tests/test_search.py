@@ -7,6 +7,7 @@ from app.llm.embedding_service import FakeEmbeddingService
 from app.main import app
 from app.services.graph_service import GraphService
 from app.services.search_service import SearchService
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def test_semantic_search_with_concept_stub_finds_different_wording(db_session) -
     from app.llm.concept_stub_embedding import ConceptStubEmbeddingService
 
     stub = ConceptStubEmbeddingService()
-    graph = GraphService(db_session, stub)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, stub)
     graph.create_object(
         ObjectCreate(
             kind="note",
@@ -46,7 +47,7 @@ def test_semantic_search_with_concept_stub_finds_different_wording(db_session) -
         )
     )
 
-    search = SearchService(db_session, stub)
+    search = SearchService(db_session, BOOTSTRAP_USER_ID, stub)
     results = search.search("future revenue planning")
 
     assert len(results) >= 1
@@ -54,7 +55,7 @@ def test_semantic_search_with_concept_stub_finds_different_wording(db_session) -
 
 
 def test_semantic_search_finds_different_wording(db_session, fake_embedding_service) -> None:
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     graph.create_object(
         ObjectCreate(
             kind="note",
@@ -72,7 +73,7 @@ def test_semantic_search_finds_different_wording(db_session, fake_embedding_serv
         )
     )
 
-    search = SearchService(db_session, fake_embedding_service)
+    search = SearchService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     results = search.search("budget expense quarterly review")
 
     assert len(results) >= 1
@@ -80,7 +81,7 @@ def test_semantic_search_finds_different_wording(db_session, fake_embedding_serv
 
 
 def test_search_project_id_graph_filter(db_session, fake_embedding_service) -> None:
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     project = graph.create_object(ObjectCreate(kind="project", title="Alpha", origin="system"))
     task = graph.create_object(ObjectCreate(kind="task", title="Alpha task", origin="system"))
     other = graph.create_object(ObjectCreate(kind="task", title="Other task", origin="system"))
@@ -97,7 +98,7 @@ def test_search_project_id_graph_filter(db_session, fake_embedding_service) -> N
         )
     )
 
-    search = SearchService(db_session, fake_embedding_service)
+    search = SearchService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     results = search.search("task", project_id=project.id, limit=10)
     titles = {item.title for item in results}
     assert "Alpha task" in titles

@@ -12,8 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 class SearchService:
-    def __init__(self, session: Session, embedding_service: EmbeddingService) -> None:
+    def __init__(
+        self,
+        session: Session,
+        user_id: UUID,
+        embedding_service: EmbeddingService,
+    ) -> None:
         self._session = session
+        self._user_id = user_id
         self._embedding_service = embedding_service
 
     def search(
@@ -25,7 +31,7 @@ class SearchService:
         limit: int = 20,
     ) -> list[ObjectOut]:
         limit = max(1, min(limit, 100))
-        stmt = select(Object)
+        stmt = select(Object).where(Object.user_id == self._user_id)
         stmt = self._apply_filters(stmt, kind=kind, provider=provider, project_id=project_id)
 
         semantic_results: list[Object] = []
@@ -73,10 +79,14 @@ class SearchService:
         if provider is not None:
             stmt = stmt.where(Object.provider == provider)
         if project_id is not None:
-            # Graph filter: objects directly linked to the project object by any edge.
             linked_ids = (
-                select(Edge.target_id).where(Edge.source_id == project_id).union_all(
-                    select(Edge.source_id).where(Edge.target_id == project_id)
+                select(Edge.target_id)
+                .where(Edge.user_id == self._user_id, Edge.source_id == project_id)
+                .union_all(
+                    select(Edge.source_id).where(
+                        Edge.user_id == self._user_id,
+                        Edge.target_id == project_id,
+                    )
                 )
             )
             stmt = stmt.where(Object.id.in_(linked_ids))

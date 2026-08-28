@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Notification
+from app.db.models import Notification, Object
 from app.notifications.constants import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
@@ -24,8 +24,9 @@ def utcnow() -> datetime:
 
 
 class NotificationService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
+        self._user_id = user_id
 
     def create(
         self,
@@ -38,7 +39,10 @@ class NotificationService:
     ) -> Notification:
         if priority not in NOTIFICATION_PRIORITIES:
             raise ValidationError(f"invalid notification priority: {priority}")
+        self._validate_object_link(source_object_id)
+        self._validate_object_link(related_object_id)
         notification = Notification(
+            user_id=self._user_id,
             title=title,
             body=body,
             priority=priority,
@@ -51,8 +55,22 @@ class NotificationService:
         self._session.flush()
         return notification
 
+    def _validate_object_link(self, object_id: UUID | None) -> None:
+        if object_id is None:
+            return
+        owned = self._session.scalar(
+            select(Object.id).where(Object.id == object_id, Object.user_id == self._user_id)
+        )
+        if owned is None:
+            raise ValidationError("linked object does not belong to current user")
+
     def get(self, notification_id: UUID) -> Notification:
-        notification = self._session.get(Notification, notification_id)
+        notification = self._session.scalar(
+            select(Notification).where(
+                Notification.id == notification_id,
+                Notification.user_id == self._user_id,
+            )
+        )
         if notification is None:
             raise NotFoundError("notification", notification_id)
         return notification
@@ -65,9 +83,13 @@ class NotificationService:
         if status is not None and status not in NOTIFICATION_STATUSES:
             raise ValidationError(f"invalid notification status: {status}")
         bounded_limit = max(1, min(limit, MAX_LIST_LIMIT))
-        stmt = select(Notification).order_by(
-            Notification.created_at.desc(),
-            Notification.id.desc(),
+        stmt = (
+            select(Notification)
+            .where(Notification.user_id == self._user_id)
+            .order_by(
+                Notification.created_at.desc(),
+                Notification.id.desc(),
+            )
         )
         if status is not None:
             stmt = stmt.where(Notification.status == status)

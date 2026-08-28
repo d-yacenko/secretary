@@ -43,13 +43,15 @@ class GmailSyncService:
     def sync_account(
         self,
         account_id: UUID,
+        user_id: UUID,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        account = self._account_store.get_by_id(account_id)
+        account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
             raise GoogleConnectorError("google account not found")
 
         account_email = account.email
+        owner_user_id = account.user_id
         effective_limit = limit if limit is not None else self._default_limit
         effective_limit = min(max(effective_limit, 1), self._max_limit)
 
@@ -66,44 +68,44 @@ class GmailSyncService:
             max_results=effective_limit,
         )
 
+        known_external_ids = self._load_known_gmail_external_ids(owner_user_id, message_ids)
+        self._session.commit()
+
         created = 0
         updated = 0
         jobs_enqueued = 0
         synchronized = 0
+        skipped_known = 0
 
         for message_id in message_ids:
+            if message_id in known_external_ids:
+                synchronized += 1
+                skipped_known += 1
+                continue
+
             raw_message = self._transport.get_message(access_token, "me", message_id)
             normalized = normalize_gmail_message(raw_message)
-            existing = self._session.scalar(
-                select(Object).where(
-                    Object.provider == "gmail",
-                    Object.kind == "email",
-                    Object.external_id == normalized["external_id"],
-                )
+            obj = Object(
+                user_id=owner_user_id,
+                kind=normalized["kind"],
+                provider=normalized["provider"],
+                external_id=normalized["external_id"],
+                origin=normalized["origin"],
+                state=normalized["state"],
+                title=normalized["title"],
+                body=normalized.get("body"),
+                metadata_=normalized["metadata"],
             )
-            if existing is None:
-                obj = Object(
-                    kind=normalized["kind"],
-                    provider=normalized["provider"],
-                    external_id=normalized["external_id"],
-                    origin=normalized["origin"],
-                    state=normalized["state"],
-                    title=normalized["title"],
-                    body=normalized.get("body"),
-                    metadata_=normalized["metadata"],
-                )
-                self._session.add(obj)
-                self._session.flush()
-                created += 1
-                self._job_queue.enqueue("embed_object", {"object_id": str(obj.id)})
-                jobs_enqueued += 1
-            else:
-                changed = self._apply_update(existing, normalized)
-                if changed:
-                    updated += 1
-                    self._job_queue.enqueue("embed_object", {"object_id": str(existing.id)})
-                    jobs_enqueued += 1
+            self._session.add(obj)
+            self._session.flush()
+            created += 1
             synchronized += 1
+            self._job_queue.enqueue(
+                "embed_object",
+                {"object_id": str(obj.id)},
+                user_id=owner_user_id,
+            )
+            jobs_enqueued += 1
             self._session.commit()
 
         return {
@@ -111,28 +113,26 @@ class GmailSyncService:
             "synchronized": synchronized,
             "created": created,
             "updated": updated,
+            "skipped_known": skipped_known,
             "jobs_enqueued": jobs_enqueued,
         }
 
-    def _apply_update(self, obj: Object, normalized: dict[str, Any]) -> bool:
-        changed = False
-        normalized_body = normalized.get("body")
-        if obj.title != normalized["title"]:
-            obj.title = normalized["title"]
-            changed = True
-        if obj.body != normalized_body:
-            obj.body = normalized_body
-            changed = True
-        if obj.metadata_ != normalized["metadata"]:
-            obj.metadata_ = normalized["metadata"]
-            changed = True
-        if obj.state != normalized["state"]:
-            obj.state = normalized["state"]
-            changed = True
-        if changed:
-            obj.updated_at = utcnow()
-            self._session.flush()
-        return changed
+    def _load_known_gmail_external_ids(
+        self,
+        user_id: UUID,
+        message_ids: list[str],
+    ) -> set[str]:
+        if not message_ids:
+            return set()
+        rows = self._session.scalars(
+            select(Object.external_id).where(
+                Object.user_id == user_id,
+                Object.provider == "gmail",
+                Object.kind == "email",
+                Object.external_id.in_(message_ids),
+            )
+        )
+        return {str(external_id) for external_id in rows if external_id is not None}
 
 
 def build_gmail_sync_service(

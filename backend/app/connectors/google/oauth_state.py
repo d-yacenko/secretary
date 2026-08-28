@@ -23,9 +23,10 @@ class OAuthStateService:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def create_state(self) -> str:
+    def create_state(self, user_id: UUID) -> str:
         state = secrets.token_urlsafe(32)
         row = OAuthState(
+            user_id=user_id,
             state_hash=hash_oauth_state(state),
             expires_at=utcnow() + timedelta(minutes=OAUTH_STATE_TTL_MINUTES),
         )
@@ -48,4 +49,4 @@ class OAuthStateService:
             raise GoogleOAuthError("oauth state expired")
         row.consumed_at = utcnow()
         self._session.flush()
-        return row.id
+        return row.user_id

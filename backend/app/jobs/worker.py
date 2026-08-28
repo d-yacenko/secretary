@@ -39,7 +39,7 @@ def process_one_job(embedding_service: EmbeddingService) -> bool:
     try:
         session = SessionLocal()
         try:
-            handler(session, embedding_service, claimed.payload)
+            handler(session, embedding_service, claimed.payload, claimed.user_id)
             JobQueueService(session).mark_done(claimed.id)
             session.commit()
         except Exception:

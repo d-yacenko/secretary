@@ -25,9 +25,11 @@ class GraphService:
     def __init__(
         self,
         session: Session,
+        user_id: UUID,
         embedding_service: EmbeddingService | None = None,
     ) -> None:
         self._session = session
+        self._user_id = user_id
         self._embedding_service = embedding_service
 
     def _flush_object(self) -> None:
@@ -37,6 +39,11 @@ class GraphService:
             if is_external_object_unique_violation(exc):
                 raise ConflictError("external object already exists") from exc
             raise
+
+    def _get_object_row(self, object_id: UUID) -> Object | None:
+        return self._session.scalar(
+            select(Object).where(Object.id == object_id, Object.user_id == self._user_id)
+        )
 
     def create_object(self, data: ObjectCreate) -> Object:
         state = default_object_state(data.origin, data.state)
@@ -49,6 +56,7 @@ class GraphService:
             raise ValidationError(str(exc)) from exc
 
         obj = Object(
+            user_id=self._user_id,
             kind=data.kind,
             title=data.title,
             origin=data.origin,
@@ -69,7 +77,7 @@ class GraphService:
         return obj
 
     def get_object(self, object_id: UUID) -> Object:
-        obj = self._session.get(Object, object_id)
+        obj = self._get_object_row(object_id)
         if obj is None:
             raise NotFoundError("object", object_id)
         return obj
@@ -105,7 +113,10 @@ class GraphService:
         edge_count = self._session.scalar(
             select(func.count())
             .select_from(Edge)
-            .where(or_(Edge.source_id == object_id, Edge.target_id == object_id))
+            .where(
+                Edge.user_id == self._user_id,
+                or_(Edge.source_id == object_id, Edge.target_id == object_id),
+            )
         )
         if edge_count and edge_count > 0:
             raise ConflictError("object has incident edges")
@@ -121,12 +132,15 @@ class GraphService:
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
 
-        if self._session.get(Object, data.source_id) is None:
+        source = self._get_object_row(data.source_id)
+        if source is None:
             raise NotFoundError("object", data.source_id)
-        if self._session.get(Object, data.target_id) is None:
+        target = self._get_object_row(data.target_id)
+        if target is None:
             raise NotFoundError("object", data.target_id)
 
         edge = Edge(
+            user_id=self._user_id,
             source_id=data.source_id,
             target_id=data.target_id,
             type=data.type,
@@ -140,14 +154,18 @@ class GraphService:
         return edge
 
     def delete_edge(self, edge_id: UUID) -> None:
-        edge = self._session.get(Edge, edge_id)
+        edge = self._session.scalar(
+            select(Edge).where(Edge.id == edge_id, Edge.user_id == self._user_id)
+        )
         if edge is None:
             raise NotFoundError("edge", edge_id)
         self._session.delete(edge)
         self._session.flush()
 
     def set_edge_state(self, edge_id: UUID, state: str) -> Edge:
-        edge = self._session.get(Edge, edge_id)
+        edge = self._session.scalar(
+            select(Edge).where(Edge.id == edge_id, Edge.user_id == self._user_id)
+        )
         if edge is None:
             raise NotFoundError("edge", edge_id)
         try:
@@ -166,7 +184,8 @@ class GraphService:
         self.get_object(object_id)
         edges = self._session.scalars(
             select(Edge).where(
-                or_(Edge.source_id == object_id, Edge.target_id == object_id)
+                Edge.user_id == self._user_id,
+                or_(Edge.source_id == object_id, Edge.target_id == object_id),
             )
         ).all()
 
@@ -175,10 +194,10 @@ class GraphService:
             if not include_rejected and edge.state == "rejected":
                 continue
             if edge.source_id == object_id:
-                neighbor = self._session.get(Object, edge.target_id)
+                neighbor = self._get_object_row(edge.target_id)
                 direction = "outgoing"
             else:
-                neighbor = self._session.get(Object, edge.source_id)
+                neighbor = self._get_object_row(edge.source_id)
                 direction = "incoming"
             if neighbor is None:
                 continue
@@ -203,7 +222,8 @@ class GraphService:
         obj = self.get_object(object_id)
         edges = self._session.scalars(
             select(Edge).where(
-                or_(Edge.source_id == object_id, Edge.target_id == object_id)
+                Edge.user_id == self._user_id,
+                or_(Edge.source_id == object_id, Edge.target_id == object_id),
             )
         ).all()
         if not include_rejected:
@@ -219,7 +239,12 @@ class GraphService:
         neighbors: list[Object] = []
         if neighbor_ids:
             neighbors = list(
-                self._session.scalars(select(Object).where(Object.id.in_(neighbor_ids))).all()
+                self._session.scalars(
+                    select(Object).where(
+                        Object.user_id == self._user_id,
+                        Object.id.in_(neighbor_ids),
+                    )
+                ).all()
             )
             if not include_rejected:
                 neighbors = [neighbor for neighbor in neighbors if neighbor.state != "rejected"]

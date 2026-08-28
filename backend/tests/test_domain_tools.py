@@ -21,11 +21,12 @@ from app.tools.schemas import (
     SearchObjectsInput,
     UpdateTaskInput,
 )
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 @pytest.fixture
 def domain_tools(db_session, fake_embedding_service) -> DomainToolService:
-    return DomainToolService(db_session, fake_embedding_service)
+    return DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
 
 
 def _create_task(graph: GraphService, title: str) -> Object:
@@ -35,7 +36,7 @@ def _create_task(graph: GraphService, title: str) -> Object:
 
 
 def test_search_objects_reads_existing_objects(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     _create_task(graph, "Find me unique alpha marker")
 
     result = domain_tools.search_objects(
@@ -46,7 +47,7 @@ def test_search_objects_reads_existing_objects(db_session, domain_tools) -> None
 
 
 def test_get_object_returns_one_object(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Single object lookup")
 
     result = domain_tools.get_object(GetObjectInput(object_id=task.id))
@@ -55,7 +56,7 @@ def test_get_object_returns_one_object(db_session, domain_tools) -> None:
 
 
 def test_get_context_returns_bounded_context(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Bounded context task")
 
     result = domain_tools.get_context(
@@ -66,7 +67,7 @@ def test_get_context_returns_bounded_context(db_session, domain_tools) -> None:
 
 
 def test_list_neighbors_returns_graph_neighbors(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     left = _create_task(graph, "Neighbor left")
     right = _create_task(graph, "Neighbor right")
     from app.api.schemas import EdgeCreate
@@ -103,7 +104,7 @@ def test_create_task_creates_agent_proposed_task_with_confidence(
 def test_link_objects_creates_agent_proposed_edge_with_confidence(
     db_session, domain_tools
 ) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = _create_task(graph, "Link source")
     target = _create_task(graph, "Link target")
 
@@ -122,7 +123,7 @@ def test_link_objects_creates_agent_proposed_edge_with_confidence(
 
 
 def test_update_task_cannot_rewrite_origin(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Immutable origin task")
 
     updated = domain_tools.update_task(
@@ -134,7 +135,7 @@ def test_update_task_cannot_rewrite_origin(db_session, domain_tools) -> None:
 
 
 def test_read_tools_do_not_mutate_db_state(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Read only task")
     before_objects = db_session.scalar(select(func.count()).select_from(Object))
     before_edges = db_session.scalar(select(func.count()).select_from(Edge))
@@ -176,9 +177,9 @@ def test_create_task_normalizes_naive_due_at_timezone(db_session, domain_tools) 
 def test_independent_tool_executors_do_not_share_call_limit(
     db_session, fake_embedding_service
 ) -> None:
-    tools_a = DomainToolService(db_session, fake_embedding_service)
-    tools_b = DomainToolService(db_session, fake_embedding_service)
-    graph = GraphService(db_session)
+    tools_a = DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    tools_b = DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Executor isolation task")
 
     executor_a = ToolExecutor(tools_a, max_calls=5)
@@ -190,7 +191,7 @@ def test_independent_tool_executors_do_not_share_call_limit(
 
 
 def test_tool_call_limit_prevents_infinite_loop(db_session, domain_tools) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Limit task")
     executor = ToolExecutor(domain_tools, max_calls=5)
 

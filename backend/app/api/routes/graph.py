@@ -3,7 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_embedding_service
+from app.api.deps import get_current_user, get_db, get_embedding_service
+from app.core.current_user import CurrentUserContext
 from app.api.schemas import (
     ContextOut,
     EdgeCreate,
@@ -25,8 +26,9 @@ router = APIRouter()
 def _service(
     session: Session = Depends(get_db),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
+    current_user: CurrentUserContext = Depends(get_current_user),
 ) -> GraphService:
-    return GraphService(session, embedding_service)
+    return GraphService(session, current_user.user_id, embedding_service)
 
 
 def _not_found(exc: NotFoundError) -> HTTPException:
@@ -147,8 +149,9 @@ def search_objects(
     limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_db),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
+    current_user: CurrentUserContext = Depends(get_current_user),
 ) -> list[ObjectOut]:
-    service = SearchService(session, embedding_service)
+    service = SearchService(session, current_user.user_id, embedding_service)
     return service.search(
         query=q,
         kind=kind,

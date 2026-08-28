@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ContextBuildResult, ContextItem
@@ -24,10 +25,13 @@ def calculate_notification_priority(
     return "low"
 
 
-def _existing_object_id(session: Session, object_id: UUID | None) -> UUID | None:
+def _existing_object_id(session: Session, user_id: UUID, object_id: UUID | None) -> UUID | None:
     if object_id is None:
         return None
-    return object_id if session.get(Object, object_id) is not None else None
+    owned = session.scalar(
+        select(Object.id).where(Object.id == object_id, Object.user_id == user_id)
+    )
+    return object_id if owned is not None else None
 
 
 def _evidence_entry(index: int, item: ContextItem) -> dict:
@@ -89,7 +93,7 @@ def create_notifications_from_analysis(
     notifications: list[Notification] = []
     for proposal in analysis.proposals:
         source_item = context.items[proposal.evidence_item_indices[0]]
-        related_object_id = _existing_object_id(session, proposal.target_object_id)
+        related_object_id = _existing_object_id(session, service._user_id, proposal.target_object_id)
         notification = service.create(
             title=proposal.title,
             body=proposal.description or analysis.summary,

@@ -18,6 +18,7 @@ from app.services.graph_service import GraphService
 from app.services.notification_service import NotificationService
 from app.services.secretary_notification_service import create_notifications_from_analysis
 from app.services.secretary_service import SecretaryService
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 FIXED_REFERENCE = datetime(2026, 8, 28, 10, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
@@ -28,11 +29,11 @@ EMAIL_TEXT = (
 
 @pytest.fixture
 def notification_service(db_session) -> NotificationService:
-    return NotificationService(db_session)
+    return NotificationService(db_session, BOOTSTRAP_USER_ID)
 
 
 def _email_context(db_session) -> ContextBuildResult:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     email = graph.create_object(
         ObjectCreate(
             kind="email",
@@ -72,7 +73,7 @@ def test_create_notification_has_status_new(notification_service) -> None:
 def test_create_notification_preserves_source_object_link(
     db_session, notification_service
 ) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = graph.create_object(
         ObjectCreate(kind="email", title="Source email", origin="source")
     )
@@ -191,7 +192,7 @@ def test_ignore_changes_status_to_ignored(notification_service) -> None:
 def test_deleting_source_object_keeps_notification(
     db_session, notification_service
 ) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = graph.create_object(
         ObjectCreate(kind="email", title="Disposable source", origin="source")
     )
@@ -211,7 +212,7 @@ def test_deleting_source_object_keeps_notification(
 
 
 def test_secretary_analysis_creates_notifications_with_evidence(db_session) -> None:
-    service = NotificationService(db_session)
+    service = NotificationService(db_session, BOOTSTRAP_USER_ID)
     secretary = SecretaryService(FakeSecretaryProvider())
     context = _email_context(db_session)
     result = secretary.analyze(
@@ -237,7 +238,7 @@ def test_secretary_analysis_creates_notifications_with_evidence(db_session) -> N
 def test_secretary_notification_ignores_nonexistent_target_object_id(db_session) -> None:
     from app.llm.secretary_models import SecretaryAnalysis, SecretaryProposal
 
-    service = NotificationService(db_session)
+    service = NotificationService(db_session, BOOTSTRAP_USER_ID)
     context = _email_context(db_session)
     missing_target = uuid.uuid4()
     analysis = SecretaryAnalysis(
@@ -260,7 +261,7 @@ def test_secretary_notification_ignores_nonexistent_target_object_id(db_session)
 
 
 def test_secretary_notifications_do_not_create_tasks_or_edges(db_session) -> None:
-    service = NotificationService(db_session)
+    service = NotificationService(db_session, BOOTSTRAP_USER_ID)
     secretary = SecretaryService(FakeSecretaryProvider())
     context = _email_context(db_session)
     before_objects = db_session.scalar(select(func.count()).select_from(Object))
@@ -286,7 +287,7 @@ def test_notification_api_list_and_read(db_session) -> None:
     app.dependency_overrides[get_db] = override_db
     client = TestClient(app)
 
-    service = NotificationService(db_session)
+    service = NotificationService(db_session, BOOTSTRAP_USER_ID)
     created = service.create(
         title="API notification",
         body="Body",

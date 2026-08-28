@@ -13,6 +13,7 @@ from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.representation_service import KIND_CHUNK, KIND_SUMMARY, RepresentationService
 from app.llm.summarizer import FakeSummarizer
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 class FailingEmbeddingService:
@@ -33,7 +34,7 @@ def client(db_session):
 
 
 def test_source_email_has_observed_state(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     email = graph.create_object(
         ObjectCreate(
             kind="email",
@@ -52,7 +53,7 @@ def test_agent_proposed_object_requires_confidence(db_session) -> None:
 
 
 def test_agent_proposed_object_with_confidence(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     event = graph.create_object(
         ObjectCreate(
             kind="event",
@@ -67,7 +68,7 @@ def test_agent_proposed_object_with_confidence(db_session) -> None:
 
 
 def test_confirmation_preserves_agent_origin_and_confidence(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     event = graph.create_object(
         ObjectCreate(
             kind="event",
@@ -83,7 +84,7 @@ def test_confirmation_preserves_agent_origin_and_confidence(db_session) -> None:
 
 
 def test_rejection_keeps_stored_object(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     event = graph.create_object(
         ObjectCreate(
             kind="event",
@@ -126,7 +127,7 @@ def test_object_api_response_contains_provenance(client) -> None:
 
 
 def test_context_item_contains_provenance(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     email = graph.create_object(
         ObjectCreate(
             kind="email",
@@ -135,14 +136,14 @@ def test_context_item_contains_provenance(db_session) -> None:
             body="Source content",
         )
     )
-    result = ContextService(db_session, FakeEmbeddingService()).build_context(object_id=email.id)
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).build_context(object_id=email.id)
     target_item = result.items[0]
     assert target_item.origin == "source"
     assert target_item.state == "observed"
 
 
 def test_rejected_relation_excluded_from_context(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = graph.create_object(ObjectCreate(kind="task", title="Active task", origin="user"))
     proposal = graph.create_object(
         ObjectCreate(
@@ -164,7 +165,7 @@ def test_rejected_relation_excluded_from_context(db_session) -> None:
         )
     )
 
-    result = ContextService(db_session, FakeEmbeddingService()).build_context(object_id=task.id)
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).build_context(object_id=task.id)
     titles = {item.title for item in result.items}
     assert "Active task" in titles
     assert "Rejected meeting" not in titles
@@ -198,19 +199,19 @@ def test_agent_proposed_edge_without_confidence_rejected_by_api(client) -> None:
 
 
 def test_search_lexical_fallback_on_embedding_failure(db_session) -> None:
-    graph = GraphService(db_session, FailingEmbeddingService())
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FailingEmbeddingService())
     graph.create_object(
         ObjectCreate(kind="note", title="Unique lexical budget keyword", origin="system")
     )
     from app.services.search_service import SearchService
 
-    results = SearchService(db_session, FailingEmbeddingService()).search("lexical budget keyword")
+    results = SearchService(db_session, BOOTSTRAP_USER_ID, FailingEmbeddingService()).search("lexical budget keyword")
     assert len(results) == 1
     assert results[0].title == "Unique lexical budget keyword"
 
 
 def test_context_omits_chunks_when_embedding_fails(db_session) -> None:
-    graph = GraphService(db_session, FakeEmbeddingService())
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService())
     doc = graph.create_object(
         ObjectCreate(
             kind="document",
@@ -225,7 +226,7 @@ def test_context_omits_chunks_when_embedding_fails(db_session) -> None:
         summarizer=FakeSummarizer(max_chars=80),
     ).ingest_text_content(doc.id, "budget planning revenue " * 120)
 
-    result = ContextService(db_session, FailingEmbeddingService()).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, FailingEmbeddingService()).build_context(
         object_id=doc.id,
         query="budget revenue",
     )
@@ -235,7 +236,7 @@ def test_context_omits_chunks_when_embedding_fails(db_session) -> None:
 
 
 def test_long_document_target_context_includes_summary_and_chunks(db_session) -> None:
-    graph = GraphService(db_session, FakeEmbeddingService())
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService())
     doc = graph.create_object(
         ObjectCreate(
             kind="document",
@@ -250,7 +251,7 @@ def test_long_document_target_context_includes_summary_and_chunks(db_session) ->
         summarizer=FakeSummarizer(max_chars=80),
     ).ingest_text_content(doc.id, "budget revenue expense planning " * 100)
 
-    result = ContextService(db_session, FakeEmbeddingService()).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).build_context(
         object_id=doc.id,
         query="budget revenue",
     )
@@ -264,7 +265,7 @@ def test_long_document_target_context_includes_summary_and_chunks(db_session) ->
 
 
 def test_max_chars_never_exceeded_with_truncation(db_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = graph.create_object(
         ObjectCreate(
             kind="task",
@@ -274,7 +275,7 @@ def test_max_chars_never_exceeded_with_truncation(db_session) -> None:
         )
     )
     max_chars = 40
-    result = ContextService(db_session, FakeEmbeddingService()).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).build_context(
         object_id=task.id,
         max_chars=max_chars,
     )

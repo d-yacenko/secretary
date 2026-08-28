@@ -1,9 +1,11 @@
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, get_db
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleConfigurationError, GoogleConnectorError, GoogleOAuthError
@@ -12,7 +14,7 @@ from app.connectors.google.gmail_transport import GmailTransport
 from app.connectors.google.oauth_service import GoogleOAuthService, parse_token_expiry
 from app.connectors.google.oauth_state import OAuthStateService
 from app.core.config import settings
-from app.api.deps import get_db
+from app.core.current_user import CurrentUserContext
 
 
 router = APIRouter(tags=["google"])
@@ -31,11 +33,14 @@ def _account_store(session: Session) -> GoogleAccountStore:
 
 
 @router.get("/auth/google/start")
-def google_oauth_start(session: Session = Depends(get_db)) -> RedirectResponse:
+def google_oauth_start(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> RedirectResponse:
     try:
         oauth_service = _google_oauth_service()
         state_service = OAuthStateService(session)
-        state = state_service.create_state()
+        state = state_service.create_state(current_user.user_id)
         session.commit()
         url = oauth_service.build_authorization_url(state)
     except GoogleConfigurationError as exc:
@@ -55,7 +60,7 @@ def google_oauth_callback(
 
     try:
         state_service = OAuthStateService(session)
-        state_service.consume_state(state)
+        owner_user_id = state_service.consume_state(state)
         session.commit()
 
         oauth_service = _google_oauth_service()
@@ -69,6 +74,7 @@ def google_oauth_callback(
 
         account_store = _account_store(session)
         account = account_store.upsert_tokens(
+            user_id=owner_user_id,
             email=email,
             scopes=[GMAIL_READONLY_SCOPE],
             access_token=access_token,
@@ -95,15 +101,14 @@ def gmail_sync(
     account_id: str | None = Query(default=None),
     limit: int | None = Query(default=None, ge=1, le=100),
     session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
 ) -> dict[str, Any]:
     try:
         account_store = _account_store(session)
         if account_id:
-            from uuid import UUID
-
-            account = account_store.get_by_id(UUID(account_id))
+            account = account_store.get_by_id_for_user(UUID(account_id), current_user.user_id)
         else:
-            accounts = account_store.list_accounts()
+            accounts = account_store.list_accounts(current_user.user_id)
             account = accounts[0] if accounts else None
         if account is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="google account not found")
@@ -117,7 +122,11 @@ def gmail_sync(
             default_limit=settings.gmail_sync_default_limit,
             max_limit=settings.gmail_sync_max_limit,
         )
-        result = sync_service.sync_account(account.id, limit=limit)
+        result = sync_service.sync_account(
+            account.id,
+            user_id=current_user.user_id,
+            limit=limit,
+        )
     except GoogleConfigurationError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
     except GoogleConnectorError as exc:

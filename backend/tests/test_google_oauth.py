@@ -28,6 +28,7 @@ from app.llm.embedding_text import build_embedding_text
 from app.main import app
 from app.mcp.server import MCP_TOOL_NAMES
 from app.services.context_service import ContextService
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -164,7 +165,7 @@ def test_oauth_callback_rejects_invalid_state(client, google_settings) -> None:
 
 def test_oauth_callback_rejects_reused_state(client, db_session, google_settings) -> None:
     state_service = OAuthStateService(db_session)
-    state = state_service.create_state()
+    state = state_service.create_state(BOOTSTRAP_USER_ID)
     db_session.flush()
     state_service.consume_state(state)
     db_session.flush()
@@ -181,6 +182,7 @@ def test_encrypted_token_storage_roundtrip(db_session, credential_key: str) -> N
     encryption = CredentialEncryption(credential_key)
     store = GoogleAccountStore(db_session, encryption)
     account = store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-1",
@@ -200,6 +202,7 @@ def test_encrypted_token_storage_roundtrip(db_session, credential_key: str) -> N
 def test_refresh_token_preserved_when_not_returned(db_session, credential_key: str) -> None:
     store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-old",
@@ -249,6 +252,7 @@ def test_bounded_gmail_sync_creates_observed_email_objects(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -286,7 +290,7 @@ def test_bounded_gmail_sync_creates_observed_email_objects(
         max_limit=100,
         http_client=fake_http,
     )
-    result = sync_service.sync_account(account.id, limit=3)
+    result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=3)
 
     assert result["synchronized"] == 3
     assert result["created"] == 3
@@ -318,6 +322,7 @@ def test_gmail_body_stored_in_object_body(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -347,7 +352,7 @@ def test_gmail_body_stored_in_object_body(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=1)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
 
     obj = db_session.scalar(
         select(Object).where(Object.external_id == "msg-body", Object.provider == "gmail")
@@ -363,6 +368,7 @@ def test_embedding_text_includes_gmail_body(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -392,7 +398,7 @@ def test_embedding_text_includes_gmail_body(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=1)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
 
     obj = db_session.scalar(
         select(Object).where(Object.external_id == "msg-embed", Object.provider == "gmail")
@@ -409,6 +415,7 @@ def test_context_service_includes_gmail_body(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -438,26 +445,27 @@ def test_context_service_includes_gmail_body(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=1)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
 
     obj = db_session.scalar(
         select(Object).where(Object.external_id == "msg-ctx", Object.provider == "gmail")
     )
     assert obj is not None
 
-    context = ContextService(db_session, FakeEmbeddingService()).build_context(object_id=obj.id)
+    context = ContextService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).build_context(object_id=obj.id)
     target_items = [item for item in context.items if item.object_id == obj.id]
     assert len(target_items) == 1
     assert "Hello world" in target_items[0].content
 
 
-def test_body_change_enqueues_embedding_job(
+def test_second_sync_skips_known_gmail_messages_without_refetch(
     db_session,
     oauth_client_file: str,
     credential_key: str,
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -466,10 +474,11 @@ def test_body_change_enqueues_embedding_job(
     )
     db_session.commit()
 
-    message = _sample_gmail_message("msg-change", "Same subject")
+    get_calls: list[str] = []
 
     def get_message(params, headers):
-        return httpx.Response(200, json=message)
+        get_calls.append("get")
+        return httpx.Response(200, json=_sample_gmail_message("msg-change", "Same subject"))
 
     fake_http = FakeHttpClient(
         {
@@ -490,20 +499,23 @@ def test_body_change_enqueues_embedding_job(
         max_limit=100,
         http_client=fake_http,
     )
-    first = sync_service.sync_account(account.id, limit=1)
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     assert first["created"] == 1
     assert first["jobs_enqueued"] == 1
+    assert get_calls == ["get"]
 
-    message["payload"]["body"]["data"] = "VXBkYXRlZCBib2R5"  # Updated body
-    second = sync_service.sync_account(account.id, limit=1)
-    assert second["updated"] == 1
-    assert second["jobs_enqueued"] == 1
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    assert second["created"] == 0
+    assert second["updated"] == 0
+    assert second["skipped_known"] == 1
+    assert second["jobs_enqueued"] == 0
+    assert get_calls == ["get"]
 
     obj = db_session.scalar(
         select(Object).where(Object.external_id == "msg-change", Object.provider == "gmail")
     )
     assert obj is not None
-    assert obj.body == "Updated body"
+    assert obj.body == "Hello world"
 
 
 def test_gmail_resync_is_idempotent_without_duplicate_jobs(
@@ -513,6 +525,7 @@ def test_gmail_resync_is_idempotent_without_duplicate_jobs(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -543,12 +556,13 @@ def test_gmail_resync_is_idempotent_without_duplicate_jobs(
         max_limit=100,
         http_client=fake_http,
     )
-    first = sync_service.sync_account(account.id, limit=1)
-    second = sync_service.sync_account(account.id, limit=1)
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
 
     assert first["created"] == 1
     assert second["created"] == 0
     assert second["updated"] == 0
+    assert second["skipped_known"] == 1
     assert second["jobs_enqueued"] == 0
 
     count = db_session.scalar(
@@ -614,6 +628,7 @@ def test_embedding_jobs_use_object_reference_only(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -644,7 +659,7 @@ def test_embedding_jobs_use_object_reference_only(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=1)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
 
     jobs = list(db_session.scalars(select(Job).where(Job.type == "embed_object")))
     assert len(jobs) == 1
@@ -678,6 +693,7 @@ def test_no_db_transaction_held_during_fake_network_wait(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -713,7 +729,7 @@ def test_no_db_transaction_held_during_fake_network_wait(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=1)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     assert tx_during_network == [False, False]
 
 
@@ -736,6 +752,7 @@ def test_oauth_token_refresh_on_expired_access_token(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-old",
@@ -773,7 +790,7 @@ def test_oauth_token_refresh_on_expired_access_token(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=1)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
 
     assert tx_during_refresh == [False]
     assert account_store.get_access_token(account) == "access-refreshed"
@@ -787,7 +804,7 @@ def test_oauth_exchange_and_callback_success(
     oauth_client_file: str,
 ) -> None:
     state_service = OAuthStateService(db_session)
-    state = state_service.create_state()
+    state = state_service.create_state(BOOTSTRAP_USER_ID)
     db_session.flush()
 
     fake_http = FakeHttpClient(
@@ -845,6 +862,7 @@ def test_bounded_sync_respects_max_limit(
 ) -> None:
     account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
     account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
         email="user@example.com",
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="access-token",
@@ -875,5 +893,5 @@ def test_bounded_sync_respects_max_limit(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, limit=150)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=150)
     assert requested_max == [100]

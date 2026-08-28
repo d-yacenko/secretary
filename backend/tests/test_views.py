@@ -9,6 +9,7 @@ from app.db.models import Object, ViewItem
 from app.services.errors import ValidationError
 from app.services.graph_service import GraphService
 from app.services.view_service import ViewService
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 def _task(title: str) -> ObjectCreate:
@@ -16,8 +17,8 @@ def _task(title: str) -> ObjectCreate:
 
 
 def test_object_in_two_views_with_different_coordinates(db_session) -> None:
-    graph = GraphService(db_session)
-    views = ViewService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
 
     obj = graph.create_object(_task("Shared task"))
 
@@ -32,8 +33,8 @@ def test_object_in_two_views_with_different_coordinates(db_session) -> None:
 
 
 def test_changing_coordinates_in_one_view_does_not_affect_other(db_session) -> None:
-    graph = GraphService(db_session)
-    views = ViewService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
 
     obj = graph.create_object(_task("Shared task"))
 
@@ -53,8 +54,8 @@ def test_changing_coordinates_in_one_view_does_not_affect_other(db_session) -> N
 
 
 def test_deleting_view_deletes_view_items(db_session) -> None:
-    graph = GraphService(db_session)
-    views = ViewService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
 
     obj = graph.create_object(ObjectCreate(kind="note", title="Note", origin="system"))
 
@@ -69,7 +70,7 @@ def test_deleting_view_deletes_view_items(db_session) -> None:
 
 
 def test_visual_only_item_without_object(db_session) -> None:
-    views = ViewService(db_session)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
     view = views.create_view("Annotations", "freeform")
     visual_id = uuid.uuid4()
 
@@ -80,7 +81,7 @@ def test_visual_only_item_without_object(db_session) -> None:
 
 
 def test_invalid_view_item_without_object_or_visual_rejected(db_session) -> None:
-    views = ViewService(db_session)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
     view = views.create_view("Empty items", "freeform")
 
     with pytest.raises(ValidationError):
@@ -99,7 +100,7 @@ def test_invalid_view_item_without_object_or_visual_rejected(db_session) -> None
 
 
 def test_view_item_cannot_have_both_object_and_visual(db_session) -> None:
-    views = ViewService(db_session)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
     view = views.create_view("Both ids", "freeform")
     object_id = uuid.uuid4()
     visual_id = uuid.uuid4()
@@ -120,8 +121,8 @@ def test_view_item_cannot_have_both_object_and_visual(db_session) -> None:
 
 
 def test_object_deletion_not_blocked_by_view_placement(db_session) -> None:
-    graph = GraphService(db_session)
-    views = ViewService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    views = ViewService(db_session, BOOTSTRAP_USER_ID)
 
     obj = graph.create_object(_task("Placed task"))
     view = views.create_view("Board", "freeform")

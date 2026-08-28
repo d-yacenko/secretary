@@ -1,6 +1,8 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, EdgeOut, NotificationOut, ObjectCreate, ObjectOut, ObjectUpdate
@@ -37,12 +39,18 @@ from app.tools.schemas import (
 
 
 class DomainToolService:
-    def __init__(self, session: Session, embedding_service: EmbeddingService) -> None:
+    def __init__(
+        self,
+        session: Session,
+        user_id: UUID,
+        embedding_service: EmbeddingService,
+    ) -> None:
         self._session = session
-        self._graph = GraphService(session, embedding_service)
-        self._search = SearchService(session, embedding_service)
-        self._context = ContextService(session, embedding_service)
-        self._notifications = NotificationService(session)
+        self._user_id = user_id
+        self._graph = GraphService(session, user_id, embedding_service)
+        self._search = SearchService(session, user_id, embedding_service)
+        self._context = ContextService(session, user_id, embedding_service)
+        self._notifications = NotificationService(session, user_id)
 
     def list_notifications(self, input: ListNotificationsInput) -> ListNotificationsOutput:
         try:

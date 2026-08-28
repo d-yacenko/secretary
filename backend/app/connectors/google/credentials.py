@@ -27,11 +27,24 @@ class GoogleAccountStore:
         self._session = session
         self._encryption = encryption
 
-    def get_by_email(self, email: str) -> GoogleAccount | None:
-        return self._session.scalar(select(GoogleAccount).where(GoogleAccount.email == email))
+    def get_by_email(self, user_id: UUID, email: str) -> GoogleAccount | None:
+        return self._session.scalar(
+            select(GoogleAccount).where(
+                GoogleAccount.user_id == user_id,
+                GoogleAccount.email == email,
+            )
+        )
 
     def get_by_id(self, account_id: UUID) -> GoogleAccount | None:
         return self._session.get(GoogleAccount, account_id)
+
+    def get_by_id_for_user(self, account_id: UUID, user_id: UUID) -> GoogleAccount | None:
+        return self._session.scalar(
+            select(GoogleAccount).where(
+                GoogleAccount.id == account_id,
+                GoogleAccount.user_id == user_id,
+            )
+        )
 
     def load_credential_snapshot(self, account_id: UUID) -> AccountCredentialSnapshot | None:
         account = self.get_by_id(account_id)
@@ -44,20 +57,27 @@ class GoogleAccountStore:
             token_expiry=account.token_expiry,
         )
 
-    def list_accounts(self) -> list[GoogleAccount]:
-        return list(self._session.scalars(select(GoogleAccount).order_by(GoogleAccount.email)))
+    def list_accounts(self, user_id: UUID) -> list[GoogleAccount]:
+        return list(
+            self._session.scalars(
+                select(GoogleAccount)
+                .where(GoogleAccount.user_id == user_id)
+                .order_by(GoogleAccount.email)
+            )
+        )
 
     def upsert_tokens(
         self,
+        user_id: UUID,
         email: str,
         scopes: list[str],
         access_token: str | None,
         refresh_token: str | None,
         token_expiry: datetime | None,
     ) -> GoogleAccount:
-        account = self.get_by_email(email)
+        account = self.get_by_email(user_id, email)
         if account is None:
-            account = GoogleAccount(email=email, scopes=scopes)
+            account = GoogleAccount(user_id=user_id, email=email, scopes=scopes)
             self._session.add(account)
         else:
             account.scopes = scopes

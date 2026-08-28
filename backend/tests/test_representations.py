@@ -21,6 +21,7 @@ from app.services.representation_service import (
     RepresentationService,
     SMALL_TEXT_MAX_CHARS,
 )
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 class FailingEmbeddingService:
@@ -47,7 +48,7 @@ def _create_resource_object(
     title: str = "Resource",
     canonical_uri: str | None = None,
 ) -> Object:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     return graph.create_object(
         ObjectCreate(
             kind="document",
@@ -160,7 +161,7 @@ def test_deleting_object_cascades_representations(
     )
     assert rep_count == 1
 
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     graph.delete_object(obj.id)
     db_session.expire_all()
 
@@ -185,7 +186,7 @@ def test_chunk_representations_use_embedding_service(
 def test_patch_metadata_refreshes_object_embedding(db_session, fake_embedding_service) -> None:
     from app.api.schemas import ObjectUpdate
 
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     obj = graph.create_object(
         ObjectCreate(
             kind="note",
@@ -204,7 +205,7 @@ def test_patch_metadata_refreshes_object_embedding(db_session, fake_embedding_se
 
 
 def test_create_object_survives_embedding_failure(db_session) -> None:
-    graph = GraphService(db_session, FailingEmbeddingService())
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FailingEmbeddingService())
     obj = graph.create_object(
         ObjectCreate(kind="task", title="Keep me", body="details", origin="system")
     )
@@ -216,11 +217,11 @@ def test_create_object_survives_embedding_failure(db_session) -> None:
 def test_update_clears_stale_embedding_on_failure(db_session, fake_embedding_service) -> None:
     from app.api.schemas import ObjectUpdate
 
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     obj = graph.create_object(ObjectCreate(kind="task", title="Original", origin="system"))
     assert obj.embedding is not None
 
-    failing_graph = GraphService(db_session, FailingEmbeddingService())
+    failing_graph = GraphService(db_session, BOOTSTRAP_USER_ID, FailingEmbeddingService())
     failing_graph.update_object(obj.id, ObjectUpdate(title="Changed title"))
     db_session.refresh(obj)
     assert obj.embedding is None
@@ -231,7 +232,7 @@ def test_non_searchable_patch_does_not_refresh_embedding(
 ) -> None:
     from app.api.schemas import ObjectUpdate
 
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     obj = graph.create_object(
         ObjectCreate(kind="task", title="Title", origin="system", status="open")
     )

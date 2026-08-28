@@ -20,6 +20,7 @@ from app.services.representation_service import (
     RepresentationService,
     SMALL_TEXT_MAX_CHARS,
 )
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def fake_embedding_service() -> FakeEmbeddingService:
 
 @pytest.fixture
 def context_service(db_session, fake_embedding_service) -> ContextService:
-    return ContextService(db_session, fake_embedding_service)
+    return ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
 
 
 def _ingest_long_document(
@@ -38,7 +39,7 @@ def _ingest_long_document(
     title: str = "Budget report",
     uri: str = "file:///data/budget-report.md",
 ) -> tuple:
-    graph = GraphService(db_session, embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, embedding_service)
     doc = graph.create_object(
         ObjectCreate(
             kind="document",
@@ -77,7 +78,7 @@ def test_task_linked_to_long_document_context(
         )
     )
 
-    service = ContextService(db_session, fake_embedding_service)
+    service = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     result = service.build_context(
         object_id=task.id,
         query="budget revenue review",
@@ -118,7 +119,7 @@ def test_context_contains_document_reference_and_summary(
         )
     )
 
-    result = ContextService(db_session, fake_embedding_service).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service).build_context(
         object_id=task.id,
         query="budget",
     )
@@ -160,7 +161,7 @@ def test_context_contains_only_bounded_chunks(
         if rep.kind == KIND_CHUNK
     ]
 
-    result = ContextService(db_session, fake_embedding_service).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service).build_context(
         object_id=task.id,
         query="expense revenue planning",
     )
@@ -189,7 +190,7 @@ def test_context_does_not_contain_full_large_document(
         )
     )
 
-    result = ContextService(db_session, fake_embedding_service).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service).build_context(
         object_id=task.id,
         query="budget",
     )
@@ -214,7 +215,7 @@ def test_max_chars_is_respected(db_session, fake_embedding_service: FakeEmbeddin
     )
 
     max_chars = 400
-    service = ContextService(db_session, fake_embedding_service)
+    service = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     result = service.build_context(object_id=task.id, query="budget revenue", max_chars=max_chars)
 
     assert result.total_chars <= max_chars
@@ -223,7 +224,7 @@ def test_max_chars_is_respected(db_session, fake_embedding_service: FakeEmbeddin
 
 def test_small_budget_excludes_unrelated_semantic_candidates(db_session) -> None:
     stub = ConceptStubEmbeddingService()
-    graph = GraphService(db_session, stub)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, stub)
     graph.create_object(
         ObjectCreate(
             kind="note",
@@ -243,7 +244,7 @@ def test_small_budget_excludes_unrelated_semantic_candidates(db_session) -> None
         )
     )
 
-    result = ContextService(db_session, stub).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, stub).build_context(
         object_id=task.id,
         query="budget revenue planning",
         max_chars=500,
@@ -261,7 +262,7 @@ def test_dataset_context_uses_schema_sample_statistics_not_full(
     rows = ["id,value"] + [f"{index},{index * 10}" for index in range(50)]
     csv_path.write_text("\n".join(rows), encoding="utf-8")
 
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     dataset = graph.create_object(
         ObjectCreate(
             kind="dataset",
@@ -285,7 +286,7 @@ def test_dataset_context_uses_schema_sample_statistics_not_full(
         dataset.id, csv_path
     )
 
-    result = ContextService(db_session, fake_embedding_service).build_context(
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service).build_context(
         object_id=task.id,
         query="sales metrics",
     )
@@ -307,7 +308,7 @@ def test_dataset_parquet_context_policy(
     table = pa.table({"name": ["a", "b"], "value": [1, 2]})
     pq.write_table(table, parquet_path)
 
-    graph = GraphService(db_session, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     dataset = graph.create_object(
         ObjectCreate(
             kind="dataset",
@@ -330,7 +331,7 @@ def test_dataset_parquet_context_policy(
         dataset.id, parquet_path
     )
 
-    result = ContextService(db_session, fake_embedding_service).build_context(object_id=task.id)
+    result = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service).build_context(object_id=task.id)
     repr_kinds = {
         item.representation_kind for item in result.items if item.representation_kind
     }
@@ -350,7 +351,7 @@ def test_build_context_stable_ordering(db_session, fake_embedding_service: FakeE
         )
     )
 
-    service = ContextService(db_session, fake_embedding_service)
+    service = ContextService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     first = service.build_context(object_id=task.id, query="budget expense")
     second = service.build_context(object_id=task.id, query="budget expense")
 
@@ -380,7 +381,7 @@ def test_build_context_stable_ordering(db_session, fake_embedding_service: FakeE
 def test_reingest_replaces_previous_representations(
     db_session, fake_embedding_service: FakeEmbeddingService
 ) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     obj = graph.create_object(
         ObjectCreate(kind="document", title="Re-ingest doc", origin="system")
     )

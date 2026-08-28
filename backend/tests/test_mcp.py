@@ -15,6 +15,7 @@ from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.tools.executor import ToolExecutor
 from app.tools.schemas import MAX_CONTEXT_CHARS
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 FORBIDDEN_MCP_TOOLS = frozenset(
@@ -51,7 +52,7 @@ async def test_mcp_lists_only_expected_tools(mcp_server) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_search_objects(db_session, mcp_server) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     _create_task(graph, "MCP search unique beta marker")
 
     async with Client(mcp_server) as client:
@@ -64,7 +65,7 @@ async def test_mcp_search_objects(db_session, mcp_server) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_get_object(db_session, mcp_server) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "MCP get object")
 
     async with Client(mcp_server) as client:
@@ -78,7 +79,7 @@ async def test_mcp_get_object(db_session, mcp_server) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_get_context_respects_cap(db_session, mcp_server) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "MCP bounded context task")
 
     async with Client(mcp_server) as client:
@@ -93,7 +94,7 @@ async def test_mcp_get_context_respects_cap(db_session, mcp_server) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_get_context_rejects_above_cap(db_session, mcp_server) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "MCP cap rejection task")
 
     async with Client(mcp_server) as client:
@@ -125,7 +126,7 @@ async def test_mcp_create_task_agent_proposed(db_session, mcp_server) -> None:
 async def test_mcp_list_notifications(db_session, mcp_server) -> None:
     from app.services.notification_service import NotificationService
 
-    NotificationService(db_session).create(
+    NotificationService(db_session, BOOTSTRAP_USER_ID).create(
         title="MCP inbox item",
         body="From MCP test",
         priority="normal",
@@ -158,7 +159,7 @@ async def test_mcp_invalid_due_at_returns_tool_error(mcp_server) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_link_objects_agent_proposed(db_session, mcp_server) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = _create_task(graph, "MCP link source")
     target = _create_task(graph, "MCP link target")
 
@@ -208,7 +209,7 @@ async def test_mcp_get_today_returns_secretary_timezone(mcp_server) -> None:
 async def test_multiple_independent_mcp_calls_do_not_exhaust_executor(
     db_session, mcp_server
 ) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "MCP repeat calls")
 
     async with Client(mcp_server) as client:
@@ -219,7 +220,7 @@ async def test_multiple_independent_mcp_calls_do_not_exhaust_executor(
 
 @pytest.mark.asyncio
 async def test_mcp_streamable_http_smoke(db_session, patched_mcp_tool_session) -> None:
-    graph = GraphService(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Streamable HTTP smoke task")
 
     mcp = create_mcp_server()
@@ -267,8 +268,8 @@ async def test_mcp_does_not_use_global_tool_executor(
 ) -> None:
     from app.services.domain_tool_service import DomainToolService
 
-    tools = DomainToolService(db_session, fake_embedding_service)
-    graph = GraphService(db_session)
+    tools = DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     task = _create_task(graph, "Executor scope task")
     executor = ToolExecutor(tools, max_calls=5)
     for _ in range(5):
