@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 14 — Google OAuth and Gmail (waiting for user go-ahead; credentials checkpoint)
+PHASE 14 — Google OAuth and Gmail (waiting for user go-ahead; credentials checkpoint unblocked)
 
 ## Working components
 
@@ -32,7 +32,9 @@ Put OpenAI credentials only in `/opt/secretary/.env`.
 ## Security notes
 
 - `.env` is gitignored; no API keys in tracked files.
-- **VDS `POSTGRES_PASSWORD` is still the development default `secretary`** — coordinate manual rotation with the running PostgreSQL volume before exposing the DB further.
+- VDS PostgreSQL password rotated from the development default; real value stored only in `/opt/secretary/.env`.
+- Database remains on the private Docker network (not exposed publicly).
+- PHASE 14 Google OAuth/Gmail credential checkpoint is unblocked (password rotation complete).
 
 ## Known blockers
 

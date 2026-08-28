@@ -324,21 +324,3 @@ def test_notification_api_invalid_status_returns_422(db_session) -> None:
     assert response.status_code == 422
 
     app.dependency_overrides.clear()
-
-
-def test_notification_api_invalid_status_returns_422(db_session) -> None:
-    from fastapi.testclient import TestClient
-
-    from app.api.deps import get_db
-    from app.main import app
-
-    def override_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_db
-    client = TestClient(app)
-
-    response = client.get("/notifications", params={"status": "invalid"})
-    assert response.status_code == 422
-
-    app.dependency_overrides.clear()
