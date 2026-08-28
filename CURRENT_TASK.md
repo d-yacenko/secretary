@@ -1,15 +1,15 @@
-# Current task — PHASE 03
+# Current task — PHASE 04
 
 ## Goal
 
-Make the graph usable without any LLM.
+Allow the same object to appear in several maps.
 
 ## Do
 
-1. REST: `POST/GET/PATCH/DELETE /objects/{id}`, `POST/DELETE /edges/{id}`, `GET /objects/{id}/neighbors`, `GET /objects/{id}/context`.
-2. Service layer — no SQL in route handlers.
-3. Safe deletion (soft delete default or reject when uncertain).
+1. Table `views`: id, name, view_type, root_object_id NULL, settings JSONB, created_at, updated_at.
+2. Table `view_items`: view_id, object_id NULL, visual_id NULL, x, y, width, height, collapsed, settings JSONB.
+3. Coordinates belong to the view, not the object.
 
 ## Accept
 
-Integration test creates and links objects through HTTP.
+One task can appear with different coordinates in two views.

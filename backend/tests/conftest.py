@@ -2,7 +2,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.db.engine import engine
-from app.db.session import SessionLocal
 
 
 @pytest.fixture

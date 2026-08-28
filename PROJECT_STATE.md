@@ -2,24 +2,26 @@
 
 ## Current phase
 
-PHASE 03 — graph CRUD API (waiting for user go-ahead)
+PHASE 04 — views and map persistence (waiting for user go-ahead)
 
 ## Working components
 
-- PHASE 00–01: repo, Docker Compose, `/health`, worker stub, VDS deploy
-- PHASE 02: `objects` + `edges` tables, Alembic `0002`, ORM models, graph schema tests
-- Compose uses `${POSTGRES_*}` from `.env` (no hard-coded DB password)
+- PHASE 00–02: repo, Docker, pgvector, `objects` + `edges` schema
+- PHASE 03: REST graph CRUD (`/objects`, `/edges`, neighbors, context), service layer, HTTP tests
+- VDS: `/opt/secretary`, API `127.0.0.1:18080`
 
-## VDS (185.233.107.66)
+## VDS update
 
-- Path: `/opt/secretary`
-- API: `http://127.0.0.1:18080/health`
-- Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
+```bash
+cd /opt/secretary && git pull
+cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build
+curl -s http://127.0.0.1:18080/health
+```
 
 ## Known blockers
 
-- HTTPS reverse proxy for Secretary not configured yet.
+- HTTPS reverse proxy not configured yet.
 
 ## Next phase
 
-PHASE 03 — REST graph CRUD + service layer + HTTP integration tests.
+PHASE 04 — `views` and `view_items` tables; same object in multiple maps.
