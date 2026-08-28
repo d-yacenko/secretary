@@ -458,7 +458,7 @@ def test_context_service_includes_gmail_body(
     assert "Hello world" in target_items[0].content
 
 
-def test_second_sync_skips_known_gmail_messages_without_refetch(
+def test_second_sync_fetches_unchanged_message_without_duplicate_object_or_job(
     db_session,
     oauth_client_file: str,
     credential_key: str,
@@ -507,9 +507,9 @@ def test_second_sync_skips_known_gmail_messages_without_refetch(
     second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     assert second["created"] == 0
     assert second["updated"] == 0
-    assert second["skipped_known"] == 1
+    assert second["unchanged"] == 1
     assert second["jobs_enqueued"] == 0
-    assert get_calls == ["get"]
+    assert get_calls == ["get", "get"]
 
     obj = db_session.scalar(
         select(Object).where(Object.external_id == "msg-change", Object.provider == "gmail")
@@ -562,7 +562,7 @@ def test_gmail_resync_is_idempotent_without_duplicate_jobs(
     assert first["created"] == 1
     assert second["created"] == 0
     assert second["updated"] == 0
-    assert second["skipped_known"] == 1
+    assert second["unchanged"] == 1
     assert second["jobs_enqueued"] == 0
 
     count = db_session.scalar(
@@ -573,6 +573,124 @@ def test_gmail_resync_is_idempotent_without_duplicate_jobs(
         )
     )
     assert count is not None
+
+
+def test_gmail_resync_updates_object_and_enqueues_on_body_change(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    fetch_count = 0
+
+    def get_message(params, headers):
+        nonlocal fetch_count
+        fetch_count += 1
+        message = _sample_gmail_message("msg-body-upd")
+        if fetch_count >= 2:
+            message["payload"]["body"]["data"] = "VXBkYXRlZCBib2R5"
+        return httpx.Response(200, json=message)
+
+    fake_http = FakeHttpClient(
+        {
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+                200,
+                json={"messages": [{"id": "msg-body-upd"}]},
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages/msg-body-upd"): get_message,
+        }
+    )
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=fake_http,
+    )
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+
+    assert first["created"] == 1
+    assert second["updated"] == 1
+    assert second["jobs_enqueued"] == 1
+
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-body-upd", Object.provider == "gmail")
+    )
+    assert obj is not None
+    assert obj.body == "Updated body"
+
+
+def test_gmail_resync_updates_on_metadata_change(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    fetch_count = 0
+
+    def get_message(params, headers):
+        nonlocal fetch_count
+        fetch_count += 1
+        message = _sample_gmail_message("msg-meta-upd")
+        if fetch_count >= 2:
+            message["labelIds"] = ["INBOX", "STARRED"]
+        return httpx.Response(200, json=message)
+
+    fake_http = FakeHttpClient(
+        {
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+                200,
+                json={"messages": [{"id": "msg-meta-upd"}]},
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages/msg-meta-upd"): get_message,
+        }
+    )
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=fake_http,
+    )
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+
+    assert first["created"] == 1
+    assert second["updated"] == 1
+    assert second["jobs_enqueued"] == 1
+
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-meta-upd", Object.provider == "gmail")
+    )
+    assert obj is not None
+    assert "STARRED" in obj.metadata_["labels"]
 
 
 def test_gmail_normalization_keeps_headers_and_skips_raw_mime() -> None:

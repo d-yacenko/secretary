@@ -35,9 +35,6 @@ class GoogleAccountStore:
             )
         )
 
-    def get_by_id(self, account_id: UUID) -> GoogleAccount | None:
-        return self._session.get(GoogleAccount, account_id)
-
     def get_by_id_for_user(self, account_id: UUID, user_id: UUID) -> GoogleAccount | None:
         return self._session.scalar(
             select(GoogleAccount).where(
@@ -46,8 +43,10 @@ class GoogleAccountStore:
             )
         )
 
-    def load_credential_snapshot(self, account_id: UUID) -> AccountCredentialSnapshot | None:
-        account = self.get_by_id(account_id)
+    def load_credential_snapshot(
+        self, account_id: UUID, user_id: UUID
+    ) -> AccountCredentialSnapshot | None:
+        account = self.get_by_id_for_user(account_id, user_id)
         if account is None:
             return None
         return AccountCredentialSnapshot(

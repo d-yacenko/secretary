@@ -72,8 +72,8 @@ class GoogleTokenManager:
         self._account_store = account_store
         self._oauth_service = oauth_service
 
-    def get_valid_access_token(self, account_id: UUID) -> str:
-        snapshot = self._account_store.load_credential_snapshot(account_id)
+    def get_valid_access_token(self, account_id: UUID, user_id: UUID) -> str:
+        snapshot = self._account_store.load_credential_snapshot(account_id, user_id)
         if snapshot is None:
             raise GoogleConnectorError("google account not found")
 
@@ -94,7 +94,7 @@ class GoogleTokenManager:
         new_refresh = payload.get("refresh_token")
         new_expiry = parse_token_expiry(payload.get("expires_in"))
 
-        account = self._account_store.get_by_id(account_id)
+        account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
             raise GoogleConnectorError("google account not found")
         self._account_store.update_tokens_from_refresh(

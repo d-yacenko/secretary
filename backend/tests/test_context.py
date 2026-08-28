@@ -50,6 +50,7 @@ def _ingest_long_document(
     )
     rep_service = RepresentationService(
         db_session,
+        BOOTSTRAP_USER_ID,
         embedding_service=embedding_service,
         summarizer=FakeSummarizer(max_chars=120),
     )
@@ -154,7 +155,7 @@ def test_context_contains_only_bounded_chunks(
         )
     )
 
-    rep_service = RepresentationService(db_session, embedding_service=fake_embedding_service)
+    rep_service = RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service)
     all_chunks = [
         rep
         for rep in rep_service.list_for_object(doc.id)
@@ -282,7 +283,7 @@ def test_dataset_context_uses_schema_sample_statistics_not_full(
         )
     )
 
-    RepresentationService(db_session, embedding_service=fake_embedding_service).ingest_file(
+    RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service).ingest_file(
         dataset.id, csv_path
     )
 
@@ -327,7 +328,7 @@ def test_dataset_parquet_context_policy(
             state="observed",
         )
     )
-    RepresentationService(db_session, embedding_service=fake_embedding_service).ingest_file(
+    RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service).ingest_file(
         dataset.id, parquet_path
     )
 
@@ -387,6 +388,7 @@ def test_reingest_replaces_previous_representations(
     )
     service = RepresentationService(
         db_session,
+        BOOTSTRAP_USER_ID,
         embedding_service=fake_embedding_service,
         summarizer=FakeSummarizer(max_chars=80),
     )

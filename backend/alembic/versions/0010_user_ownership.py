@@ -11,14 +11,14 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.users.bootstrap import BOOTSTRAP_DISPLAY_NAME, BOOTSTRAP_USER_ID
-
 revision: str = "0010"
 down_revision: Union[str, None] = "0009"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-BOOTSTRAP_USER_ID_STR = str(BOOTSTRAP_USER_ID)
+BOOTSTRAP_USER_ID = "00000000-0000-4000-8000-000000000001"
+BOOTSTRAP_DISPLAY_NAME = "Owner"
+BOOTSTRAP_USER_ID_STR = BOOTSTRAP_USER_ID
 
 
 def upgrade() -> None:

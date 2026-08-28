@@ -32,14 +32,17 @@ class RepresentationService:
     def __init__(
         self,
         session: Session,
+        user_id: UUID,
         embedding_service: EmbeddingService | None = None,
         summarizer: Summarizer | None = None,
     ) -> None:
         self._session = session
+        self._user_id = user_id
         self._embedding_service = embedding_service
         self._summarizer = summarizer or FakeSummarizer()
 
     def list_for_object(self, object_id: UUID) -> list[Representation]:
+        self._get_object(object_id)
         return list(
             self._session.scalars(
                 select(Representation)
@@ -68,7 +71,9 @@ class RepresentationService:
         return self._replace_representations(object_id, reps)
 
     def _get_object(self, object_id: UUID) -> Object:
-        obj = self._session.get(Object, object_id)
+        obj = self._session.scalar(
+            select(Object).where(Object.id == object_id, Object.user_id == self._user_id)
+        )
         if obj is None:
             raise NotFoundError("object", object_id)
         return obj

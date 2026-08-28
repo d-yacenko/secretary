@@ -222,6 +222,7 @@ def test_context_omits_chunks_when_embedding_fails(db_session) -> None:
     )
     RepresentationService(
         db_session,
+        BOOTSTRAP_USER_ID,
         embedding_service=FakeEmbeddingService(),
         summarizer=FakeSummarizer(max_chars=80),
     ).ingest_text_content(doc.id, "budget planning revenue " * 120)
@@ -247,6 +248,7 @@ def test_long_document_target_context_includes_summary_and_chunks(db_session) ->
     )
     RepresentationService(
         db_session,
+        BOOTSTRAP_USER_ID,
         embedding_service=FakeEmbeddingService(),
         summarizer=FakeSummarizer(max_chars=80),
     ).ingest_text_content(doc.id, "budget revenue expense planning " * 100)

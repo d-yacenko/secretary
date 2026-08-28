@@ -38,6 +38,7 @@ def fake_embedding_service() -> FakeEmbeddingService:
 def representation_service(db_session, fake_embedding_service) -> RepresentationService:
     return RepresentationService(
         db_session,
+        BOOTSTRAP_USER_ID,
         embedding_service=fake_embedding_service,
         summarizer=FakeSummarizer(max_chars=80),
     )
@@ -101,7 +102,7 @@ def test_csv_creates_schema_and_sample(tmp_path: Path, db_session, fake_embeddin
     csv_path.write_text("name,value\nalpha,1\nbeta,2\n", encoding="utf-8")
 
     obj = _create_resource_object(db_session, canonical_uri=str(csv_path))
-    service = RepresentationService(db_session, embedding_service=fake_embedding_service)
+    service = RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service)
     reps = service.ingest_file(obj.id, csv_path)
 
     kinds = {rep.kind for rep in reps}
@@ -121,7 +122,7 @@ def test_csv_does_not_create_full_representation(
     csv_path.write_text("\n".join(rows), encoding="utf-8")
 
     obj = _create_resource_object(db_session)
-    service = RepresentationService(db_session, embedding_service=fake_embedding_service)
+    service = RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service)
     reps = service.ingest_file(obj.id, csv_path)
 
     assert KIND_FULL not in {rep.kind for rep in reps}
@@ -140,7 +141,7 @@ def test_parquet_follows_dataset_policy(tmp_path: Path, db_session, fake_embeddi
     pq.write_table(table, parquet_path)
 
     obj = _create_resource_object(db_session, canonical_uri=str(parquet_path))
-    service = RepresentationService(db_session, embedding_service=fake_embedding_service)
+    service = RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service)
     reps = service.ingest_file(obj.id, parquet_path)
 
     kinds = {rep.kind for rep in reps}
@@ -173,7 +174,7 @@ def test_chunk_representations_use_embedding_service(
     db_session, fake_embedding_service: FakeEmbeddingService
 ) -> None:
     obj = _create_resource_object(db_session)
-    service = RepresentationService(db_session, embedding_service=fake_embedding_service)
+    service = RepresentationService(db_session, BOOTSTRAP_USER_ID, embedding_service=fake_embedding_service)
     text = "x" * (SMALL_TEXT_MAX_CHARS + 50)
     reps = service.ingest_text_content(obj.id, text)
 

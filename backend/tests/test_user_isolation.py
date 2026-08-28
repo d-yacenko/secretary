@@ -14,12 +14,17 @@ from app.api.schemas import EdgeCreate, ObjectCreate
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
+from app.connectors.google.errors import GoogleConnectorError
 from app.connectors.google.gmail_sync import build_gmail_sync_service
+from app.connectors.google.gmail_transport import GmailTransport, GoogleTokenManager
+from app.connectors.google.oauth_service import GoogleOAuthService
 from app.connectors.google.oauth_state import OAuthStateService
 from app.db.models import Job, Object, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.jobs.handlers import handle_embed_object
 from app.llm.embedding_service import FakeEmbeddingService
+from app.llm.summarizer import FakeSummarizer
+from app.services.representation_service import RepresentationService
 from app.services.context_service import ContextService
 from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
@@ -406,7 +411,9 @@ def test_current_user_dependency_returns_bootstrap_owner() -> None:
     assert ctx.user_id == BOOTSTRAP_USER_ID
 
 
-def test_gmail_second_sync_skips_fetch_for_known_id(db_session, tmp_path) -> None:
+def test_gmail_second_sync_fetches_unchanged_without_duplicate_object_or_job(
+    db_session, tmp_path
+) -> None:
     key = Fernet.generate_key().decode()
     oauth_file = tmp_path / "oauth.json"
     oauth_file.write_text(
@@ -449,5 +456,91 @@ def test_gmail_second_sync_skips_fetch_for_known_id(db_session, tmp_path) -> Non
     first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     assert first["created"] == 1
-    assert second["skipped_known"] == 1
-    assert get_calls == 1
+    assert second["unchanged"] == 1
+    assert get_calls == 2
+
+
+def test_user_b_cannot_load_credentials_for_user_a_google_account(
+    db_session, user_b_id, tmp_path
+) -> None:
+    key = Fernet.generate_key().decode()
+    oauth_file = tmp_path / "oauth.json"
+    oauth_file.write_text(
+        json.dumps({"web": {"client_id": "id", "client_secret": "secret"}}),
+        encoding="utf-8",
+    )
+    store = GoogleAccountStore(db_session, CredentialEncryption(key))
+    account = store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="owner@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="token",
+        refresh_token="refresh",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    assert store.load_credential_snapshot(account.id, user_b_id) is None
+
+    token_manager = GoogleTokenManager(
+        db_session,
+        store,
+        GoogleOAuthService(str(oauth_file), "http://localhost:18080/auth/google/callback"),
+    )
+    with pytest.raises(GoogleConnectorError, match="google account not found"):
+        token_manager.get_valid_access_token(account.id, user_b_id)
+
+
+def test_user_b_cannot_list_representations_for_user_a_object(
+    db_session, user_b_id, fake_embedding
+) -> None:
+    graph_a = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding)
+    obj = graph_a.create_object(
+        ObjectCreate(kind="document", title="Private doc", origin="user")
+    )
+    RepresentationService(db_session, BOOTSTRAP_USER_ID, fake_embedding).ingest_text_content(
+        obj.id, "private representation text"
+    )
+    with pytest.raises(NotFoundError):
+        RepresentationService(db_session, user_b_id, fake_embedding).list_for_object(obj.id)
+
+
+def test_user_b_cannot_ingest_representations_for_user_a_object(
+    db_session, user_b_id, fake_embedding
+) -> None:
+    graph_a = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding)
+    obj = graph_a.create_object(
+        ObjectCreate(kind="document", title="Locked doc", origin="user")
+    )
+    with pytest.raises(NotFoundError):
+        RepresentationService(db_session, user_b_id, fake_embedding).ingest_text_content(
+            obj.id, "attempted ingest"
+        )
+
+
+def test_context_for_user_b_never_contains_user_a_representations(
+    db_session, user_b_id, fake_embedding
+) -> None:
+    graph_a = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding)
+    doc = graph_a.create_object(
+        ObjectCreate(
+            kind="document",
+            title="Secret doc",
+            origin="user",
+            canonical_uri="file:///secret.md",
+        )
+    )
+    RepresentationService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        fake_embedding,
+        summarizer=FakeSummarizer(max_chars=80),
+    ).ingest_text_content(doc.id, "secret-marker-text " * 40)
+    task_b = GraphService(db_session, user_b_id, fake_embedding).create_object(
+        ObjectCreate(kind="task", title="User B task", origin="user")
+    )
+    context = ContextService(db_session, user_b_id, fake_embedding).build_context(
+        object_id=task_b.id,
+        query="secret-marker-text",
+    )
+    assert all("secret-marker-text" not in item.content for item in context.items)

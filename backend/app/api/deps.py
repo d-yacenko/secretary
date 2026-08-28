@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.current_user import CurrentUserContext
 from app.db.session import SessionLocal
 from app.llm.embedding_service import EmbeddingService, create_embedding_service
-from app.users.bootstrap import BOOTSTRAP_USER_ID
+from app.users.current_user_provider import resolve_current_user
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -27,7 +27,7 @@ def get_embedding_service() -> EmbeddingService:
 
 
 def get_current_user() -> CurrentUserContext:
-    return CurrentUserContext(user_id=BOOTSTRAP_USER_ID)
+    return resolve_current_user()
 
 
 def get_user_id(current_user: CurrentUserContext = Depends(get_current_user)) -> UUID:
