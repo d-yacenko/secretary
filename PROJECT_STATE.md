@@ -23,8 +23,15 @@ PHASE 12 — PostgreSQL job queue (waiting for user go-ahead)
 cd /opt/secretary && git pull
 cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build
 curl -s http://127.0.0.1:18080/health
-docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml exec api \
-  python -c "import asyncio; from mcp.client import Client; from mcp.client.streamable_http import streamable_http_client; async def s(): async with streamable_http_client('http://127.0.0.1:8000/mcp/') as t: async with Client(t) as c: r=await c.list_tools(); print(sorted(x.name for x in r.tools)); asyncio.run(s())"
+docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml exec -T api python -c "
+import asyncio
+from mcp.client import Client
+async def main():
+    async with Client('http://127.0.0.1:8000/mcp/') as c:
+        r = await c.list_tools()
+        print(sorted(t.name for t in r.tools))
+asyncio.run(main())
+"
 ```
 
 Put OpenAI credentials only in `/opt/secretary/.env`.
