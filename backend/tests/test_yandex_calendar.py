@@ -226,6 +226,28 @@ def test_caldav_discovery_uses_principal_then_calendar_home() -> None:
     assert http.requests[1] == ("PROPFIND", HOME_HREF, "1")
 
 
+def test_query_events_does_not_use_expand_on_yandex_incompatible_calendar_query() -> None:
+    captured: dict[str, str] = {}
+
+    class QueryHttpClient:
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            captured["body"] = kwargs.get("content", b"").decode("utf-8")
+            xml = "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'></d:multistatus>"
+            return httpx.Response(207, text=xml)
+
+    transport = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=QueryHttpClient(),
+    )
+    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    transport.query_events(CALENDAR_HREF, time_min, time_max, 10)
+    assert "<c:expand" not in captured["body"]
+    assert "<c:time-range" in captured["body"]
+    assert "</c:filter>" in captured["body"]
+
+
 def test_sync_collection_uses_depth_zero_and_dav_limit_wrapper() -> None:
     captured: dict[str, str] = {}
 

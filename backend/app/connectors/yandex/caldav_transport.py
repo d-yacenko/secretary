@@ -230,19 +230,19 @@ class CalDavHttpTransport:
     ) -> CalDavFetchResult:
         start = _format_caldav_time(time_min)
         end = _format_caldav_time(time_max)
+        # Yandex CalDAV rejects calendar-query with c:expand (400); expand recurring
+        # occurrences via sync-collection instead.
         body = (
             "<?xml version='1.0' encoding='UTF-8'?>"
             "<c:calendar-query xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
             "<d:prop>"
             "<d:getetag/>"
-            "<c:calendar-data>"
-            f"<c:expand start='{start}' end='{end}'/>"
-            "</c:calendar-data>"
+            "<c:calendar-data/>"
             "</d:prop>"
             f"<c:filter><c:comp-filter name='VCALENDAR'>"
             f"<c:comp-filter name='VEVENT'>"
             f"<c:time-range start='{start}' end='{end}'/>"
-            "</c:comp-filter></c:comp-filter>"
+            "</c:comp-filter></c:comp-filter></c:filter>"
             "</c:calendar-query>"
         )
         xml = self._request("REPORT", calendar_href, body, depth="1")
