@@ -1,31 +1,30 @@
-# Current task — PHASE 14
+# Current task — PHASE 15
 
 ## Goal
 
-Synchronize Gmail into graph objects via Google OAuth.
+Synchronize Google Calendar events into graph objects (readonly).
 
-## Prerequisites (credentials checkpoint)
+## Prerequisites
 
-- Google Cloud project with OAuth client credentials.
-- Store refresh/access tokens encrypted at rest.
-- Do not commit credentials or request Google secrets during planning.
+- PHASE 14 accepted (OAuth, encrypted credentials, connector boundary).
+- Calendar API scope decision (likely `calendar.readonly`).
+- Same OAuth redirect/tunnel pattern as Gmail.
 
-## Do
+## Do (when approved)
 
-1. Google OAuth web flow.
-2. `GoogleAccount` storage with encrypted tokens.
-3. Bounded initial Gmail sync → `objects(kind=email)`.
-4. Queue embedding + analysis jobs for synced mail.
+1. Extend Google connector for Calendar transport + normalization.
+2. Bounded initial calendar sync → `objects(kind=event or calendar_event)`.
+3. Idempotent sync by external id; enqueue `embed_object` for new/changed items.
 
 ## Defer
 
-- Gmail push/Pub/Sub until base sync is stable.
-- External notification delivery.
+- Calendar write / event creation.
+- Gmail push, continuous polling (still deferred from PHASE 14).
 
 ## Accept
 
-OAuth connect works; recent Gmail messages appear as graph email objects with provenance.
+Connected account can sync recent calendar events as observed source objects with provenance.
 
 ## Note
 
-Secrets only in `.env`. Stop after phase for user review.
+Stop after phase for user review. Do not auto-start PHASE 16.
