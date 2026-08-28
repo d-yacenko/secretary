@@ -6,7 +6,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.connectors.google.constants import GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
+from app.connectors.google.calendar_sync import build_calendar_sync_service
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleConfigurationError, GoogleConnectorError, GoogleOAuthError
 from app.connectors.google.gmail_sync import build_gmail_sync_service
@@ -68,6 +69,12 @@ def google_oauth_callback(
         access_token = str(token_payload["access_token"])
         refresh_token = token_payload.get("refresh_token")
         token_expiry = parse_token_expiry(token_payload.get("expires_in"))
+        granted_scope = token_payload.get("scope")
+        scopes = (
+            str(granted_scope).split()
+            if granted_scope
+            else [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE]
+        )
 
         gmail_transport = GmailTransport()
         email = gmail_transport.fetch_account_email(access_token)
@@ -76,7 +83,7 @@ def google_oauth_callback(
         account = account_store.upsert_tokens(
             user_id=owner_user_id,
             email=email,
-            scopes=[GMAIL_READONLY_SCOPE],
+            scopes=scopes,
             access_token=access_token,
             refresh_token=str(refresh_token) if refresh_token else None,
             token_expiry=token_expiry,
@@ -121,6 +128,47 @@ def gmail_sync(
             sync_days=settings.gmail_sync_days,
             default_limit=settings.gmail_sync_default_limit,
             max_limit=settings.gmail_sync_max_limit,
+        )
+        result = sync_service.sync_account(
+            account.id,
+            user_id=current_user.user_id,
+            limit=limit,
+        )
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+    except GoogleConnectorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+
+    return result
+
+
+@router.post("/connectors/google/calendar/sync")
+def calendar_sync(
+    account_id: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        account_store = _account_store(session)
+        if account_id:
+            account = account_store.get_by_id_for_user(UUID(account_id), current_user.user_id)
+        else:
+            accounts = account_store.list_accounts(current_user.user_id)
+            account = accounts[0] if accounts else None
+        if account is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="google account not found")
+
+        sync_service = build_calendar_sync_service(
+            session=session,
+            credential_key=settings.secretary_credential_key,
+            client_file=settings.google_oauth_client_file,
+            redirect_uri=settings.google_redirect_uri,
+            days_back=settings.calendar_sync_days_back,
+            days_forward=settings.calendar_sync_days_forward,
+            default_limit=settings.calendar_sync_default_limit,
+            max_limit=settings.calendar_sync_max_limit,
+            max_calendars=settings.calendar_sync_max_calendars,
         )
         result = sync_service.sync_account(
             account.id,

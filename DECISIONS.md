@@ -11,6 +11,7 @@ Entries added when a choice will matter in later phases.
 - `external_id` identifies a source object; it is **not** proof the object is unchanged.
 - Skip fetch/process only when provider-specific version, cursor, ETag, timestamp, or content comparison shows no material change.
 - Gmail normal sync: bounded list → bounded fetch → normalize → user-scoped upsert → compare fields → embed only when new/changed.
+- Google Calendar sync: bounded time window → list calendars/events → user-scoped upsert → compare fields → embed only when new/changed.
 - Google credential APIs require both `account_id` and `user_id`.
 - `RepresentationService` is user-scoped via parent `Object.user_id`.
 - OAuth state carries `user_id`; Google email is not Secretary user identity.

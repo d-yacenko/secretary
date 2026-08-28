@@ -1,12 +1,23 @@
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+
+GOOGLE_OAUTH_SCOPES = [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE]
 
 DEFAULT_SYNC_LIMIT = 50
 MAX_SYNC_LIMIT = 100
 DEFAULT_SYNC_DAYS = 30
 MAX_EMAIL_BODY_CHARS = 8000
 
+DEFAULT_CALENDAR_SYNC_DAYS_BACK = 60
+DEFAULT_CALENDAR_SYNC_DAYS_FORWARD = 90
+DEFAULT_CALENDAR_SYNC_MAX_EVENTS = 100
+MAX_CALENDAR_SYNC_EVENTS = 100
+MAX_CALENDAR_SYNC_CALENDARS = 10
+MAX_EVENT_BODY_CHARS = 8000
+
 OAUTH_STATE_TTL_MINUTES = 10
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1"
+CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"

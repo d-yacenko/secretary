@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     gmail_sync_default_limit: int = 50
     gmail_sync_max_limit: int = 100
     gmail_sync_days: int = 30
+    calendar_sync_days_back: int = 60
+    calendar_sync_days_forward: int = 90
+    calendar_sync_default_limit: int = 100
+    calendar_sync_max_limit: int = 100
+    calendar_sync_max_calendars: int = 10
 
     @property
     def database_url(self) -> str:

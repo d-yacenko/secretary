@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from app.connectors.google.constants import GMAIL_READONLY_SCOPE, GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL
+from app.connectors.google.constants import GOOGLE_OAUTH_SCOPES, GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError, GoogleOAuthError
 from app.connectors.google.oauth_config import load_oauth_client_config
 
@@ -35,7 +35,7 @@ class GoogleOAuthService:
             "client_id": self._config["client_id"],
             "redirect_uri": self._redirect_uri,
             "response_type": "code",
-            "scope": GMAIL_READONLY_SCOPE,
+            "scope": " ".join(GOOGLE_OAUTH_SCOPES),
             "state": state,
             "access_type": "offline",
             "prompt": "consent",

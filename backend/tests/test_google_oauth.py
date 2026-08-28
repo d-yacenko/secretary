@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.api.deps import get_db
-from app.connectors.google.constants import GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE, GOOGLE_OAUTH_SCOPES
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConfigurationError, GoogleOAuthError
@@ -148,7 +148,7 @@ def test_oauth_start_redirects_with_state_scope_and_redirect(
     location = response.headers["location"]
     assert "accounts.google.com" in location
     params = parse_qs(urlparse(location).query)
-    assert params["scope"] == [GMAIL_READONLY_SCOPE]
+    assert params["scope"] == [" ".join(GOOGLE_OAUTH_SCOPES)]
     assert params["redirect_uri"] == ["http://localhost:18080/auth/google/callback"]
     assert params["access_type"] == ["offline"]
     assert params["state"]
