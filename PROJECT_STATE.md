@@ -2,30 +2,24 @@
 
 ## Current phase
 
-PHASE 02 — core database model (waiting for user go-ahead)
+PHASE 03 — graph CRUD API (waiting for user go-ahead)
 
 ## Working components
 
-- Repository skeleton (PHASE 00)
-- Docker Compose: `db`, `api`, `worker` (`infra/compose.yaml`)
-- PostgreSQL 16 + pgvector (Alembic migration `0001`)
-- FastAPI `/health` with DB check
-- Worker stub logs alive
-- Backend tests: health + DB connection
-- VDS deploy: `/opt/secretary`, `infra/compose.deploy.yaml` (API `127.0.0.1:18080`)
+- PHASE 00–01: repo, Docker Compose, `/health`, worker stub, VDS deploy
+- PHASE 02: `objects` + `edges` tables, Alembic `0002`, ORM models, graph schema tests
+- Compose uses `${POSTGRES_*}` from `.env` (no hard-coded DB password)
 
 ## VDS (185.233.107.66)
 
 - Path: `/opt/secretary`
-- Domain on host: `web-itx.duckdns.org` (nginx 80/443 — existing site)
-- Secretary API: `http://127.0.0.1:18080/health` (localhost only; HTTPS proxy later)
+- API: `http://127.0.0.1:18080/health`
 - Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ## Known blockers
 
-- Dev host: `docker compose` plugin missing; use `docker run` or install Compose v2.
-- HTTPS for Secretary API not configured yet (nginx + Certbot on subdomain/path — later).
+- HTTPS reverse proxy for Secretary not configured yet.
 
 ## Next phase
 
-PHASE 02 — `objects` and `edges` tables, indexes, constraints, graph seed tests.
+PHASE 03 — REST graph CRUD + service layer + HTTP integration tests.

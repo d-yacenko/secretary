@@ -2,11 +2,15 @@ services:
   db:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: secretary
-      POSTGRES_USER: secretary
-      POSTGRES_PASSWORD: secretary
+      POSTGRES_DB: ${POSTGRES_DB:-secretary}
+      POSTGRES_USER: ${POSTGRES_USER:-secretary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secretary}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U secretary -d secretary"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-secretary} -d ${POSTGRES_DB:-secretary}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,12 +23,12 @@ services:
       dockerfile: Dockerfile
     environment:
       POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: secretary
-      POSTGRES_USER: secretary
-      POSTGRES_PASSWORD: secretary
-      API_HOST: 0.0.0.0
-      API_PORT: 8000
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-secretary}
+      POSTGRES_USER: ${POSTGRES_USER:-secretary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secretary}
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-8000}
     ports:
       - "${SECRETARY_API_BIND:-0.0.0.0:8000}:8000"
     depends_on:
@@ -39,10 +43,10 @@ services:
       dockerfile: Dockerfile
     environment:
       POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: secretary
-      POSTGRES_USER: secretary
-      POSTGRES_PASSWORD: secretary
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-secretary}
+      POSTGRES_USER: ${POSTGRES_USER:-secretary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secretary}
     depends_on:
       db:
         condition: service_healthy
