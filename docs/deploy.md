@@ -12,7 +12,7 @@ cp .env.example .env
 # VDS: bind API on localhost, avoid port clashes with other services
 echo 'SECRETARY_API_BIND=127.0.0.1:18080' >> .env
 cd infra
-docker compose -f compose.yaml -f compose.deploy.yaml up -d --build
+docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build
 curl -s http://127.0.0.1:18080/health
 ```
 
