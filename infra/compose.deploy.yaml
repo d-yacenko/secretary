@@ -1,0 +1,7 @@
+# Production overlay: API on localhost only; DB not exposed on the host.
+services:
+  db:
+    ports: []
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
