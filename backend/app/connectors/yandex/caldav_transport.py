@@ -6,7 +6,10 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
-from app.connectors.yandex.constants import DEFAULT_CALDAV_BASE_URL
+from app.connectors.yandex.constants import (
+    CALENDAR_MULTIGET_BATCH_SIZE,
+    DEFAULT_CALDAV_BASE_URL,
+)
 from app.connectors.yandex.errors import YandexCalDavError, YandexCalDavStaleSyncTokenError
 
 DAV_NS = "DAV:"
@@ -113,6 +116,12 @@ class CalDavCalendar:
 
 
 @dataclass(frozen=True)
+class CalDavEventRef:
+    event_href: str
+    etag: str | None
+
+
+@dataclass(frozen=True)
 class CalDavEvent:
     event_href: str
     etag: str | None
@@ -166,6 +175,7 @@ class CalDavHttpTransport:
         self.last_request_depth: str | None = None
         self.last_request_path: str | None = None
         self.last_request_body: str | None = None
+        self.last_multiget_body: str | None = None
 
     def _principal_path(self) -> str:
         return f"/principals/users/{self._email}/"
@@ -228,17 +238,39 @@ class CalDavHttpTransport:
         time_max: datetime,
         max_results: int,
     ) -> CalDavFetchResult:
+        refs, sync_token, deleted, truncated = self._query_event_refs(
+            calendar_href=calendar_href,
+            time_min=time_min,
+            time_max=time_max,
+            max_results=max_results,
+        )
+        events = self._multiget_events(
+            calendar_href=calendar_href,
+            refs=refs,
+            time_min=time_min,
+            time_max=time_max,
+        )
+        return CalDavFetchResult(
+            events=events,
+            sync_token=sync_token,
+            deleted_hrefs=deleted,
+            truncated=truncated,
+        )
+
+    def _query_event_refs(
+        self,
+        calendar_href: str,
+        time_min: datetime,
+        time_max: datetime,
+        max_results: int,
+    ) -> tuple[list[CalDavEventRef], str | None, list[str], bool]:
         start = _format_caldav_time(time_min)
         end = _format_caldav_time(time_max)
-        # Yandex CalDAV rejects calendar-query with c:expand (400); expand recurring
-        # occurrences via sync-collection instead.
+        # Yandex CalDAV rejects calendar-query with c:expand (400).
         body = (
             "<?xml version='1.0' encoding='UTF-8'?>"
             "<c:calendar-query xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
-            "<d:prop>"
-            "<d:getetag/>"
-            "<c:calendar-data/>"
-            "</d:prop>"
+            "<d:prop><d:getetag/></d:prop>"
             f"<c:filter><c:comp-filter name='VCALENDAR'>"
             f"<c:comp-filter name='VEVENT'>"
             f"<c:time-range start='{start}' end='{end}'/>"
@@ -246,15 +278,44 @@ class CalDavHttpTransport:
             "</c:calendar-query>"
         )
         xml = self._request("REPORT", calendar_href, body, depth="1")
-        events, sync_token, deleted, truncated = self._parse_event_multistatus(xml)
-        if len(events) > max_results:
-            events = sorted(events, key=lambda item: item.event_href)[:max_results]
-        return CalDavFetchResult(
-            events=events,
-            sync_token=sync_token,
-            deleted_hrefs=deleted,
-            truncated=truncated,
-        )
+        refs, sync_token, deleted, truncated = self._parse_href_multistatus(xml)
+        if len(refs) > max_results:
+            refs = sorted(refs, key=lambda item: item.event_href)[:max_results]
+        return refs, sync_token, deleted, truncated
+
+    def _multiget_events(
+        self,
+        calendar_href: str,
+        refs: list[CalDavEventRef],
+        time_min: datetime,
+        time_max: datetime,
+    ) -> list[CalDavEvent]:
+        if not refs:
+            return []
+        start = _format_caldav_time(time_min)
+        end = _format_caldav_time(time_max)
+        events: list[CalDavEvent] = []
+        batch_size = CALENDAR_MULTIGET_BATCH_SIZE
+        for offset in range(0, len(refs), batch_size):
+            batch = refs[offset : offset + batch_size]
+            href_elements = "".join(f"<d:href>{ref.event_href}</d:href>" for ref in batch)
+            body = (
+                "<?xml version='1.0' encoding='UTF-8'?>"
+                "<c:calendar-multiget xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+                "<d:prop>"
+                "<d:getetag/>"
+                "<c:calendar-data>"
+                f"<c:expand start='{start}' end='{end}'/>"
+                "</c:calendar-data>"
+                "</d:prop>"
+                f"{href_elements}"
+                "</c:calendar-multiget>"
+            )
+            self.last_multiget_body = body
+            xml = self._request("REPORT", calendar_href, body, depth="1")
+            batch_events, _, _, _ = self._parse_event_multistatus(xml)
+            events.extend(batch_events)
+        return events
 
     def sync_collection(
         self,
@@ -333,6 +394,40 @@ class CalDavHttpTransport:
             )
         return calendars
 
+    def _parse_href_multistatus(
+        self, xml_text: str
+    ) -> tuple[list[CalDavEventRef], str | None, list[str], bool]:
+        root = _parse_multistatus_root(xml_text)
+        refs: list[CalDavEventRef] = []
+        deleted: list[str] = []
+        sync_token: str | None = None
+        truncated = False
+        for child in root:
+            tag = _local_name(child.tag)
+            if tag == "sync-token" and child.text:
+                sync_token = child.text.strip()
+            if tag != "response":
+                continue
+            href_el = _find_child(child, "href")
+            if href_el is None or not href_el.text:
+                continue
+            event_href = href_el.text.strip()
+            response_status = _status_text(child)
+            if response_status is not None and _is_status_not_found(response_status):
+                deleted.append(event_href)
+                continue
+            if response_status is not None and _is_status_insufficient_storage(response_status):
+                truncated = True
+                continue
+            merged = _merge_ok_prop_values(child)
+            refs.append(
+                CalDavEventRef(
+                    event_href=event_href,
+                    etag=merged.get("getetag"),
+                )
+            )
+        return refs, sync_token, deleted, truncated
+
     def _parse_event_multistatus(
         self, xml_text: str
     ) -> tuple[list[CalDavEvent], str | None, list[str], bool]:
@@ -394,6 +489,7 @@ class FakeCalDavTransport:
         self,
         calendars: list[CalDavCalendar] | None = None,
         query_events_by_calendar: dict[str, list[CalDavEvent]] | None = None,
+        multiget_events_by_calendar: dict[str, dict[str, CalDavEvent]] | None = None,
         sync_batches_by_calendar: dict[str, dict[str, CalDavFetchResult]] | None = None,
         sync_tokens_by_calendar: dict[str, str] | None = None,
         stale_sync_tokens: set[str] | None = None,
@@ -402,12 +498,14 @@ class FakeCalDavTransport:
     ) -> None:
         self._calendars = calendars or []
         self._query_events = query_events_by_calendar or {}
+        self._multiget_events = multiget_events_by_calendar or {}
         self._sync_batches = sync_batches_by_calendar or {}
         self._sync_tokens = sync_tokens_by_calendar or {}
         self._stale_sync_tokens = stale_sync_tokens or set()
         self._calendar_order = calendar_order
         self.sync_collection_calls: list[tuple[str, str, int]] = []
         self.query_calls: list[str] = []
+        self.multiget_calls: list[tuple[str, list[str]]] = []
         self.discover_calls = 0
         self._tx_checker = tx_checker
 
@@ -433,16 +531,37 @@ class FakeCalDavTransport:
     ) -> CalDavFetchResult:
         self._check_tx()
         self.query_calls.append(calendar_href)
-        events = sorted(self._query_events.get(calendar_href, []), key=lambda item: item.event_href)
-        events = [
-            event
-            for event in events
+        source_events = sorted(
+            self._query_events.get(calendar_href, []), key=lambda item: item.event_href
+        )
+        refs = [
+            CalDavEventRef(event_href=event.event_href, etag=event.etag)
+            for event in source_events
             if self._event_in_time_range(event, time_min, time_max)
         ]
-        if len(events) > max_results:
-            events = events[:max_results]
+        if len(refs) > max_results:
+            refs = refs[:max_results]
+        expanded_events = self._multiget_from_refs(calendar_href, refs)
         token = self._sync_tokens.get(calendar_href)
-        return CalDavFetchResult(events=events, sync_token=token)
+        return CalDavFetchResult(events=expanded_events, sync_token=token)
+
+    def _multiget_from_refs(
+        self, calendar_href: str, refs: list[CalDavEventRef]
+    ) -> list[CalDavEvent]:
+        if not refs:
+            return []
+        self.multiget_calls.append((calendar_href, [ref.event_href for ref in refs]))
+        multiget_map = self._multiget_events.get(calendar_href, {})
+        source_map = {
+            event.event_href: event for event in self._query_events.get(calendar_href, [])
+        }
+        events: list[CalDavEvent] = []
+        for ref in refs:
+            if ref.event_href in multiget_map:
+                events.append(multiget_map[ref.event_href])
+            elif ref.event_href in source_map:
+                events.append(source_map[ref.event_href])
+        return events
 
     def _event_in_time_range(
         self,

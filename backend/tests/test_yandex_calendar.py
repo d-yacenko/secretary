@@ -244,8 +244,55 @@ def test_query_events_does_not_use_expand_on_yandex_incompatible_calendar_query(
     time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
     transport.query_events(CALENDAR_HREF, time_min, time_max, 10)
     assert "<c:expand" not in captured["body"]
+    assert "<c:calendar-data" not in captured["body"]
+    assert "<d:getetag/>" in captured["body"]
     assert "<c:time-range" in captured["body"]
     assert "</c:filter>" in captured["body"]
+
+
+def test_calendar_multiget_uses_expand_with_bounded_range() -> None:
+    captured: dict[str, str] = {}
+    query_xml = (
+        "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+        "<d:response><d:href>" + CALENDAR_HREF + "evt-a.ics</d:href>"
+        "<d:propstat><d:prop><d:getetag>etag-a</d:getetag></d:prop>"
+        "<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+        "</d:multistatus>"
+    )
+    multiget_xml = (
+        "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+        "<d:response><d:href>" + CALENDAR_HREF + "evt-a.ics</d:href>"
+        "<d:propstat><d:prop><c:calendar-data>BEGIN:VEVENT\nUID:evt-a\nEND:VEVENT</c:calendar-data>"
+        "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+        "</d:multistatus>"
+    )
+    call = 0
+
+    class TwoStepHttpClient:
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            nonlocal call
+            call += 1
+            body = kwargs.get("content", b"").decode("utf-8")
+            if "calendar-query" in body:
+                captured["query_body"] = body
+                return httpx.Response(207, text=query_xml)
+            captured["multiget_body"] = body
+            return httpx.Response(207, text=multiget_xml)
+
+    transport = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=TwoStepHttpClient(),
+    )
+    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    result = transport.query_events(CALENDAR_HREF, time_min, time_max, 10)
+    assert call == 2
+    assert len(result.events) == 1
+    assert "<c:expand" in captured["multiget_body"]
+    assert "20260101T000000Z" in captured["multiget_body"]
+    assert "20261231T000000Z" in captured["multiget_body"]
+    assert "calendar-multiget" in captured["multiget_body"]
 
 
 def test_sync_collection_uses_depth_zero_and_dav_limit_wrapper() -> None:
@@ -681,6 +728,135 @@ def test_user_b_cannot_sync_user_a_yandex_calendar_account(
     )
     with pytest.raises(YandexConnectorError, match="yandex calendar account not found"):
         sync_service.sync_account(account.id, user_b_id, limit=1)
+
+
+def _master_weekly_rrule_ical() -> str:
+    return (
+        "BEGIN:VCALENDAR\n"
+        "BEGIN:VEVENT\n"
+        "UID:weekly-expand\n"
+        "SUMMARY:Weekly meeting\n"
+        "DTSTART:20260829T100000Z\n"
+        "DTEND:20260829T110000Z\n"
+        "RRULE:FREQ=WEEKLY;INTERVAL=1;COUNT=5\n"
+        "END:VEVENT\n"
+        "END:VCALENDAR\n"
+    )
+
+
+def test_bounded_backfill_multiget_expands_recurring_occurrences(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="multiget@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    db_session.commit()
+
+    event_href = f"{CALENDAR_HREF}weekly-expand.ics"
+    master = CalDavEvent(
+        event_href=event_href,
+        etag='"weekly-master"',
+        calendar_data=_master_weekly_rrule_ical(),
+    )
+    expanded = CalDavEvent(
+        event_href=event_href,
+        etag='"weekly-master"',
+        calendar_data=_expanded_recurring_ical(4),
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="steady")],
+        query_events_by_calendar={CALENDAR_HREF: [master]},
+        multiget_events_by_calendar={CALENDAR_HREF: {event_href: expanded}},
+        sync_tokens_by_calendar={CALENDAR_HREF: "steady"},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+    )
+    result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    objs = list(
+        db_session.scalars(
+            select(Object).where(
+                Object.user_id == BOOTSTRAP_USER_ID,
+                Object.provider == "yandex_calendar",
+            )
+        ).all()
+    )
+
+    assert result["created"] == 4
+    assert len(transport.multiget_calls) == 1
+    assert len(objs) == 4
+    external_ids = {obj.external_id for obj in objs}
+    assert len(external_ids) == 4
+    assert all("weekly-expand" in external_id for external_id in external_ids)
+
+
+def test_bounded_reconciliation_rerun_no_duplicate_embed_jobs(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="rerun@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    db_session.commit()
+
+    event_href = f"{CALENDAR_HREF}weekly-expand.ics"
+    master = CalDavEvent(
+        event_href=event_href,
+        etag='"weekly-master"',
+        calendar_data=_master_weekly_rrule_ical(),
+    )
+    expanded = CalDavEvent(
+        event_href=event_href,
+        etag='"weekly-master"',
+        calendar_data=_expanded_recurring_ical(3),
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="steady")],
+        query_events_by_calendar={CALENDAR_HREF: [master]},
+        multiget_events_by_calendar={CALENDAR_HREF: {event_href: expanded}},
+        sync_tokens_by_calendar={CALENDAR_HREF: "steady"},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+    )
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    assert first["created"] == 3
+
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    calendars_state = dict(account.sync_state.get("calendars", {}))
+    state = dict(calendars_state.get(CALENDAR_HREF, {}))
+    state.pop("sync_token", None)
+    state["pending_sync_token"] = "steady"
+    calendars_state[CALENDAR_HREF] = state
+    store.update_sync_state(account, {"calendars": calendars_state})
+    db_session.commit()
+
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    assert second["unchanged"] == 3
+    assert second["jobs_enqueued"] == 0
 
 
 def _expanded_recurring_ical(occurrence_count: int) -> str:
