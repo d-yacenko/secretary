@@ -1,5 +1,7 @@
 import logging
 
+from datetime import datetime
+
 from pydantic import ValidationError as PydanticValidationError
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError as McpToolError
@@ -49,6 +51,9 @@ def _run_tool(operation: str, fn) -> object:
         raise McpToolError(exc.message) from exc
     except PydanticValidationError:
         logger.warning("mcp tool %s rejected invalid input", operation)
+        raise McpToolError("invalid tool input") from None
+    except ValueError:
+        logger.warning("mcp tool %s rejected invalid value", operation)
         raise McpToolError("invalid tool input") from None
     except Exception:
         logger.exception("mcp tool %s unexpected failure", operation)
@@ -114,15 +119,10 @@ def create_mcp_server() -> MCPServer:
         title: str,
         confidence: float,
         body: str | None = None,
-        due_at: str | None = None,
+        due_at: datetime | None = None,
         status: str | None = None,
     ) -> CreateTaskOutput:
         """Create an agent-proposed task with required confidence."""
-        parsed_due_at = None
-        if due_at is not None:
-            from datetime import datetime
-
-            parsed_due_at = datetime.fromisoformat(due_at)
         return _run_tool(
             "create_task",
             lambda tools: tools.create_task(
@@ -130,7 +130,7 @@ def create_mcp_server() -> MCPServer:
                     title=title,
                     confidence=confidence,
                     body=body,
-                    due_at=parsed_due_at,
+                    due_at=due_at,
                     status=status,
                 )
             ),
@@ -142,14 +142,9 @@ def create_mcp_server() -> MCPServer:
         title: str | None = None,
         body: str | None = None,
         status: str | None = None,
-        due_at: str | None = None,
+        due_at: datetime | None = None,
     ) -> UpdateTaskOutput:
         """Update a task without changing provenance origin."""
-        parsed_due_at = None
-        if due_at is not None:
-            from datetime import datetime
-
-            parsed_due_at = datetime.fromisoformat(due_at)
         return _run_tool(
             "update_task",
             lambda tools: tools.update_task(
@@ -158,7 +153,7 @@ def create_mcp_server() -> MCPServer:
                     title=title,
                     body=body,
                     status=status,
-                    due_at=parsed_due_at,
+                    due_at=due_at,
                 )
             ),
         )

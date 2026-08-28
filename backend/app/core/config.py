@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_model: str = "gpt-5.6-terra"
     secretary_timezone: str = "Europe/Amsterdam"
-    mcp_enabled: bool = True
+    mcp_enabled: bool = False
 
     @property
     def database_url(self) -> str:

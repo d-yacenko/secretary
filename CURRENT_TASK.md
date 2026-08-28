@@ -1,24 +1,25 @@
-# Current task — PHASE 12
+# Current task — PHASE 13
 
 ## Goal
 
-Run synchronization and LLM analysis asynchronously using a PostgreSQL-backed job queue (no Redis).
+Turn important inferred events into actionable inbox items (notifications).
 
 ## Do
 
-1. Create `jobs` table (`type`, `payload` JSONB, `status`, `attempts`, `run_after`, `locked_at`, `last_error`, timestamps).
-2. Worker: `FOR UPDATE SKIP LOCKED`, mark running, execute, done/failed with bounded retry backoff.
-3. Initial job types: `sync_connector`, `embed_object`, `build_representations`, `analyze_object`, `send_notification`, `reconcile_connector`.
-4. Keep worker in existing Docker Compose stack.
+1. Create `notifications` table (`title`, `body`, `priority`, `status`, `source_object_id`, `related_object_id`, `proposal` JSONB, `read_at`, timestamps).
+2. Priority: `low`, `normal`, `high`, `urgent`.
+3. Status: `new`, `read`, `accepted`, `ignored`, `resolved`.
+4. Wire notification creation to meaningful Secretary/agent events where infrastructure exists.
+5. Defer external delivery (email/push) until connector phases.
 
 ## Defer
 
-- External connector implementations beyond enqueue stubs if not yet built.
-- Public MCP / calendar / notification exposure.
+- `send_notification` job type until notification writes are defined.
+- Public MCP exposure.
 
 ## Accept
 
-Jobs can be enqueued and processed by the worker with safe locking and retries.
+Important inferred events appear as inbox notifications with provenance links to source objects.
 
 ## Note
 

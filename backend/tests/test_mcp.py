@@ -120,6 +120,22 @@ async def test_mcp_create_task_agent_proposed(db_session, mcp_server) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_invalid_due_at_returns_tool_error(mcp_server) -> None:
+    async with Client(mcp_server) as client:
+        result = await client.call_tool(
+            "create_task",
+            {
+                "title": "Bad due date task",
+                "confidence": 0.5,
+                "due_at": "not-a-datetime",
+            },
+        )
+
+    assert result.is_error
+    assert "Traceback" not in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_mcp_link_objects_agent_proposed(db_session, mcp_server) -> None:
     graph = GraphService(db_session)
     source = _create_task(graph, "MCP link source")
