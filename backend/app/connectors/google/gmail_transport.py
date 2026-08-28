@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID
 
 import httpx
 
 from app.connectors.google.constants import GMAIL_API_BASE
 from app.connectors.google.credentials import GoogleAccountStore
-from app.connectors.google.errors import GoogleApiError, GoogleOAuthError
+from app.connectors.google.errors import GoogleApiError, GoogleConnectorError, GoogleOAuthError
 from app.connectors.google.oauth_service import GoogleOAuthService, parse_token_expiry
-from app.db.models import GoogleAccount
+from sqlalchemy.orm import Session
 
 
 def utcnow() -> datetime:
@@ -46,30 +47,61 @@ class GmailTransport:
             raise GoogleApiError(f"failed to fetch gmail message {message_id}")
         return response.json()
 
+    def fetch_account_email(self, access_token: str, user_id: str = "me") -> str:
+        response = self._http.get(
+            f"{GMAIL_API_BASE}/users/{user_id}/profile",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code >= 400:
+            raise GoogleApiError("failed to fetch gmail profile")
+        payload = response.json()
+        email = payload.get("emailAddress")
+        if not email:
+            raise GoogleApiError("gmail profile missing email address")
+        return str(email)
+
 
 class GoogleTokenManager:
     def __init__(
         self,
+        session: Session,
         account_store: GoogleAccountStore,
         oauth_service: GoogleOAuthService,
     ) -> None:
+        self._session = session
         self._account_store = account_store
         self._oauth_service = oauth_service
 
-    def get_valid_access_token(self, account: GoogleAccount) -> str:
-        access_token = self._account_store.get_access_token(account)
-        expiry = account.token_expiry
-        if access_token and expiry and expiry > utcnow() + timedelta(seconds=60):
-            return access_token
-        refresh_token = self._account_store.require_refresh_token(account)
-        payload = self._oauth_service.refresh_access_token(refresh_token)
+    def get_valid_access_token(self, account_id: UUID) -> str:
+        snapshot = self._account_store.load_credential_snapshot(account_id)
+        if snapshot is None:
+            raise GoogleConnectorError("google account not found")
+
+        if (
+            snapshot.access_token
+            and snapshot.token_expiry
+            and snapshot.token_expiry > utcnow() + timedelta(seconds=60)
+        ):
+            return snapshot.access_token
+
+        if snapshot.refresh_token is None:
+            raise GoogleOAuthError("google account is missing refresh token")
+
+        self._session.commit()
+
+        payload = self._oauth_service.refresh_access_token(snapshot.refresh_token)
         new_access = str(payload["access_token"])
         new_refresh = payload.get("refresh_token")
         new_expiry = parse_token_expiry(payload.get("expires_in"))
+
+        account = self._account_store.get_by_id(account_id)
+        if account is None:
+            raise GoogleConnectorError("google account not found")
         self._account_store.update_tokens_from_refresh(
             account,
             access_token=new_access,
             refresh_token=str(new_refresh) if new_refresh else None,
             token_expiry=new_expiry,
         )
+        self._session.flush()
         return new_access

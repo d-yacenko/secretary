@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE, GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL
-from app.connectors.google.errors import GoogleApiError, GoogleOAuthError
+from app.connectors.google.errors import GoogleApiError, GoogleConnectorError, GoogleOAuthError
 from app.connectors.google.oauth_config import load_oauth_client_config
 
 
@@ -76,16 +76,3 @@ class GoogleOAuthService:
         if "access_token" not in payload:
             raise GoogleOAuthError("refresh response missing access token")
         return payload
-
-    def fetch_user_email(self, access_token: str) -> str:
-        response = self._http.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        if response.status_code >= 400:
-            raise GoogleApiError("failed to fetch google account profile")
-        payload = response.json()
-        email = payload.get("email")
-        if not email:
-            raise GoogleApiError("google account profile missing email")
-        return str(email)

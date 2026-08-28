@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from email.utils import parseaddr
 from typing import Any
 
-from app.connectors.google.constants import GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import GMAIL_READONLY_SCOPE, MAX_EMAIL_BODY_CHARS
 
 
 def _header_value(headers: list[dict[str, Any]], name: str) -> str | None:
@@ -40,33 +40,32 @@ def _strip_html(text: str) -> str:
     return html.unescape(collapsed).strip()
 
 
-def _extract_body(payload: dict[str, Any]) -> str | None:
+def _collect_text_parts(payload: dict[str, Any]) -> tuple[str | None, str | None]:
     mime_type = payload.get("mimeType", "")
     body = payload.get("body", {})
     data = body.get("data")
-    if data and mime_type == "text/plain":
-        return _decode_body_data(str(data)).strip()
-
-    parts = payload.get("parts", [])
     plain: str | None = None
     html_body: str | None = None
-    for part in parts:
-        part_type = part.get("mimeType", "")
-        part_body = part.get("body", {})
-        part_data = part_body.get("data")
-        if not part_data:
-            nested = _extract_body(part)
-            if nested and part_type == "text/plain":
-                plain = nested
-            elif nested and part_type == "text/html" and html_body is None:
-                html_body = nested
-            continue
-        decoded = _decode_body_data(str(part_data))
-        if part_type == "text/plain" and plain is None:
+
+    if data:
+        decoded = _decode_body_data(str(data))
+        if mime_type == "text/plain":
             plain = decoded.strip()
-        elif part_type == "text/html" and html_body is None:
+        elif mime_type == "text/html":
             html_body = decoded
 
+    for part in payload.get("parts", []):
+        nested_plain, nested_html = _collect_text_parts(part)
+        if nested_plain and plain is None:
+            plain = nested_plain
+        if nested_html and html_body is None:
+            html_body = nested_html
+
+    return plain, html_body
+
+
+def _extract_body(payload: dict[str, Any]) -> str | None:
+    plain, html_body = _collect_text_parts(payload)
     if plain:
         return plain
     if html_body:
@@ -112,8 +111,10 @@ def normalize_gmail_message(message: dict[str, Any]) -> dict[str, Any]:
         "headers": _compact_headers(headers),
         "labels": labels,
     }
+
+    body = None
     if body_text:
-        metadata["body_text"] = body_text[:8000]
+        body = body_text[:MAX_EMAIL_BODY_CHARS]
 
     return {
         "external_id": message_id,
@@ -122,6 +123,7 @@ def normalize_gmail_message(message: dict[str, Any]) -> dict[str, Any]:
         "origin": "source",
         "state": "observed",
         "title": subject or f"Gmail message {message_id}",
+        "body": body,
         "metadata": metadata,
         "scopes": [GMAIL_READONLY_SCOPE],
     }

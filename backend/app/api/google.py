@@ -8,6 +8,7 @@ from app.connectors.google.constants import GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleConfigurationError, GoogleConnectorError, GoogleOAuthError
 from app.connectors.google.gmail_sync import build_gmail_sync_service
+from app.connectors.google.gmail_transport import GmailTransport
 from app.connectors.google.oauth_service import GoogleOAuthService, parse_token_expiry
 from app.connectors.google.oauth_state import OAuthStateService
 from app.core.config import settings
@@ -62,7 +63,9 @@ def google_oauth_callback(
         access_token = str(token_payload["access_token"])
         refresh_token = token_payload.get("refresh_token")
         token_expiry = parse_token_expiry(token_payload.get("expires_in"))
-        email = oauth_service.fetch_user_email(access_token)
+
+        gmail_transport = GmailTransport()
+        email = gmail_transport.fetch_account_email(access_token)
 
         account_store = _account_store(session)
         account = account_store.upsert_tokens(

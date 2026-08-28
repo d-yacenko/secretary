@@ -23,8 +23,11 @@ from app.connectors.google.oauth_service import GoogleOAuthService
 from app.connectors.google.oauth_state import OAuthStateService
 from app.core.config import settings
 from app.db.models import GoogleAccount, Job, Object
+from app.llm.embedding_service import FakeEmbeddingService
+from app.llm.embedding_text import build_embedding_text
 from app.main import app
 from app.mcp.server import MCP_TOOL_NAMES
+from app.services.context_service import ContextService
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -304,6 +307,203 @@ def test_bounded_gmail_sync_creates_observed_email_objects(
         assert obj.origin == "source"
         assert obj.state == "observed"
         assert obj.external_id is not None
+        assert obj.body == "Hello world"
+        assert "body_text" not in obj.metadata_
+
+
+def test_gmail_body_stored_in_object_body(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    fake_http = FakeHttpClient(
+        {
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+                200,
+                json={"messages": [{"id": "msg-body"}]},
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages/msg-body"): lambda params, headers: httpx.Response(
+                200, json=_sample_gmail_message("msg-body", "Body test")
+            ),
+        }
+    )
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=fake_http,
+    )
+    sync_service.sync_account(account.id, limit=1)
+
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-body", Object.provider == "gmail")
+    )
+    assert obj is not None
+    assert obj.body == "Hello world"
+
+
+def test_embedding_text_includes_gmail_body(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    fake_http = FakeHttpClient(
+        {
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+                200,
+                json={"messages": [{"id": "msg-embed"}]},
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages/msg-embed"): lambda params, headers: httpx.Response(
+                200, json=_sample_gmail_message("msg-embed", "Embed subject")
+            ),
+        }
+    )
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=fake_http,
+    )
+    sync_service.sync_account(account.id, limit=1)
+
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-embed", Object.provider == "gmail")
+    )
+    assert obj is not None
+    embedding_text = build_embedding_text(obj)
+    assert "Hello world" in embedding_text
+
+
+def test_context_service_includes_gmail_body(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    fake_http = FakeHttpClient(
+        {
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+                200,
+                json={"messages": [{"id": "msg-ctx"}]},
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages/msg-ctx"): lambda params, headers: httpx.Response(
+                200, json=_sample_gmail_message("msg-ctx", "Context subject")
+            ),
+        }
+    )
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=fake_http,
+    )
+    sync_service.sync_account(account.id, limit=1)
+
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-ctx", Object.provider == "gmail")
+    )
+    assert obj is not None
+
+    context = ContextService(db_session, FakeEmbeddingService()).build_context(object_id=obj.id)
+    target_items = [item for item in context.items if item.object_id == obj.id]
+    assert len(target_items) == 1
+    assert "Hello world" in target_items[0].content
+
+
+def test_body_change_enqueues_embedding_job(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    message = _sample_gmail_message("msg-change", "Same subject")
+
+    def get_message(params, headers):
+        return httpx.Response(200, json=message)
+
+    fake_http = FakeHttpClient(
+        {
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+                200,
+                json={"messages": [{"id": "msg-change"}]},
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages/msg-change"): get_message,
+        }
+    )
+    sync_service = build_gmail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        http_client=fake_http,
+    )
+    first = sync_service.sync_account(account.id, limit=1)
+    assert first["created"] == 1
+    assert first["jobs_enqueued"] == 1
+
+    message["payload"]["body"]["data"] = "VXBkYXRlZCBib2R5"  # Updated body
+    second = sync_service.sync_account(account.id, limit=1)
+    assert second["updated"] == 1
+    assert second["jobs_enqueued"] == 1
+
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-change", Object.provider == "gmail")
+    )
+    assert obj is not None
+    assert obj.body == "Updated body"
 
 
 def test_gmail_resync_is_idempotent_without_duplicate_jobs(
@@ -375,9 +575,36 @@ def test_gmail_normalization_keeps_headers_and_skips_raw_mime() -> None:
     assert metadata["sender"] == "sender@example.com"
     assert metadata["recipients"] == ["user@example.com"]
     assert "message-id" in metadata["headers"]
-    assert metadata["body_text"] == "Hello"
+    assert normalized["body"] == "Hello"
+    assert "body_text" not in metadata
     assert "SGVsbG8" not in json.dumps(metadata)
     assert "PGI+" not in json.dumps(metadata)
+
+
+def test_nested_multipart_extracts_plain_text() -> None:
+    message = {
+        "id": "nested-1",
+        "threadId": "thread-nested",
+        "labelIds": ["INBOX"],
+        "internalDate": "1724846400000",
+        "payload": {
+            "mimeType": "multipart/mixed",
+            "headers": [{"name": "Subject", "value": "Nested"}],
+            "parts": [
+                {
+                    "mimeType": "multipart/alternative",
+                    "parts": [
+                        {
+                            "mimeType": "text/plain",
+                            "body": {"data": "SGVsbG8gZnJvbSBuZXN0ZWQ="},
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    normalized = normalize_gmail_message(message)
+    assert normalized["body"] == "Hello from nested"
 
 
 def test_embedding_jobs_use_object_reference_only(
@@ -517,12 +744,18 @@ def test_oauth_token_refresh_on_expired_access_token(
     )
     db_session.commit()
 
+    tx_during_refresh: list[bool] = []
+
+    def refresh_handler(data):
+        tx_during_refresh.append(db_session.in_transaction())
+        return httpx.Response(
+            200,
+            json={"access_token": "access-refreshed", "expires_in": 3600},
+        )
+
     fake_http = FakeHttpClient(
         {
-            ("POST", "https://oauth2.googleapis.com/token"): lambda data: httpx.Response(
-                200,
-                json={"access_token": "access-refreshed", "expires_in": 3600},
-            ),
+            ("POST", "https://oauth2.googleapis.com/token"): refresh_handler,
             ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
                 200,
                 json={"messages": []},
@@ -542,6 +775,7 @@ def test_oauth_token_refresh_on_expired_access_token(
     )
     sync_service.sync_account(account.id, limit=1)
 
+    assert tx_during_refresh == [False]
     assert account_store.get_access_token(account) == "access-refreshed"
     assert account_store.get_refresh_token(account) == "refresh-keep"
 
@@ -566,9 +800,9 @@ def test_oauth_exchange_and_callback_success(
                     "expires_in": 3600,
                 },
             ),
-            ("GET", "https://www.googleapis.com/oauth2/v2/userinfo"): lambda params, headers: httpx.Response(
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/profile"): lambda params, headers: httpx.Response(
                 200,
-                json={"email": "connected@example.com"},
+                json={"emailAddress": "connected@example.com"},
             ),
         }
     )
@@ -581,10 +815,14 @@ def test_oauth_exchange_and_callback_success(
     from unittest.mock import patch
 
     with patch("app.api.google._google_oauth_service", return_value=oauth_service):
-        response = client.get(
-            "/auth/google/callback",
-            params={"code": "auth-code", "state": state},
-        )
+        with patch(
+            "app.api.google.GmailTransport",
+            return_value=GmailTransport(http_client=fake_http),
+        ):
+            response = client.get(
+                "/auth/google/callback",
+                params={"code": "auth-code", "state": state},
+            )
 
     assert response.status_code == 200
     body = response.json()

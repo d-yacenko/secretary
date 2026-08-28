@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -13,6 +14,14 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+@dataclass(frozen=True)
+class AccountCredentialSnapshot:
+    account_id: UUID
+    access_token: str | None
+    refresh_token: str | None
+    token_expiry: datetime | None
+
+
 class GoogleAccountStore:
     def __init__(self, session: Session, encryption: CredentialEncryption) -> None:
         self._session = session
@@ -23,6 +32,17 @@ class GoogleAccountStore:
 
     def get_by_id(self, account_id: UUID) -> GoogleAccount | None:
         return self._session.get(GoogleAccount, account_id)
+
+    def load_credential_snapshot(self, account_id: UUID) -> AccountCredentialSnapshot | None:
+        account = self.get_by_id(account_id)
+        if account is None:
+            return None
+        return AccountCredentialSnapshot(
+            account_id=account.id,
+            access_token=self.get_access_token(account),
+            refresh_token=self.get_refresh_token(account),
+            token_expiry=account.token_expiry,
+        )
 
     def list_accounts(self) -> list[GoogleAccount]:
         return list(self._session.scalars(select(GoogleAccount).order_by(GoogleAccount.email)))

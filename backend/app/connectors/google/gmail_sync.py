@@ -11,7 +11,7 @@ from app.connectors.google.errors import GoogleConnectorError
 from app.connectors.google.gmail_normalize import normalize_gmail_message
 from app.connectors.google.gmail_transport import GmailTransport, GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
-from app.db.models import GoogleAccount, Object
+from app.db.models import Object
 from app.services.job_queue_service import JobQueueService
 
 
@@ -49,10 +49,12 @@ class GmailSyncService:
         if account is None:
             raise GoogleConnectorError("google account not found")
 
+        account_email = account.email
         effective_limit = limit if limit is not None else self._default_limit
         effective_limit = min(max(effective_limit, 1), self._max_limit)
 
-        access_token = self._token_manager.get_valid_access_token(account)
+        self._session.commit()
+        access_token = self._token_manager.get_valid_access_token(account_id)
         self._session.commit()
 
         after_date = (utcnow() - timedelta(days=self._sync_days)).strftime("%Y/%m/%d")
@@ -87,6 +89,7 @@ class GmailSyncService:
                     origin=normalized["origin"],
                     state=normalized["state"],
                     title=normalized["title"],
+                    body=normalized.get("body"),
                     metadata_=normalized["metadata"],
                 )
                 self._session.add(obj)
@@ -104,7 +107,7 @@ class GmailSyncService:
             self._session.commit()
 
         return {
-            "account_email": account.email,
+            "account_email": account_email,
             "synchronized": synchronized,
             "created": created,
             "updated": updated,
@@ -113,8 +116,12 @@ class GmailSyncService:
 
     def _apply_update(self, obj: Object, normalized: dict[str, Any]) -> bool:
         changed = False
+        normalized_body = normalized.get("body")
         if obj.title != normalized["title"]:
             obj.title = normalized["title"]
+            changed = True
+        if obj.body != normalized_body:
+            obj.body = normalized_body
             changed = True
         if obj.metadata_ != normalized["metadata"]:
             obj.metadata_ = normalized["metadata"]
@@ -141,7 +148,7 @@ def build_gmail_sync_service(
     encryption = GoogleAccountStore.build_encryption(credential_key)
     account_store = GoogleAccountStore(session, encryption)
     oauth_service = GoogleOAuthService(client_file, redirect_uri, http_client=http_client)
-    token_manager = GoogleTokenManager(account_store, oauth_service)
+    token_manager = GoogleTokenManager(session, account_store, oauth_service)
     transport = GmailTransport(http_client=http_client)
     job_queue = JobQueueService(session)
     return GmailSyncService(
