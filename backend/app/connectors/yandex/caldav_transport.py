@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 import httpx
 
 from app.connectors.yandex.constants import DEFAULT_CALDAV_BASE_URL
-from app.connectors.yandex.errors import YandexCalDavError
+from app.connectors.yandex.errors import YandexCalDavError, YandexCalDavStaleSyncTokenError
 
 DAV_NS = "DAV:"
 CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
@@ -175,6 +175,8 @@ class CalDavHttpTransport:
             headers=headers,
             auth=(self._email, self._password),
         )
+        if response.status_code in {403, 409} and "sync-collection" in body:
+            raise YandexCalDavStaleSyncTokenError(f"caldav sync-token invalid for {path}")
         if response.status_code >= 400:
             raise YandexCalDavError(f"caldav request failed for {path}")
         return response.text
@@ -357,6 +359,23 @@ class CalDavHttpTransport:
         return events, sync_token, deleted, truncated
 
 
+def _parse_dtstart_from_ical(calendar_data: str) -> datetime | None:
+    for line in calendar_data.splitlines():
+        if not line.startswith("DTSTART"):
+            continue
+        value = line.split(":", 1)[1].strip()
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return None
+
+
 class FakeCalDavTransport:
     def __init__(
         self,
@@ -364,6 +383,7 @@ class FakeCalDavTransport:
         query_events_by_calendar: dict[str, list[CalDavEvent]] | None = None,
         sync_batches_by_calendar: dict[str, dict[str, CalDavFetchResult]] | None = None,
         sync_tokens_by_calendar: dict[str, str] | None = None,
+        stale_sync_tokens: set[str] | None = None,
         tx_checker: object | None = None,
         calendar_order: list[str] | None = None,
     ) -> None:
@@ -371,6 +391,7 @@ class FakeCalDavTransport:
         self._query_events = query_events_by_calendar or {}
         self._sync_batches = sync_batches_by_calendar or {}
         self._sync_tokens = sync_tokens_by_calendar or {}
+        self._stale_sync_tokens = stale_sync_tokens or set()
         self._calendar_order = calendar_order
         self.sync_collection_calls: list[tuple[str, str, int]] = []
         self.query_calls: list[str] = []
@@ -400,10 +421,24 @@ class FakeCalDavTransport:
         self._check_tx()
         self.query_calls.append(calendar_href)
         events = sorted(self._query_events.get(calendar_href, []), key=lambda item: item.event_href)
-        if len(events) > max_results:
-            events = events[:max_results]
+        events = [
+            event
+            for event in events
+            if self._event_in_time_range(event, time_min, time_max)
+        ]
         token = self._sync_tokens.get(calendar_href)
         return CalDavFetchResult(events=events, sync_token=token)
+
+    def _event_in_time_range(
+        self,
+        event: CalDavEvent,
+        time_min: datetime,
+        time_max: datetime,
+    ) -> bool:
+        start = _parse_dtstart_from_ical(event.calendar_data)
+        if start is None:
+            return True
+        return time_min <= start <= time_max
 
     def sync_collection(
         self,
@@ -414,6 +449,9 @@ class FakeCalDavTransport:
         time_max: datetime,
     ) -> CalDavFetchResult:
         self._check_tx()
+        if sync_token in self._stale_sync_tokens:
+            self.sync_collection_calls.append((calendar_href, sync_token, max_results))
+            raise YandexCalDavStaleSyncTokenError("caldav sync-token invalid")
         self.sync_collection_calls.append((calendar_href, sync_token, max_results))
         batches = self._sync_batches.get(calendar_href, {})
         if sync_token in batches:

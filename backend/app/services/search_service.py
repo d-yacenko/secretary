@@ -31,7 +31,10 @@ class SearchService:
         limit: int = 20,
     ) -> list[ObjectOut]:
         limit = max(1, min(limit, 100))
-        stmt = select(Object).where(Object.user_id == self._user_id)
+        stmt = select(Object).where(
+            Object.user_id == self._user_id,
+            or_(Object.status.is_(None), Object.status != "deleted"),
+        )
         stmt = self._apply_filters(stmt, kind=kind, provider=provider, project_id=project_id)
 
         semantic_results: list[Object] = []

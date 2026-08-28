@@ -105,6 +105,39 @@ def test_search_project_id_graph_filter(db_session, fake_embedding_service) -> N
     assert "Other task" not in titles
 
 
+def test_search_excludes_deleted_objects_by_default(
+    db_session, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    active = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Active searchable calendar note",
+            body="visible keyword marker",
+            origin="system",
+        )
+    )
+    tombstone = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Deleted searchable calendar note",
+            body="visible keyword marker tombstone",
+            origin="system",
+        )
+    )
+    tombstone.status = "deleted"
+    db_session.flush()
+
+    search = SearchService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    results = search.search("visible keyword marker")
+    ids = {item.id for item in results}
+    assert active.id in ids
+    assert tombstone.id not in ids
+
+    direct = graph.get_object(tombstone.id)
+    assert direct.id == tombstone.id
+
+
 def test_search_endpoint(client) -> None:
     client.post(
         "/objects",

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.connectors.yandex.calendar_credentials import (
@@ -11,8 +11,15 @@ from app.connectors.yandex.calendar_credentials import (
     YandexCalendarSyncSnapshot,
 )
 from app.connectors.yandex.calendar_normalize import normalize_caldav_events
-from app.connectors.yandex.caldav_transport import CalDavFetchResult, CalDavHttpTransport, CalDavTransport
+from app.connectors.yandex.caldav_transport import (
+    CalDavCalendar,
+    CalDavFetchResult,
+    CalDavHttpTransport,
+    CalDavTransport,
+)
 from app.connectors.yandex.constants import (
+    CALENDAR_BACKFILL_SLICE_DAYS,
+    CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS,
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
     DEFAULT_CALENDAR_SYNC_DAYS_FORWARD,
     DEFAULT_CALENDAR_SYNC_LIMIT,
@@ -21,7 +28,7 @@ from app.connectors.yandex.constants import (
     MAX_CALENDAR_SYNC_DAYS_FORWARD,
     MAX_CALENDAR_SYNC_LIMIT,
 )
-from app.connectors.yandex.errors import YandexConnectorError
+from app.connectors.yandex.errors import YandexCalDavStaleSyncTokenError, YandexConnectorError
 from app.db.models import Object
 from app.services.job_queue_service import JobQueueService
 
@@ -38,6 +45,14 @@ class _BatchStats:
     unchanged: int = 0
     tombstoned: int = 0
     jobs_enqueued: int = 0
+    budget_consumed: int = 0
+
+
+@dataclass
+class _ApplyBatchResult:
+    stats: _BatchStats
+    completed_all_resources: bool
+    last_processed_href: str | None
 
 
 class YandexCalendarSyncService:
@@ -52,6 +67,7 @@ class YandexCalendarSyncService:
         max_limit: int = MAX_CALENDAR_SYNC_LIMIT,
         max_calendars: int = MAX_CALENDAR_SYNC_CALENDARS,
         transport_factory: Callable[[YandexCalendarSyncSnapshot], CalDavTransport] | None = None,
+        now_factory: Callable[[], datetime] | None = None,
     ) -> None:
         self._session = session
         self._account_store = account_store
@@ -62,6 +78,7 @@ class YandexCalendarSyncService:
         self._max_limit = max_limit
         self._max_calendars = max_calendars
         self._transport_factory = transport_factory
+        self._now_factory = now_factory or utcnow
 
     def sync_account(
         self,
@@ -79,8 +96,7 @@ class YandexCalendarSyncService:
         self._session.commit()
 
         transport = self._open_transport(snapshot)
-        time_min = utcnow() - timedelta(days=self._days_back)
-        time_max = utcnow() + timedelta(days=self._days_forward)
+        window_min, window_max = self._sync_window()
         calendars = transport.discover_calendars(self._max_calendars)
 
         totals = _BatchStats()
@@ -92,44 +108,33 @@ class YandexCalendarSyncService:
 
             calendar_href = calendar.href
             stored = dict(calendar_state.get(calendar_href, {}))
-            stored_token = stored.get("sync_token")
             calendar_summary = calendar.display_name or stored.get("display_name")
 
-            if stored_token:
-                batch_stats, occurrence_budget, stored = self._sync_incremental_calendar(
+            if stored.get("sync_token"):
+                if not stored.get("covered_window_end"):
+                    stored["covered_window_end"] = window_max.isoformat()
+                batch_stats, occurrence_budget, stored = self._sync_steady_state_calendar(
                     transport=transport,
                     snapshot=snapshot,
                     calendar_href=calendar_href,
                     stored=stored,
-                    stored_token=str(stored_token),
                     calendar_summary=calendar_summary,
-                    time_min=time_min,
-                    time_max=time_max,
+                    window_min=window_min,
+                    window_max=window_max,
                     occurrence_budget=occurrence_budget,
                 )
             else:
-                self._session.commit()
-                fetch_result = transport.query_events(
+                batch_stats, occurrence_budget, stored = self._sync_backfill_calendar(
+                    transport=transport,
+                    snapshot=snapshot,
+                    calendar=calendar,
                     calendar_href=calendar_href,
-                    time_min=time_min,
-                    time_max=time_max,
-                    max_results=self._max_limit,
-                )
-                batch_stats = self._apply_fetch_batch(
-                    user_id=snapshot.user_id,
-                    fetch_result=fetch_result,
-                    calendar_href=calendar_href,
+                    stored=stored,
                     calendar_summary=calendar_summary,
-                    time_min=time_min,
-                    time_max=time_max,
-                    cap_occurrences=True,
+                    window_min=window_min,
+                    window_max=window_max,
                     occurrence_budget=occurrence_budget,
                 )
-                occurrence_budget -= batch_stats.synchronized
-                if fetch_result.sync_token:
-                    stored["sync_token"] = fetch_result.sync_token
-                elif calendar.sync_token:
-                    stored["sync_token"] = calendar.sync_token
 
             self._merge_stats(totals, batch_stats)
             if calendar_summary:
@@ -152,6 +157,179 @@ class YandexCalendarSyncService:
             "jobs_enqueued": totals.jobs_enqueued,
         }
 
+    def _sync_window(self) -> tuple[datetime, datetime]:
+        now = self._now_factory()
+        return now - timedelta(days=self._days_back), now + timedelta(days=self._days_forward)
+
+    def _sync_backfill_calendar(
+        self,
+        transport: CalDavTransport,
+        snapshot: YandexCalendarSyncSnapshot,
+        calendar: CalDavCalendar,
+        calendar_href: str,
+        stored: dict[str, Any],
+        calendar_summary: str | None,
+        window_min: datetime,
+        window_max: datetime,
+        occurrence_budget: int,
+    ) -> tuple[_BatchStats, int, dict[str, Any]]:
+        pending_token = stored.get("pending_sync_token") or calendar.sync_token
+        return self._run_bounded_reconciliation(
+            transport=transport,
+            snapshot=snapshot,
+            calendar_href=calendar_href,
+            stored=stored,
+            calendar_summary=calendar_summary,
+            range_start=window_min,
+            range_end=window_max,
+            occurrence_budget=occurrence_budget,
+            pending_sync_token=pending_token,
+            establish_token_on_complete=True,
+        )
+
+    def _sync_steady_state_calendar(
+        self,
+        transport: CalDavTransport,
+        snapshot: YandexCalendarSyncSnapshot,
+        calendar_href: str,
+        stored: dict[str, Any],
+        calendar_summary: str | None,
+        window_min: datetime,
+        window_max: datetime,
+        occurrence_budget: int,
+    ) -> tuple[_BatchStats, int, dict[str, Any]]:
+        totals = _BatchStats()
+        covered_end = self._parse_iso_datetime(stored.get("covered_window_end")) or window_max
+
+        if window_max > covered_end:
+            reconcile_start = covered_end - timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
+            if reconcile_start < window_min:
+                reconcile_start = window_min
+            batch_stats, occurrence_budget, stored = self._run_bounded_reconciliation(
+                transport=transport,
+                snapshot=snapshot,
+                calendar_href=calendar_href,
+                stored=stored,
+                calendar_summary=calendar_summary,
+                range_start=reconcile_start,
+                range_end=window_max,
+                occurrence_budget=occurrence_budget,
+                pending_sync_token=None,
+                establish_token_on_complete=False,
+            )
+            self._merge_stats(totals, batch_stats)
+            if not stored.get("backfill_cursor"):
+                stored["covered_window_end"] = window_max.isoformat()
+
+        if occurrence_budget > 0 and stored.get("sync_token"):
+            batch_stats, occurrence_budget, stored = self._sync_incremental_calendar(
+                transport=transport,
+                snapshot=snapshot,
+                calendar_href=calendar_href,
+                stored=stored,
+                stored_token=str(stored["sync_token"]),
+                calendar_summary=calendar_summary,
+                time_min=window_min,
+                time_max=window_max,
+                occurrence_budget=occurrence_budget,
+            )
+            self._merge_stats(totals, batch_stats)
+
+        return totals, occurrence_budget, stored
+
+    def _run_bounded_reconciliation(
+        self,
+        transport: CalDavTransport,
+        snapshot: YandexCalendarSyncSnapshot,
+        calendar_href: str,
+        stored: dict[str, Any],
+        calendar_summary: str | None,
+        range_start: datetime,
+        range_end: datetime,
+        occurrence_budget: int,
+        pending_sync_token: str | None,
+        establish_token_on_complete: bool,
+    ) -> tuple[_BatchStats, int, dict[str, Any]]:
+        totals = _BatchStats()
+        cursor = self._parse_iso_datetime(stored.get("backfill_cursor")) or range_start
+        if cursor < range_start:
+            cursor = range_start
+        href_cursor = stored.get("backfill_href_cursor")
+        held_token = pending_sync_token or stored.get("pending_sync_token")
+        iterations = 0
+
+        while occurrence_budget > 0 and cursor < range_end:
+            iterations += 1
+            if iterations > 200:
+                raise YandexConnectorError("bounded calendar reconciliation exceeded iteration limit")
+            slice_end = min(
+                cursor + timedelta(days=CALENDAR_BACKFILL_SLICE_DAYS),
+                range_end,
+            )
+            self._session.commit()
+            fetch_result = transport.query_events(
+                calendar_href=calendar_href,
+                time_min=cursor,
+                time_max=slice_end,
+                max_results=self._max_limit,
+            )
+            if held_token is None and fetch_result.sync_token:
+                held_token = fetch_result.sync_token
+                stored["pending_sync_token"] = held_token
+
+            events = sorted(fetch_result.events, key=lambda item: item.event_href)
+            if href_cursor:
+                events = [event for event in events if event.event_href > href_cursor]
+
+            filtered_fetch = CalDavFetchResult(
+                events=events,
+                sync_token=fetch_result.sync_token,
+                deleted_hrefs=fetch_result.deleted_hrefs,
+                truncated=fetch_result.truncated,
+            )
+            apply_result = self._apply_fetch_batch(
+                user_id=snapshot.user_id,
+                fetch_result=filtered_fetch,
+                calendar_href=calendar_href,
+                calendar_summary=calendar_summary,
+                time_min=cursor,
+                time_max=slice_end,
+                cap_occurrences=True,
+                occurrence_budget=occurrence_budget,
+                reconcile_occurrences=False,
+            )
+            self._merge_stats(totals, apply_result.stats)
+            occurrence_budget -= apply_result.stats.budget_consumed
+
+            if not apply_result.completed_all_resources:
+                stored["backfill_cursor"] = cursor.isoformat()
+                if apply_result.last_processed_href:
+                    stored["backfill_href_cursor"] = apply_result.last_processed_href
+                return totals, occurrence_budget, stored
+
+            slice_exhausted = len(fetch_result.events) < self._max_limit
+            if not slice_exhausted:
+                stored["backfill_cursor"] = cursor.isoformat()
+                if apply_result.last_processed_href:
+                    stored["backfill_href_cursor"] = apply_result.last_processed_href
+                return totals, occurrence_budget, stored
+
+            stored.pop("backfill_href_cursor", None)
+            if slice_end >= range_end:
+                cursor = range_end
+                break
+            cursor = slice_end - timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
+            if cursor <= slice_end - timedelta(days=CALENDAR_BACKFILL_SLICE_DAYS):
+                cursor = slice_end
+
+        stored.pop("backfill_cursor", None)
+        stored.pop("backfill_href_cursor", None)
+        if establish_token_on_complete and held_token:
+            stored["sync_token"] = held_token
+            stored.pop("pending_sync_token", None)
+        stored["covered_window_end"] = range_end.isoformat()
+        return totals, occurrence_budget, stored
+
     def _sync_incremental_calendar(
         self,
         transport: CalDavTransport,
@@ -166,8 +344,12 @@ class YandexCalendarSyncService:
     ) -> tuple[_BatchStats, int, dict[str, Any]]:
         totals = _BatchStats()
         current_token = stored_token
+        iterations = 0
 
         while True:
+            iterations += 1
+            if iterations > 50:
+                raise YandexConnectorError("incremental calendar sync exceeded iteration limit")
             if occurrence_budget <= 0:
                 break
             self._session.commit()
@@ -179,31 +361,29 @@ class YandexCalendarSyncService:
                     time_min=time_min,
                     time_max=time_max,
                 )
-            except YandexConnectorError:
+            except YandexCalDavStaleSyncTokenError:
                 self._session.commit()
-                fetch_result = transport.query_events(
+                stored.pop("sync_token", None)
+                stored.pop("covered_window_end", None)
+                stored["backfill_cursor"] = time_min.isoformat()
+                stored.pop("pending_sync_token", None)
+                stored.pop("backfill_href_cursor", None)
+                batch_stats, occurrence_budget, stored = self._run_bounded_reconciliation(
+                    transport=transport,
+                    snapshot=snapshot,
                     calendar_href=calendar_href,
-                    time_min=time_min,
-                    time_max=time_max,
-                    max_results=self._max_limit,
-                )
-                batch_stats = self._apply_fetch_batch(
-                    user_id=snapshot.user_id,
-                    fetch_result=fetch_result,
-                    calendar_href=calendar_href,
+                    stored=stored,
                     calendar_summary=calendar_summary,
-                    time_min=time_min,
-                    time_max=time_max,
-                    cap_occurrences=True,
+                    range_start=time_min,
+                    range_end=time_max,
                     occurrence_budget=occurrence_budget,
+                    pending_sync_token=None,
+                    establish_token_on_complete=True,
                 )
                 self._merge_stats(totals, batch_stats)
-                occurrence_budget -= batch_stats.synchronized
-                if fetch_result.sync_token:
-                    stored["sync_token"] = fetch_result.sync_token
                 return totals, occurrence_budget, stored
 
-            batch_stats = self._apply_fetch_batch(
+            apply_result = self._apply_fetch_batch(
                 user_id=snapshot.user_id,
                 fetch_result=fetch_result,
                 calendar_href=calendar_href,
@@ -212,9 +392,10 @@ class YandexCalendarSyncService:
                 time_max=time_max,
                 cap_occurrences=False,
                 occurrence_budget=occurrence_budget,
+                reconcile_occurrences=True,
             )
-            self._merge_stats(totals, batch_stats)
-            occurrence_budget -= batch_stats.synchronized
+            self._merge_stats(totals, apply_result.stats)
+            occurrence_budget -= apply_result.stats.synchronized
 
             if fetch_result.sync_token:
                 stored["sync_token"] = fetch_result.sync_token
@@ -241,14 +422,21 @@ class YandexCalendarSyncService:
         time_max: datetime,
         cap_occurrences: bool,
         occurrence_budget: int,
-    ) -> _BatchStats:
+        reconcile_occurrences: bool,
+    ) -> _ApplyBatchResult:
         stats = _BatchStats()
+        last_processed_href: str | None = None
+        completed_all_resources = True
 
         for deleted_href in fetch_result.deleted_hrefs:
             self._session.commit()
             tombstoned_count = self._tombstone_all_by_event_href(user_id, deleted_href)
             stats.tombstoned += tombstoned_count
             stats.synchronized += tombstoned_count
+            stats.budget_consumed += tombstoned_count
+            if cap_occurrences:
+                occurrence_budget -= tombstoned_count
+        if fetch_result.deleted_hrefs:
             self._session.commit()
 
         for raw_event in fetch_result.events:
@@ -261,13 +449,16 @@ class YandexCalendarSyncService:
                 time_min=time_min,
                 time_max=time_max,
             )
+            returned_ids: set[str] = set()
+            resource_completed = True
             for normalized in normalized_list:
                 if cap_occurrences and occurrence_budget <= 0:
+                    resource_completed = False
+                    completed_all_resources = False
                     break
+                returned_ids.add(normalized["external_id"])
                 change = self._upsert_event(user_id, normalized)
                 stats.synchronized += 1
-                if cap_occurrences:
-                    occurrence_budget -= 1
                 if change == "created":
                     stats.created += 1
                     stats.jobs_enqueued += 1
@@ -276,11 +467,61 @@ class YandexCalendarSyncService:
                     stats.jobs_enqueued += 1
                 else:
                     stats.unchanged += 1
-                self._session.commit()
+                if change != "unchanged":
+                    stats.budget_consumed += 1
+                    if cap_occurrences:
+                        occurrence_budget -= 1
+            if not resource_completed:
+                completed_all_resources = False
+                break
+            if reconcile_occurrences and returned_ids and raw_event.calendar_data.count("BEGIN:VEVENT") > 1:
+                removed = self._tombstone_missing_occurrences(
+                    user_id=user_id,
+                    event_href=raw_event.event_href,
+                    returned_external_ids=returned_ids,
+                    time_min=time_min,
+                    time_max=time_max,
+                )
+                stats.tombstoned += removed
+                stats.synchronized += removed
+                stats.budget_consumed += removed
+                if cap_occurrences:
+                    occurrence_budget -= removed
+            if resource_completed:
+                last_processed_href = raw_event.event_href
+            self._session.commit()
             if cap_occurrences and occurrence_budget <= 0:
+                if raw_event != fetch_result.events[-1]:
+                    completed_all_resources = False
                 break
 
-        return stats
+        return _ApplyBatchResult(
+            stats=stats,
+            completed_all_resources=completed_all_resources,
+            last_processed_href=last_processed_href,
+        )
+
+    def _tombstone_missing_occurrences(
+        self,
+        user_id: UUID,
+        event_href: str,
+        returned_external_ids: set[str],
+        time_min: datetime,
+        time_max: datetime,
+    ) -> int:
+        tombstoned = 0
+        for obj in self._find_active_by_event_href_in_window(
+            user_id, event_href, time_min, time_max
+        ):
+            if obj.external_id in returned_external_ids:
+                continue
+            metadata = dict(obj.metadata_ or {})
+            metadata["caldav_deleted"] = True
+            metadata["deleted_at"] = self._now_factory().isoformat()
+            obj.status = "deleted"
+            obj.metadata_ = metadata
+            tombstoned += 1
+        return tombstoned
 
     def _merge_stats(self, totals: _BatchStats, batch: _BatchStats) -> None:
         totals.synchronized += batch.synchronized
@@ -289,6 +530,7 @@ class YandexCalendarSyncService:
         totals.unchanged += batch.unchanged
         totals.tombstoned += batch.tombstoned
         totals.jobs_enqueued += batch.jobs_enqueued
+        totals.budget_consumed += batch.budget_consumed
 
     def _upsert_event(self, user_id: UUID, normalized: dict[str, Any]) -> str:
         existing = self._find_existing_event(user_id, normalized["external_id"])
@@ -332,7 +574,7 @@ class YandexCalendarSyncService:
                 continue
             metadata = dict(obj.metadata_ or {})
             metadata["caldav_deleted"] = True
-            metadata["deleted_at"] = utcnow().isoformat()
+            metadata["deleted_at"] = self._now_factory().isoformat()
             obj.status = "deleted"
             obj.metadata_ = metadata
             tombstoned += 1
@@ -370,6 +612,28 @@ class YandexCalendarSyncService:
             ).all()
         )
 
+    def _find_active_by_event_href_in_window(
+        self,
+        user_id: UUID,
+        event_href: str,
+        time_min: datetime,
+        time_max: datetime,
+    ) -> list[Object]:
+        return list(
+            self._session.scalars(
+                select(Object).where(
+                    Object.user_id == user_id,
+                    Object.provider == "yandex_calendar",
+                    Object.kind == "event",
+                    Object.metadata_["event_href"].as_string() == event_href,
+                    or_(Object.status.is_(None), Object.status != "deleted"),
+                    Object.start_at.is_not(None),
+                    Object.start_at >= time_min,
+                    Object.start_at <= time_max,
+                )
+            ).all()
+        )
+
     def _event_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
         if obj.status == "deleted":
             return True
@@ -393,6 +657,14 @@ class YandexCalendarSyncService:
         obj.metadata_ = normalized["metadata"]
         obj.status = None
 
+    def _parse_iso_datetime(self, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
 
 def build_yandex_calendar_sync_service(
     session: Session,
@@ -403,6 +675,7 @@ def build_yandex_calendar_sync_service(
     max_limit: int,
     max_calendars: int,
     transport_factory: Callable[[YandexCalendarSyncSnapshot], CalDavTransport] | None = None,
+    now_factory: Callable[[], datetime] | None = None,
 ) -> YandexCalendarSyncService:
     account_store = YandexCalendarAccountStore(
         session,
@@ -419,4 +692,5 @@ def build_yandex_calendar_sync_service(
         max_limit=max_limit,
         max_calendars=max_calendars,
         transport_factory=transport_factory,
+        now_factory=now_factory,
     )

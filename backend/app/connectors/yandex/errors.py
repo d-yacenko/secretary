@@ -14,3 +14,7 @@ class YandexImapError(YandexConnectorError):
 
 class YandexCalDavError(YandexConnectorError):
     pass
+
+
+class YandexCalDavStaleSyncTokenError(YandexCalDavError):
+    pass
