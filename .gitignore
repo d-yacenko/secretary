@@ -57,6 +57,7 @@ build/
 
 # Docker
 *.log
+db_data/
 
 # Secrets
 *.pem
