@@ -13,7 +13,12 @@ from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.connectors.yandex.errors import YandexConnectorError, YandexImapError
-from app.connectors.yandex.imap_transport import FakeImapTransport, read_uidvalidity_from_response
+from app.connectors.yandex.imap_transport import (
+    FakeImapTransport,
+    ImaplibTransport,
+    incremental_uids_from_search_result,
+    read_uidvalidity_from_response,
+)
 from app.connectors.yandex.mail_normalize import build_external_id, normalize_imap_message
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.db.models import Object, User, YandexMailAccount
@@ -105,6 +110,59 @@ def test_read_uidvalidity_raises_when_response_data_malformed() -> None:
 
     with pytest.raises(YandexImapError, match="UIDVALIDITY response malformed"):
         read_uidvalidity_from_response(BrokenImap())
+
+
+class MisbehavingSearchImap:
+    """Simulates IMAP servers that include the last UID in UID N:* search results."""
+
+    def __init__(self, search_uids: list[int]) -> None:
+        self._search_uids = search_uids
+
+    def select(self, folder: str, readonly: bool = True) -> tuple[str, list[bytes]]:
+        return "OK", [b"42"]
+
+    def response(self, code: str) -> tuple[str, list[bytes]]:
+        if code == "UIDVALIDITY":
+            return "UIDVALIDITY", [b"1"]
+        return "NO", [b""]
+
+    def uid(self, command: str, *args: object) -> tuple[str, list[bytes]]:
+        if command == "search":
+            payload = b" ".join(str(uid).encode() for uid in self._search_uids)
+            return "OK", [payload]
+        raise AssertionError(f"unexpected uid command: {command}")
+
+
+def test_incremental_uids_from_search_filters_uid_at_checkpoint() -> None:
+    assert incremental_uids_from_search_result(b"100", after_uid=100, max_results=100) == []
+
+
+def test_incremental_uids_from_search_oldest_batch_when_server_returns_checkpoint_uid(
+) -> None:
+    search_uids = list(range(100, 351))
+    result = incremental_uids_from_search_result(
+        b" ".join(str(uid).encode() for uid in search_uids),
+        after_uid=100,
+        max_results=100,
+    )
+    assert result == list(range(101, 201))
+
+
+def test_imaplib_transport_incremental_search_filters_checkpoint_uid() -> None:
+    transport = ImaplibTransport("imap.yandex.ru", 993, "user@yandex.ru", "pass")
+    transport._imap = MisbehavingSearchImap([100])
+    transport._selected_folder = DEFAULT_MAIL_FOLDER
+    transport._uidvalidity = 1
+    assert transport.search_uids_incremental(DEFAULT_MAIL_FOLDER, after_uid=100, max_results=100) == []
+
+
+def test_imaplib_transport_incremental_search_oldest_batch_with_misbehaving_server() -> None:
+    transport = ImaplibTransport("imap.yandex.ru", 993, "user@yandex.ru", "pass")
+    transport._imap = MisbehavingSearchImap(list(range(100, 351)))
+    transport._selected_folder = DEFAULT_MAIL_FOLDER
+    transport._uidvalidity = 1
+    result = transport.search_uids_incremental(DEFAULT_MAIL_FOLDER, after_uid=100, max_results=100)
+    assert result == list(range(101, 201))
 
 
 def test_normalize_imap_message_matches_email_object_shape() -> None:

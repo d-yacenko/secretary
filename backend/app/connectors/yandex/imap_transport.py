@@ -30,6 +30,21 @@ def read_uidvalidity_from_response(imap: imaplib.IMAP4_SSL) -> int:
     return int(value)
 
 
+def incremental_uids_from_search_result(
+    search_data: bytes | str | None,
+    after_uid: int,
+    max_results: int,
+) -> list[int]:
+    if not search_data:
+        return []
+    if isinstance(search_data, bytes):
+        search_data = search_data.decode("ascii", errors="replace")
+    uids = sorted(int(uid) for uid in search_data.split() if int(uid) > after_uid)
+    if len(uids) > max_results:
+        return uids[:max_results]
+    return uids
+
+
 class ImapTransport(Protocol):
     def select_folder(self, folder: str) -> int:
         ...
@@ -135,10 +150,7 @@ class ImaplibTransport:
             raise YandexImapError("failed to search imap messages") from exc
         if status != "OK" or not data or not data[0]:
             return []
-        uids = sorted(int(uid) for uid in data[0].split())
-        if len(uids) > max_results:
-            return uids[:max_results]
-        return uids
+        return incremental_uids_from_search_result(data[0], after_uid, max_results)
 
     def fetch_message(self, folder: str, uid: int) -> bytes:
         self.select_folder(folder)
