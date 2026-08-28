@@ -1,21 +1,19 @@
-# Current task — PHASE 05
+# Current task — PHASE 06
 
 ## Goal
 
-Add semantic retrieval without a second database.
+Handle tiny files and huge documents without dumping everything into LLM context.
 
 ## Do
 
-1. Embedding service; model ID from env (default `text-embedding-3-small`).
-2. Embed title, body, useful metadata on objects.
-3. Store embeddings in pgvector column.
-4. Semantic search service + lexical fallback (`ILIKE` or PostgreSQL text search).
-5. `GET /search?q=...` with optional filters: kind, provider, project_id, limit.
+1. Table `representations`: object_id, kind, part_index, text, metadata, embedding, timestamps.
+2. Kinds: full, summary, chunk, sample, schema, statistics.
+3. Policy: small → full; medium → chunks + summary; large → summary + chunk embeddings.
 
 ## Accept
 
-A semantically similar query finds a test object with different wording.
+Tests for small file, medium text, large document representation paths.
 
-## Credentials checkpoint
+## Note
 
-OpenAI (or configured embedding provider) API key required for live embedding tests. If unavailable: implement connector + deterministic fake + document in PROJECT_STATE.md.
+Embedding API key in `.env` on VDS; never commit secrets.

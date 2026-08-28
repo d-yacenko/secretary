@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432
@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     postgres_password: str = "secretary"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
 
     @property
     def database_url(self) -> str:

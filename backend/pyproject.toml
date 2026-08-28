@@ -16,6 +16,7 @@ dependencies = [
     "psycopg[binary]>=3.2.0",
     "pgvector>=0.3.6",
     "httpx>=0.28.0",
+    "openai>=1.55.0",
 ]
 
 [project.optional-dependencies]
@@ -34,3 +35,6 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live: optional tests that call external APIs (require RUN_LIVE_OPENAI=1)",
+]

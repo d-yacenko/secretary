@@ -43,6 +43,8 @@ class ViewService:
     ) -> ViewItem:
         if object_id is None and visual_id is None:
             raise ValidationError("view item requires object_id or visual_id")
+        if object_id is not None and visual_id is not None:
+            raise ValidationError("view item cannot have both object_id and visual_id")
 
         if self._session.get(View, view_id) is None:
             raise NotFoundError("view", view_id)

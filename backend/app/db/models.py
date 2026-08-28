@@ -167,7 +167,8 @@ class ViewItem(Base):
 
     __table_args__ = (
         sa.CheckConstraint(
-            "object_id IS NOT NULL OR visual_id IS NOT NULL",
-            name="ck_view_items_object_or_visual",
+            "(object_id IS NOT NULL AND visual_id IS NULL) "
+            "OR (object_id IS NULL AND visual_id IS NOT NULL)",
+            name="ck_view_items_object_xor_visual",
         ),
     )

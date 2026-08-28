@@ -3,16 +3,19 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_embedding_service
 from app.main import app
 
 
 @pytest.fixture
 def client(db_session):
+    from app.llm.embedding_service import FakeEmbeddingService
+
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import (
     ContextOut,
     EdgeCreate,
@@ -14,14 +14,19 @@ from app.api.schemas import (
     ObjectOut,
     ObjectUpdate,
 )
+from app.llm.embedding_service import EmbeddingService
 from app.services.errors import ConflictError, NotFoundError
 from app.services.graph_service import GraphService
+from app.services.search_service import SearchService
 
 router = APIRouter()
 
 
-def _service(session: Session = Depends(get_db)) -> GraphService:
-    return GraphService(session)
+def _service(
+    session: Session = Depends(get_db),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+) -> GraphService:
+    return GraphService(session, embedding_service)
 
 
 def _not_found(exc: NotFoundError) -> HTTPException:
@@ -124,4 +129,24 @@ def get_context(object_id: UUID, service: GraphService = Depends(_service)) -> C
         object=ObjectOut.from_model(obj),
         edges=[EdgeOut.from_model(edge) for edge in edges],
         neighbors=[ObjectOut.from_model(neighbor) for neighbor in neighbors],
+    )
+
+
+@router.get("/search", response_model=list[ObjectOut])
+def search_objects(
+    q: str = Query(min_length=1),
+    kind: str | None = None,
+    provider: str | None = None,
+    project_id: UUID | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_db),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+) -> list[ObjectOut]:
+    service = SearchService(session, embedding_service)
+    return service.search(
+        query=q,
+        kind=kind,
+        provider=provider,
+        project_id=project_id,
+        limit=limit,
     )

@@ -1,0 +1,76 @@
+from uuid import UUID
+
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from app.api.schemas import ObjectOut
+from app.db.models import Edge, Object
+from app.llm.embedding_service import EmbeddingService
+
+
+class SearchService:
+    def __init__(self, session: Session, embedding_service: EmbeddingService) -> None:
+        self._session = session
+        self._embedding_service = embedding_service
+
+    def search(
+        self,
+        query: str,
+        kind: str | None = None,
+        provider: str | None = None,
+        project_id: UUID | None = None,
+        limit: int = 20,
+    ) -> list[ObjectOut]:
+        limit = max(1, min(limit, 100))
+        stmt = select(Object)
+        stmt = self._apply_filters(stmt, kind=kind, provider=provider, project_id=project_id)
+
+        query_vector = self._embedding_service.embed(query)
+        semantic_stmt = stmt.where(Object.embedding.is_not(None)).order_by(
+            Object.embedding.cosine_distance(query_vector)
+        )
+        semantic_results = list(self._session.scalars(semantic_stmt.limit(limit)).all())
+
+        if len(semantic_results) >= limit:
+            return [ObjectOut.from_model(obj) for obj in semantic_results[:limit]]
+
+        lexical_stmt = stmt.where(
+            or_(
+                Object.title.ilike(f"%{query}%"),
+                Object.body.ilike(f"%{query}%"),
+            )
+        )
+        lexical_results = list(self._session.scalars(lexical_stmt.limit(limit)).all())
+
+        combined: list[Object] = []
+        seen: set[UUID] = set()
+        for obj in semantic_results + lexical_results:
+            if obj.id in seen:
+                continue
+            seen.add(obj.id)
+            combined.append(obj)
+            if len(combined) >= limit:
+                break
+
+        return [ObjectOut.from_model(obj) for obj in combined]
+
+    def _apply_filters(
+        self,
+        stmt,
+        kind: str | None,
+        provider: str | None,
+        project_id: UUID | None,
+    ):
+        if kind is not None:
+            stmt = stmt.where(Object.kind == kind)
+        if provider is not None:
+            stmt = stmt.where(Object.provider == provider)
+        if project_id is not None:
+            # Graph filter: objects directly linked to the project object by any edge.
+            linked_ids = (
+                select(Edge.target_id).where(Edge.source_id == project_id).union_all(
+                    select(Edge.source_id).where(Edge.target_id == project_id)
+                )
+            )
+            stmt = stmt.where(Object.id.in_(linked_ids))
+        return stmt

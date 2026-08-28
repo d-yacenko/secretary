@@ -2,14 +2,14 @@
 
 ## Current phase
 
-PHASE 05 — vector search (waiting for user go-ahead + credentials checkpoint)
+PHASE 06 — resource representations (waiting for user go-ahead)
 
 ## Working components
 
-- PHASE 00–03: infra, graph schema, REST CRUD
-- PHASE 04: `views` + `view_items` (Alembic `0003`), `ViewService`, persistence tests
-- PATCH rejects null for `kind`/`title`/`origin`/`metadata` (422)
-- External object duplicate → 409 on POST/PATCH
+- PHASE 00–04: infra, graph, views
+- PHASE 05: embeddings (`EmbeddingService`, OpenAI + fake), `GET /search`, index on write
+- `view_items` XOR constraint (exactly `object_id` or `visual_id`)
+- Env: `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-small`)
 
 ## VDS update
 
@@ -19,11 +19,13 @@ cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.
 curl -s http://127.0.0.1:18080/health
 ```
 
+Put OpenAI credentials only in `/opt/secretary/.env`.
+
 ## Known blockers
 
 - HTTPS reverse proxy not configured.
-- PHASE 05 needs embedding provider API key for live tests (fake path available).
+- Live OpenAI smoke: `RUN_LIVE_OPENAI=1 pytest -m live tests/test_embedding_live.py` (requires `.env`).
 
 ## Next phase
 
-PHASE 05 — embeddings + `GET /search`.
+PHASE 06 — `representations` table and resource policies.

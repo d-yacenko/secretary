@@ -3,6 +3,7 @@ from collections.abc import Generator
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.llm.embedding_service import EmbeddingService, create_embedding_service
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -15,3 +16,7 @@ def get_db() -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+
+
+def get_embedding_service() -> EmbeddingService:
+    return create_embedding_service()

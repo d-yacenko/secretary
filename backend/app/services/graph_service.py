@@ -6,13 +6,22 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
 from app.db.models import Edge, Object
+from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
+from app.services.embedding_index import refresh_object_embedding
 from app.services.errors import ConflictError, NotFoundError
+
+_SEARCHABLE_FIELDS = frozenset({"kind", "title", "body", "metadata"})
 
 
 class GraphService:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        embedding_service: EmbeddingService | None = None,
+    ) -> None:
         self._session = session
+        self._embedding_service = embedding_service
 
     def _flush_object(self) -> None:
         try:
@@ -39,6 +48,7 @@ class GraphService:
         )
         self._session.add(obj)
         self._flush_object()
+        self._maybe_refresh_embedding(obj, set(_SEARCHABLE_FIELDS))
         return obj
 
     def get_object(self, object_id: UUID) -> Object:
@@ -54,8 +64,17 @@ class GraphService:
             obj.metadata_ = updates.pop("metadata")
         for field, value in updates.items():
             setattr(obj, field, value)
+        self._maybe_refresh_embedding(obj, set(updates.keys()))
         self._flush_object()
         return obj
+
+    def _maybe_refresh_embedding(self, obj: Object, changed_fields: set[str]) -> None:
+        if self._embedding_service is None:
+            return
+        if not changed_fields.intersection(_SEARCHABLE_FIELDS):
+            return
+        refresh_object_embedding(obj, self._embedding_service)
+        self._flush_object()
 
     def delete_object(self, object_id: UUID) -> None:
         obj = self.get_object(object_id)

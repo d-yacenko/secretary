@@ -98,6 +98,27 @@ def test_invalid_view_item_without_object_or_visual_rejected(db_session) -> None
         db_session.flush()
 
 
+def test_view_item_cannot_have_both_object_and_visual(db_session) -> None:
+    views = ViewService(db_session)
+    view = views.create_view("Both ids", "freeform")
+    object_id = uuid.uuid4()
+    visual_id = uuid.uuid4()
+
+    with pytest.raises(ValidationError):
+        views.create_view_item(view.id, object_id=object_id, visual_id=visual_id)
+
+    with pytest.raises(IntegrityError):
+        db_session.add(
+            ViewItem(
+                view_id=view.id,
+                object_id=object_id,
+                visual_id=visual_id,
+                collapsed=False,
+            )
+        )
+        db_session.flush()
+
+
 def test_object_deletion_not_blocked_by_view_placement(db_session) -> None:
     graph = GraphService(db_session)
     views = ViewService(db_session)
