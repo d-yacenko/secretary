@@ -60,11 +60,15 @@ class GraphService:
     def update_object(self, object_id: UUID, data: ObjectUpdate) -> Object:
         obj = self.get_object(object_id)
         updates = data.model_dump(exclude_unset=True)
+        metadata_updated = "metadata" in data.model_fields_set
         if "metadata" in updates:
             obj.metadata_ = updates.pop("metadata")
         for field, value in updates.items():
             setattr(obj, field, value)
-        self._maybe_refresh_embedding(obj, set(updates.keys()))
+        changed_fields = set(updates.keys())
+        if metadata_updated:
+            changed_fields.add("metadata")
+        self._maybe_refresh_embedding(obj, changed_fields)
         self._flush_object()
         return obj
 

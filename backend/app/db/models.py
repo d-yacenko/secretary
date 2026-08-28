@@ -172,3 +172,39 @@ class ViewItem(Base):
             name="ck_view_items_object_xor_visual",
         ),
     )
+
+
+class Representation(Base):
+    __tablename__ = "representations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("objects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(nullable=False)
+    part_index: Mapped[int | None] = mapped_column(nullable=True)
+    text: Mapped[str | None] = mapped_column(nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=False,
+        server_default=sa.text("'{}'::jsonb"),
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_representations_object_id", "object_id"),
+        Index("ix_representations_kind", "kind"),
+    )

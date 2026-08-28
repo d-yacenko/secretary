@@ -26,6 +26,33 @@ def client(db_session, fake_embedding_service):
     app.dependency_overrides.clear()
 
 
+def test_semantic_search_with_concept_stub_finds_different_wording(db_session) -> None:
+    from app.llm.concept_stub_embedding import ConceptStubEmbeddingService
+
+    stub = ConceptStubEmbeddingService()
+    graph = GraphService(db_session, stub)
+    graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Prepare financial forecast for next quarter",
+            origin="test",
+        )
+    )
+    graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Weekend hiking trail guide",
+            origin="test",
+        )
+    )
+
+    search = SearchService(db_session, stub)
+    results = search.search("future revenue planning")
+
+    assert len(results) >= 1
+    assert results[0].title == "Prepare financial forecast for next quarter"
+
+
 def test_semantic_search_finds_different_wording(db_session, fake_embedding_service) -> None:
     graph = GraphService(db_session, fake_embedding_service)
     graph.create_object(

@@ -1,19 +1,19 @@
-# Current task — PHASE 06
+# Current task — PHASE 07
 
 ## Goal
 
-Handle tiny files and huge documents without dumping everything into LLM context.
+Build a compact context pack for one task or question without dumping large resources into LLM context.
 
 ## Do
 
-1. Table `representations`: object_id, kind, part_index, text, metadata, embedding, timestamps.
-2. Kinds: full, summary, chunk, sample, schema, statistics.
-3. Policy: small → full; medium → chunks + summary; large → summary + chunk embeddings.
+1. `build_context(object_id=None, query=None, max_chars=...)`
+2. Candidate sources: target object, graph neighbors, parent project, blockers, semantic matches, useful representations (summary + top chunks, not full document).
+3. Context item fields: object_id, kind, title, short content/representation, why included, canonical_uri when available.
 
 ## Accept
 
-Tests for small file, medium text, large document representation paths.
+A task linked to a long document receives: task, relation, document summary, top relevant chunks, document reference — not the full text.
 
 ## Note
 
-Embedding API key in `.env` on VDS; never commit secrets.
+No job queues yet. Embedding API key in `.env` on VDS; never commit secrets.
