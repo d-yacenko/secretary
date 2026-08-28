@@ -6,25 +6,21 @@ from sqlalchemy import func, select
 
 from app.api.schemas import ObjectCreate
 from app.db.models import Edge, Object
-from app.llm.embedding_service import FakeEmbeddingService
 from app.services.domain_tool_service import DomainToolService
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.tools.executor import ToolExecutor
+from pydantic import ValidationError
 from app.tools.schemas import (
     CreateTaskInput,
     GetContextInput,
     GetObjectInput,
     LinkObjectsInput,
     ListNeighborsInput,
+    MAX_CONTEXT_CHARS,
     SearchObjectsInput,
     UpdateTaskInput,
 )
-
-
-@pytest.fixture
-def fake_embedding_service() -> FakeEmbeddingService:
-    return FakeEmbeddingService()
 
 
 @pytest.fixture
@@ -46,7 +42,7 @@ def test_search_objects_reads_existing_objects(db_session, domain_tools) -> None
         SearchObjectsInput(query="alpha marker", limit=10)
     )
     assert len(result.objects) >= 1
-    assert any(obj["title"] == "Find me unique alpha marker" for obj in result.objects)
+    assert any(obj.title == "Find me unique alpha marker" for obj in result.objects)
 
 
 def test_get_object_returns_one_object(db_session, domain_tools) -> None:
@@ -54,8 +50,8 @@ def test_get_object_returns_one_object(db_session, domain_tools) -> None:
     task = _create_task(graph, "Single object lookup")
 
     result = domain_tools.get_object(GetObjectInput(object_id=task.id))
-    assert result.object["id"] == str(task.id)
-    assert result.object["title"] == "Single object lookup"
+    assert result.object.id == task.id
+    assert result.object.title == "Single object lookup"
 
 
 def test_get_context_returns_bounded_context(db_session, domain_tools) -> None:
@@ -88,7 +84,7 @@ def test_list_neighbors_returns_graph_neighbors(db_session, domain_tools) -> Non
     result = domain_tools.list_neighbors(ListNeighborsInput(object_id=left.id))
     assert result.object_id == left.id
     assert len(result.neighbors) == 1
-    assert result.neighbors[0].object["id"] == str(right.id)
+    assert result.neighbors[0].object.id == right.id
 
 
 def test_create_task_creates_agent_proposed_task_with_confidence(
@@ -98,10 +94,10 @@ def test_create_task_creates_agent_proposed_task_with_confidence(
         CreateTaskInput(title="Agent inferred task", confidence=0.77)
     )
     obj = result.object
-    assert obj["kind"] == "task"
-    assert obj["origin"] == AGENT_ORIGIN
-    assert obj["state"] == PROPOSED_STATE
-    assert obj["confidence"] == 0.77
+    assert obj.kind == "task"
+    assert obj.origin == AGENT_ORIGIN
+    assert obj.state == PROPOSED_STATE
+    assert obj.confidence == 0.77
 
 
 def test_link_objects_creates_agent_proposed_edge_with_confidence(
@@ -120,9 +116,9 @@ def test_link_objects_creates_agent_proposed_edge_with_confidence(
         )
     )
     edge = result.edge
-    assert edge["origin"] == AGENT_ORIGIN
-    assert edge["state"] == PROPOSED_STATE
-    assert edge["confidence"] == 0.66
+    assert edge.origin == AGENT_ORIGIN
+    assert edge.state == PROPOSED_STATE
+    assert edge.confidence == 0.66
 
 
 def test_update_task_cannot_rewrite_origin(db_session, domain_tools) -> None:
@@ -132,8 +128,8 @@ def test_update_task_cannot_rewrite_origin(db_session, domain_tools) -> None:
     updated = domain_tools.update_task(
         UpdateTaskInput(object_id=task.id, title="Renamed task")
     )
-    assert updated.object["title"] == "Renamed task"
-    assert updated.object["origin"] == "user"
+    assert updated.object.title == "Renamed task"
+    assert updated.object.origin == "user"
     assert "origin" not in UpdateTaskInput.model_fields
 
 
@@ -160,6 +156,37 @@ def test_invalid_object_id_returns_controlled_tool_error(db_session, domain_tool
     result = executor.execute("get_object", {"object_id": str(missing_id)})
     assert not result.success
     assert result.error
+
+
+def test_get_context_rejects_max_chars_above_cap() -> None:
+    with pytest.raises(ValidationError):
+        GetContextInput(object_id=uuid.uuid4(), max_chars=MAX_CONTEXT_CHARS + 1)
+
+
+def test_create_task_normalizes_naive_due_at_timezone(db_session, domain_tools) -> None:
+    naive_due = datetime(2026, 6, 15, 9, 30, 0)
+    result = domain_tools.create_task(
+        CreateTaskInput(title="Due task", confidence=0.5, due_at=naive_due)
+    )
+    due_at = result.object.due_at
+    assert due_at is not None
+    assert due_at.tzinfo is not None
+
+
+def test_independent_tool_executors_do_not_share_call_limit(
+    db_session, fake_embedding_service
+) -> None:
+    tools_a = DomainToolService(db_session, fake_embedding_service)
+    tools_b = DomainToolService(db_session, fake_embedding_service)
+    graph = GraphService(db_session)
+    task = _create_task(graph, "Executor isolation task")
+
+    executor_a = ToolExecutor(tools_a, max_calls=5)
+    executor_b = ToolExecutor(tools_b, max_calls=5)
+    for _ in range(5):
+        assert executor_a.execute("get_object", {"object_id": str(task.id)}).success
+    assert not executor_a.execute("get_object", {"object_id": str(task.id)}).success
+    assert executor_b.execute("get_object", {"object_id": str(task.id)}).success
 
 
 def test_tool_call_limit_prevents_infinite_loop(db_session, domain_tools) -> None:

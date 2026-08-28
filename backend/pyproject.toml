@@ -18,6 +18,7 @@ dependencies = [
     "httpx>=0.28.0",
     "openai>=1.55.0",
     "pyarrow>=18.0.0",
+    "mcp>=2,<3",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,7 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 markers = [
     "live: optional tests that call external APIs (require RUN_LIVE_OPENAI=1)",
 ]

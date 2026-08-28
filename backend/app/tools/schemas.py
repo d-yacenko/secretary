@@ -1,6 +1,12 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from app.api.schemas import ContextItem, EdgeOut, ObjectOut
+
+MAX_CONTEXT_CHARS = 12000
+DEFAULT_CONTEXT_CHARS = 8000
 
 
 class ToolError(Exception):
@@ -22,7 +28,7 @@ class SearchObjectsInput(BaseModel):
 
 
 class SearchObjectsOutput(BaseModel):
-    objects: list[dict]
+    objects: list[ObjectOut]
 
 
 class GetObjectInput(BaseModel):
@@ -30,17 +36,17 @@ class GetObjectInput(BaseModel):
 
 
 class GetObjectOutput(BaseModel):
-    object: dict
+    object: ObjectOut
 
 
 class GetContextInput(BaseModel):
     object_id: UUID | None = None
     query: str | None = None
-    max_chars: int = Field(default=8000, ge=1)
+    max_chars: int = Field(default=DEFAULT_CONTEXT_CHARS, ge=1, le=MAX_CONTEXT_CHARS)
 
 
 class GetContextOutput(BaseModel):
-    items: list[dict]
+    items: list[ContextItem]
     total_chars: int
     truncated: bool
 
@@ -50,8 +56,8 @@ class ListNeighborsInput(BaseModel):
 
 
 class NeighborItem(BaseModel):
-    object: dict
-    edge: dict
+    object: ObjectOut
+    edge: EdgeOut
     direction: str
 
 
@@ -64,12 +70,12 @@ class CreateTaskInput(BaseModel):
     title: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     body: str | None = None
-    due_at: str | None = None
+    due_at: datetime | None = None
     status: str | None = None
 
 
 class CreateTaskOutput(BaseModel):
-    object: dict
+    object: ObjectOut
 
 
 class UpdateTaskInput(BaseModel):
@@ -77,11 +83,11 @@ class UpdateTaskInput(BaseModel):
     title: str | None = None
     body: str | None = None
     status: str | None = None
-    due_at: str | None = None
+    due_at: datetime | None = None
 
 
 class UpdateTaskOutput(BaseModel):
-    object: dict
+    object: ObjectOut
 
 
 class LinkObjectsInput(BaseModel):
@@ -92,4 +98,9 @@ class LinkObjectsInput(BaseModel):
 
 
 class LinkObjectsOutput(BaseModel):
-    edge: dict
+    edge: EdgeOut
+
+
+class GetTodayOutput(BaseModel):
+    datetime: datetime
+    timezone: str

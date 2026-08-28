@@ -1,15 +1,17 @@
 from datetime import datetime
-from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.api.schemas import EdgeCreate, ObjectCreate, ObjectOut, ObjectUpdate
+from app.api.schemas import EdgeCreate, EdgeOut, ObjectCreate, ObjectOut, ObjectUpdate
+from app.core.config import settings
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.search_service import SearchService
+from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import (
     CreateTaskInput,
     CreateTaskOutput,
@@ -17,6 +19,7 @@ from app.tools.schemas import (
     GetContextOutput,
     GetObjectInput,
     GetObjectOutput,
+    GetTodayOutput,
     LinkObjectsInput,
     LinkObjectsOutput,
     ListNeighborsInput,
@@ -43,16 +46,14 @@ class DomainToolService:
             kind=input.kind,
             limit=input.limit,
         )
-        return SearchObjectsOutput(
-            objects=[obj.model_dump(mode="json") for obj in objects]
-        )
+        return SearchObjectsOutput(objects=objects)
 
     def get_object(self, input: GetObjectInput) -> GetObjectOutput:
         try:
             obj = self._graph.get_object(input.object_id)
         except NotFoundError as exc:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
-        return GetObjectOutput(object=ObjectOut.from_model(obj).model_dump(mode="json"))
+        return GetObjectOutput(object=ObjectOut.from_model(obj))
 
     def get_context(self, input: GetContextInput) -> GetContextOutput:
         if input.object_id is None and input.query is None:
@@ -68,7 +69,7 @@ class DomainToolService:
             max_chars=input.max_chars,
         )
         return GetContextOutput(
-            items=[item.model_dump(mode="json") for item in result.items],
+            items=result.items,
             total_chars=result.total_chars,
             truncated=result.truncated,
         )
@@ -80,8 +81,8 @@ class DomainToolService:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
         neighbors = [
             NeighborItem(
-                object=ObjectOut.from_model(neighbor).model_dump(mode="json"),
-                edge=_edge_to_dict(edge),
+                object=ObjectOut.from_model(neighbor),
+                edge=EdgeOut.from_model(edge),
                 direction=direction,
             )
             for neighbor, edge, direction in rows
@@ -89,7 +90,7 @@ class DomainToolService:
         return ListNeighborsOutput(object_id=input.object_id, neighbors=neighbors)
 
     def create_task(self, input: CreateTaskInput) -> CreateTaskOutput:
-        due_at = _parse_optional_datetime(input.due_at)
+        due_at = normalize_tool_datetime(input.due_at)
         try:
             obj = self._graph.create_object(
                 ObjectCreate(
@@ -106,7 +107,7 @@ class DomainToolService:
             raise ToolError(exc.message) from exc
         except ConflictError as exc:
             raise ToolError(exc.message) from exc
-        return CreateTaskOutput(object=ObjectOut.from_model(obj).model_dump(mode="json"))
+        return CreateTaskOutput(object=ObjectOut.from_model(obj))
 
     def update_task(self, input: UpdateTaskInput) -> UpdateTaskOutput:
         try:
@@ -117,7 +118,7 @@ class DomainToolService:
             raise ToolError("update_task only supports task objects")
         update_data = input.model_dump(exclude={"object_id"}, exclude_none=True)
         if "due_at" in update_data:
-            update_data["due_at"] = _parse_optional_datetime(update_data["due_at"])
+            update_data["due_at"] = normalize_tool_datetime(update_data["due_at"])
         if not update_data:
             raise ToolError("update_task requires at least one field to update")
         updates = ObjectUpdate(**update_data)
@@ -127,7 +128,7 @@ class DomainToolService:
             raise ToolError(exc.message) from exc
         except ConflictError as exc:
             raise ToolError(exc.message) from exc
-        return UpdateTaskOutput(object=ObjectOut.from_model(updated).model_dump(mode="json"))
+        return UpdateTaskOutput(object=ObjectOut.from_model(updated))
 
     def link_objects(self, input: LinkObjectsInput) -> LinkObjectsOutput:
         try:
@@ -145,16 +146,9 @@ class DomainToolService:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
         except ValidationError as exc:
             raise ToolError(exc.message) from exc
-        return LinkObjectsOutput(edge=_edge_to_dict(edge))
+        return LinkObjectsOutput(edge=EdgeOut.from_model(edge))
 
-
-def _edge_to_dict(edge) -> dict:
-    from app.api.schemas import EdgeOut
-
-    return EdgeOut.from_model(edge).model_dump(mode="json")
-
-
-def _parse_optional_datetime(value: str | None) -> datetime | None:
-    if value is None:
-        return None
-    return datetime.fromisoformat(value)
+    def get_today(self) -> GetTodayOutput:
+        tz_name = settings.secretary_timezone
+        now = datetime.now(ZoneInfo(tz_name))
+        return GetTodayOutput(datetime=now, timezone=tz_name)
