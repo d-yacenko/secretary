@@ -67,6 +67,89 @@ def test_secretary_fixture_identifies_meeting_and_task() -> None:
     assert task.due_at is not None
     assert task.confidence == 0.79
     assert task.evidence_item_indices == [0]
+    assert task.due_at <= meeting.start_at
+
+
+def test_secretary_rejects_negative_evidence_index() -> None:
+    from app.llm.secretary_models import SecretaryAnalysis, SecretaryProposal
+
+    analysis = SecretaryAnalysis(
+        proposals=[
+            SecretaryProposal(
+                type="task",
+                title="Bad evidence",
+                confidence=0.5,
+                evidence_item_indices=[-1],
+            )
+        ]
+    )
+    service = SecretaryService(_InvalidEvidenceProvider(analysis))
+    result = service.analyze(
+        trigger="x",
+        context=_email_context(),
+        reference_datetime=FIXED_REFERENCE,
+    )
+    assert not result.success
+    assert "evidence" in (result.error or "").lower()
+
+
+def test_secretary_rejects_out_of_range_evidence_index() -> None:
+    from app.llm.secretary_models import SecretaryAnalysis, SecretaryProposal
+
+    analysis = SecretaryAnalysis(
+        proposals=[
+            SecretaryProposal(
+                type="task",
+                title="Bad evidence",
+                confidence=0.5,
+                evidence_item_indices=[99],
+            )
+        ]
+    )
+    service = SecretaryService(_InvalidEvidenceProvider(analysis))
+    result = service.analyze(trigger="x", context=_email_context(), reference_datetime=FIXED_REFERENCE)
+    assert not result.success
+
+
+def test_secretary_deduplicates_evidence_indices() -> None:
+    from app.llm.secretary_models import SecretaryAnalysis, SecretaryProposal
+
+    analysis = SecretaryAnalysis(
+        proposals=[
+            SecretaryProposal(
+                type="note",
+                title="Dup evidence",
+                confidence=0.6,
+                evidence_item_indices=[0, 0, 0],
+            )
+        ]
+    )
+    service = SecretaryService(_InvalidEvidenceProvider(analysis))
+    result = service.analyze(trigger="x", context=_email_context(), reference_datetime=FIXED_REFERENCE)
+    assert result.success
+    assert result.analysis.proposals[0].evidence_item_indices == [0]
+
+
+def test_create_secretary_provider_without_api_key_fails() -> None:
+    from app.core.config import settings
+    from app.llm.secretary_provider import SecretaryConfigurationError
+    from app.services.secretary_service import create_secretary_provider
+
+    original = settings.openai_api_key
+    settings.openai_api_key = ""
+    try:
+        with pytest.raises(SecretaryConfigurationError):
+            create_secretary_provider()
+    finally:
+        settings.openai_api_key = original
+
+
+class _InvalidEvidenceProvider:
+    def __init__(self, analysis):
+        self._analysis = analysis
+
+    def analyze(self, trigger, context, reference_datetime, timezone, instructions):
+        return self._analysis
 
 
 def test_secretary_failure_returns_controlled_result() -> None:

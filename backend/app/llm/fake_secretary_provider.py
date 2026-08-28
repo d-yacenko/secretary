@@ -40,14 +40,6 @@ class FakeSecretaryProvider:
             30,
             tzinfo=tz,
         )
-        due_at = datetime(
-            tomorrow.year,
-            tomorrow.month,
-            tomorrow.day,
-            17,
-            0,
-            tzinfo=tz,
-        )
 
         proposals = [
             SecretaryProposal(
@@ -62,7 +54,7 @@ class FakeSecretaryProvider:
                 type="task",
                 title="Send updated forecast",
                 description="Send the updated forecast before the meeting.",
-                due_at=due_at,
+                due_at=meeting_start,
                 confidence=0.79,
                 evidence_item_indices=[forecast_index],
             ),

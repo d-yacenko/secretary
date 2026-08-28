@@ -9,6 +9,10 @@ class SecretaryAnalysisError(Exception):
     pass
 
 
+class SecretaryConfigurationError(SecretaryAnalysisError):
+    pass
+
+
 class SecretaryProvider(Protocol):
     def analyze(
         self,
