@@ -222,12 +222,13 @@ def test_caldav_discovery_uses_principal_then_calendar_home() -> None:
     assert http.requests[1] == ("PROPFIND", HOME_HREF, "1")
 
 
-def test_sync_collection_uses_depth_zero() -> None:
+def test_sync_collection_uses_depth_zero_and_dav_limit_wrapper() -> None:
     captured: dict[str, str] = {}
 
     class SyncHttpClient:
         def request(self, method: str, url: str, **kwargs) -> httpx.Response:
             captured["depth"] = kwargs["headers"]["Depth"]
+            captured["body"] = kwargs.get("content", b"").decode("utf-8")
             xml = (
                 "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
                 "<d:sync-token>token-next</d:sync-token></d:multistatus>"
@@ -239,8 +240,31 @@ def test_sync_collection_uses_depth_zero() -> None:
         password="pass",
         http_client=SyncHttpClient(),
     )
-    transport.sync_collection(CALENDAR_HREF, "token-start", 100)
+    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    transport.sync_collection(CALENDAR_HREF, "token-start", 100, time_min, time_max)
     assert captured["depth"] == "0"
+    assert "<d:limit><d:nresults>100</d:nresults></d:limit>" in captured["body"]
+    assert "<c:expand" in captured["body"]
+
+
+def test_parse_truncated_multistatus_returns_partial_token() -> None:
+    xml = (
+        "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+        "<d:response><d:href>" + CALENDAR_HREF + "evt-1.ics</d:href>"
+        "<d:propstat><d:prop><c:calendar-data>BEGIN:VEVENT\nUID:trunc-1\nEND:VEVENT</c:calendar-data>"
+        "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+        "<d:response><d:href>" + CALENDAR_HREF + "</d:href>"
+        "<d:status>HTTP/1.1 507 Insufficient Storage</d:status></d:response>"
+        "<d:sync-token>partial-token</d:sync-token>"
+        "</d:multistatus>"
+    )
+    transport = CalDavHttpTransport(email="user@yandex.ru", password="pass")
+    events, token, deleted, truncated = transport._parse_event_multistatus(xml)
+    assert len(events) == 1
+    assert token == "partial-token"
+    assert truncated is True
+    assert deleted == []
 
 
 def test_sync_collection_batches_with_partial_tokens(db_session, credential_key: str) -> None:
@@ -418,9 +442,27 @@ def test_parse_multistatus_uses_ok_propstat_when_multiple_present() -> None:
         "</d:response></d:multistatus>"
     )
     transport = CalDavHttpTransport(email="user@yandex.ru", password="pass")
-    events, token, deleted = transport._parse_event_multistatus(xml)
+    events, token, deleted, truncated = transport._parse_event_multistatus(xml)
     assert len(events) == 1
     assert "UID:multi-prop" in events[0].calendar_data
+    assert truncated is False
+
+
+def test_parse_multistatus_merges_split_ok_propstats() -> None:
+    xml = (
+        "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+        "<d:response><d:href>" + CALENDAR_HREF + "evt-split.ics</d:href>"
+        "<d:propstat><d:prop><d:getetag>\"etag-split\"</d:getetag></d:prop>"
+        "<d:status>HTTP/1.1 200 OK</d:status></d:propstat>"
+        "<d:propstat><d:prop><c:calendar-data>BEGIN:VEVENT\nUID:split-prop\nEND:VEVENT</c:calendar-data>"
+        "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>"
+        "</d:response></d:multistatus>"
+    )
+    transport = CalDavHttpTransport(email="user@yandex.ru", password="pass")
+    events, _, _, _ = transport._parse_event_multistatus(xml)
+    assert len(events) == 1
+    assert events[0].etag == '"etag-split"'
+    assert "UID:split-prop" in events[0].calendar_data
 
 
 def test_sync_collection_raises_when_fake_exceeds_limit() -> None:
@@ -435,7 +477,13 @@ def test_sync_collection_raises_when_fake_exceeds_limit() -> None:
         },
     )
     with pytest.raises(YandexCalDavError, match="exceeded requested result limit"):
-        transport.sync_collection(CALENDAR_HREF, "token-start", 100)
+        transport.sync_collection(
+            CALENDAR_HREF,
+            "token-start",
+            100,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 12, 31, tzinfo=timezone.utc),
+        )
 
 
 def test_bounded_yandex_calendar_sync_creates_observed_event_objects(
@@ -521,7 +569,7 @@ def test_yandex_calendar_resync_unchanged_without_duplicate_jobs(
     assert first["created"] == 1
     assert second["unchanged"] == 1
     assert second["jobs_enqueued"] == 0
-    assert transport.sync_collection_calls == [(CALENDAR_HREF, "token-2", 1)]
+    assert transport.sync_collection_calls == [(CALENDAR_HREF, "token-2", 100)]
 
 
 def test_two_users_share_same_external_id_under_different_user_id(
@@ -602,6 +650,292 @@ def test_user_b_cannot_sync_user_a_yandex_calendar_account(
     )
     with pytest.raises(YandexConnectorError, match="yandex calendar account not found"):
         sync_service.sync_account(account.id, user_b_id, limit=1)
+
+
+def _expanded_recurring_ical(occurrence_count: int) -> str:
+    lines = ["BEGIN:VCALENDAR"]
+    base = datetime(2026, 8, 29, 10, 0, tzinfo=timezone.utc)
+    for index in range(occurrence_count):
+        start = base + timedelta(days=index)
+        end = start + timedelta(hours=1)
+        recurrence_id = start.strftime("%Y%m%dT%H%M%SZ")
+        lines.extend(
+            [
+                "BEGIN:VEVENT",
+                "UID:weekly-expand",
+                f"RECURRENCE-ID:{recurrence_id}",
+                f"SUMMARY:Occurrence {index}",
+                f"DTSTART:{recurrence_id}",
+                f"DTEND:{end.strftime('%Y%m%dT%H%M%SZ')}",
+                "END:VEVENT",
+            ]
+        )
+    lines.append("END:VCALENDAR")
+    return "\n".join(lines) + "\n"
+
+
+def test_incremental_sync_persists_token_after_all_occurrences_in_resource(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="expand@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "token-2"}}},
+    )
+    db_session.commit()
+
+    expanded_event = CalDavEvent(
+        event_href=f"{CALENDAR_HREF}weekly-expand.ics",
+        etag='"weekly-expand"',
+        calendar_data=_expanded_recurring_ical(20),
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-2")],
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-2": CalDavFetchResult(
+                    events=[expanded_event],
+                    sync_token="token-3",
+                )
+            }
+        },
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+    )
+    result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+
+    assert result["created"] == 20
+    assert result["synchronized"] == 20
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-3"
+
+
+def test_deletion_tombstones_all_occurrences_for_event_href(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="multi-del@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    db_session.commit()
+
+    event_href = f"{CALENDAR_HREF}weekly-expand.ics"
+    occurrences = normalize_caldav_events(_expanded_recurring_ical(3), CALENDAR_HREF, event_href=event_href)
+    for normalized in occurrences:
+        db_session.add(
+            Object(
+                user_id=BOOTSTRAP_USER_ID,
+                kind=normalized["kind"],
+                provider=normalized["provider"],
+                external_id=normalized["external_id"],
+                origin=normalized["origin"],
+                state=normalized["state"],
+                title=normalized["title"],
+                metadata_=normalized["metadata"],
+            )
+        )
+    db_session.commit()
+
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "token-del"}}},
+    )
+    db_session.commit()
+
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-del")],
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-del": CalDavFetchResult(
+                    events=[],
+                    sync_token="token-del-2",
+                    deleted_hrefs=[event_href],
+                )
+            }
+        },
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+    )
+    result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    objs = list(
+        db_session.scalars(
+            select(Object).where(
+                Object.user_id == BOOTSTRAP_USER_ID,
+                Object.provider == "yandex_calendar",
+                Object.metadata_["event_href"].as_string() == event_href,
+            )
+        ).all()
+    )
+    assert result["tombstoned"] == 3
+    assert len(objs) == 3
+    assert all(obj.status == "deleted" for obj in objs)
+
+
+def test_deletion_does_not_touch_other_user_same_event_href(
+    db_session, credential_key: str
+) -> None:
+    user_b_id = uuid.uuid4()
+    db_session.add(User(id=user_b_id, display_name="User B"))
+    db_session.flush()
+
+    event_href = f"{CALENDAR_HREF}shared-delete.ics"
+    for user_id in (BOOTSTRAP_USER_ID, user_b_id):
+        db_session.add(
+            Object(
+                user_id=user_id,
+                kind="event",
+                provider="yandex_calendar",
+                external_id=build_external_id(CALENDAR_HREF, f"evt-{user_id}"),
+                origin="source",
+                state="observed",
+                title="Shared",
+                metadata_={"event_href": event_href},
+            )
+        )
+    db_session.commit()
+
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="iso-del@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "token-iso"}}},
+    )
+    db_session.commit()
+
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-iso")],
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-iso": CalDavFetchResult(
+                    events=[],
+                    sync_token="token-iso-2",
+                    deleted_hrefs=[event_href],
+                )
+            }
+        },
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+
+    owner = db_session.scalar(
+        select(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.metadata_["event_href"].as_string() == event_href,
+        )
+    )
+    other = db_session.scalar(
+        select(Object).where(
+            Object.user_id == user_b_id,
+            Object.metadata_["event_href"].as_string() == event_href,
+        )
+    )
+    assert owner is not None and owner.status == "deleted"
+    assert other is not None and other.status != "deleted"
+
+
+CALENDAR_B_HREF = "/calendars/user@yandex.ru/events-2/"
+
+
+def test_no_db_transaction_leak_after_noop_deletion_before_next_calendar(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="tx2@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "token-a"}}},
+    )
+    db_session.commit()
+
+    tx_checks: list[bool] = []
+
+    class TxTrackingTransport(FakeCalDavTransport):
+        def query_events(self, calendar_href, time_min, time_max, max_results):
+            tx_checks.append(db_session.in_transaction())
+            return super().query_events(calendar_href, time_min, time_max, max_results)
+
+        def sync_collection(self, calendar_href, sync_token, max_results, time_min, time_max):
+            tx_checks.append(db_session.in_transaction())
+            return super().sync_collection(
+                calendar_href, sync_token, max_results, time_min, time_max
+            )
+
+    transport = TxTrackingTransport(
+        calendars=[
+            CalDavCalendar(href=CALENDAR_HREF, display_name="A", sync_token="token-a"),
+            CalDavCalendar(href=CALENDAR_B_HREF, display_name="B", sync_token=None),
+        ],
+        calendar_order=[CALENDAR_HREF, CALENDAR_B_HREF],
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-a": CalDavFetchResult(
+                    events=[],
+                    sync_token="token-a-2",
+                    deleted_hrefs=[f"{CALENDAR_HREF}unknown.ics"],
+                )
+            }
+        },
+        query_events_by_calendar={CALENDAR_B_HREF: [_event("evt-b", summary="Calendar B")]},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+
+    assert transport.sync_collection_calls
+    assert transport.query_calls == [CALENDAR_B_HREF]
+    assert tx_checks == [False, False]
 
 
 def test_yandex_calendar_connect_api_does_not_return_app_password(

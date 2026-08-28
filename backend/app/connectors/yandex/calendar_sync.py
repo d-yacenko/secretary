@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import UUID
@@ -10,7 +11,7 @@ from app.connectors.yandex.calendar_credentials import (
     YandexCalendarSyncSnapshot,
 )
 from app.connectors.yandex.calendar_normalize import normalize_caldav_events
-from app.connectors.yandex.caldav_transport import CalDavHttpTransport, CalDavTransport
+from app.connectors.yandex.caldav_transport import CalDavFetchResult, CalDavHttpTransport, CalDavTransport
 from app.connectors.yandex.constants import (
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
     DEFAULT_CALENDAR_SYNC_DAYS_FORWARD,
@@ -27,6 +28,16 @@ from app.services.job_queue_service import JobQueueService
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@dataclass
+class _BatchStats:
+    synchronized: int = 0
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    jobs_enqueued: int = 0
 
 
 class YandexCalendarSyncService:
@@ -62,8 +73,8 @@ class YandexCalendarSyncService:
         if snapshot is None:
             raise YandexConnectorError("yandex calendar account not found")
 
-        effective_limit = limit if limit is not None else self._default_limit
-        effective_limit = min(max(effective_limit, 1), self._max_limit)
+        occurrence_budget = limit if limit is not None else self._default_limit
+        occurrence_budget = min(max(occurrence_budget, 1), self._max_limit)
 
         self._session.commit()
 
@@ -72,93 +83,55 @@ class YandexCalendarSyncService:
         time_max = utcnow() + timedelta(days=self._days_forward)
         calendars = transport.discover_calendars(self._max_calendars)
 
-        created = 0
-        updated = 0
-        jobs_enqueued = 0
-        synchronized = 0
-        unchanged = 0
-        tombstoned = 0
-        remaining = effective_limit
+        totals = _BatchStats()
         calendar_state = dict(snapshot.sync_state.get("calendars", {}))
 
         for calendar in calendars:
-            if remaining <= 0:
+            if occurrence_budget <= 0:
                 break
+
             calendar_href = calendar.href
             stored = dict(calendar_state.get(calendar_href, {}))
             stored_token = stored.get("sync_token")
             calendar_summary = calendar.display_name or stored.get("display_name")
-            used_incremental = False
 
-            try:
-                if stored_token:
-                    used_incremental = True
-                    fetch_result = transport.sync_collection(
-                        calendar_href=calendar_href,
-                        sync_token=str(stored_token),
-                        max_results=remaining,
-                    )
-                else:
-                    fetch_result = transport.query_events(
-                        calendar_href=calendar_href,
-                        time_min=time_min,
-                        time_max=time_max,
-                        max_results=remaining,
-                    )
-            except YandexConnectorError:
+            if stored_token:
+                batch_stats, occurrence_budget, stored = self._sync_incremental_calendar(
+                    transport=transport,
+                    snapshot=snapshot,
+                    calendar_href=calendar_href,
+                    stored=stored,
+                    stored_token=str(stored_token),
+                    calendar_summary=calendar_summary,
+                    time_min=time_min,
+                    time_max=time_max,
+                    occurrence_budget=occurrence_budget,
+                )
+            else:
+                self._session.commit()
                 fetch_result = transport.query_events(
                     calendar_href=calendar_href,
                     time_min=time_min,
                     time_max=time_max,
-                    max_results=remaining,
+                    max_results=self._max_limit,
                 )
-                used_incremental = False
-                stored_token = None
-
-            for deleted_href in fetch_result.deleted_hrefs:
-                if remaining <= 0:
-                    break
-                self._session.commit()
-                tombstone = self._tombstone_deleted_event(snapshot.user_id, deleted_href)
-                if tombstone is None:
-                    continue
-                tombstoned += 1
-                synchronized += 1
-                remaining -= 1
-                self._session.commit()
-
-            for raw_event in fetch_result.events:
-                if remaining <= 0:
-                    break
-                normalized_list = normalize_caldav_events(
-                    raw_event.calendar_data,
+                batch_stats = self._apply_fetch_batch(
+                    user_id=snapshot.user_id,
+                    fetch_result=fetch_result,
                     calendar_href=calendar_href,
                     calendar_summary=calendar_summary,
-                    etag=raw_event.etag,
-                    event_href=raw_event.event_href,
-                    time_min=time_min if not used_incremental else None,
-                    time_max=time_max if not used_incremental else None,
+                    time_min=time_min,
+                    time_max=time_max,
+                    cap_occurrences=True,
+                    occurrence_budget=occurrence_budget,
                 )
-                for normalized in normalized_list:
-                    if remaining <= 0:
-                        break
-                    change = self._upsert_event(snapshot.user_id, normalized)
-                    synchronized += 1
-                    remaining -= 1
-                    if change == "created":
-                        created += 1
-                        jobs_enqueued += 1
-                    elif change == "updated":
-                        updated += 1
-                        jobs_enqueued += 1
-                    else:
-                        unchanged += 1
-                    self._session.commit()
+                occurrence_budget -= batch_stats.synchronized
+                if fetch_result.sync_token:
+                    stored["sync_token"] = fetch_result.sync_token
+                elif calendar.sync_token:
+                    stored["sync_token"] = calendar.sync_token
 
-            if fetch_result.sync_token:
-                stored["sync_token"] = fetch_result.sync_token
-            elif not used_incremental and calendar.sync_token:
-                stored["sync_token"] = calendar.sync_token
+            self._merge_stats(totals, batch_stats)
             if calendar_summary:
                 stored["display_name"] = calendar_summary
             calendar_state[calendar_href] = stored
@@ -171,13 +144,151 @@ class YandexCalendarSyncService:
 
         return {
             "account_email": snapshot.email,
-            "synchronized": synchronized,
-            "created": created,
-            "updated": updated,
-            "unchanged": unchanged,
-            "tombstoned": tombstoned,
-            "jobs_enqueued": jobs_enqueued,
+            "synchronized": totals.synchronized,
+            "created": totals.created,
+            "updated": totals.updated,
+            "unchanged": totals.unchanged,
+            "tombstoned": totals.tombstoned,
+            "jobs_enqueued": totals.jobs_enqueued,
         }
+
+    def _sync_incremental_calendar(
+        self,
+        transport: CalDavTransport,
+        snapshot: YandexCalendarSyncSnapshot,
+        calendar_href: str,
+        stored: dict[str, Any],
+        stored_token: str,
+        calendar_summary: str | None,
+        time_min: datetime,
+        time_max: datetime,
+        occurrence_budget: int,
+    ) -> tuple[_BatchStats, int, dict[str, Any]]:
+        totals = _BatchStats()
+        current_token = stored_token
+
+        while True:
+            if occurrence_budget <= 0:
+                break
+            self._session.commit()
+            try:
+                fetch_result = transport.sync_collection(
+                    calendar_href=calendar_href,
+                    sync_token=current_token,
+                    max_results=self._max_limit,
+                    time_min=time_min,
+                    time_max=time_max,
+                )
+            except YandexConnectorError:
+                self._session.commit()
+                fetch_result = transport.query_events(
+                    calendar_href=calendar_href,
+                    time_min=time_min,
+                    time_max=time_max,
+                    max_results=self._max_limit,
+                )
+                batch_stats = self._apply_fetch_batch(
+                    user_id=snapshot.user_id,
+                    fetch_result=fetch_result,
+                    calendar_href=calendar_href,
+                    calendar_summary=calendar_summary,
+                    time_min=time_min,
+                    time_max=time_max,
+                    cap_occurrences=True,
+                    occurrence_budget=occurrence_budget,
+                )
+                self._merge_stats(totals, batch_stats)
+                occurrence_budget -= batch_stats.synchronized
+                if fetch_result.sync_token:
+                    stored["sync_token"] = fetch_result.sync_token
+                return totals, occurrence_budget, stored
+
+            batch_stats = self._apply_fetch_batch(
+                user_id=snapshot.user_id,
+                fetch_result=fetch_result,
+                calendar_href=calendar_href,
+                calendar_summary=calendar_summary,
+                time_min=time_min,
+                time_max=time_max,
+                cap_occurrences=False,
+                occurrence_budget=occurrence_budget,
+            )
+            self._merge_stats(totals, batch_stats)
+            occurrence_budget -= batch_stats.synchronized
+
+            if fetch_result.sync_token:
+                stored["sync_token"] = fetch_result.sync_token
+
+            if not fetch_result.events:
+                break
+            if fetch_result.sync_token is None:
+                break
+            if not fetch_result.truncated and fetch_result.sync_token == current_token:
+                break
+            current_token = fetch_result.sync_token
+            if occurrence_budget <= 0:
+                break
+
+        return totals, occurrence_budget, stored
+
+    def _apply_fetch_batch(
+        self,
+        user_id: UUID,
+        fetch_result: CalDavFetchResult,
+        calendar_href: str,
+        calendar_summary: str | None,
+        time_min: datetime,
+        time_max: datetime,
+        cap_occurrences: bool,
+        occurrence_budget: int,
+    ) -> _BatchStats:
+        stats = _BatchStats()
+
+        for deleted_href in fetch_result.deleted_hrefs:
+            self._session.commit()
+            tombstoned_count = self._tombstone_all_by_event_href(user_id, deleted_href)
+            stats.tombstoned += tombstoned_count
+            stats.synchronized += tombstoned_count
+            self._session.commit()
+
+        for raw_event in fetch_result.events:
+            normalized_list = normalize_caldav_events(
+                raw_event.calendar_data,
+                calendar_href=calendar_href,
+                calendar_summary=calendar_summary,
+                etag=raw_event.etag,
+                event_href=raw_event.event_href,
+                time_min=time_min,
+                time_max=time_max,
+            )
+            for normalized in normalized_list:
+                if cap_occurrences and occurrence_budget <= 0:
+                    break
+                change = self._upsert_event(user_id, normalized)
+                stats.synchronized += 1
+                if cap_occurrences:
+                    occurrence_budget -= 1
+                if change == "created":
+                    stats.created += 1
+                    stats.jobs_enqueued += 1
+                elif change == "updated":
+                    stats.updated += 1
+                    stats.jobs_enqueued += 1
+                else:
+                    stats.unchanged += 1
+                self._session.commit()
+            if cap_occurrences and occurrence_budget <= 0:
+                break
+
+        return stats
+
+    def _merge_stats(self, totals: _BatchStats, batch: _BatchStats) -> None:
+        totals.synchronized += batch.synchronized
+        totals.created += batch.created
+        totals.updated += batch.updated
+        totals.unchanged += batch.unchanged
+        totals.tombstoned += batch.tombstoned
+        totals.jobs_enqueued += batch.jobs_enqueued
 
     def _upsert_event(self, user_id: UUID, normalized: dict[str, Any]) -> str:
         existing = self._find_existing_event(user_id, normalized["external_id"])
@@ -214,18 +325,18 @@ class YandexCalendarSyncService:
             return "updated"
         return "unchanged"
 
-    def _tombstone_deleted_event(self, user_id: UUID, event_href: str) -> Object | None:
-        obj = self._find_by_event_href(user_id, event_href)
-        if obj is None:
-            return None
-        if obj.status == "deleted":
-            return None
-        metadata = dict(obj.metadata_ or {})
-        metadata["caldav_deleted"] = True
-        metadata["deleted_at"] = utcnow().isoformat()
-        obj.status = "deleted"
-        obj.metadata_ = metadata
-        return obj
+    def _tombstone_all_by_event_href(self, user_id: UUID, event_href: str) -> int:
+        tombstoned = 0
+        for obj in self._find_all_by_event_href(user_id, event_href):
+            if obj.status == "deleted":
+                continue
+            metadata = dict(obj.metadata_ or {})
+            metadata["caldav_deleted"] = True
+            metadata["deleted_at"] = utcnow().isoformat()
+            obj.status = "deleted"
+            obj.metadata_ = metadata
+            tombstoned += 1
+        return tombstoned
 
     def _open_transport(self, snapshot: YandexCalendarSyncSnapshot) -> CalDavTransport:
         if self._transport_factory is not None:
@@ -247,14 +358,16 @@ class YandexCalendarSyncService:
             )
         )
 
-    def _find_by_event_href(self, user_id: UUID, event_href: str) -> Object | None:
-        return self._session.scalar(
-            select(Object).where(
-                Object.user_id == user_id,
-                Object.provider == "yandex_calendar",
-                Object.kind == "event",
-                Object.metadata_["event_href"].as_string() == event_href,
-            )
+    def _find_all_by_event_href(self, user_id: UUID, event_href: str) -> list[Object]:
+        return list(
+            self._session.scalars(
+                select(Object).where(
+                    Object.user_id == user_id,
+                    Object.provider == "yandex_calendar",
+                    Object.kind == "event",
+                    Object.metadata_["event_href"].as_string() == event_href,
+                )
+            ).all()
         )
 
     def _event_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
