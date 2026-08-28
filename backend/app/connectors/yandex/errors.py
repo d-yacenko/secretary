@@ -10,3 +10,7 @@ class YandexConfigurationError(YandexConnectorError):
 
 class YandexImapError(YandexConnectorError):
     pass
+
+
+class YandexCalDavError(YandexConnectorError):
+    pass

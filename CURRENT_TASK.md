@@ -1,28 +1,25 @@
-# Current task — PHASE 17 (not started)
+# Current task — PHASE 17 (implemented; awaiting review)
 
 ## Status
 
-PHASE 16 complete. Awaiting user acceptance before starting PHASE 17.
+PHASE 17 code complete. Offline tests pass. Not deployed; no live CalDAV smoke.
 
-## Goal (when approved)
+## Goal
 
-Synchronize Yandex Calendar via CalDAV into user-scoped `event` objects.
+Synchronize Yandex Calendar via read-only CalDAV into user-scoped `event` objects.
 
-## Prerequisites
+## Implemented
 
-- PHASE 16 accepted.
-- Same global ownership/sync invariants as PHASE 14.5+.
-
-## Do (when approved)
-
-1. Add `YandexCalendarConnector` with CalDAV transport + normalization.
-2. User-scoped objects; bounded initial history; incremental when supported.
-3. Cross-user isolation test.
+- `yandex_calendar_accounts` + migration `0012` (separate Calendar app password)
+- `POST /connectors/yandex/calendar/connect`, `POST /connectors/yandex/calendar/sync`
+- CalDAV discover → bounded query or sync-collection incremental
+- Objects: `kind=event`, `provider=yandex_calendar`
+- Tests: `tests/test_yandex_calendar.py`
 
 ## Defer
 
 - Calendar write.
-- Deep historical import without explicit user request.
+- Deploy / live smoke until code review acceptance.
 
 ## Roadmap note
 
@@ -30,4 +27,4 @@ PHASE 19.5 — Secretary Authentication & Connections must land before PHASE 20 
 
 ## Note
 
-Stop after phase for user review. Do not auto-start PHASE 18.
+Stop for review. Do not auto-start PHASE 18.

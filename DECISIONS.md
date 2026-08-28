@@ -30,4 +30,6 @@ Being inside the synchronization time window does **not** mean the full object m
 
 **Yandex Mail (PHASE 16):** encrypted per-user Mail app passwords (MVP); OAuth deferred to PHASE 19.5 Connections. IMAP incremental via UIDVALIDITY + last UID; initial backfill newest batch; incremental oldest batch first; skip FETCH for known external IDs.
 
+**Yandex Calendar (PHASE 17):** encrypted per-user **Calendar** app passwords (separate from Mail). Read-only CalDAV; bounded time-range query for initial/reconciliation; per-calendar sync-token incremental when available; upsert with change detection; no calendar writes.
+
 **Future:** when a provider offers reliable cursor/history/sync tokens, prefer that over rescans; unchanged processed content must not be repeatedly downloaded/embedded/analyzed.
