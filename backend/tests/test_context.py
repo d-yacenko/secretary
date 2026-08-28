@@ -43,7 +43,7 @@ def _ingest_long_document(
         ObjectCreate(
             kind="document",
             title=title,
-            origin="test",
+            origin="system",
             canonical_uri=uri,
         )
     )
@@ -65,14 +65,14 @@ def test_task_linked_to_long_document_context(
 ) -> None:
     graph, doc, _ = _ingest_long_document(db_session, fake_embedding_service)
     task = graph.create_object(
-        ObjectCreate(kind="task", title="Review quarterly budget", origin="test")
+        ObjectCreate(kind="task", title="Review quarterly budget", origin="system")
     )
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -107,13 +107,13 @@ def test_context_contains_document_reference_and_summary(
         fake_embedding_service,
         uri="file:///refs/budget.md",
     )
-    task = graph.create_object(ObjectCreate(kind="task", title="Budget task", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Budget task", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="attached_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -142,13 +142,13 @@ def test_context_contains_only_bounded_chunks(
     db_session, fake_embedding_service: FakeEmbeddingService
 ) -> None:
     graph, doc, long_text = _ingest_long_document(db_session, fake_embedding_service)
-    task = graph.create_object(ObjectCreate(kind="task", title="Chunk task", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Chunk task", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -178,13 +178,13 @@ def test_context_does_not_contain_full_large_document(
     db_session, fake_embedding_service: FakeEmbeddingService
 ) -> None:
     graph, doc, long_text = _ingest_long_document(db_session, fake_embedding_service)
-    task = graph.create_object(ObjectCreate(kind="task", title="No full doc", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="No full doc", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -202,13 +202,13 @@ def test_context_does_not_contain_full_large_document(
 
 def test_max_chars_is_respected(db_session, fake_embedding_service: FakeEmbeddingService) -> None:
     graph, doc, _ = _ingest_long_document(db_session, fake_embedding_service)
-    task = graph.create_object(ObjectCreate(kind="task", title="Budget cap", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Budget cap", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -228,17 +228,17 @@ def test_small_budget_excludes_unrelated_semantic_candidates(db_session) -> None
         ObjectCreate(
             kind="note",
             title="Solar energy roadmap unrelated",
-            origin="test",
+            origin="system",
         )
     )
     graph, doc, _ = _ingest_long_document(db_session, stub)
-    task = graph.create_object(ObjectCreate(kind="task", title="Finance task", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Finance task", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -266,17 +266,17 @@ def test_dataset_context_uses_schema_sample_statistics_not_full(
         ObjectCreate(
             kind="dataset",
             title="Sales metrics",
-            origin="test",
+            origin="system",
             canonical_uri=str(csv_path),
         )
     )
-    task = graph.create_object(ObjectCreate(kind="task", title="Analyze sales", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Analyze sales", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=dataset.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -312,17 +312,17 @@ def test_dataset_parquet_context_policy(
         ObjectCreate(
             kind="dataset",
             title="Parquet metrics",
-            origin="test",
+            origin="system",
             canonical_uri=str(parquet_path),
         )
     )
-    task = graph.create_object(ObjectCreate(kind="task", title="Parquet task", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Parquet task", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=dataset.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -339,13 +339,13 @@ def test_dataset_parquet_context_policy(
 
 def test_build_context_stable_ordering(db_session, fake_embedding_service: FakeEmbeddingService) -> None:
     graph, doc, _ = _ingest_long_document(db_session, fake_embedding_service)
-    task = graph.create_object(ObjectCreate(kind="task", title="Stable task", origin="test"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Stable task", origin="system"))
     graph.create_edge(
         EdgeCreate(
             source_id=task.id,
             target_id=doc.id,
             type="related_to",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -382,7 +382,7 @@ def test_reingest_replaces_previous_representations(
 ) -> None:
     graph = GraphService(db_session)
     obj = graph.create_object(
-        ObjectCreate(kind="document", title="Re-ingest doc", origin="test")
+        ObjectCreate(kind="document", title="Re-ingest doc", origin="system")
     )
     service = RepresentationService(
         db_session,

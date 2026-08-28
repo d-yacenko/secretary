@@ -35,14 +35,14 @@ def test_semantic_search_with_concept_stub_finds_different_wording(db_session) -
         ObjectCreate(
             kind="note",
             title="Prepare financial forecast for next quarter",
-            origin="test",
+            origin="system",
         )
     )
     graph.create_object(
         ObjectCreate(
             kind="note",
             title="Weekend hiking trail guide",
-            origin="test",
+            origin="system",
         )
     )
 
@@ -60,7 +60,7 @@ def test_semantic_search_finds_different_wording(db_session, fake_embedding_serv
             kind="note",
             title="Quarterly budget planning meeting",
             body="Discuss revenue targets and expense review.",
-            origin="test",
+            origin="system",
         )
     )
     graph.create_object(
@@ -68,7 +68,7 @@ def test_semantic_search_finds_different_wording(db_session, fake_embedding_serv
             kind="note",
             title="Weekend hiking trip",
             body="Mountain trail and camping gear.",
-            origin="test",
+            origin="system",
         )
     )
 
@@ -81,9 +81,9 @@ def test_semantic_search_finds_different_wording(db_session, fake_embedding_serv
 
 def test_search_project_id_graph_filter(db_session, fake_embedding_service) -> None:
     graph = GraphService(db_session, fake_embedding_service)
-    project = graph.create_object(ObjectCreate(kind="project", title="Alpha", origin="test"))
-    task = graph.create_object(ObjectCreate(kind="task", title="Alpha task", origin="test"))
-    other = graph.create_object(ObjectCreate(kind="task", title="Other task", origin="test"))
+    project = graph.create_object(ObjectCreate(kind="project", title="Alpha", origin="system"))
+    task = graph.create_object(ObjectCreate(kind="task", title="Alpha task", origin="system"))
+    other = graph.create_object(ObjectCreate(kind="task", title="Other task", origin="system"))
 
     from app.api.schemas import EdgeCreate
 
@@ -92,7 +92,7 @@ def test_search_project_id_graph_filter(db_session, fake_embedding_service) -> N
             source_id=project.id,
             target_id=task.id,
             type="parent_of",
-            origin="test",
+            origin="system",
             state="observed",
         )
     )
@@ -110,7 +110,7 @@ def test_search_endpoint(client) -> None:
         json={
             "kind": "note",
             "title": "Renewable solar energy roadmap",
-            "origin": "test",
+            "origin": "system",
         },
     )
     response = client.get("/search", params={"q": "solar energy roadmap"})

@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_model: str = "gpt-5.6-terra"
+    secretary_timezone: str = "Europe/Amsterdam"
 
     @property
     def database_url(self) -> str:

@@ -200,7 +200,7 @@ def test_agent_proposed_edge_without_confidence_rejected_by_api(client) -> None:
 def test_search_lexical_fallback_on_embedding_failure(db_session) -> None:
     graph = GraphService(db_session, FailingEmbeddingService())
     graph.create_object(
-        ObjectCreate(kind="note", title="Unique lexical budget keyword", origin="test")
+        ObjectCreate(kind="note", title="Unique lexical budget keyword", origin="system")
     )
     from app.services.search_service import SearchService
 
@@ -215,7 +215,7 @@ def test_context_omits_chunks_when_embedding_fails(db_session) -> None:
         ObjectCreate(
             kind="document",
             title="Chunk doc",
-            origin="test",
+            origin="system",
             canonical_uri="file:///chunk.md",
         )
     )
@@ -240,7 +240,7 @@ def test_long_document_target_context_includes_summary_and_chunks(db_session) ->
         ObjectCreate(
             kind="document",
             title="Long target document",
-            origin="test",
+            origin="system",
             canonical_uri="file:///target-long.md",
         )
     )

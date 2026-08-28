@@ -1,22 +1,30 @@
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.services.provenance import default_object_state, validate_agent_proposal
+from app.services.provenance import (
+    Origin,
+    State,
+    default_object_state,
+    validate_agent_proposal,
+    validate_confidence,
+    validate_origin,
+    validate_state,
+)
 
 
 class ObjectCreate(BaseModel):
     kind: str
     title: str
-    origin: str
+    origin: Origin
     body: str | None = None
     provider: str | None = None
     external_id: str | None = None
     canonical_uri: str | None = None
     status: str | None = None
-    state: str | None = None
+    state: State | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -24,7 +32,10 @@ class ObjectCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_provenance(self) -> Self:
+        validate_origin(self.origin, "object")
         state = default_object_state(self.origin, self.state)
+        validate_state(state, "object")
+        validate_confidence(self.confidence, "object")
         validate_agent_proposal(self.origin, state, self.confidence, "object")
         return self
 
@@ -37,19 +48,27 @@ class ObjectUpdate(BaseModel):
     external_id: str | None = None
     canonical_uri: str | None = None
     status: str | None = None
-    state: str | None = None
+    state: State | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     metadata: dict[str, Any] | None = None
-    origin: str | None = None
     confidence: float | None = None
 
     @model_validator(mode="after")
     def reject_null_required_fields(self) -> Self:
-        for field in ("kind", "title", "origin", "metadata"):
+        for field in ("kind", "title", "metadata", "state"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
+
+    @model_validator(mode="after")
+    def validate_confidence_range(self) -> Self:
+        if "confidence" in self.model_fields_set:
+            validate_confidence(self.confidence, "object")
+        if self.state is not None:
+            validate_state(self.state, "object")
+        return self
+
 
 class ObjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -97,13 +116,16 @@ class EdgeCreate(BaseModel):
     source_id: UUID
     target_id: UUID
     type: str
-    origin: str
-    state: str
+    origin: Origin
+    state: State
     confidence: float | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_provenance(self) -> Self:
+        validate_origin(self.origin, "edge")
+        validate_state(self.state, "edge")
+        validate_confidence(self.confidence, "edge")
         validate_agent_proposal(self.origin, self.state, self.confidence, "edge")
         return self
 

@@ -10,7 +10,13 @@ from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
 from app.services.embedding_index import refresh_object_embedding
 from app.services.errors import ConflictError, NotFoundError, ValidationError
-from app.services.provenance import default_object_state, validate_agent_proposal
+from app.services.provenance import (
+    default_object_state,
+    validate_agent_proposal,
+    validate_edge_state_transition,
+    validate_origin,
+    validate_state,
+)
 
 _SEARCHABLE_FIELDS = frozenset({"kind", "title", "body", "metadata"})
 
@@ -35,6 +41,9 @@ class GraphService:
     def create_object(self, data: ObjectCreate) -> Object:
         state = default_object_state(data.origin, data.state)
         try:
+            validate_origin(data.origin, "object")
+            state = default_object_state(data.origin, data.state)
+            validate_state(state, "object")
             validate_agent_proposal(data.origin, state, data.confidence, "object")
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -76,6 +85,8 @@ class GraphService:
         changed_fields = set(updates.keys())
         if metadata_updated:
             changed_fields.add("metadata")
+        if "state" in updates:
+            validate_state(updates["state"], "object")
         self._validate_object_provenance(obj)
         self._maybe_refresh_embedding(obj, changed_fields)
         self._flush_object()
@@ -104,6 +115,8 @@ class GraphService:
 
     def create_edge(self, data: EdgeCreate) -> Edge:
         try:
+            validate_origin(data.origin, "edge")
+            validate_state(data.state, "edge")
             validate_agent_proposal(data.origin, data.state, data.confidence, "edge")
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -132,6 +145,18 @@ class GraphService:
             raise NotFoundError("edge", edge_id)
         self._session.delete(edge)
         self._session.flush()
+
+    def set_edge_state(self, edge_id: UUID, state: str) -> Edge:
+        edge = self._session.get(Edge, edge_id)
+        if edge is None:
+            raise NotFoundError("edge", edge_id)
+        try:
+            validate_edge_state_transition(edge.state, state)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        edge.state = state
+        self._session.flush()
+        return edge
 
     def get_neighbors(
         self,
@@ -164,6 +189,8 @@ class GraphService:
 
     def _validate_object_provenance(self, obj: Object) -> None:
         try:
+            validate_origin(obj.origin, "object")
+            validate_state(obj.state, "object")
             validate_agent_proposal(obj.origin, obj.state, obj.confidence, "object")
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc

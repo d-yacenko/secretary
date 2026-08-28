@@ -52,7 +52,7 @@ def _create_resource_object(
         ObjectCreate(
             kind="document",
             title=title,
-            origin="test",
+            origin="system",
             canonical_uri=canonical_uri,
         )
     )
@@ -190,7 +190,7 @@ def test_patch_metadata_refreshes_object_embedding(db_session, fake_embedding_se
         ObjectCreate(
             kind="note",
             title="Stable title",
-            origin="test",
+            origin="system",
             metadata={"topic": "alpha"},
         )
     )
@@ -206,7 +206,7 @@ def test_patch_metadata_refreshes_object_embedding(db_session, fake_embedding_se
 def test_create_object_survives_embedding_failure(db_session) -> None:
     graph = GraphService(db_session, FailingEmbeddingService())
     obj = graph.create_object(
-        ObjectCreate(kind="task", title="Keep me", body="details", origin="test")
+        ObjectCreate(kind="task", title="Keep me", body="details", origin="system")
     )
     db_session.refresh(obj)
     assert obj.id is not None
@@ -217,7 +217,7 @@ def test_update_clears_stale_embedding_on_failure(db_session, fake_embedding_ser
     from app.api.schemas import ObjectUpdate
 
     graph = GraphService(db_session, fake_embedding_service)
-    obj = graph.create_object(ObjectCreate(kind="task", title="Original", origin="test"))
+    obj = graph.create_object(ObjectCreate(kind="task", title="Original", origin="system"))
     assert obj.embedding is not None
 
     failing_graph = GraphService(db_session, FailingEmbeddingService())
@@ -233,7 +233,7 @@ def test_non_searchable_patch_does_not_refresh_embedding(
 
     graph = GraphService(db_session, fake_embedding_service)
     obj = graph.create_object(
-        ObjectCreate(kind="task", title="Title", origin="test", status="open")
+        ObjectCreate(kind="task", title="Title", origin="system", status="open")
     )
     before = list(obj.embedding or [])
 

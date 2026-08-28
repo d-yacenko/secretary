@@ -12,7 +12,7 @@ from app.services.view_service import ViewService
 
 
 def _task(title: str) -> ObjectCreate:
-    return ObjectCreate(kind="task", title=title, origin="test")
+    return ObjectCreate(kind="task", title=title, origin="system")
 
 
 def test_object_in_two_views_with_different_coordinates(db_session) -> None:
@@ -56,7 +56,7 @@ def test_deleting_view_deletes_view_items(db_session) -> None:
     graph = GraphService(db_session)
     views = ViewService(db_session)
 
-    obj = graph.create_object(ObjectCreate(kind="note", title="Note", origin="test"))
+    obj = graph.create_object(ObjectCreate(kind="note", title="Note", origin="system"))
 
     view = views.create_view("Temporary", "context")
     item = views.create_view_item(view.id, object_id=obj.id, x=5.0, y=6.0)

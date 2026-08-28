@@ -11,16 +11,16 @@ from app.db.models import Edge, Object
 def test_create_project_task_email_and_edges(db_session: Session) -> None:
     session = db_session
 
-    project = Object(kind="project", title="Website redesign", origin="test")
-    task = Object(kind="task", title="Write spec", origin="test")
+    project = Object(kind="project", title="Website redesign", origin="system")
+    task = Object(kind="task", title="Write spec", origin="system")
     email = Object(
         kind="email",
         title="Client question",
-        origin="test",
+        origin="system",
         provider="gmail",
         external_id=f"msg-{uuid.uuid4().hex}",
     )
-    subtask = Object(kind="task", title="Draft outline", origin="test")
+    subtask = Object(kind="task", title="Draft outline", origin="system")
 
     session.add_all([project, task, email, subtask])
     session.flush()
@@ -29,14 +29,14 @@ def test_create_project_task_email_and_edges(db_session: Session) -> None:
         source_id=task.id,
         target_id=email.id,
         type="related_to",
-        origin="test",
+        origin="system",
         state="observed",
     )
     parent = Edge(
         source_id=task.id,
         target_id=subtask.id,
         type="parent_of",
-        origin="test",
+        origin="system",
         state="observed",
     )
     session.add_all([related, parent])
@@ -61,8 +61,8 @@ def test_create_project_task_email_and_edges(db_session: Session) -> None:
 def test_same_kind_relation_allowed(db_session: Session) -> None:
     session = db_session
 
-    parent_task = Object(kind="task", title="Parent task", origin="test")
-    child_task = Object(kind="task", title="Child task", origin="test")
+    parent_task = Object(kind="task", title="Parent task", origin="system")
+    child_task = Object(kind="task", title="Child task", origin="system")
     session.add_all([parent_task, child_task])
     session.flush()
 
@@ -70,7 +70,7 @@ def test_same_kind_relation_allowed(db_session: Session) -> None:
         source_id=parent_task.id,
         target_id=child_task.id,
         type="parent_of",
-        origin="test",
+        origin="system",
         state="observed",
     )
     session.add(edge)
@@ -82,7 +82,7 @@ def test_same_kind_relation_allowed(db_session: Session) -> None:
 def test_edge_rejects_nonexistent_object(db_session: Session) -> None:
     session = db_session
 
-    task = Object(kind="task", title="Lonely task", origin="test")
+    task = Object(kind="task", title="Lonely task", origin="system")
     session.add(task)
     session.flush()
 
@@ -90,7 +90,7 @@ def test_edge_rejects_nonexistent_object(db_session: Session) -> None:
         source_id=task.id,
         target_id=uuid.uuid4(),
         type="related_to",
-        origin="test",
+        origin="system",
         state="observed",
     )
     session.add(edge)
@@ -102,7 +102,7 @@ def test_edge_rejects_nonexistent_object(db_session: Session) -> None:
 def test_metadata_defaults_to_empty_object(db_session: Session) -> None:
     session = db_session
 
-    obj = Object(kind="note", title="Empty metadata", origin="test")
+    obj = Object(kind="note", title="Empty metadata", origin="system")
     session.add(obj)
     session.flush()
 
@@ -116,7 +116,7 @@ def test_external_object_uniqueness(db_session: Session) -> None:
     first = Object(
         kind="email",
         title="First",
-        origin="test",
+        origin="system",
         provider="gmail",
         external_id=external_id,
     )
@@ -126,7 +126,7 @@ def test_external_object_uniqueness(db_session: Session) -> None:
     duplicate = Object(
         kind="email",
         title="Duplicate",
-        origin="test",
+        origin="system",
         provider="gmail",
         external_id=external_id,
     )

@@ -22,7 +22,7 @@ def client(db_session):
 
 
 def _create_object(client, kind: str, title: str, **extra) -> dict:
-    payload = {"kind": kind, "title": title, "origin": "test", **extra}
+    payload = {"kind": kind, "title": title, "origin": "system", **extra}
     response = client.post("/objects", json=payload)
     assert response.status_code == 201
     return response.json()
@@ -60,7 +60,7 @@ def test_create_edge_and_neighbors(client) -> None:
             "source_id": task["id"],
             "target_id": email["id"],
             "type": "related_to",
-            "origin": "test",
+            "origin": "system",
             "state": "observed",
         },
     )
@@ -88,7 +88,7 @@ def test_context(client) -> None:
             "source_id": parent["id"],
             "target_id": child["id"],
             "type": "parent_of",
-            "origin": "test",
+            "origin": "system",
             "state": "observed",
         },
     )
@@ -112,7 +112,7 @@ def test_delete_edge(client) -> None:
             "source_id": task["id"],
             "target_id": email["id"],
             "type": "related_to",
-            "origin": "test",
+            "origin": "system",
             "state": "observed",
         },
     )
@@ -143,7 +143,7 @@ def test_delete_object_with_edges_returns_409(client) -> None:
             "source_id": task["id"],
             "target_id": email["id"],
             "type": "related_to",
-            "origin": "test",
+            "origin": "system",
             "state": "observed",
         },
     )
@@ -167,7 +167,7 @@ def test_create_edge_missing_object_returns_404(client) -> None:
             "source_id": task["id"],
             "target_id": str(uuid.uuid4()),
             "type": "related_to",
-            "origin": "test",
+            "origin": "system",
             "state": "observed",
         },
     )
@@ -177,6 +177,12 @@ def test_create_edge_missing_object_returns_404(client) -> None:
 def test_patch_null_title_returns_422(client) -> None:
     created = _create_object(client, "task", "Keep title")
     response = client.patch(f"/objects/{created['id']}", json={"title": None})
+    assert response.status_code == 422
+
+
+def test_patch_null_state_returns_422(client) -> None:
+    created = _create_object(client, "task", "Keep state")
+    response = client.patch(f"/objects/{created['id']}", json={"state": None})
     assert response.status_code == 422
 
 
@@ -193,7 +199,7 @@ def test_duplicate_external_object_returns_409(client) -> None:
         json={
             "kind": "email",
             "title": "Duplicate",
-            "origin": "test",
+            "origin": "system",
             "provider": "gmail",
             "external_id": "dup-msg-001",
         },

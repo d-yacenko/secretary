@@ -1,27 +1,26 @@
-# Current task — PHASE 09
+# Current task — PHASE 10
 
 ## Goal
 
-Add one Secretary LLM service, not many.
+Give the Secretary a small stable tool vocabulary.
 
 ## Do
 
-1. Create `SecretaryService` using OpenAI Responses API.
-2. Model ID from env.
-3. Structured Pydantic output for analysis (importance, urgency, possible task/deadline/meeting, relations, next action).
-4. Pass bounded Context Resolver output only.
-5. Fixture test for meeting + deadline from sample email context.
+Implement domain tools (not raw DB):
+
+- `search_objects`, `get_object`, `get_context`, `create_task`, `update_task`, `link_objects`, `list_neighbors`, `search_calendar`, `propose_calendar_event`, `create_notification`
+
+Separate read tools from write/proposal tools.
 
 ## Do not
 
-- Add another agent.
-- Expose SQL to the model.
-- Execute external writes.
+- Expose raw SQL or arbitrary DB access.
+- Build multiple agents.
 
 ## Accept
 
-Sample email context produces typed proposals; tests pass offline with fixtures.
+Secretary can call typed tools against existing services; tests cover core read/write tool paths.
 
 ## Note
 
-No notifications or approval UI yet. Secrets only in `.env`.
+No automatic proposal persistence yet unless specified in phase. Secrets only in `.env`.
