@@ -66,6 +66,17 @@ def _ok_propstat(propstat: ET.Element) -> bool:
     return status is not None and _is_status_ok(status)
 
 
+def _is_stale_sync_token_response(status_code: int, body: str) -> bool:
+    if status_code not in {403, 409}:
+        return False
+    body_lower = body.lower()
+    if "valid-sync-token" in body_lower:
+        return True
+    if "sync-token" in body_lower and "invalid" in body_lower:
+        return True
+    return False
+
+
 def _parse_multistatus_root(xml_text: str) -> ET.Element:
     try:
         return ET.fromstring(xml_text)
@@ -175,9 +186,11 @@ class CalDavHttpTransport:
             headers=headers,
             auth=(self._email, self._password),
         )
-        if response.status_code in {403, 409} and "sync-collection" in body:
-            raise YandexCalDavStaleSyncTokenError(f"caldav sync-token invalid for {path}")
         if response.status_code >= 400:
+            if "sync-collection" in body and _is_stale_sync_token_response(
+                response.status_code, response.text
+            ):
+                raise YandexCalDavStaleSyncTokenError(f"caldav sync-token invalid for {path}")
             raise YandexCalDavError(f"caldav request failed for {path}")
         return response.text
 
@@ -426,6 +439,8 @@ class FakeCalDavTransport:
             for event in events
             if self._event_in_time_range(event, time_min, time_max)
         ]
+        if len(events) > max_results:
+            events = events[:max_results]
         token = self._sync_tokens.get(calendar_href)
         return CalDavFetchResult(events=events, sync_token=token)
 

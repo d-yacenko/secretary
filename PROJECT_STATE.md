@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 17 — Yandex Calendar (data-correctness corrective applied; awaiting code review)
+PHASE 17 — Yandex Calendar (last correctness fix applied; awaiting code review)
 
 PHASE 18 — files/cloud links (not started)
 
@@ -15,14 +15,13 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 - PHASE 00–16: (prior phases)
 - PHASE 17: Yandex Calendar CalDAV sync
   - Separate encrypted Calendar app password (`yandex_calendar_accounts`, migration `0012`)
-  - Principal discovery → calendar-home-set → calendars
-  - Resumable bounded backfill before steady-state sync-token; slice cursor + href cursor
-  - Future horizon reconciliation for newly-entering events (`covered_window_end`)
-  - Incremental recurring reconcile tombstones removed expanded occurrences
-  - Stale sync-token recovery via bounded backfill, then fresh token
-  - RFC6578 DAV:limit; sync-token safety; multi-occurrence tombstones; merged propstats
-  - Search excludes `status=deleted` by default; direct get-by-id still returns tombstones
-  - Offline tests: `tests/test_yandex_calendar.py`, `tests/test_search.py` (237 suite green)
+  - Resumable bounded backfill with baseline `pending_sync_token` (T1) before steady-state
+  - Adaptive time-slice splitting for dense backfill slices (no href cursor pagination)
+  - Future horizon reconciliation (`covered_window_end`)
+  - Incremental recurring reconcile for all changed resources (including single VEVENT)
+  - Stale sync-token detection via `valid-sync-token` precondition only
+  - Search excludes `status=deleted` by default
+  - Offline tests: 246 suite green
 
 ## Not done
 

@@ -18,6 +18,7 @@ from app.connectors.yandex.caldav_transport import (
     CalDavTransport,
 )
 from app.connectors.yandex.constants import (
+    CALENDAR_BACKFILL_MIN_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS,
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
@@ -173,7 +174,8 @@ class YandexCalendarSyncService:
         window_max: datetime,
         occurrence_budget: int,
     ) -> tuple[_BatchStats, int, dict[str, Any]]:
-        pending_token = stored.get("pending_sync_token") or calendar.sync_token
+        if not stored.get("pending_sync_token") and calendar.sync_token:
+            stored["pending_sync_token"] = calendar.sync_token
         return self._run_bounded_reconciliation(
             transport=transport,
             snapshot=snapshot,
@@ -183,7 +185,6 @@ class YandexCalendarSyncService:
             range_start=window_min,
             range_end=window_max,
             occurrence_budget=occurrence_budget,
-            pending_sync_token=pending_token,
             establish_token_on_complete=True,
         )
 
@@ -214,7 +215,6 @@ class YandexCalendarSyncService:
                 range_start=reconcile_start,
                 range_end=window_max,
                 occurrence_budget=occurrence_budget,
-                pending_sync_token=None,
                 establish_token_on_complete=False,
             )
             self._merge_stats(totals, batch_stats)
@@ -247,53 +247,53 @@ class YandexCalendarSyncService:
         range_start: datetime,
         range_end: datetime,
         occurrence_budget: int,
-        pending_sync_token: str | None,
         establish_token_on_complete: bool,
     ) -> tuple[_BatchStats, int, dict[str, Any]]:
         totals = _BatchStats()
         cursor = self._parse_iso_datetime(stored.get("backfill_cursor")) or range_start
         if cursor < range_start:
             cursor = range_start
-        href_cursor = stored.get("backfill_href_cursor")
-        held_token = pending_sync_token or stored.get("pending_sync_token")
+        min_slice = timedelta(days=CALENDAR_BACKFILL_MIN_SLICE_DAYS)
+        overlap = timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
         iterations = 0
 
         while occurrence_budget > 0 and cursor < range_end:
             iterations += 1
-            if iterations > 200:
+            if iterations > 500:
                 raise YandexConnectorError("bounded calendar reconciliation exceeded iteration limit")
-            slice_end = min(
+
+            parent_slice_end = min(
                 cursor + timedelta(days=CALENDAR_BACKFILL_SLICE_DAYS),
                 range_end,
             )
+            leaf_end = self._parse_iso_datetime(stored.get("backfill_slice_end")) or parent_slice_end
+            if leaf_end > parent_slice_end:
+                leaf_end = parent_slice_end
+            leaf_start = cursor
+
             self._session.commit()
-            fetch_result = transport.query_events(
-                calendar_href=calendar_href,
-                time_min=cursor,
-                time_max=slice_end,
-                max_results=self._max_limit,
-            )
-            if held_token is None and fetch_result.sync_token:
-                held_token = fetch_result.sync_token
-                stored["pending_sync_token"] = held_token
+            while True:
+                fetch_result = transport.query_events(
+                    calendar_href=calendar_href,
+                    time_min=leaf_start,
+                    time_max=leaf_end,
+                    max_results=self._max_limit,
+                )
+                self._capture_baseline_sync_token(stored, fetch_result.sync_token)
+                if len(fetch_result.events) < self._max_limit:
+                    break
+                duration = leaf_end - leaf_start
+                if duration <= min_slice:
+                    raise YandexConnectorError("bounded calendar slice exceeds resource cap")
+                leaf_end = leaf_start + duration / 2
 
-            events = sorted(fetch_result.events, key=lambda item: item.event_href)
-            if href_cursor:
-                events = [event for event in events if event.event_href > href_cursor]
-
-            filtered_fetch = CalDavFetchResult(
-                events=events,
-                sync_token=fetch_result.sync_token,
-                deleted_hrefs=fetch_result.deleted_hrefs,
-                truncated=fetch_result.truncated,
-            )
             apply_result = self._apply_fetch_batch(
                 user_id=snapshot.user_id,
-                fetch_result=filtered_fetch,
+                fetch_result=fetch_result,
                 calendar_href=calendar_href,
                 calendar_summary=calendar_summary,
-                time_min=cursor,
-                time_max=slice_end,
+                time_min=leaf_start,
+                time_max=leaf_end,
                 cap_occurrences=True,
                 occurrence_budget=occurrence_budget,
                 reconcile_occurrences=False,
@@ -302,33 +302,38 @@ class YandexCalendarSyncService:
             occurrence_budget -= apply_result.stats.budget_consumed
 
             if not apply_result.completed_all_resources:
-                stored["backfill_cursor"] = cursor.isoformat()
-                if apply_result.last_processed_href:
-                    stored["backfill_href_cursor"] = apply_result.last_processed_href
+                stored["backfill_cursor"] = leaf_start.isoformat()
+                stored["backfill_slice_end"] = leaf_end.isoformat()
                 return totals, occurrence_budget, stored
 
-            slice_exhausted = len(fetch_result.events) < self._max_limit
-            if not slice_exhausted:
-                stored["backfill_cursor"] = cursor.isoformat()
-                if apply_result.last_processed_href:
-                    stored["backfill_href_cursor"] = apply_result.last_processed_href
-                return totals, occurrence_budget, stored
+            stored.pop("backfill_slice_end", None)
+            if leaf_end < parent_slice_end:
+                next_cursor = leaf_end - overlap
+                if next_cursor <= leaf_start:
+                    next_cursor = leaf_end
+                cursor = next_cursor
+                stored["backfill_slice_end"] = parent_slice_end.isoformat()
+                continue
 
-            stored.pop("backfill_href_cursor", None)
-            if slice_end >= range_end:
+            if parent_slice_end >= range_end:
                 cursor = range_end
                 break
-            cursor = slice_end - timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
-            if cursor <= slice_end - timedelta(days=CALENDAR_BACKFILL_SLICE_DAYS):
-                cursor = slice_end
+            next_cursor = parent_slice_end - overlap
+            cursor = next_cursor if next_cursor > cursor else parent_slice_end
 
         stored.pop("backfill_cursor", None)
-        stored.pop("backfill_href_cursor", None)
-        if establish_token_on_complete and held_token:
-            stored["sync_token"] = held_token
+        stored.pop("backfill_slice_end", None)
+        if establish_token_on_complete and stored.get("pending_sync_token"):
+            stored["sync_token"] = stored["pending_sync_token"]
             stored.pop("pending_sync_token", None)
         stored["covered_window_end"] = range_end.isoformat()
         return totals, occurrence_budget, stored
+
+    def _capture_baseline_sync_token(self, stored: dict[str, Any], fetch_token: str | None) -> None:
+        if stored.get("pending_sync_token"):
+            return
+        if fetch_token:
+            stored["pending_sync_token"] = fetch_token
 
     def _sync_incremental_calendar(
         self,
@@ -367,7 +372,6 @@ class YandexCalendarSyncService:
                 stored.pop("covered_window_end", None)
                 stored["backfill_cursor"] = time_min.isoformat()
                 stored.pop("pending_sync_token", None)
-                stored.pop("backfill_href_cursor", None)
                 batch_stats, occurrence_budget, stored = self._run_bounded_reconciliation(
                     transport=transport,
                     snapshot=snapshot,
@@ -377,7 +381,6 @@ class YandexCalendarSyncService:
                     range_start=time_min,
                     range_end=time_max,
                     occurrence_budget=occurrence_budget,
-                    pending_sync_token=None,
                     establish_token_on_complete=True,
                 )
                 self._merge_stats(totals, batch_stats)
@@ -474,7 +477,7 @@ class YandexCalendarSyncService:
             if not resource_completed:
                 completed_all_resources = False
                 break
-            if reconcile_occurrences and returned_ids and raw_event.calendar_data.count("BEGIN:VEVENT") > 1:
+            if reconcile_occurrences and returned_ids:
                 removed = self._tombstone_missing_occurrences(
                     user_id=user_id,
                     event_href=raw_event.event_href,

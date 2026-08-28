@@ -1327,3 +1327,370 @@ def test_stale_sync_token_resets_to_bounded_backfill(
     assert state.get("backfill_cursor") is None
     assert transport.sync_collection_calls == [(CALENDAR_HREF, "stale-token", 100)]
     assert CALENDAR_HREF in transport.query_calls
+
+
+def test_backfill_preserves_baseline_sync_token_and_catches_post_baseline_change(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="baseline@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    db_session.commit()
+
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    base_day = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+    all_events = _events_in_window(80, base_day, 10)
+
+    class BaselineTokenTransport(FakeCalDavTransport):
+        def discover_calendars(self, max_results: int) -> list[CalDavCalendar]:
+            self.discover_calls += 1
+            token = "T2" if self.discover_calls > 1 else "T1"
+            return [
+                CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=token)
+            ]
+
+    transport = BaselineTokenTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="T1")],
+        query_events_by_calendar={CALENDAR_HREF: all_events},
+        sync_tokens_by_calendar={CALENDAR_HREF: "T1"},
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "T1": CalDavFetchResult(
+                    events=[_event("evt-000", summary="Changed after baseline")],
+                    sync_token="T1-after",
+                )
+            }
+        },
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=50)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    state = account.sync_state["calendars"][CALENDAR_HREF]
+    assert first["created"] == 50
+    assert state["pending_sync_token"] == "T1"
+    assert "sync_token" not in state
+
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    state = account.sync_state["calendars"][CALENDAR_HREF]
+    assert state["sync_token"] == "T1"
+    assert state.get("pending_sync_token") is None
+    assert transport.discover_calls >= 2
+
+    third = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    assert third["updated"] == 1
+    assert transport.sync_collection_calls[0] == (CALENDAR_HREF, "T1", 100)
+
+
+def test_dense_backfill_slice_splits_and_imports_all_resources(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="dense@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    db_session.commit()
+
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+    dense_events: list[CalDavEvent] = []
+    for index in range(150):
+        start = base + timedelta(hours=index)
+        start_s = start.strftime("%Y%m%dT%H%M%SZ")
+        end_s = (start + timedelta(hours=1)).strftime("%Y%m%dT%H%M%SZ")
+        dense_events.append(_event(f"dense-{index:03d}", dtstart=start_s, dtend=end_s))
+
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="dense-token")],
+        query_events_by_calendar={CALENDAR_HREF: dense_events},
+        sync_tokens_by_calendar={CALENDAR_HREF: "dense-token"},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+
+    first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    state = account.sync_state["calendars"][CALENDAR_HREF]
+    assert first["created"] == 100
+    assert "sync_token" not in state
+    assert state.get("backfill_cursor") is not None
+
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    state = account.sync_state["calendars"][CALENDAR_HREF]
+    assert state["sync_token"] == "dense-token"
+    assert state.get("backfill_cursor") is None
+
+    count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.provider == "yandex_calendar",
+            Object.user_id == BOOTSTRAP_USER_ID,
+        )
+    )
+    assert count == 150
+
+
+def test_incremental_reconcile_tombstones_when_changed_resource_has_one_vevent(
+    db_session, credential_key: str
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="single-vevent@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    event_href = f"{CALENDAR_HREF}single-series.ics"
+    for normalized in normalize_caldav_events(
+        _expanded_recurring_ical(5), CALENDAR_HREF, event_href=event_href
+    ):
+        db_session.add(
+            Object(
+                user_id=BOOTSTRAP_USER_ID,
+                kind=normalized["kind"],
+                provider=normalized["provider"],
+                external_id=normalized["external_id"],
+                origin=normalized["origin"],
+                state=normalized["state"],
+                title=normalized["title"],
+                start_at=normalized.get("start_at"),
+                due_at=normalized.get("due_at"),
+                metadata_=normalized["metadata"],
+            )
+        )
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "token-single", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+    )
+    db_session.commit()
+
+    single_occurrence_ical = (
+        "BEGIN:VCALENDAR\n"
+        "BEGIN:VEVENT\n"
+        "UID:weekly-expand\n"
+        "RECURRENCE-ID:20260829T100000Z\n"
+        "SUMMARY:Only one left\n"
+        "DTSTART:20260829T100000Z\n"
+        "DTEND:20260829T110000Z\n"
+        "END:VEVENT\n"
+        "END:VCALENDAR\n"
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-single")],
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-single": CalDavFetchResult(
+                    events=[
+                        CalDavEvent(
+                            event_href=event_href,
+                            etag='"single-v2"',
+                            calendar_data=single_occurrence_ical,
+                        )
+                    ],
+                    sync_token="token-single-2",
+                )
+            }
+        },
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+    )
+    result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    objs = list(
+        db_session.scalars(
+            select(Object).where(
+                Object.user_id == BOOTSTRAP_USER_ID,
+                Object.metadata_["event_href"].as_string() == event_href,
+            )
+        ).all()
+    )
+    active = [obj for obj in objs if obj.status != "deleted"]
+    tombstoned = [obj for obj in objs if obj.status == "deleted"]
+    assert result["tombstoned"] == 4
+    assert len(active) == 1
+    assert len(tombstoned) == 4
+
+
+def test_is_stale_sync_token_response_detects_valid_sync_token_precondition() -> None:
+    from app.connectors.yandex.caldav_transport import _is_stale_sync_token_response
+
+    xml = "<d:error xmlns:d='DAV:'><d:valid-sync-token/></d:error>"
+    assert _is_stale_sync_token_response(403, xml) is True
+    assert _is_stale_sync_token_response(409, "sync-token invalid") is True
+    assert _is_stale_sync_token_response(403, "permission denied") is False
+    assert _is_stale_sync_token_response(409, "resource conflict") is False
+    assert _is_stale_sync_token_response(401, "unauthorized") is False
+
+
+def test_sync_collection_stale_precondition_raises_stale_error() -> None:
+    stale_xml = "<d:error xmlns:d='DAV:'><d:valid-sync-token/></d:error>"
+
+    class StaleHttpClient:
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            return httpx.Response(403, text=stale_xml)
+
+    transport = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=StaleHttpClient(),
+    )
+    with pytest.raises(YandexCalDavStaleSyncTokenError):
+        transport.sync_collection(
+            CALENDAR_HREF,
+            "old-token",
+            100,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 12, 31, tzinfo=timezone.utc),
+        )
+
+
+def test_sync_collection_permission_forbidden_raises_caldav_error_not_stale() -> None:
+    class ForbiddenHttpClient:
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            return httpx.Response(403, text="permission denied")
+
+    transport = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=ForbiddenHttpClient(),
+    )
+    with pytest.raises(YandexCalDavError, match="caldav request failed"):
+        transport.sync_collection(
+            CALENDAR_HREF,
+            "steady-token",
+            100,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 12, 31, tzinfo=timezone.utc),
+        )
+
+
+def test_sync_collection_unrelated_409_raises_caldav_error_not_stale() -> None:
+    class ConflictHttpClient:
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            return httpx.Response(409, text="resource conflict")
+
+    transport = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=ConflictHttpClient(),
+    )
+    with pytest.raises(YandexCalDavError, match="caldav request failed"):
+        transport.sync_collection(
+            CALENDAR_HREF,
+            "steady-token",
+            100,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 12, 31, tzinfo=timezone.utc),
+        )
+
+
+def test_sync_collection_permission_forbidden_does_not_trigger_backfill(
+    db_session, credential_key: str
+) -> None:
+    class ForbiddenSyncTransport(FakeCalDavTransport):
+        def sync_collection(self, calendar_href, sync_token, max_results, time_min, time_max):
+            raise YandexCalDavError("caldav request failed for permission")
+
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="forbidden@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "steady-token", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+    )
+    db_session.commit()
+
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: ForbiddenSyncTransport(
+            calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="steady-token")],
+        ),
+    )
+    with pytest.raises(YandexCalDavError, match="caldav request failed"):
+        sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "steady-token"
+    assert account.sync_state["calendars"][CALENDAR_HREF].get("backfill_cursor") is None
+
+
+def test_sync_collection_unrelated_409_does_not_trigger_backfill(
+    db_session, credential_key: str
+) -> None:
+    class ConflictSyncTransport(FakeCalDavTransport):
+        def sync_collection(self, calendar_href, sync_token, max_results, time_min, time_max):
+            raise YandexCalDavError("caldav request failed for conflict")
+
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="conflict@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    store.update_sync_state(
+        account,
+        {"calendars": {CALENDAR_HREF: {"sync_token": "steady-token", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+    )
+    db_session.commit()
+
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: ConflictSyncTransport(
+            calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="steady-token")],
+        ),
+    )
+    with pytest.raises(YandexCalDavError, match="caldav request failed"):
+        sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "steady-token"
