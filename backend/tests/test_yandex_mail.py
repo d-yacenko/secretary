@@ -62,7 +62,7 @@ class FakeImaplibForUidValidity:
 
     def response(self, code: str) -> tuple[str, list[bytes]]:
         if code == "UIDVALIDITY":
-            return "OK", [b"98765"]
+            return "UIDVALIDITY", [b"98765"]
         return "NO", [b""]
 
 
@@ -71,12 +71,39 @@ def test_read_uidvalidity_uses_response_code_not_select_message_count() -> None:
     assert uidvalidity == 98765
 
 
-def test_read_uidvalidity_raises_when_response_missing() -> None:
+def test_read_uidvalidity_raises_when_response_is_none() -> None:
     class BrokenImap:
-        def response(self, code: str) -> tuple[str, list]:
-            return "OK", []
+        def response(self, code: str) -> None:
+            return None
 
     with pytest.raises(YandexImapError, match="UIDVALIDITY response missing"):
+        read_uidvalidity_from_response(BrokenImap())
+
+
+def test_read_uidvalidity_raises_when_response_code_wrong() -> None:
+    class BrokenImap:
+        def response(self, code: str) -> tuple[str, list[bytes]]:
+            return "OK", [b"98765"]
+
+    with pytest.raises(YandexImapError, match="UIDVALIDITY response missing"):
+        read_uidvalidity_from_response(BrokenImap())
+
+
+def test_read_uidvalidity_raises_when_response_data_missing() -> None:
+    class BrokenImap:
+        def response(self, code: str) -> tuple[str, list]:
+            return "UIDVALIDITY", []
+
+    with pytest.raises(YandexImapError, match="UIDVALIDITY response missing"):
+        read_uidvalidity_from_response(BrokenImap())
+
+
+def test_read_uidvalidity_raises_when_response_data_malformed() -> None:
+    class BrokenImap:
+        def response(self, code: str) -> tuple[str, list[bytes]]:
+            return "UIDVALIDITY", [b"not-a-number"]
+
+    with pytest.raises(YandexImapError, match="UIDVALIDITY response malformed"):
         read_uidvalidity_from_response(BrokenImap())
 
 

@@ -8,17 +8,26 @@ from app.connectors.yandex.errors import YandexImapError
 
 def read_uidvalidity_from_response(imap: imaplib.IMAP4_SSL) -> int:
     try:
-        status, data = imap.response("UIDVALIDITY")
+        response = imap.response("UIDVALIDITY")
     except imaplib.IMAP4.error as exc:
         raise YandexImapError("failed to read imap UIDVALIDITY") from exc
-    if status != "OK" or not data:
+    if response is None:
+        raise YandexImapError("imap UIDVALIDITY response missing")
+    try:
+        response_code, data = response
+    except (TypeError, ValueError) as exc:
+        raise YandexImapError("imap UIDVALIDITY response malformed") from exc
+    if response_code != "UIDVALIDITY":
+        raise YandexImapError("imap UIDVALIDITY response missing")
+    if not data or data[0] is None:
         raise YandexImapError("imap UIDVALIDITY response missing")
     raw = data[0]
     if isinstance(raw, bytes):
         raw = raw.decode("ascii", errors="replace")
-    if not str(raw).strip().isdigit():
+    value = str(raw).strip()
+    if not value.isdigit() or int(value) <= 0:
         raise YandexImapError("imap UIDVALIDITY response malformed")
-    return int(str(raw).strip())
+    return int(value)
 
 
 class ImapTransport(Protocol):

@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 16 — Yandex Mail (corrective applied; awaiting user review)
+PHASE 16 — Yandex Mail (final IMAP UIDVALIDITY fix; awaiting user review)
 
 PHASE 17 — Yandex Calendar (not started; do not start)
 
