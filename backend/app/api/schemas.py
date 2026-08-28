@@ -137,3 +137,20 @@ class ContextOut(BaseModel):
     object: ObjectOut
     edges: list[EdgeOut]
     neighbors: list[ObjectOut]
+
+
+class ContextItem(BaseModel):
+    object_id: UUID
+    kind: str
+    title: str
+    content: str
+    representation_kind: str | None = None
+    relation_type: str | None = None
+    why_included: str
+    canonical_uri: str | None = None
+
+
+class ContextBuildResult(BaseModel):
+    items: list[ContextItem]
+    total_chars: int
+    truncated: bool

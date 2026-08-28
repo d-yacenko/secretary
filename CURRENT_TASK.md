@@ -1,19 +1,20 @@
-# Current task — PHASE 07
+# Current task — PHASE 08
 
 ## Goal
 
-Build a compact context pack for one task or question without dumping large resources into LLM context.
+Never confuse source facts with LLM guesses.
 
 ## Do
 
-1. `build_context(object_id=None, query=None, max_chars=...)`
-2. Candidate sources: target object, graph neighbors, parent project, blockers, semantic matches, useful representations (summary + top chunks, not full document).
-3. Context item fields: object_id, kind, title, short content/representation, why included, canonical_uri when available.
+1. Use edge/object states: `observed`, `proposed`, `confirmed`, `rejected`.
+2. Use `origin`: `source`, `user`, `agent`, `system`.
+3. Store confidence for inferred items.
+4. Tests: email text → observed source; proposed meeting relation; confirmed after approval.
 
 ## Accept
 
-A task linked to a long document receives: task, relation, document summary, top relevant chunks, document reference — not the full text.
+Agent-created facts are distinguishable from observed source facts in storage and API responses.
 
 ## Note
 
-No job queues yet. Embedding API key in `.env` on VDS; never commit secrets.
+No Secretary LLM yet. No job queues. Secrets only in `.env`.

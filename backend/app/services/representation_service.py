@@ -5,7 +5,7 @@ from uuid import UUID
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object, Representation
@@ -50,19 +50,22 @@ class RepresentationService:
 
     def ingest_text_content(self, object_id: UUID, text: str) -> list[Representation]:
         obj = self._get_object(object_id)
-        return self._persist(self._build_text_representations(obj, text))
+        reps = self._build_text_representations(obj, text)
+        return self._replace_representations(object_id, reps)
 
     def ingest_file(self, object_id: UUID, path: Path) -> list[Representation]:
         obj = self._get_object(object_id)
         suffix = path.suffix.lower()
         if suffix in {".txt", ".md"}:
             text = path.read_text(encoding="utf-8")
-            return self._persist(self._build_text_representations(obj, text))
-        if suffix == ".csv":
-            return self._persist(self._build_csv_representations(obj, path))
-        if suffix == ".parquet":
-            return self._persist(self._build_parquet_representations(obj, path))
-        raise ValueError(f"unsupported file format: {suffix}")
+            reps = self._build_text_representations(obj, text)
+        elif suffix == ".csv":
+            reps = self._build_csv_representations(obj, path)
+        elif suffix == ".parquet":
+            reps = self._build_parquet_representations(obj, path)
+        else:
+            raise ValueError(f"unsupported file format: {suffix}")
+        return self._replace_representations(object_id, reps)
 
     def _get_object(self, object_id: UUID) -> Object:
         obj = self._session.get(Object, object_id)
@@ -70,7 +73,10 @@ class RepresentationService:
             raise NotFoundError("object", object_id)
         return obj
 
-    def _persist(self, reps: list[Representation]) -> list[Representation]:
+    def _replace_representations(
+        self, object_id: UUID, reps: list[Representation]
+    ) -> list[Representation]:
+        self._session.execute(delete(Representation).where(Representation.object_id == object_id))
         for rep in reps:
             self._session.add(rep)
         self._session.flush()
