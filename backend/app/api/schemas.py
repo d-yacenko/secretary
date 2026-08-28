@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ObjectCreate(BaseModel):
@@ -33,6 +33,13 @@ class ObjectUpdate(BaseModel):
     metadata: dict[str, Any] | None = None
     origin: str | None = None
     confidence: float | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> Self:
+        for field in ("kind", "title", "origin", "metadata"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class ObjectOut(BaseModel):

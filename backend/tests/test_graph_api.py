@@ -169,3 +169,30 @@ def test_create_edge_missing_object_returns_404(client) -> None:
         },
     )
     assert response.status_code == 404
+
+
+def test_patch_null_title_returns_422(client) -> None:
+    created = _create_object(client, "task", "Keep title")
+    response = client.patch(f"/objects/{created['id']}", json={"title": None})
+    assert response.status_code == 422
+
+
+def test_duplicate_external_object_returns_409(client) -> None:
+    _create_object(
+        client,
+        "email",
+        "First",
+        provider="gmail",
+        external_id="dup-msg-001",
+    )
+    response = client.post(
+        "/objects",
+        json={
+            "kind": "email",
+            "title": "Duplicate",
+            "origin": "test",
+            "provider": "gmail",
+            "external_id": "dup-msg-001",
+        },
+    )
+    assert response.status_code == 409

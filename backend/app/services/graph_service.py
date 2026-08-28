@@ -1,16 +1,26 @@
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
 from app.db.models import Edge, Object
+from app.services.db_errors import is_external_object_unique_violation
 from app.services.errors import ConflictError, NotFoundError
 
 
 class GraphService:
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def _flush_object(self) -> None:
+        try:
+            self._session.flush()
+        except IntegrityError as exc:
+            if is_external_object_unique_violation(exc):
+                raise ConflictError("external object already exists") from exc
+            raise
 
     def create_object(self, data: ObjectCreate) -> Object:
         obj = Object(
@@ -28,7 +38,7 @@ class GraphService:
             confidence=data.confidence,
         )
         self._session.add(obj)
-        self._session.flush()
+        self._flush_object()
         return obj
 
     def get_object(self, object_id: UUID) -> Object:
@@ -44,7 +54,7 @@ class GraphService:
             obj.metadata_ = updates.pop("metadata")
         for field, value in updates.items():
             setattr(obj, field, value)
-        self._session.flush()
+        self._flush_object()
         return obj
 
     def delete_object(self, object_id: UUID) -> None:
@@ -58,6 +68,7 @@ class GraphService:
             raise ConflictError("object has incident edges")
         self._session.delete(obj)
         self._session.flush()
+        self._session.expire_all()
 
     def create_edge(self, data: EdgeCreate) -> Edge:
         if self._session.get(Object, data.source_id) is None:

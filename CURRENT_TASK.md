@@ -1,15 +1,21 @@
-# Current task — PHASE 04
+# Current task — PHASE 05
 
 ## Goal
 
-Allow the same object to appear in several maps.
+Add semantic retrieval without a second database.
 
 ## Do
 
-1. Table `views`: id, name, view_type, root_object_id NULL, settings JSONB, created_at, updated_at.
-2. Table `view_items`: view_id, object_id NULL, visual_id NULL, x, y, width, height, collapsed, settings JSONB.
-3. Coordinates belong to the view, not the object.
+1. Embedding service; model ID from env (default `text-embedding-3-small`).
+2. Embed title, body, useful metadata on objects.
+3. Store embeddings in pgvector column.
+4. Semantic search service + lexical fallback (`ILIKE` or PostgreSQL text search).
+5. `GET /search?q=...` with optional filters: kind, provider, project_id, limit.
 
 ## Accept
 
-One task can appear with different coordinates in two views.
+A semantically similar query finds a test object with different wording.
+
+## Credentials checkpoint
+
+OpenAI (or configured embedding provider) API key required for live embedding tests. If unavailable: implement connector + deterministic fake + document in PROJECT_STATE.md.

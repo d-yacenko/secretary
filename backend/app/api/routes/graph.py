@@ -33,7 +33,10 @@ def _not_found(exc: NotFoundError) -> HTTPException:
 
 @router.post("/objects", status_code=status.HTTP_201_CREATED, response_model=ObjectOut)
 def create_object(data: ObjectCreate, service: GraphService = Depends(_service)) -> ObjectOut:
-    obj = service.create_object(data)
+    try:
+        obj = service.create_object(data)
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
     return ObjectOut.from_model(obj)
 
 
@@ -56,6 +59,8 @@ def patch_object(
         obj = service.update_object(object_id, data)
     except NotFoundError as exc:
         raise _not_found(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
     return ObjectOut.from_model(obj)
 
 

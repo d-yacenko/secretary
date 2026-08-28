@@ -2,13 +2,14 @@
 
 ## Current phase
 
-PHASE 04 — views and map persistence (waiting for user go-ahead)
+PHASE 05 — vector search (waiting for user go-ahead + credentials checkpoint)
 
 ## Working components
 
-- PHASE 00–02: repo, Docker, pgvector, `objects` + `edges` schema
-- PHASE 03: REST graph CRUD (`/objects`, `/edges`, neighbors, context), service layer, HTTP tests
-- VDS: `/opt/secretary`, API `127.0.0.1:18080`
+- PHASE 00–03: infra, graph schema, REST CRUD
+- PHASE 04: `views` + `view_items` (Alembic `0003`), `ViewService`, persistence tests
+- PATCH rejects null for `kind`/`title`/`origin`/`metadata` (422)
+- External object duplicate → 409 on POST/PATCH
 
 ## VDS update
 
@@ -20,8 +21,9 @@ curl -s http://127.0.0.1:18080/health
 
 ## Known blockers
 
-- HTTPS reverse proxy not configured yet.
+- HTTPS reverse proxy not configured.
+- PHASE 05 needs embedding provider API key for live tests (fake path available).
 
 ## Next phase
 
-PHASE 04 — `views` and `view_items` tables; same object in multiple maps.
+PHASE 05 — embeddings + `GET /search`.

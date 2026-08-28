@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
+import sqlalchemy as sa
 from sqlalchemy import DateTime, ForeignKey, Index, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -96,4 +97,77 @@ class Edge(Base):
         Index("ix_edges_source_id", "source_id"),
         Index("ix_edges_target_id", "target_id"),
         Index("ix_edges_type", "type"),
+    )
+
+
+class View(Base):
+    __tablename__ = "views"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(nullable=False)
+    view_type: Mapped[str] = mapped_column(nullable=False)
+    root_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("objects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    settings_: Mapped[dict] = mapped_column(
+        "settings",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ViewItem(Base):
+    __tablename__ = "view_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    view_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("views.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("objects.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    visual_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    x: Mapped[float | None] = mapped_column(nullable=True)
+    y: Mapped[float | None] = mapped_column(nullable=True)
+    width: Mapped[float | None] = mapped_column(nullable=True)
+    height: Mapped[float | None] = mapped_column(nullable=True)
+    collapsed: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
+    settings_: Mapped[dict] = mapped_column(
+        "settings",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "object_id IS NOT NULL OR visual_id IS NOT NULL",
+            name="ck_view_items_object_or_visual",
+        ),
     )
