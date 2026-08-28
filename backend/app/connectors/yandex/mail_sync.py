@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -12,11 +12,11 @@ from app.connectors.yandex.constants import (
     MAX_SYNC_DAYS,
     MAX_SYNC_LIMIT,
 )
-from app.connectors.yandex.credentials import YandexMailAccountStore
+from app.connectors.yandex.credentials import YandexMailAccountStore, YandexMailSyncSnapshot
 from app.connectors.yandex.errors import YandexConnectorError
-from app.connectors.yandex.imap_transport import FakeImapTransport, ImaplibTransport, ImapTransport
+from app.connectors.yandex.imap_transport import ImaplibTransport, ImapTransport
 from app.connectors.yandex.mail_normalize import build_external_id, normalize_imap_message
-from app.db.models import Object, YandexMailAccount
+from app.db.models import Object
 from app.services.job_queue_service import JobQueueService
 
 
@@ -33,7 +33,7 @@ class YandexMailSyncService:
         sync_days: int = DEFAULT_SYNC_DAYS,
         default_limit: int = DEFAULT_SYNC_LIMIT,
         max_limit: int = MAX_SYNC_LIMIT,
-        transport_factory: Any | None = None,
+        transport_factory: Callable[[YandexMailSyncSnapshot], ImapTransport] | None = None,
     ) -> None:
         self._session = session
         self._account_store = account_store
@@ -49,46 +49,46 @@ class YandexMailSyncService:
         user_id: UUID,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        account = self._account_store.get_by_id_for_user(account_id, user_id)
-        if account is None:
+        snapshot = self._account_store.load_sync_snapshot(account_id, user_id)
+        if snapshot is None:
             raise YandexConnectorError("yandex mail account not found")
 
-        owner_user_id = account.user_id
         effective_limit = limit if limit is not None else self._default_limit
         effective_limit = min(max(effective_limit, 1), self._max_limit)
 
         self._session.commit()
-        password = self._account_store.get_app_password(account)
-        transport = self._open_transport(account, password)
+
+        transport = self._open_transport(snapshot)
+        folder = DEFAULT_MAIL_FOLDER
+        since_date = utcnow() - timedelta(days=self._sync_days)
+        stored_state = dict(snapshot.sync_state)
+        stored_uidvalidity = stored_state.get("inbox_uidvalidity")
+        stored_last_uid = stored_state.get("inbox_last_uid")
 
         try:
-            since_date = utcnow() - timedelta(days=self._sync_days)
-            folder = DEFAULT_MAIL_FOLDER
-            stored_state = dict(account.sync_state or {})
-            stored_uidvalidity = stored_state.get("inbox_uidvalidity")
+            uidvalidity = transport.select_folder(folder)
 
-            uidvalidity, candidate_uids = transport.list_recent_uids(
-                folder=folder,
-                since_date=since_date,
-                max_results=effective_limit,
-                min_uid=None,
+            use_incremental = (
+                stored_uidvalidity is not None
+                and stored_uidvalidity == uidvalidity
+                and stored_last_uid is not None
             )
 
-            if (
-                stored_uidvalidity is not None
-                and stored_uidvalidity != uidvalidity
-            ):
-                uidvalidity, candidate_uids = transport.list_recent_uids(
+            if use_incremental:
+                candidate_uids = transport.search_uids_incremental(
+                    folder=folder,
+                    after_uid=int(stored_last_uid),
+                    max_results=effective_limit,
+                )
+            else:
+                candidate_uids = transport.search_uids_initial(
                     folder=folder,
                     since_date=since_date,
                     max_results=effective_limit,
-                    min_uid=None,
                 )
 
-            stored_last_uid = stored_state.get("inbox_last_uid")
-
             known_external_ids = self._load_known_external_ids(
-                owner_user_id,
+                snapshot.user_id,
                 folder,
                 uidvalidity,
                 candidate_uids,
@@ -100,7 +100,7 @@ class YandexMailSyncService:
             jobs_enqueued = 0
             synchronized = 0
             unchanged = 0
-            max_processed_uid = int(stored_last_uid or 0)
+            max_processed_uid = int(stored_last_uid or 0) if use_incremental else 0
 
             for uid in candidate_uids:
                 external_id = build_external_id(folder, uidvalidity, uid)
@@ -119,7 +119,7 @@ class YandexMailSyncService:
                     uidvalidity=uidvalidity,
                 )
                 obj = Object(
-                    user_id=owner_user_id,
+                    user_id=snapshot.user_id,
                     kind=normalized["kind"],
                     provider=normalized["provider"],
                     external_id=normalized["external_id"],
@@ -137,11 +137,14 @@ class YandexMailSyncService:
                 self._job_queue.enqueue(
                     "embed_object",
                     {"object_id": str(obj.id)},
-                    user_id=owner_user_id,
+                    user_id=snapshot.user_id,
                 )
                 jobs_enqueued += 1
                 self._session.commit()
 
+            account = self._account_store.get_by_id_for_user(account_id, user_id)
+            if account is None:
+                raise YandexConnectorError("yandex mail account not found")
             new_state = {
                 "inbox_uidvalidity": uidvalidity,
                 "inbox_last_uid": max_processed_uid,
@@ -150,7 +153,7 @@ class YandexMailSyncService:
             self._session.commit()
 
             return {
-                "account_email": account.email,
+                "account_email": snapshot.email,
                 "synchronized": synchronized,
                 "created": created,
                 "updated": updated,
@@ -161,14 +164,14 @@ class YandexMailSyncService:
             if isinstance(transport, ImaplibTransport):
                 transport.close()
 
-    def _open_transport(self, account: YandexMailAccount, password: str) -> ImapTransport:
+    def _open_transport(self, snapshot: YandexMailSyncSnapshot) -> ImapTransport:
         if self._transport_factory is not None:
-            return self._transport_factory(account, password)
+            return self._transport_factory(snapshot)
         return ImaplibTransport(
-            host=account.imap_host,
-            port=account.imap_port,
-            email=account.email,
-            password=password,
+            host=snapshot.imap_host,
+            port=snapshot.imap_port,
+            email=snapshot.email,
+            password=snapshot.app_password,
         )
 
     def _load_known_external_ids(
@@ -198,7 +201,7 @@ def build_yandex_mail_sync_service(
     sync_days: int,
     default_limit: int,
     max_limit: int,
-    transport_factory: Any | None = None,
+    transport_factory: Callable[[YandexMailSyncSnapshot], ImapTransport] | None = None,
 ) -> YandexMailSyncService:
     account_store = YandexMailAccountStore(
         session,

@@ -1,7 +1,8 @@
 import re
 from datetime import datetime, timezone
 from email import message_from_bytes
-from email.utils import getaddresses, parsedate_to_datetime, parseaddr
+from email import policy
+from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any
 
 from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER, MAX_EMAIL_BODY_CHARS
@@ -10,6 +11,13 @@ from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER, MAX_EMAIL_BODY_
 def _strip_html(text: str) -> str:
     without_tags = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", without_tags).strip()
+
+
+def _header_value(msg: Any, name: str) -> str | None:
+    value = msg.get(name)
+    if value is None:
+        return None
+    return str(value)
 
 
 def _parse_addresses(value: str | None) -> list[str]:
@@ -22,10 +30,14 @@ def _compact_headers(msg: Any) -> dict[str, str]:
     keep = ("message-id", "in-reply-to", "references", "reply-to", "list-id")
     compact: dict[str, str] = {}
     for name in keep:
-        value = msg.get(name)
+        value = _header_value(msg, name)
         if value:
-            compact[name] = str(value)
+            compact[name] = value
     return compact
+
+
+def _is_attachment_part(part: Any) -> bool:
+    return part.get_content_disposition() == "attachment"
 
 
 def _extract_body(msg: Any) -> str | None:
@@ -34,6 +46,8 @@ def _extract_body(msg: Any) -> str | None:
         html_body: str | None = None
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
+                continue
+            if _is_attachment_part(part):
                 continue
             content_type = part.get_content_type()
             try:
@@ -51,6 +65,9 @@ def _extract_body(msg: Any) -> str | None:
             return plain
         if html_body:
             return _strip_html(html_body)
+        return None
+
+    if _is_attachment_part(msg):
         return None
 
     try:
@@ -88,20 +105,20 @@ def normalize_imap_message(
     uid: int,
     uidvalidity: int,
 ) -> dict[str, Any]:
-    msg = message_from_bytes(raw_bytes)
-    subject = msg.get("Subject")
-    sender = msg.get("From")
-    recipients = _parse_addresses(msg.get("To"))
-    cc = _parse_addresses(msg.get("Cc"))
+    msg = message_from_bytes(raw_bytes, policy=policy.default)
+    subject = _header_value(msg, "Subject")
+    sender = _header_value(msg, "From")
+    recipients = _parse_addresses(_header_value(msg, "To"))
+    cc = _parse_addresses(_header_value(msg, "Cc"))
     timestamp = _parse_timestamp(msg)
     body_text = _extract_body(msg)
-    message_id_header = msg.get("Message-ID")
+    message_id_header = _header_value(msg, "Message-ID")
 
     metadata = {
         "folder": folder,
         "imap_uid": uid,
         "imap_uidvalidity": uidvalidity,
-        "message_id": str(message_id_header) if message_id_header else None,
+        "message_id": message_id_header,
         "sender": sender,
         "recipients": recipients,
         "cc": cc,
@@ -119,7 +136,7 @@ def normalize_imap_message(
         "provider": "yandex_mail",
         "origin": "source",
         "state": "observed",
-        "title": str(subject) if subject else f"Yandex message {external_id}",
+        "title": subject or f"Yandex message {external_id}",
         "body": body,
         "metadata": metadata,
     }

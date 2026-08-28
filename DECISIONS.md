@@ -28,6 +28,6 @@ Being inside the synchronization time window does **not** mean the full object m
 
 **Gmail (normal bounded sync):** `messages.list` → batch known external IDs for current user → `messages.get(full)` only for unknown IDs. Known imported message bodies are treated as stable until Gmail History / provider reconciliation exists. Label/deletion changes are deferred.
 
-**Yandex Mail (PHASE 16):** IMAP SEARCH within bounded window → batch known external IDs → FETCH only for unknown; store UIDVALIDITY/last UID checkpoint on account.
+**Yandex Mail (PHASE 16):** encrypted per-user Mail app passwords (MVP); OAuth deferred to PHASE 19.5 Connections. IMAP incremental via UIDVALIDITY + last UID; initial backfill newest batch; incremental oldest batch first; skip FETCH for known external IDs.
 
 **Future:** when a provider offers reliable cursor/history/sync tokens, prefer that over rescans; unchanged processed content must not be repeatedly downloaded/embedded/analyzed.

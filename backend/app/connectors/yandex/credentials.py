@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -14,6 +15,17 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+@dataclass(frozen=True)
+class YandexMailSyncSnapshot:
+    account_id: UUID
+    user_id: UUID
+    email: str
+    imap_host: str
+    imap_port: int
+    app_password: str
+    sync_state: dict
+
+
 class YandexMailAccountStore:
     def __init__(self, session: Session, encryption: CredentialEncryption) -> None:
         self._session = session
@@ -25,6 +37,22 @@ class YandexMailAccountStore:
                 YandexMailAccount.id == account_id,
                 YandexMailAccount.user_id == user_id,
             )
+        )
+
+    def load_sync_snapshot(
+        self, account_id: UUID, user_id: UUID
+    ) -> YandexMailSyncSnapshot | None:
+        account = self.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            return None
+        return YandexMailSyncSnapshot(
+            account_id=account.id,
+            user_id=account.user_id,
+            email=account.email,
+            imap_host=account.imap_host,
+            imap_port=account.imap_port,
+            app_password=self.get_app_password(account),
+            sync_state=dict(account.sync_state or {}),
         )
 
     def get_by_email(self, user_id: UUID, email: str) -> YandexMailAccount | None:
