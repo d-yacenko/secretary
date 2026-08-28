@@ -1,0 +1,123 @@
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
+
+from app.connectors.google.constants import GMAIL_READONLY_SCOPE
+from app.connectors.google.credentials import GoogleAccountStore
+from app.connectors.google.errors import GoogleConfigurationError, GoogleConnectorError, GoogleOAuthError
+from app.connectors.google.gmail_sync import build_gmail_sync_service
+from app.connectors.google.oauth_service import GoogleOAuthService, parse_token_expiry
+from app.connectors.google.oauth_state import OAuthStateService
+from app.core.config import settings
+from app.api.deps import get_db
+
+
+router = APIRouter(tags=["google"])
+
+
+def _google_oauth_service() -> GoogleOAuthService:
+    return GoogleOAuthService(
+        client_file=settings.google_oauth_client_file,
+        redirect_uri=settings.google_redirect_uri,
+    )
+
+
+def _account_store(session: Session) -> GoogleAccountStore:
+    encryption = GoogleAccountStore.build_encryption(settings.secretary_credential_key)
+    return GoogleAccountStore(session, encryption)
+
+
+@router.get("/auth/google/start")
+def google_oauth_start(session: Session = Depends(get_db)) -> RedirectResponse:
+    try:
+        oauth_service = _google_oauth_service()
+        state_service = OAuthStateService(session)
+        state = state_service.create_state()
+        session.commit()
+        url = oauth_service.build_authorization_url(state)
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+
+    return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/auth/google/callback")
+def google_oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if not code or not state:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing oauth parameters")
+
+    try:
+        state_service = OAuthStateService(session)
+        state_service.consume_state(state)
+        session.commit()
+
+        oauth_service = _google_oauth_service()
+        token_payload = oauth_service.exchange_code(code)
+        access_token = str(token_payload["access_token"])
+        refresh_token = token_payload.get("refresh_token")
+        token_expiry = parse_token_expiry(token_payload.get("expires_in"))
+        email = oauth_service.fetch_user_email(access_token)
+
+        account_store = _account_store(session)
+        account = account_store.upsert_tokens(
+            email=email,
+            scopes=[GMAIL_READONLY_SCOPE],
+            access_token=access_token,
+            refresh_token=str(refresh_token) if refresh_token else None,
+            token_expiry=token_expiry,
+        )
+        session.commit()
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+    except GoogleOAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+    except GoogleConnectorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+
+    return {
+        "status": "connected",
+        "email": account.email,
+        "scopes": account.scopes,
+    }
+
+
+@router.post("/connectors/google/gmail/sync")
+def gmail_sync(
+    account_id: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        account_store = _account_store(session)
+        if account_id:
+            from uuid import UUID
+
+            account = account_store.get_by_id(UUID(account_id))
+        else:
+            accounts = account_store.list_accounts()
+            account = accounts[0] if accounts else None
+        if account is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="google account not found")
+
+        sync_service = build_gmail_sync_service(
+            session=session,
+            credential_key=settings.secretary_credential_key,
+            client_file=settings.google_oauth_client_file,
+            redirect_uri=settings.google_redirect_uri,
+            sync_days=settings.gmail_sync_days,
+            default_limit=settings.gmail_sync_default_limit,
+            max_limit=settings.gmail_sync_max_limit,
+        )
+        result = sync_service.sync_account(account.id, limit=limit)
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+    except GoogleConnectorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+
+    return result

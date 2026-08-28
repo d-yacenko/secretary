@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -124,7 +124,7 @@ def test_list_notifications_returns_newest_first(db_session, notification_servic
         proposal={"type": "note", "confidence": 0.6, "evidence": []},
     )
     db_session.flush()
-    second.created_at = first.created_at
+    second.created_at = first.created_at + timedelta(seconds=1)
     db_session.flush()
 
     rows = notification_service.list_notifications()

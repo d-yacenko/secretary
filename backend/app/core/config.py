@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-terra"
     secretary_timezone: str = "Europe/Amsterdam"
     mcp_enabled: bool = False
+    google_oauth_client_file: str = "/run/secrets/google-oauth-client.json"
+    google_redirect_uri: str = "http://localhost:18080/auth/google/callback"
+    secretary_credential_key: str = ""
+    gmail_sync_default_limit: int = 50
+    gmail_sync_max_limit: int = 100
+    gmail_sync_days: int = 30
 
     @property
     def database_url(self) -> str:
