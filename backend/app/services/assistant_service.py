@@ -3,13 +3,16 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.api.schemas import NotificationOut
+from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
     MAX_ASSISTANT_HISTORY_MESSAGE_CHARS,
     MAX_ASSISTANT_HISTORY_MESSAGES,
     MAX_ASSISTANT_HISTORY_TOTAL_CHARS,
     MAX_ASSISTANT_MESSAGE_CHARS,
+    MAX_ASSISTANT_REFERENCES,
     MAX_UI_CONTEXT_CHARS,
 )
+from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_preserve_order
 from app.assistant.session import run_assistant_tool
 from app.assistant.tool_runner import PerTurnToolBudget
 from app.core.config import settings
@@ -101,13 +104,14 @@ class AssistantService:
             tool_runner=tool_runner,
         )
 
-        candidate_ids = list(provider_result.candidate_object_ids)
-        affected_ids = list(provider_result.affected_object_ids)
-        for object_id in validated_context_ids:
-            if object_id not in candidate_ids:
-                candidate_ids.append(object_id)
+        candidate_ids = cap_reference_candidate_ids(
+            dedupe_preserve_order(provider_result.candidate_object_ids),
+            validated_context_ids,
+            MAX_ASSISTANT_REFERENCES,
+        )
+        affected_ids = dedupe_preserve_order(provider_result.affected_object_ids)
 
-        references = self._serialize_references(candidate_ids, affected_ids)
+        references = self._serialize_references(candidate_ids)
         affected_objects = self._serialize_affected(affected_ids)
         return AssistantMessageResult(
             answer=provider_result.answer,
@@ -194,21 +198,9 @@ class AssistantService:
             return combined[:MAX_UI_CONTEXT_CHARS]
         return combined
 
-    def _serialize_references(
-        self,
-        candidate_ids: list[UUID],
-        affected_ids: list[UUID],
-    ) -> list[AssistantReference]:
-        ordered: list[UUID] = []
-        for object_id in candidate_ids:
-            if object_id not in ordered:
-                ordered.append(object_id)
-        for object_id in affected_ids:
-            if object_id not in ordered:
-                ordered.append(object_id)
-
+    def _serialize_references(self, candidate_ids: list[UUID]) -> list[AssistantReference]:
         references: list[AssistantReference] = []
-        for object_id in ordered:
+        for object_id in candidate_ids:
             result = run_assistant_tool(
                 self._user_id,
                 "get_object",
@@ -222,7 +214,7 @@ class AssistantService:
                     object_id=UUID(str(obj["id"])),
                     title=obj["title"],
                     kind=obj["kind"],
-                    canonical_uri=obj.get("canonical_uri"),
+                    canonical_uri=sanitize_canonical_uri_for_assistant(obj.get("canonical_uri")),
                 )
             )
         return references

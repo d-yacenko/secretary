@@ -53,6 +53,7 @@ class GetContextOutput(BaseModel):
 
 class ListNeighborsInput(BaseModel):
     object_id: UUID
+    limit: int | None = Field(default=None, ge=1, le=100)
 
 
 class NeighborItem(BaseModel):

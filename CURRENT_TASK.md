@@ -1,21 +1,19 @@
-# Current task — PHASE 22 final corrective
+# Current task — PHASE 22 final security/boundedness corrective
 
 ## Status
 
-PHASE 22 final corrective implemented. STOP for final acceptance.
+PHASE 22 final security/boundedness corrective implemented. STOP for final acceptance.
 
 PHASE 21 accepted / closed. PHASE 23 not started. VDS deploy deferred.
 
-## Delivered (corrective)
+## Delivered (this corrective)
 
-- Global per-turn tool-call budget (`PerTurnToolBudget`, limit 5)
-- `run_assistant_tool`: isolated session, commit/rollback per tool result
-- Assistant `create_task` / `update_task`: defer write embeddings, enqueue `embed_object`
-- Bounded Assistant tool JSON for model (`tool_output.py`)
-- UI context in Responses input as delimited evidence; untrusted-data rule in system instructions
-- Flutter: `AssistantChatMessage.affectedObjects`, Proposed changes UI
-- Test isolation fixes (provenance context, HTTP search, embedding jobs)
-- Full verification green: pytest, ruff, flutter analyze/test/build
+- `sanitize_canonical_uri_for_assistant`: strip credentials, omit unsafe/local URIs
+- Assistant tool arg clamping (`tool_args.py`) before domain execution
+- Bounded `list_neighbors` query path (`limit` on graph neighbors)
+- Reference IDs from bounded tool view only; cap `MAX_ASSISTANT_REFERENCES = 20`
+- Assistant `get_context` OpenAI tool: `object_id` required, no `query`, max_chars ≤ 8000
+- Regression tests for URI safety, execution bounds, references, get_context contract
 
 ## STOP
 

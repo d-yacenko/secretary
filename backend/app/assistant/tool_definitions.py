@@ -10,7 +10,7 @@ TOOL_DEFINITIONS: list[dict] = [
             "properties": {
                 "query": {"type": "string"},
                 "kind": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -32,14 +32,17 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "name": "get_context",
-        "description": "Build bounded context around an object or query using the Context Resolver.",
+        "description": (
+            "Build bounded context for one object by id. "
+            "Use search_objects(query) first to discover object ids."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "object_id": {"type": "string"},
-                "query": {"type": "string"},
-                "max_chars": {"type": "integer", "minimum": 1, "maximum": 12000},
+                "max_chars": {"type": "integer", "minimum": 1, "maximum": 8000},
             },
+            "required": ["object_id"],
             "additionalProperties": False,
         },
         "strict": False,
@@ -47,7 +50,7 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "name": "list_neighbors",
-        "description": "List direct graph neighbors for an object.",
+        "description": "List direct graph neighbors for an object (bounded).",
         "parameters": {
             "type": "object",
             "properties": {"object_id": {"type": "string"}},
@@ -64,7 +67,7 @@ TOOL_DEFINITIONS: list[dict] = [
             "type": "object",
             "properties": {
                 "status": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
             "additionalProperties": False,
         },

@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
     MAX_ASSISTANT_BODY_EXCERPT,
     MAX_ASSISTANT_CONTEXT_CHARS,
@@ -21,7 +22,8 @@ def bounded_body_excerpt(body: str | None) -> str | None:
 
 
 def _bounded_object(obj: dict[str, Any]) -> dict[str, Any]:
-    return {
+    safe_uri = sanitize_canonical_uri_for_assistant(obj.get("canonical_uri"))
+    payload: dict[str, Any] = {
         "id": obj.get("id"),
         "kind": obj.get("kind"),
         "title": obj.get("title"),
@@ -30,8 +32,10 @@ def _bounded_object(obj: dict[str, Any]) -> dict[str, Any]:
         "status": obj.get("status"),
         "origin": obj.get("origin"),
         "state": obj.get("state"),
-        "canonical_uri": obj.get("canonical_uri"),
     }
+    if safe_uri is not None:
+        payload["canonical_uri"] = safe_uri
+    return payload
 
 
 def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) -> dict[str, Any]:
@@ -64,18 +68,19 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
                 else:
                     truncated = True
                     break
-            bounded_items.append(
-                {
-                    "object_id": item.get("object_id"),
-                    "kind": item.get("kind"),
-                    "title": item.get("title"),
-                    "content": content,
-                    "origin": item.get("origin"),
-                    "state": item.get("state"),
-                    "why_included": item.get("why_included"),
-                    "canonical_uri": item.get("canonical_uri"),
-                }
-            )
+            item_payload: dict[str, Any] = {
+                "object_id": item.get("object_id"),
+                "kind": item.get("kind"),
+                "title": item.get("title"),
+                "content": content,
+                "origin": item.get("origin"),
+                "state": item.get("state"),
+                "why_included": item.get("why_included"),
+            }
+            safe_uri = sanitize_canonical_uri_for_assistant(item.get("canonical_uri"))
+            if safe_uri is not None:
+                item_payload["canonical_uri"] = safe_uri
+            bounded_items.append(item_payload)
             total_chars += len(content)
             if total_chars >= MAX_ASSISTANT_CONTEXT_CHARS:
                 truncated = True

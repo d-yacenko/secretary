@@ -180,13 +180,14 @@ class GraphService:
         self,
         object_id: UUID,
         include_rejected: bool = False,
+        limit: int | None = None,
     ) -> list[tuple[Object, Edge, str]]:
         self.get_object(object_id)
         edges = self._session.scalars(
             select(Edge).where(
                 Edge.user_id == self._user_id,
                 or_(Edge.source_id == object_id, Edge.target_id == object_id),
-            )
+            ).order_by(Edge.id)
         ).all()
 
         results: list[tuple[Object, Edge, str]] = []
@@ -204,6 +205,8 @@ class GraphService:
             if not include_rejected and neighbor.state == "rejected":
                 continue
             results.append((neighbor, edge, direction))
+            if limit is not None and len(results) >= limit:
+                break
         return results
 
     def _validate_object_provenance(self, obj: Object) -> None:

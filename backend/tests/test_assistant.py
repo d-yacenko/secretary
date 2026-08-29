@@ -10,12 +10,21 @@ from sqlalchemy import func, select
 
 from app.api.assistant import get_assistant_provider
 from app.api.deps import get_db, get_embedding_service
-from app.api.schemas import ObjectCreate
+from app.api.schemas import EdgeCreate, ObjectCreate
+from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
+    MAX_ASSISTANT_REFERENCES,
     MAX_ASSISTANT_TOOL_OUTPUT_CHARS,
     UI_CONTEXT_DELIMITER_START,
 )
-from app.assistant.tool_output import serialize_tool_output_json
+from app.assistant.reference_ids import collect_object_ids_from_bounded_tool
+from app.assistant.session import run_assistant_tool
+from app.assistant.tool_args import normalize_assistant_tool_arguments
+from app.assistant.tool_definitions import TOOL_DEFINITIONS
+from app.assistant.tool_output import (
+    serialize_tool_output_for_model,
+    serialize_tool_output_json,
+)
 from app.assistant.tool_runner import PerTurnToolBudget
 from app.db.models import Job, Object, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
@@ -38,6 +47,14 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 @pytest.fixture(autouse=True)
 def patch_assistant_tool_execution(db_session, fake_embedding_service, monkeypatch):
     def _run(user_id, tool_name, arguments):
+        try:
+            normalized_arguments = normalize_assistant_tool_arguments(tool_name, arguments)
+        except ToolError as exc:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error=exc.message,
+            )
         nested = db_session.begin_nested()
         tools = DomainToolService(
             db_session,
@@ -46,7 +63,7 @@ def patch_assistant_tool_execution(db_session, fake_embedding_service, monkeypat
             defer_write_embeddings=True,
         )
         try:
-            output = _dispatch(tools, tool_name, arguments)
+            output = _dispatch(tools, tool_name, normalized_arguments)
             nested.commit()
             return ToolExecutionResult(
                 success=True,
@@ -685,6 +702,250 @@ def test_openai_assistant_provider_uses_store_false(monkeypatch) -> None:
         tool_runner=lambda *_: ToolExecutionResult(success=True, tool_name="get_today", output={}),
     )
     assert captured.get("store") is False
+
+
+    assert captured.get("store") is False
+
+
+def test_canonical_uri_sanitizer_strips_credentials() -> None:
+    unsafe = "https://user:secret@example.com/docs/page"
+    safe = sanitize_canonical_uri_for_assistant(unsafe)
+    assert safe == "https://example.com/docs/page"
+    assert "user" not in (safe or "")
+    assert "secret" not in (safe or "")
+
+
+def test_canonical_uri_sanitizer_omits_token_query() -> None:
+    assert sanitize_canonical_uri_for_assistant("https://example.com/x?access_token=abc") is None
+
+
+def test_canonical_uri_sanitizer_keeps_safe_https() -> None:
+    assert (
+        sanitize_canonical_uri_for_assistant("https://example.com/path?q=search")
+        == "https://example.com/path?q=search"
+    )
+
+
+def test_canonical_uri_sanitizer_omits_local_paths() -> None:
+    assert sanitize_canonical_uri_for_assistant("file:///home/user/secret.txt") is None
+    assert sanitize_canonical_uri_for_assistant("/home/user/secret.txt") is None
+
+
+def test_assistant_tool_output_hides_credential_uri_from_model(
+    db_session, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    obj = graph.create_object(
+        ObjectCreate(
+            kind="document",
+            title="Credential doc",
+            origin="user",
+            canonical_uri="https://user:secret@example.com/private",
+        )
+    )
+    db_session.flush()
+    tools = DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    raw = tools.get_object(
+        __import__("app.tools.schemas", fromlist=["GetObjectInput"]).GetObjectInput(
+            object_id=obj.id
+        )
+    ).model_dump(mode="json")
+    bounded = serialize_tool_output_for_model("get_object", raw)
+    uri = bounded["object"]["canonical_uri"]
+    assert uri == "https://example.com/private"
+    assert "secret" not in uri
+
+
+def test_assistant_api_reference_uri_is_sanitized(
+    db_session, assistant_client, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    obj = graph.create_object(
+        ObjectCreate(
+            kind="document",
+            title="Reference URI doc",
+            origin="user",
+            canonical_uri="https://user:secret@example.com/ref",
+        )
+    )
+
+    class ReferenceProvider(FakeAssistantProvider):
+        def run(self, message, history, ui_context, reference_datetime, timezone, tool_runner):
+            return AssistantProviderResult(
+                answer="linked",
+                candidate_object_ids=[obj.id],
+                affected_object_ids=[],
+                store_false_used=True,
+            )
+
+    app.dependency_overrides[get_assistant_provider] = lambda: ReferenceProvider()
+    client, _ = assistant_client
+    response = client.post("/assistant/message", json={"message": "show link"})
+    assert response.status_code == 200
+    refs = response.json()["references"]
+    assert refs
+    uri = refs[0]["canonical_uri"]
+    assert uri == "https://example.com/ref"
+    assert "secret" not in uri
+
+
+def test_assistant_search_execution_bounded_before_model_output(
+    db_session, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    for index in range(30):
+        graph.create_object(
+            ObjectCreate(
+                kind="note",
+                title=f"bounded-exec-{index}",
+                origin="user",
+            )
+        )
+    db_session.flush()
+
+    result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "search_objects",
+        {"query": "bounded-exec", "limit": 100},
+    )
+    assert result.success
+    assert len(result.output["objects"]) <= 20
+
+
+def test_assistant_list_neighbors_execution_bounded(
+    db_session, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    hub = graph.create_object(ObjectCreate(kind="project", title="Hub", origin="user"))
+    for index in range(25):
+        leaf = graph.create_object(
+            ObjectCreate(kind="task", title=f"hub-leaf-{index}", origin="user")
+        )
+        graph.create_edge(
+            EdgeCreate(
+                source_id=hub.id,
+                target_id=leaf.id,
+                type="related_to",
+                origin="user",
+                state="confirmed",
+            )
+        )
+    db_session.flush()
+
+    normalized = normalize_assistant_tool_arguments(
+        "list_neighbors",
+        {"object_id": str(hub.id)},
+    )
+    tools = DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    output = tools.list_neighbors(
+        __import__("app.tools.schemas", fromlist=["ListNeighborsInput"]).ListNeighborsInput.model_validate(
+            normalized
+        )
+    )
+    assert len(output.neighbors) <= 20
+
+
+def test_assistant_get_context_rejects_query(db_session, fake_embedding_service) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    obj = graph.create_object(ObjectCreate(kind="task", title="Ctx task", origin="user"))
+    result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "get_context",
+        {"object_id": str(obj.id), "query": "budget", "max_chars": 1000},
+    )
+    assert not result.success
+    assert "query" in (result.error or "").lower()
+
+
+def test_assistant_get_context_requires_object_id() -> None:
+    result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "get_context",
+        {"max_chars": 1000},
+    )
+    assert not result.success
+    assert "object_id" in (result.error or "").lower()
+
+
+def test_assistant_get_context_clamps_max_chars(db_session, fake_embedding_service) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    obj = graph.create_object(
+        ObjectCreate(kind="task", title="Long body", origin="user", body="x" * 500)
+    )
+    normalized = normalize_assistant_tool_arguments(
+        "get_context",
+        {"object_id": str(obj.id), "max_chars": 12000},
+    )
+    tools = DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    output = tools.get_context(
+        __import__("app.tools.schemas", fromlist=["GetContextInput"]).GetContextInput.model_validate(
+            normalized
+        )
+    )
+    assert output.total_chars <= 8000
+
+
+def test_assistant_openai_tool_schema_get_context_has_no_query() -> None:
+    get_context = next(defn for defn in TOOL_DEFINITIONS if defn["name"] == "get_context")
+    props = get_context["parameters"]["properties"]
+    assert "query" not in props
+    assert "object_id" in get_context["parameters"]["required"]
+    assert props["max_chars"]["maximum"] == 8000
+
+
+def test_assistant_references_derived_from_bounded_tool_view(
+    db_session, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    for index in range(30):
+        graph.create_object(
+            ObjectCreate(
+                kind="note",
+                title=f"ref-bound-{index}",
+                origin="user",
+            )
+        )
+    db_session.flush()
+
+    result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "search_objects",
+        {"query": "ref-bound", "limit": 100},
+    )
+    assert result.success
+    raw = result.output
+    bounded = serialize_tool_output_for_model("search_objects", raw)
+    candidate_ids: list[uuid.UUID] = []
+    affected_ids: list[uuid.UUID] = []
+    collect_object_ids_from_bounded_tool("search_objects", bounded, candidate_ids, affected_ids)
+    assert len(candidate_ids) <= 20
+    assert len(bounded["objects"]) <= 20
+
+
+def test_assistant_response_references_capped(
+    db_session, fake_embedding_service
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    ids: list[uuid.UUID] = []
+    for index in range(25):
+        obj = graph.create_object(
+            ObjectCreate(kind="note", title=f"cap-ref-{index}", origin="user")
+        )
+        ids.append(obj.id)
+    db_session.flush()
+
+    class ManyRefsProvider(FakeAssistantProvider):
+        def run(self, message, history, ui_context, reference_datetime, timezone, tool_runner):
+            return AssistantProviderResult(
+                answer="many",
+                candidate_object_ids=ids,
+                affected_object_ids=[],
+                store_false_used=True,
+            )
+
+    service = AssistantService(BOOTSTRAP_USER_ID, ManyRefsProvider())
+    result = service.send_message(message="cap test", history=[])
+    assert len(result.references) <= MAX_ASSISTANT_REFERENCES
 
 
 @pytest.fixture

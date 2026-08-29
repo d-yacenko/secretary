@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 22 — Search and Assistant UI: **final corrective implemented, awaiting final acceptance**
+PHASE 22 — Search and Assistant UI: **final security/boundedness corrective implemented, awaiting final acceptance**
 
 PHASE 21 — Flutter Inbox, Today, Object Detail, task-proposal acceptance: **accepted / closed**
 
@@ -26,18 +26,22 @@ See `DECISIONS.md`.
   - Per-turn tool-call budget (`DEFAULT_MAX_TOOL_CALLS = 5`) across all Responses rounds
   - Short-lived DB session per tool call: commit on success, rollback on failure
   - Assistant writes defer synchronous embedding; enqueue `embed_object` after graph mutation
-  - Bounded tool outputs for model input; UI context as delimited evidence (not system instructions)
+  - Assistant tool execution bounds (search/list/neighbors ≤20, context ≤8000 chars) before domain work
+  - Bounded model tool JSON; references from bounded view only (`MAX_ASSISTANT_REFERENCES = 20`)
+  - Safe canonical URI sanitizer for model output and `AssistantReferenceOut`
+  - Assistant `get_context(object_id, max_chars)` only — no query param in OpenAI tool schema
+  - UI context as delimited evidence (not system instructions)
   - Flutter Search + Assistant chat; `affected_objects` rendered as proposed changes
   - Backend `test_assistant.py`; client search/assistant tests
-  - `pytest` 393 passed; `ruff check .` passes
+  - `pytest` 407 passed; `ruff check .` passes
   - `flutter analyze`, `flutter test`, `flutter build apk --debug` verified
+  - VDS deploy for PHASE 22 deferred
 
 ## Not done
 
 - PHASE 23 voice
 - Graph editor
 - Persistent assistant chat database
-- VDS deploy for PHASE 22 final corrective (explicitly deferred)
 
 ## Next phase
 

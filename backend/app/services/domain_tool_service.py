@@ -125,7 +125,7 @@ class DomainToolService:
 
     def list_neighbors(self, input: ListNeighborsInput) -> ListNeighborsOutput:
         try:
-            rows = self._graph.get_neighbors(input.object_id)
+            rows = self._graph.get_neighbors(input.object_id, limit=input.limit)
         except NotFoundError as exc:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
         neighbors = [

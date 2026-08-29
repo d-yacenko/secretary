@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from app.assistant.tool_args import normalize_assistant_tool_arguments
 from app.db.session import SessionLocal
 from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
@@ -17,7 +18,8 @@ def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolEx
         defer_write_embeddings=True,
     )
     try:
-        output = _dispatch(tools, tool_name, arguments)
+        normalized_arguments = normalize_assistant_tool_arguments(tool_name, arguments)
+        output = _dispatch(tools, tool_name, normalized_arguments)
         session.commit()
         return ToolExecutionResult(
             success=True,
