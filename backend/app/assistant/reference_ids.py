@@ -29,8 +29,43 @@ def collect_object_ids_from_bounded_tool(
     elif tool_name in ("create_task", "update_task"):
         obj = bounded.get("object")
         if obj:
-            _append_uuid(affected_ids, obj.get("id"))
             _append_uuid(candidate_ids, obj.get("id"))
+            if tool_name == "create_task" or bounded.get("changed"):
+                _append_uuid(affected_ids, obj.get("id"))
+
+
+def collect_seen_object_ids_from_bounded_tool(
+    tool_name: str,
+    bounded: dict[str, Any],
+) -> list[UUID]:
+    seen_ids: list[UUID] = []
+    if tool_name == "search_objects":
+        for obj in bounded.get("objects", []):
+            _append_uuid(seen_ids, obj.get("id"))
+    elif tool_name == "retrieve":
+        for hit in bounded.get("hits", []):
+            _append_uuid(seen_ids, hit.get("object_id"))
+    elif tool_name == "get_object":
+        obj = bounded.get("object")
+        if obj:
+            _append_uuid(seen_ids, obj.get("id"))
+    elif tool_name == "get_context":
+        for item in bounded.get("items", []):
+            _append_uuid(seen_ids, item.get("object_id"))
+    elif tool_name == "list_neighbors":
+        for neighbor in bounded.get("neighbors", []):
+            obj = neighbor.get("object")
+            if obj:
+                _append_uuid(seen_ids, obj.get("id"))
+    elif tool_name == "list_notifications":
+        for row in bounded.get("notifications", []):
+            _append_uuid(seen_ids, row.get("source_object_id"))
+            _append_uuid(seen_ids, row.get("related_object_id"))
+    elif tool_name in ("create_task", "update_task"):
+        obj = bounded.get("object")
+        if obj:
+            _append_uuid(seen_ids, obj.get("id"))
+    return seen_ids
 
 
 def dedupe_preserve_order(ids: list[UUID]) -> list[UUID]:

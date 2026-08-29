@@ -124,6 +124,8 @@ class UpdateTaskInput(BaseModel):
 
 class UpdateTaskOutput(BaseModel):
     object: ObjectOut
+    changed: bool = False
+    evidence_edges_created: int = 0
 
 
 class LinkObjectsInput(BaseModel):

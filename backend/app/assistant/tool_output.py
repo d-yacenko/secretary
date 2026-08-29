@@ -179,7 +179,11 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
 
     if tool_name in ("create_task", "update_task"):
         obj = raw_output.get("object")
-        return {"object": _bounded_object(obj) if obj else None}
+        payload: dict[str, Any] = {"object": _bounded_object(obj) if obj else None}
+        if tool_name == "update_task":
+            payload["changed"] = raw_output.get("changed", False)
+            payload["evidence_edges_created"] = raw_output.get("evidence_edges_created", 0)
+        return payload
 
     if tool_name == "link_objects":
         edge = raw_output.get("edge")

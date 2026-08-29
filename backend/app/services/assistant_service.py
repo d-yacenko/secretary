@@ -94,11 +94,28 @@ class AssistantService:
         reference = normalize_reference_datetime(None, tz_name)
 
         validated_context_ids: list[UUID] = []
+        seen_seed_ids: list[UUID] = []
         if context_object_id is not None:
             validated_context_ids.append(context_object_id)
+            seen_seed_ids.append(context_object_id)
+        if context_notification_id is not None:
+            session = SessionLocal()
+            try:
+                notification = NotificationService(session, self._user_id).get(
+                    context_notification_id
+                )
+                if notification.source_object_id is not None:
+                    seen_seed_ids.append(notification.source_object_id)
+                if notification.related_object_id is not None:
+                    seen_seed_ids.append(notification.related_object_id)
+            finally:
+                session.close()
 
         telemetry = AssistantTurnTelemetry()
-        tool_budget = PerTurnToolBudget(telemetry=telemetry)
+        tool_budget = PerTurnToolBudget(
+            telemetry=telemetry,
+            initial_seen_object_ids=seen_seed_ids,
+        )
 
         def tool_runner(tool_name: str, arguments: dict):
             return tool_budget.run(self._user_id, tool_name, arguments)

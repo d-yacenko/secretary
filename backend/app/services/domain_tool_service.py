@@ -216,7 +216,8 @@ class DomainToolService:
         task_id: UUID,
         evidence_ids: list[UUID],
         confidence: float,
-    ) -> None:
+    ) -> int:
+        created = 0
         for evidence_id in evidence_ids:
             existing = self._session.scalar(
                 select(Edge).where(
@@ -238,6 +239,8 @@ class DomainToolService:
                     confidence=confidence,
                 )
             )
+            created += 1
+        return created
 
     def create_task(self, input: CreateTaskInput) -> CreateTaskOutput:
         evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
@@ -274,6 +277,8 @@ class DomainToolService:
             raise ToolError("update_task only supports task objects")
         evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
         if evidence_ids:
+            if input.object_id in evidence_ids:
+                raise ToolError("task cannot reference itself as evidence")
             self._validate_evidence_objects(evidence_ids)
         update_data = input.model_dump(
             exclude={"object_id", "evidence_object_ids"},
@@ -282,6 +287,7 @@ class DomainToolService:
         if "due_at" in update_data:
             update_data["due_at"] = normalize_tool_datetime(update_data["due_at"])
         updated = obj
+        fields_changed = False
         if update_data:
             updates = ObjectUpdate(**update_data)
             try:
@@ -290,13 +296,23 @@ class DomainToolService:
                 raise ToolError(exc.message) from exc
             except ConflictError as exc:
                 raise ToolError(exc.message) from exc
+            fields_changed = True
         elif not evidence_ids:
             raise ToolError("update_task requires at least one field to update")
+        evidence_edges_created = 0
         if evidence_ids:
             confidence = updated.confidence if updated.confidence is not None else 0.5
-            self._attach_evidence_references(updated.id, evidence_ids, confidence)
-        self._enqueue_object_embedding(updated.id)
-        return UpdateTaskOutput(object=ObjectOut.from_model(updated))
+            evidence_edges_created = self._attach_evidence_references(
+                updated.id, evidence_ids, confidence
+            )
+        changed = fields_changed or evidence_edges_created > 0
+        if fields_changed:
+            self._enqueue_object_embedding(updated.id)
+        return UpdateTaskOutput(
+            object=ObjectOut.from_model(updated),
+            changed=changed,
+            evidence_edges_created=evidence_edges_created,
+        )
 
     def link_objects(self, input: LinkObjectsInput) -> LinkObjectsOutput:
         try:
