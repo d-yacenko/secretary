@@ -1,4 +1,6 @@
+import hashlib
 import json
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,18 +12,19 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import ResourceRegisterRequest
 from app.db.models import Object
-from app.llm.embedding_service import EmbeddingService
 from app.resources.constants import (
     ALLOWED_UPLOAD_SUFFIXES,
     CLOUD_PROVIDERS,
+    CONTENT_INGESTED_REVISION_KEY,
+    MAX_REGISTER_TEXT_CHARS,
     MAX_UPLOAD_BYTES,
     PROVIDER_UPLOAD,
     PROVIDER_WEB,
     REVISION_METADATA_KEYS,
 )
-from app.resources.web_fetch import WebFetchError, fetch_web_page
+from app.resources.upload_staging import StagedUpload
+from app.resources.web_fetch import WebFetchError, WebFetchResult, fetch_web_page
 from app.services.db_errors import is_external_object_unique_violation
-from app.services.embedding_index import refresh_object_embedding
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.job_queue_service import JobQueueService
 from app.services.representation_service import RepresentationService
@@ -40,25 +43,34 @@ class ResourceRegisterResult:
     representations_created: int
 
 
+_METADATA_COMPARE_SKIP_KEYS = frozenset(
+    {
+        "content_revision",
+        CONTENT_INGESTED_REVISION_KEY,
+        "registered_at",
+        "fetched_at",
+        "upload_path",
+    }
+)
+
+
 class ResourceRegistrationService:
     def __init__(
         self,
         session: Session,
         user_id: UUID,
         job_queue: JobQueueService,
-        embedding_service: EmbeddingService | None = None,
         upload_root: Path | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._job_queue = job_queue
-        self._embedding_service = embedding_service
         self._upload_root = upload_root or Path("/tmp/secretary-uploads")
 
     def register(
         self,
         data: ResourceRegisterRequest,
-        uploaded_path: Path | None = None,
+        staged_upload: StagedUpload | None = None,
     ) -> ResourceRegisterResult:
         provider = self._resolve_provider(data)
         external_id = self._resolve_external_id(data)
@@ -67,80 +79,114 @@ class ResourceRegistrationService:
         if data.local_path_metadata:
             metadata["local_path_metadata"] = data.local_path_metadata
 
+        if staged_upload is not None:
+            metadata["content_hash"] = staged_upload.content_hash
+            metadata["upload_filename"] = staged_upload.original_filename
+            if provider is None:
+                provider = PROVIDER_UPLOAD
+            if external_id is None:
+                external_id = staged_upload.content_hash
+
+        if data.text and not any(metadata.get(key) for key in REVISION_METADATA_KEYS):
+            metadata.setdefault(
+                "content_hash",
+                hashlib.sha256(data.text.encode("utf-8")).hexdigest(),
+            )
+
+        if data.text is not None and len(data.text) > MAX_REGISTER_TEXT_CHARS:
+            raise ValidationError("register text exceeds size limit")
+
         revision = self._revision_signature(metadata)
         if revision is not None:
             metadata["content_revision"] = revision
 
-        existing = self._find_existing(data.kind, provider, external_id, data.canonical_uri)
-        if existing is not None and self._is_unchanged(existing, revision, data.ingest_content):
-            return ResourceRegisterResult(
-                object_id=existing.id,
-                status="unchanged",
-                kind=existing.kind,
-                title=existing.title,
-                canonical_uri=existing.canonical_uri,
-                provider=existing.provider,
-                external_id=existing.external_id,
-                jobs_enqueued=0,
-                representations_created=0,
+        existing = self._find_existing(
+            data.kind, provider, external_id, data.canonical_uri, revision
+        )
+        metadata_changed = (
+            existing is not None and self._metadata_differs(existing, data, metadata)
+        )
+        same_revision = (
+            existing is not None
+            and revision is not None
+            and (existing.metadata_ or {}).get("content_revision") == revision
+        )
+
+        if existing is not None and same_revision and not metadata_changed:
+            if not data.ingest_content or self._revision_already_ingested(existing, revision):
+                return self._unchanged_result(existing)
+
+        fetched: WebFetchResult | None = None
+        needs_web_ingest = (
+            data.kind == "web_page"
+            and data.ingest_content
+            and data.canonical_uri
+            and (
+                existing is None
+                or not self._revision_already_ingested(existing, revision)
             )
+        )
+        if needs_web_ingest:
+            self._ensure_no_open_transaction()
+            try:
+                fetched = fetch_web_page(data.canonical_uri)
+            except WebFetchError as exc:
+                raise ValidationError(exc.message) from exc
 
         created = existing is None
         obj = existing or self._create_object(data, provider, external_id, metadata)
         if not created:
             self._apply_metadata_update(obj, data, provider, external_id, metadata)
 
+        ingested_marker = (obj.metadata_ or {}).get(CONTENT_INGESTED_REVISION_KEY)
+        should_ingest = data.ingest_content and not self._revision_already_ingested(
+            obj, revision
+        )
+        if ingested_marker is not None:
+            metadata.setdefault(CONTENT_INGESTED_REVISION_KEY, ingested_marker)
+
         content_changed = False
         representations_created = 0
 
         if data.text is not None:
-            bounded = data.text[:8000]
+            bounded = data.text
             if obj.body != bounded:
                 obj.body = bounded
-                content_changed = True
-            if data.ingest_content:
+            if should_ingest and bounded:
                 representations_created = len(
                     self._representation_service().ingest_text_content(obj.id, bounded)
                 )
                 content_changed = True
 
-        if uploaded_path is not None:
-            if provider is None:
-                provider = PROVIDER_UPLOAD
-            if external_id is None:
-                external_id = str(metadata.get("content_hash") or uploaded_path.name)
-            obj.provider = provider
-            obj.external_id = external_id
-            stored_path = self._store_upload(obj.id, uploaded_path)
+        if staged_upload is not None and should_ingest:
+            stored_path = self._store_upload(obj.id, staged_upload)
             metadata["upload_path"] = str(stored_path)
-            metadata["upload_filename"] = uploaded_path.name
-            obj.metadata_ = metadata
-            if data.ingest_content:
-                representations_created = len(
-                    self._representation_service().ingest_file(obj.id, stored_path)
-                )
-                content_changed = True
+            metadata["upload_filename"] = staged_upload.original_filename
+            obj.provider = provider or PROVIDER_UPLOAD
+            obj.external_id = external_id or staged_upload.content_hash
+            representations_created = len(
+                self._representation_service().ingest_file(obj.id, stored_path)
+            )
+            content_changed = True
 
-        if data.kind == "web_page" and data.ingest_content and data.canonical_uri:
-            try:
-                fetched = fetch_web_page(data.canonical_uri)
-            except WebFetchError as exc:
-                raise ValidationError(exc.message) from exc
+        if fetched is not None and should_ingest:
             if fetched.title and (created or obj.title == data.title):
                 obj.title = fetched.title
             obj.body = fetched.text
             obj.canonical_uri = fetched.final_url
             metadata["fetched_at"] = datetime.now().isoformat()
-            obj.metadata_ = metadata
             representations_created = len(
                 self._representation_service().ingest_text_content(obj.id, fetched.text)
             )
             content_changed = True
 
+        if content_changed and revision is not None:
+            metadata[CONTENT_INGESTED_REVISION_KEY] = revision
+
+        obj.metadata_ = dict(metadata)
+
         jobs_enqueued = 0
         if content_changed:
-            if self._embedding_service is not None:
-                refresh_object_embedding(obj, self._embedding_service)
             self._job_queue.enqueue(
                 "embed_object",
                 {"object_id": str(obj.id)},
@@ -149,7 +195,13 @@ class ResourceRegistrationService:
             jobs_enqueued = 1
 
         self._session.flush()
-        status = "created" if created else "updated"
+
+        if created:
+            status = "created"
+        elif content_changed or metadata_changed:
+            status = "updated"
+        else:
+            status = "unchanged"
 
         return ResourceRegisterResult(
             object_id=obj.id,
@@ -163,12 +215,25 @@ class ResourceRegistrationService:
             representations_created=representations_created,
         )
 
-    def _representation_service(self) -> RepresentationService:
-        return RepresentationService(
-            self._session,
-            self._user_id,
-            embedding_service=self._embedding_service,
+    def _unchanged_result(self, obj: Object) -> ResourceRegisterResult:
+        return ResourceRegisterResult(
+            object_id=obj.id,
+            status="unchanged",
+            kind=obj.kind,
+            title=obj.title,
+            canonical_uri=obj.canonical_uri,
+            provider=obj.provider,
+            external_id=obj.external_id,
+            jobs_enqueued=0,
+            representations_created=0,
         )
+
+    def _ensure_no_open_transaction(self) -> None:
+        if self._session.in_transaction():
+            self._session.commit()
+
+    def _representation_service(self) -> RepresentationService:
+        return RepresentationService(self._session, self._user_id)
 
     def _resolve_provider(self, data: ResourceRegisterRequest) -> str | None:
         if data.provider:
@@ -198,12 +263,41 @@ class ResourceRegistrationService:
             return None
         return json.dumps(parts, sort_keys=True, default=str)
 
+    def _revision_already_ingested(self, obj: Object, revision: str | None) -> bool:
+        ingested = (obj.metadata_ or {}).get(CONTENT_INGESTED_REVISION_KEY)
+        if revision is None:
+            return ingested is not None
+        return ingested == revision
+
+    def _metadata_differs(
+        self,
+        obj: Object,
+        data: ResourceRegisterRequest,
+        metadata: dict[str, Any],
+    ) -> bool:
+        if obj.title != data.title:
+            return True
+        if data.canonical_uri is not None and obj.canonical_uri != data.canonical_uri:
+            return True
+        old_meta = {
+            key: value
+            for key, value in (obj.metadata_ or {}).items()
+            if key not in _METADATA_COMPARE_SKIP_KEYS
+        }
+        new_meta = {
+            key: value
+            for key, value in metadata.items()
+            if key not in _METADATA_COMPARE_SKIP_KEYS
+        }
+        return old_meta != new_meta
+
     def _find_existing(
         self,
         kind: str,
         provider: str | None,
         external_id: str | None,
         canonical_uri: str | None,
+        revision: str | None = None,
     ) -> Object | None:
         if provider and external_id:
             obj = self._session.scalar(
@@ -217,26 +311,26 @@ class ResourceRegistrationService:
             if obj is not None:
                 return obj
         if canonical_uri:
-            return self._session.scalar(
+            obj = self._session.scalar(
                 select(Object).where(
                     Object.user_id == self._user_id,
                     Object.kind == kind,
                     Object.canonical_uri == canonical_uri,
                 )
             )
+            if obj is not None:
+                return obj
+        if revision is not None:
+            for candidate in self._session.scalars(
+                select(Object).where(
+                    Object.user_id == self._user_id,
+                    Object.kind == kind,
+                )
+            ).all():
+                stored_revision = (candidate.metadata_ or {}).get("content_revision")
+                if stored_revision == revision:
+                    return candidate
         return None
-
-    def _is_unchanged(
-        self, obj: Object, revision: str | None, ingest_content: bool
-    ) -> bool:
-        if ingest_content:
-            return False
-        stored_revision = (obj.metadata_ or {}).get("content_revision")
-        if revision is not None and stored_revision == revision:
-            return True
-        if revision is None and stored_revision is None:
-            return False
-        return False
 
     def _create_object(
         self,
@@ -253,11 +347,11 @@ class ResourceRegistrationService:
             title=data.title,
             origin="user",
             state="confirmed",
-            body=data.text[:8000] if data.text else None,
+            body=data.text if data.text else None,
             provider=provider,
             external_id=external_id,
             canonical_uri=data.canonical_uri,
-            metadata_=metadata,
+            metadata_=dict(metadata),
         )
         self._session.add(obj)
         try:
@@ -282,19 +376,17 @@ class ResourceRegistrationService:
             obj.provider = provider
         if external_id:
             obj.external_id = external_id
-        obj.metadata_ = metadata
 
-    def _store_upload(self, object_id: UUID, source_path: Path) -> Path:
-        suffix = source_path.suffix.lower()
+    def _store_upload(self, object_id: UUID, staged: StagedUpload) -> Path:
+        suffix = Path(staged.original_filename).suffix.lower()
         if suffix not in ALLOWED_UPLOAD_SUFFIXES:
-            raise ValidationError(f"unsupported upload format: {suffix}")
-        size = source_path.stat().st_size
-        if size > MAX_UPLOAD_BYTES:
+            raise ValidationError(f"unsupported upload format: {suffix or '(none)'}")
+        if staged.size > MAX_UPLOAD_BYTES:
             raise ValidationError("upload exceeds size limit")
         target_dir = self._upload_root / str(self._user_id) / str(object_id)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / source_path.name
-        target_path.write_bytes(source_path.read_bytes())
+        target_path = target_dir / staged.original_filename
+        shutil.copyfile(staged.path, target_path)
         return target_path
 
     def get_object_for_user(self, object_id: UUID) -> Object:

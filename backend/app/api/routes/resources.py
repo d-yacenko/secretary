@@ -1,17 +1,16 @@
 import json
-import tempfile
 from pathlib import Path
-
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, get_embedding_service
+from app.api.deps import get_current_user, get_db
 from app.api.schemas import ObjectOut, ResourceRegisterOut, ResourceRegisterRequest
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
-from app.llm.embedding_service import EmbeddingService
+from app.resources.upload_staging import stage_upload_file
 from app.services.errors import ConflictError, ValidationError
 from app.services.job_queue_service import JobQueueService
 from app.services.resource_registration_service import ResourceRegistrationService
@@ -22,13 +21,11 @@ router = APIRouter()
 def _service(
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
-    embedding_service: EmbeddingService = Depends(get_embedding_service),
 ) -> ResourceRegistrationService:
     return ResourceRegistrationService(
         session=session,
         user_id=current_user.user_id,
         job_queue=JobQueueService(session),
-        embedding_service=embedding_service,
         upload_root=Path(settings.resource_upload_root),
     )
 
@@ -43,35 +40,45 @@ async def register_resource(
     service: ResourceRegistrationService = Depends(_service),
 ) -> ResourceRegisterOut:
     content_type = request.headers.get("content-type", "")
-    uploaded_path: Path | None = None
+    staged_upload = None
+    staging_dir = Path(settings.resource_upload_root) / "staging"
     try:
         if "multipart/form-data" in content_type:
             form = await request.form()
             payload_raw = form.get("payload")
             if payload_raw is None:
                 raise ValidationError("multipart register requires payload field")
-            data = ResourceRegisterRequest.model_validate(json.loads(str(payload_raw)))
+            try:
+                payload_data = json.loads(str(payload_raw))
+            except json.JSONDecodeError:
+                raise ValidationError("multipart payload must be valid JSON")
+            try:
+                data = ResourceRegisterRequest.model_validate(payload_data)
+            except PydanticValidationError as exc:
+                raise ValidationError(str(exc)) from exc
             upload = form.get("file")
             if upload is not None and hasattr(upload, "read"):
-                suffix = Path(upload.filename or "upload.txt").suffix or ".txt"
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                    tmp.write(await upload.read())
-                    uploaded_path = Path(tmp.name)
+                staged_upload = await stage_upload_file(upload, staging_dir)
         else:
             body = await request.body()
-            data = ResourceRegisterRequest.model_validate_json(body)
+            try:
+                data = ResourceRegisterRequest.model_validate_json(body)
+            except (json.JSONDecodeError, PydanticValidationError) as exc:
+                raise ValidationError("request body must be valid JSON") from exc
 
-        result = service.register(data, uploaded_path=uploaded_path)
+        result = service.register(data, staged_upload=staged_upload)
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=exc.message,
-        ) from exc
+        status_code = (
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+            if exc.message == "upload exceeds size limit"
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=status_code, detail=exc.message) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
     finally:
-        if uploaded_path is not None:
-            uploaded_path.unlink(missing_ok=True)
+        if staged_upload is not None:
+            staged_upload.path.unlink(missing_ok=True)
 
     return ResourceRegisterOut(
         object_id=result.object_id,
