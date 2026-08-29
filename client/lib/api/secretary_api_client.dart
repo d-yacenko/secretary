@@ -105,7 +105,65 @@ class SecretaryApiClient {
     return ContextResponse.fromJson(body);
   }
 
+  Future<List<SecretaryObject>> searchObjects({
+    required String query,
+    String? kind,
+    int limit = 20,
+  }) async {
+    final queryParameters = <String, String>{
+      'q': query,
+      'limit': '$limit',
+    };
+    if (kind != null && kind.isNotEmpty) {
+      queryParameters['kind'] = kind;
+    }
+    final decoded = await _requestJson(
+      'GET',
+      '/search',
+      queryParameters: queryParameters,
+    );
+    if (decoded is! List<dynamic>) {
+      throw ServerException('Unexpected search response format');
+    }
+    return decoded
+        .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<AssistantMessageResponse> sendAssistantMessage(
+    AssistantMessageRequest request,
+  ) async {
+    final body = await _request(
+      'POST',
+      '/assistant/message',
+      jsonBody: request.toJson(),
+    );
+    return AssistantMessageResponse.fromJson(body);
+  }
+
   Future<Map<String, dynamic>> _request(
+    String method,
+    String path, {
+    Map<String, dynamic>? jsonBody,
+    Map<String, String>? queryParameters,
+    bool authenticated = true,
+    Set<int> successStatuses = const {200},
+  }) async {
+    final decoded = await _requestJson(
+      method,
+      path,
+      jsonBody: jsonBody,
+      queryParameters: queryParameters,
+      authenticated: authenticated,
+      successStatuses: successStatuses,
+    );
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    throw ServerException('Unexpected response format');
+  }
+
+  Future<dynamic> _requestJson(
     String method,
     String path, {
     Map<String, dynamic>? jsonBody,
@@ -147,7 +205,7 @@ class SecretaryApiClient {
     }
   }
 
-  Map<String, dynamic> _mapResponse(
+  dynamic _mapResponse(
     http.Response response,
     Set<int> successStatuses,
   ) {
@@ -156,10 +214,7 @@ class SecretaryApiClient {
         return {};
       }
       final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        return decoded;
-      }
-      throw ServerException('Unexpected response format');
+      return decoded;
     }
 
     final detail = _extractDetail(response);

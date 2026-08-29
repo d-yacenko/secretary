@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
+import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
@@ -16,11 +17,17 @@ class InboxScreen extends StatefulWidget {
     required this.apiClient,
     required this.authController,
     required this.captureController,
+    this.assistantController,
+    this.onAskSecretary,
+    this.onAskSecretaryAboutNotification,
   });
 
   final SecretaryApiClient apiClient;
   final AuthController authController;
   final CaptureController captureController;
+  final AssistantController? assistantController;
+  final AskSecretaryHandler? onAskSecretary;
+  final void Function(NotificationOut notification)? onAskSecretaryAboutNotification;
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
@@ -186,6 +193,10 @@ class _InboxScreenState extends State<InboxScreen> {
                 apiClient: widget.apiClient,
                 authController: widget.authController,
                 captureController: widget.captureController,
+                assistantController: widget.assistantController,
+                onAskSecretary: widget.onAskSecretary,
+                onAskSecretaryAboutNotification:
+                    widget.onAskSecretaryAboutNotification,
               ),
             );
           },

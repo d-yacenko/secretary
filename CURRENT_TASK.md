@@ -1,23 +1,22 @@
-# Current task — PHASE 22 (not started)
+# Current task — PHASE 22 awaiting review
 
 ## Status
 
-PHASE 21 accepted / closed (final acceptance 2026-08-29).
+PHASE 22 Search and Assistant UI implemented. STOP for review.
 
-PHASE 22 — Search and Assistant UI: current phase, not started.
+PHASE 21 accepted / closed. PHASE 23 not started.
 
-## PHASE 21 closure evidence
+## Delivered
 
-Architecture: `74f15a3`. Final corrective: `78aaa28`.
+- Backend: `POST /assistant/message`, assistant service + fake/OpenAI providers, tool session boundary
+- Flutter: Search screen, Assistant chat, Ask Secretary from Object Detail, optional notification context from Inbox dialog
+- Tests: `tests/test_assistant.py`, client search/assistant tests
 
-VDS manual smoke (PHASE 21 client): Inbox loads real notifications; Accept/Ignore work; Today renders expected sections.
+## Verification
 
-VDS deployment (2026-08-29):
-
-- SHA: `78aaa28`
-- Alembic: `0015 (head)`
-- Live checks: `/health` 200, `/notifications?status=unresolved` 200, `/today` 200
+- `pytest` (assistant suite + full suite)
+- `flutter analyze`, `flutter test`, `flutter build apk --debug`
 
 ## STOP
 
-Do not start PHASE 22 implementation until explicitly tasked.
+Await PHASE 22 review. Do not start PHASE 23.

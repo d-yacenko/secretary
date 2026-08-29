@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../account/account_screen.dart';
+import '../api/api_models.dart';
+import '../assistant/assistant_controller.dart';
+import '../assistant/assistant_screen.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/inbox_screen.dart';
 import '../navigation/secretary_navigation.dart';
 import '../screens/placeholder_screen.dart';
+import '../search/search_screen.dart';
 import '../today/today_screen.dart';
 
 const double kShellWideBreakpoint = 600;
@@ -26,10 +30,12 @@ class AppShell extends StatefulWidget {
     super.key,
     required this.authController,
     required this.captureController,
+    required this.assistantController,
   });
 
   final AuthController authController;
   final CaptureController captureController;
+  final AssistantController assistantController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -53,6 +59,16 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  void _askSecretaryAbout(SecretaryObject object) {
+    widget.assistantController.setObjectContext(object);
+    setState(() => _selectedIndex = ShellDestination.assistant.index);
+  }
+
+  void _askSecretaryAboutNotification(NotificationOut notification) {
+    widget.assistantController.setNotificationContext(notification);
+    setState(() => _selectedIndex = ShellDestination.assistant.index);
+  }
+
   Widget _destinationScreen(ShellDestination destination) {
     switch (destination) {
       case ShellDestination.inbox:
@@ -60,16 +76,34 @@ class _AppShellState extends State<AppShell> {
           apiClient: widget.authController.apiClient,
           authController: widget.authController,
           captureController: widget.captureController,
+          assistantController: widget.assistantController,
+          onAskSecretary: _askSecretaryAbout,
+          onAskSecretaryAboutNotification: _askSecretaryAboutNotification,
         );
       case ShellDestination.today:
         return TodayScreen(
           apiClient: widget.authController.apiClient,
           authController: widget.authController,
           captureController: widget.captureController,
+          assistantController: widget.assistantController,
+          onAskSecretary: _askSecretaryAbout,
+        );
+      case ShellDestination.search:
+        return SearchScreen(
+          apiClient: widget.authController.apiClient,
+          authController: widget.authController,
+          captureController: widget.captureController,
+          assistantController: widget.assistantController,
+          onAskSecretary: _askSecretaryAbout,
+        );
+      case ShellDestination.assistant:
+        return AssistantScreen(
+          controller: widget.assistantController,
+          apiClient: widget.authController.apiClient,
+          authController: widget.authController,
+          captureController: widget.captureController,
         );
       case ShellDestination.graph:
-      case ShellDestination.search:
-      case ShellDestination.assistant:
         return PlaceholderScreen(title: destination.label);
     }
   }
@@ -90,7 +124,7 @@ class _AppShellState extends State<AppShell> {
           )
         : null;
 
-  final accountAction = IconButton(
+    final accountAction = IconButton(
       icon: const Icon(Icons.account_circle),
       tooltip: 'Account',
       onPressed: _openAccount,

@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
+import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../capture/capture_screen.dart';
 import '../objects/object_detail_screen.dart';
+
+typedef AskSecretaryHandler = void Function(SecretaryObject object);
 
 Future<void> openObjectDetail(
   BuildContext context, {
@@ -14,6 +17,8 @@ Future<void> openObjectDetail(
   required SecretaryApiClient apiClient,
   required AuthController authController,
   required CaptureController captureController,
+  AssistantController? assistantController,
+  AskSecretaryHandler? onAskSecretary,
 }) async {
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
@@ -22,6 +27,8 @@ Future<void> openObjectDetail(
         apiClient: apiClient,
         authController: authController,
         captureController: captureController,
+        assistantController: assistantController,
+        onAskSecretary: onAskSecretary,
       ),
     ),
   );
@@ -33,6 +40,9 @@ Future<void> openNotificationContext(
   required SecretaryApiClient apiClient,
   required AuthController authController,
   required CaptureController captureController,
+  AssistantController? assistantController,
+  AskSecretaryHandler? onAskSecretary,
+  void Function(NotificationOut notification)? onAskSecretaryAboutNotification,
 }) async {
   try {
     if (notification.status == 'new') {
@@ -59,6 +69,8 @@ Future<void> openNotificationContext(
       apiClient: apiClient,
       authController: authController,
       captureController: captureController,
+      assistantController: assistantController,
+      onAskSecretary: onAskSecretary,
     );
     return;
   }
@@ -86,6 +98,14 @@ Future<void> openNotificationContext(
         ),
       ),
       actions: [
+        if (onAskSecretaryAboutNotification != null)
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              onAskSecretaryAboutNotification(notification);
+            },
+            child: const Text('Ask Secretary'),
+          ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),

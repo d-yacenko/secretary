@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
 import '../shell/app_shell.dart';
 import 'auth_controller.dart';
@@ -11,10 +12,12 @@ class AuthGate extends StatelessWidget {
     super.key,
     required this.authController,
     required this.captureController,
+    required this.assistantController,
   });
 
   final AuthController authController;
   final CaptureController captureController;
+  final AssistantController assistantController;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +31,7 @@ class AuthGate extends StatelessWidget {
         return AppShell(
           authController: authController,
           captureController: captureController,
+          assistantController: assistantController,
         );
       case AuthStatus.needsAuth:
       case AuthStatus.transientError:

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
+import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/notification_labels.dart';
@@ -16,11 +17,15 @@ class TodayScreen extends StatefulWidget {
     required this.apiClient,
     required this.authController,
     required this.captureController,
+    this.assistantController,
+    this.onAskSecretary,
   });
 
   final SecretaryApiClient apiClient;
   final AuthController authController;
   final CaptureController captureController;
+  final AssistantController? assistantController;
+  final AskSecretaryHandler? onAskSecretary;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -123,6 +128,8 @@ class _TodayScreenState extends State<TodayScreen> {
                       apiClient: widget.apiClient,
                       authController: widget.authController,
                       captureController: widget.captureController,
+                      assistantController: widget.assistantController,
+                      onAskSecretary: widget.onAskSecretary,
                     ),
                   )),
             const SizedBox(height: 16),
@@ -138,6 +145,8 @@ class _TodayScreenState extends State<TodayScreen> {
                       apiClient: widget.apiClient,
                       authController: widget.authController,
                       captureController: widget.captureController,
+                      assistantController: widget.assistantController,
+                      onAskSecretary: widget.onAskSecretary,
                     ),
                   )),
             const SizedBox(height: 16),
@@ -153,6 +162,8 @@ class _TodayScreenState extends State<TodayScreen> {
                       apiClient: widget.apiClient,
                       authController: widget.authController,
                       captureController: widget.captureController,
+                      assistantController: widget.assistantController,
+                      onAskSecretary: widget.onAskSecretary,
                     ),
                   )),
           ],

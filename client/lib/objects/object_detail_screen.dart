@@ -5,6 +5,7 @@ import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
+import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 
@@ -17,12 +18,16 @@ class ObjectDetailScreen extends StatefulWidget {
     required this.apiClient,
     required this.authController,
     required this.captureController,
+    this.assistantController,
+    this.onAskSecretary,
   });
 
   final String objectId;
   final SecretaryApiClient apiClient;
   final AuthController authController;
   final CaptureController captureController;
+  final AssistantController? assistantController;
+  final AskSecretaryHandler? onAskSecretary;
 
   @override
   State<ObjectDetailScreen> createState() => _ObjectDetailScreenState();
@@ -91,12 +96,26 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     openCapture(context, captureController: widget.captureController);
   }
 
+  void _askSecretary() {
+    final object = _object;
+    if (object == null || widget.onAskSecretary == null) {
+      return;
+    }
+    widget.onAskSecretary!(object);
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_object?.title ?? 'Object'),
         actions: [
+          if (_object != null && widget.onAskSecretary != null)
+            TextButton(
+              onPressed: _askSecretary,
+              child: const Text('Ask Secretary'),
+            ),
           if (_object != null)
             TextButton(
               onPressed: _useAsTaskContext,

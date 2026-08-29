@@ -2,11 +2,13 @@
 
 ## Current phase
 
-PHASE 22 — Search and Assistant UI: **not started**
+PHASE 22 — Search and Assistant UI: **implemented, awaiting review**
 
 PHASE 21 — Flutter Inbox, Today, Object Detail, task-proposal acceptance: **accepted / closed**
 
-PHASE 20 — Flutter client: **accepted / closed** (manual Linux smoke completed by user)
+PHASE 23 — voice: **not started**
+
+PHASE 20 — Flutter client: **accepted / closed**
 
 PHASE 19.5 — auth, connections, manual capture: **accepted / closed**
 
@@ -16,23 +18,23 @@ See `DECISIONS.md`.
 
 ## Working components
 
-- PHASE 00–20: (prior phases, PHASE 20 closed)
-- PHASE 21 (closed):
-  - Task-proposal Accept → confirmed task (`result_object_id` idempotency); invalid accept → 422
-  - `GET /today` with `day_start`, tasks, calendar events, important notifications
-  - Terminal task exclusion in SQL before limit; overdue via `due_at < day_start`
-  - `GET /notifications?status=unresolved` pseudo-filter
-  - Flutter Inbox / Today / Object Detail; dispose-safe async screens
-  - Manual capture context from Object Detail; session isolation preserved
-  - Backend + client tests; Android debug APK verified
-  - VDS deployed at `78aaa28` (Alembic `0015`); live health/notifications/today → 200
-  - VDS manual smoke: Inbox, Accept/Ignore, Today sections OK
+- PHASE 00–21: (prior phases, PHASE 21 closed)
+- PHASE 22 (awaiting review):
+  - `GET /search` reused by Flutter Search screen (user-scoped, optional kind filter)
+  - `POST /assistant/message` with bounded message/history, optional `context_object_id` / `context_notification_id`
+  - Reuses Secretary agent: Responses API `store=False`, bounded tool loop, `DomainToolService` / `ContextService`
+  - Short-lived DB sessions per tool call; no open transaction across OpenAI calls
+  - Flutter Search + Assistant chat screens; Object Detail **Ask Secretary** handoff; optional Inbox notification context
+  - Backend `test_assistant.py`; client search/assistant tests
+  - `pytest` 385+ passed (2 pre-existing unrelated failures in auth_capture/provenance on shared DB)
+  - `flutter analyze`, `flutter test`, `flutter build apk --debug` verified
 
 ## Not done
 
-- PHASE 22 (Search and Assistant UI)
-- Graph editor, voice (later phases)
+- PHASE 23 voice
+- Graph editor
+- Persistent assistant chat database
 
 ## Next phase
 
-PHASE 22 — Search and Assistant UI (current, not started).
+PHASE 22 review. Do not start PHASE 23 until PHASE 22 is accepted.

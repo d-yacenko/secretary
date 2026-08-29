@@ -9,6 +9,7 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
+import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
@@ -65,10 +66,18 @@ void main() {
       apiClient: auth.apiClient,
       authController: auth,
     );
+    final assistant = AssistantController(
+      apiClient: auth.apiClient,
+      authController: auth,
+    );
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AppShell(authController: auth, captureController: capture),
+        home: AppShell(
+          authController: auth,
+          captureController: capture,
+          assistantController: assistant,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -90,10 +99,18 @@ void main() {
       apiClient: auth.apiClient,
       authController: auth,
     );
+    final assistant = AssistantController(
+      apiClient: auth.apiClient,
+      authController: auth,
+    );
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AppShell(authController: auth, captureController: capture),
+        home: AppShell(
+          authController: auth,
+          captureController: capture,
+          assistantController: assistant,
+        ),
       ),
     );
     await tester.pumpAndSettle();

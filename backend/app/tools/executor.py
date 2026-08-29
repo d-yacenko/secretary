@@ -88,4 +88,6 @@ def _dispatch(tools: DomainToolService, tool_name: str, arguments: dict[str, Any
         return tools.update_task(UpdateTaskInput.model_validate(arguments))
     if tool_name == "link_objects":
         return tools.link_objects(LinkObjectsInput.model_validate(arguments))
+    if tool_name == "get_today":
+        return tools.get_today()
     raise ToolError(f"unknown tool: {tool_name}")

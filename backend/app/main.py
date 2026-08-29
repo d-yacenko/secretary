@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.assistant import router as assistant_router
 from app.api.capture import router as capture_router
 from app.api.connections import router as connections_router
 from app.api.google import router as google_router
@@ -66,6 +67,7 @@ async def register_multipart_size_handler(
 app.include_router(me_router)
 app.include_router(connections_router)
 app.include_router(capture_router)
+app.include_router(assistant_router)
 app.include_router(graph_router)
 app.include_router(resources_router)
 app.include_router(local_router)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'auth/auth_controller.dart';
 import 'auth/auth_gate.dart';
+import 'assistant/assistant_controller.dart';
 import 'capture/capture_controller.dart';
 
 class PersonalSecretaryApp extends StatefulWidget {
@@ -17,12 +18,17 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   late final AuthSessionNavigator _authSessionNavigator;
   late final CaptureController _captureController;
+  late final AssistantController _assistantController;
 
   @override
   void initState() {
     super.initState();
     _authSessionNavigator = AuthSessionNavigator(_navigatorKey);
     _captureController = CaptureController(
+      apiClient: widget.authController.apiClient,
+      authController: widget.authController,
+    );
+    _assistantController = AssistantController(
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
     );
@@ -33,6 +39,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
 
   void _onSessionTerminated() {
     _captureController.resetSession();
+    _assistantController.resetSession();
     _authSessionNavigator.resetNavigationStack();
   }
 
@@ -45,6 +52,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     widget.authController.onSessionTerminated = null;
     widget.authController.removeListener(_onAuthChanged);
     _captureController.dispose();
+    _assistantController.dispose();
     super.dispose();
   }
 
@@ -60,6 +68,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
       home: AuthGate(
         authController: widget.authController,
         captureController: _captureController,
+        assistantController: _assistantController,
       ),
     );
   }

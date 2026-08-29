@@ -432,3 +432,135 @@ class CaptureContextRef {
     return '$normalizedKind: $title';
   }
 }
+
+class AssistantHistoryMessage {
+  AssistantHistoryMessage({required this.role, required this.content});
+
+  final String role;
+  final String content;
+
+  Map<String, dynamic> toJson() => {'role': role, 'content': content};
+}
+
+class AssistantMessageRequest {
+  AssistantMessageRequest({
+    required this.message,
+    this.history = const [],
+    this.contextObjectId,
+    this.contextNotificationId,
+  });
+
+  final String message;
+  final List<AssistantHistoryMessage> history;
+  final String? contextObjectId;
+  final String? contextNotificationId;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'message': message,
+      'history': history.map((e) => e.toJson()).toList(),
+      if (contextObjectId != null) 'context_object_id': contextObjectId,
+      if (contextNotificationId != null)
+        'context_notification_id': contextNotificationId,
+    };
+  }
+}
+
+class AssistantReference {
+  AssistantReference({
+    required this.objectId,
+    required this.title,
+    required this.kind,
+    this.canonicalUri,
+  });
+
+  final String objectId;
+  final String title;
+  final String kind;
+  final String? canonicalUri;
+
+  factory AssistantReference.fromJson(Map<String, dynamic> json) {
+    return AssistantReference(
+      objectId: json['object_id'] as String,
+      title: json['title'] as String,
+      kind: json['kind'] as String,
+      canonicalUri: json['canonical_uri'] as String?,
+    );
+  }
+
+  String get displayLabel => '$kind: $title';
+}
+
+class AssistantMessageResponse {
+  AssistantMessageResponse({
+    required this.answer,
+    required this.references,
+    required this.affectedObjects,
+  });
+
+  final String answer;
+  final List<AssistantReference> references;
+  final List<AssistantAffectedObject> affectedObjects;
+
+  factory AssistantMessageResponse.fromJson(Map<String, dynamic> json) {
+    return AssistantMessageResponse(
+      answer: json['answer'] as String,
+      references: (json['references'] as List<dynamic>)
+          .map((e) => AssistantReference.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      affectedObjects: (json['affected_objects'] as List<dynamic>)
+          .map((e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class AssistantAffectedObject {
+  AssistantAffectedObject({
+    required this.objectId,
+    required this.title,
+    required this.kind,
+    required this.state,
+  });
+
+  final String objectId;
+  final String title;
+  final String kind;
+  final String state;
+
+  factory AssistantAffectedObject.fromJson(Map<String, dynamic> json) {
+    return AssistantAffectedObject(
+      objectId: json['object_id'] as String,
+      title: json['title'] as String,
+      kind: json['kind'] as String,
+      state: json['state'] as String,
+    );
+  }
+}
+
+class AssistantContextRef {
+  const AssistantContextRef({
+    required this.id,
+    required this.title,
+    required this.kind,
+  });
+
+  final String id;
+  final String title;
+  final String kind;
+
+  String get displayLabel => '$kind — $title';
+}
+
+class SearchResultSnippet {
+  static String fromBody(String? body, {int maxChars = 200}) {
+    if (body == null || body.trim().isEmpty) {
+      return '';
+    }
+    final normalized = body.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return '${normalized.substring(0, maxChars)}…';
+  }
+}
