@@ -125,5 +125,6 @@ def normalize_gmail_message(message: dict[str, Any]) -> dict[str, Any]:
         "title": subject or f"Gmail message {message_id}",
         "body": body,
         "metadata": metadata,
+        "occurred_at": timestamp,
         "scopes": [GMAIL_READONLY_SCOPE],
     }

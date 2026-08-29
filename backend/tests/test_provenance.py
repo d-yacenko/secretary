@@ -208,7 +208,7 @@ def test_search_lexical_fallback_on_embedding_failure(db_session) -> None:
     )
     from app.services.search_service import SearchService
 
-    results = SearchService(db_session, BOOTSTRAP_USER_ID, FailingEmbeddingService()).search("lexical budget keyword")
+    results = SearchService(db_session, BOOTSTRAP_USER_ID).search("lexical budget keyword")
     assert len(results) == 1
     assert results[0].title == "Unique lexical budget keyword"
 

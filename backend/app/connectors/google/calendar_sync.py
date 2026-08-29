@@ -123,6 +123,7 @@ class CalendarSyncService:
                         body=normalized.get("body"),
                         start_at=normalized.get("start_at"),
                         due_at=normalized.get("due_at"),
+                        occurred_at=normalized.get("occurred_at"),
                         metadata_=normalized["metadata"],
                     )
                     self._session.add(obj)
@@ -192,6 +193,7 @@ class CalendarSyncService:
         obj.body = normalized.get("body")
         obj.start_at = normalized.get("start_at")
         obj.due_at = normalized.get("due_at")
+        obj.occurred_at = normalized.get("occurred_at")
         obj.metadata_ = normalized["metadata"]
 
 

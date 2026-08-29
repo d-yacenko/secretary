@@ -71,6 +71,7 @@ def normalize_calendar_event(
         "body": body,
         "start_at": start_at,
         "due_at": end_at,
+        "occurred_at": start_at,
         "metadata": metadata,
         "scopes": [CALENDAR_READONLY_SCOPE],
     }

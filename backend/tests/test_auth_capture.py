@@ -407,7 +407,7 @@ def test_captured_task_becomes_searchable_after_embed_handler(
     task = db_session.get(Object, task_id)
     assert task is not None
     assert task.embedding is not None
-    results = SearchService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service).search(marker)
+    results = SearchService(db_session, BOOTSTRAP_USER_ID).search(marker)
     assert any(result.id == task_id for result in results)
 
 

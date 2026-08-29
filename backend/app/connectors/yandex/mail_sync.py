@@ -129,6 +129,7 @@ class YandexMailSyncService:
                     title=normalized["title"],
                     body=normalized.get("body"),
                     metadata_=normalized["metadata"],
+                    occurred_at=normalized.get("occurred_at"),
                 )
                 self._session.add(obj)
                 self._session.flush()

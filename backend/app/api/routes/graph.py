@@ -148,10 +148,9 @@ def search_objects(
     project_id: UUID | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_db),
-    embedding_service: EmbeddingService = Depends(get_embedding_service),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> list[ObjectOut]:
-    service = SearchService(session, current_user.user_id, embedding_service)
+    service = SearchService(session, current_user.user_id)
     return service.search(
         query=q,
         kind=kind,

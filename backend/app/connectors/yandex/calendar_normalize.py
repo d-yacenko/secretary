@@ -181,6 +181,7 @@ def normalize_caldav_events(
                 "body": body,
                 "start_at": start_at,
                 "due_at": end_at,
+                "occurred_at": start_at,
                 "metadata": metadata,
             }
         )

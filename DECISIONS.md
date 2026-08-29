@@ -45,3 +45,12 @@ Being inside the synchronization time window does **not** mean the full object m
 **Flutter voice contract (PHASE 20):** voice is another input method, not another task model. Direct capture: voice → transcript → same `CaptureDraft` → `POST /capture/task`. Conversational commands: voice → transcript → Secretary assistant/command flow. No separate voice task entity/API. Implementation deferred to PHASE 23 or later approved phase.
 
 **Future:** when a provider offers reliable cursor/history/sync tokens, prefer that over rescans; unchanged processed content must not be repeatedly downloaded/embedded/analyzed.
+
+## PHASE 22.5A — Local retrieval foundation
+
+1. Top-K is a maximum, not a target.
+2. Retrieval is local-first and PostgreSQL-first.
+3. Default time-sensitive source horizon is 90 days, progressively widened to 365 days and then local all-history when relevance is insufficient or history is explicitly requested.
+4. Personal/active graph objects are not removed merely because they are old.
+5. Retrieval v1 uses PostgreSQL FTS/trigram; embeddings are not required for ordinary retrieval.
+6. Provider-assisted archive search and ML reranking are future fallbacks, not v1 dependencies.

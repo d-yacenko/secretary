@@ -104,10 +104,10 @@ def test_search_never_returns_other_user_object(db_session, user_b_id, fake_embe
     graph_b.create_object(
         ObjectCreate(kind="task", title="unique-beta-marker-other", origin="user")
     )
-    results_a = SearchService(db_session, BOOTSTRAP_USER_ID, fake_embedding).search(
+    results_a = SearchService(db_session, BOOTSTRAP_USER_ID).search(
         "unique-alpha-marker-secret"
     )
-    results_b = SearchService(db_session, user_b_id, fake_embedding).search(
+    results_b = SearchService(db_session, user_b_id).search(
         "unique-alpha-marker-secret"
     )
     assert any(r.id == secret.id for r in results_a)
@@ -128,7 +128,7 @@ def test_vector_search_filters_by_user_before_ranking(db_session, user_b_id) -> 
     graph_b.create_object(
         ObjectCreate(kind="task", title="vector-b-only-title", origin="user")
     )
-    results = SearchService(db_session, user_b_id, stub).search("vector-a-only-title")
+    results = SearchService(db_session, user_b_id).search("vector-a-only-title")
     assert all(r.id != obj_a.id for r in results)
 
 

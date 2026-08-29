@@ -138,4 +138,5 @@ def normalize_imap_message(
         "title": subject or f"Yandex message {external_id}",
         "body": body,
         "metadata": metadata,
+        "occurred_at": timestamp,
     }

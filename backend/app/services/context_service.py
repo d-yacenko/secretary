@@ -88,7 +88,7 @@ class ContextService:
         self._user_id = user_id
         self._embedding_service = embedding_service
         self._graph = GraphService(session, user_id, embedding_service)
-        self._search = SearchService(session, user_id, embedding_service)
+        self._search = SearchService(session, user_id)
         self._representations = RepresentationService(session, user_id, embedding_service)
 
     def build_context(

@@ -1,25 +1,19 @@
-# Current task — PHASE 23
+# Current task — PHASE 22.5A
 
 ## Status
 
-PHASE 22 accepted / closed. VDS deploy at `0facbb6`; Assistant live smoke OK after `OPENAI_API_KEY` config.
+PHASE 22.5A Local Retrieval Foundation implemented. STOP for review.
 
-PHASE 23 not started. STOP.
+PHASE 22 accepted / closed. PHASE 22.5B not started. PHASE 23 not started. No VDS deploy.
 
-## PHASE 22 VDS evidence (`0facbb6`)
+## Delivered
 
-| Check | Result |
-|-------|--------|
-| Deployed git SHA | `0facbb6` |
-| Alembic head | `0015` |
-| Root cause | missing `OPENAI_API_KEY` on VDS (config-only) |
-| Code fix | provider/config failures → HTTP 502 `Assistant provider unavailable` |
-| `GET /health` | 200 |
-| `POST /assistant/message` (no context) | 200, non-empty OpenAI answer |
-| `POST /assistant/message` (task context) | 200, non-empty answer |
-
-DB, volumes, auth tokens, and provider credentials preserved; no `docker compose down -v`, no DB reset, no secret rotation.
+- Migration `0016`: `occurred_at`, `pg_trgm`, FTS/trigram indexes, safe backfill
+- `RetrievalService` + `SearchService` wrapper (PostgreSQL FTS/trigram, no embeddings)
+- Progressive time-sensitive source horizon; personal objects not age-filtered
+- Connector `occurred_at` on Gmail/Yandex mail and calendar ingest
+- `test_retrieval.py` (isolation, top-K max, nornickel fixture, horizons, occurred_at, bounds)
 
 ## STOP
 
-Do not start PHASE 23 implementation in this step.
+Await PHASE 22.5A review. Do not start PHASE 22.5B or PHASE 23. Do not deploy to VDS.
