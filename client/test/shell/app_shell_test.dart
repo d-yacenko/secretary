@@ -25,6 +25,7 @@ MockClient shellMockClient() {
         jsonEncode({
           'date': '2026-08-28',
           'timezone': 'Europe/Amsterdam',
+          'day_start': '2026-08-28T00:00:00+02:00',
           'tasks': [],
           'calendar_events': [],
           'notifications': [],

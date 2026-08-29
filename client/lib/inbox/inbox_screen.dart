@@ -39,6 +39,9 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   Future<void> _loadNotifications() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _loadState = InboxLoadState.loading;
       _errorMessage = null;
@@ -46,6 +49,9 @@ class _InboxScreenState extends State<InboxScreen> {
 
     try {
       final rows = await widget.apiClient.listUnresolvedNotifications();
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _notifications = rows;
         _loadState = rows.isEmpty ? InboxLoadState.empty : InboxLoadState.ready;
@@ -53,6 +59,9 @@ class _InboxScreenState extends State<InboxScreen> {
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _loadState = InboxLoadState.error;
         _errorMessage = e.message;
@@ -61,9 +70,15 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   Future<void> _accept(NotificationOut notification) async {
+    if (!mounted) {
+      return;
+    }
     setState(() => _mutatingNotificationId = notification.id);
     try {
       await widget.apiClient.acceptNotification(notification.id);
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _notifications = _notifications
             .where((row) => row.id != notification.id)
@@ -75,6 +90,9 @@ class _InboxScreenState extends State<InboxScreen> {
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _mutatingNotificationId = null;
         _errorMessage = e.message;
@@ -83,9 +101,15 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   Future<void> _ignore(NotificationOut notification) async {
+    if (!mounted) {
+      return;
+    }
     setState(() => _mutatingNotificationId = notification.id);
     try {
       await widget.apiClient.ignoreNotification(notification.id);
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _notifications = _notifications
             .where((row) => row.id != notification.id)
@@ -97,6 +121,9 @@ class _InboxScreenState extends State<InboxScreen> {
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _mutatingNotificationId = null;
         _errorMessage = e.message;

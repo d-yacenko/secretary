@@ -38,6 +38,9 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 
   Future<void> _loadToday() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _loadState = TodayLoadState.loading;
       _errorMessage = null;
@@ -45,6 +48,9 @@ class _TodayScreenState extends State<TodayScreen> {
 
     try {
       final snapshot = await widget.apiClient.getToday();
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _today = snapshot;
         _loadState = TodayLoadState.ready;
@@ -52,6 +58,9 @@ class _TodayScreenState extends State<TodayScreen> {
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _loadState = TodayLoadState.error;
         _errorMessage = e.message;
@@ -107,7 +116,7 @@ class _TodayScreenState extends State<TodayScreen> {
             else
               ...today.tasks.map((task) => _TaskRow(
                     task: task,
-                    todayDate: today.date,
+                    today: today,
                     onTap: () => openObjectDetail(
                       context,
                       objectId: task.id,
@@ -183,17 +192,17 @@ class _EmptySection extends StatelessWidget {
 class _TaskRow extends StatelessWidget {
   const _TaskRow({
     required this.task,
-    required this.todayDate,
+    required this.today,
     required this.onTap,
   });
 
   final SecretaryObject task;
-  final String todayDate;
+  final TodayOut today;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final overdue = _isOverdue(task.dueAt, todayDate);
+    final overdue = today.isTaskOverdue(task);
     return ListTile(
       title: Text(task.title),
       subtitle: Text(
@@ -201,18 +210,6 @@ class _TaskRow extends StatelessWidget {
       ),
       onTap: onTap,
     );
-  }
-
-  bool _isOverdue(String? dueAt, String todayDate) {
-    if (dueAt == null) {
-      return false;
-    }
-    final parsed = DateTime.tryParse(dueAt);
-    if (parsed == null) {
-      return false;
-    }
-    final dueDate = parsed.toIso8601String().substring(0, 10);
-    return dueDate.compareTo(todayDate) < 0;
   }
 
   String _formatWhen(String? value) {

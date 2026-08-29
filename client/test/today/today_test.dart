@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:personal_secretary/api/api_models.dart';
+import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/token_store.dart';
@@ -16,11 +18,13 @@ void main() {
   const baseUrl = 'https://secretary.example';
   const token = 'today-token';
 
-  Map<String, dynamic> todayPayload() {
+  Map<String, dynamic> todayPayload({List<Map<String, dynamic>>? tasks}) {
     return {
       'date': '2026-08-28',
       'timezone': 'Europe/Amsterdam',
-      'tasks': [
+      'day_start': '2026-08-28T00:00:00+02:00',
+      'tasks': tasks ??
+          [
         {
           'id': 'task-1',
           'kind': 'task',
@@ -128,6 +132,7 @@ void main() {
             jsonEncode({
               'date': '2026-08-28',
               'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
               'tasks': [],
               'calendar_events': [],
               'notifications': [],
@@ -236,5 +241,99 @@ void main() {
 
     expect(find.byType(ObjectDetailScreen), findsOneWidget);
     expect(find.text('Use as task context'), findsOneWidget);
+  });
+
+  test('isTaskOverdue compares due_at against day_start instant', () {
+    final early = SecretaryObject.fromJson({
+      'id': 'task-early',
+      'kind': 'task',
+      'title': 'Early today',
+      'body': null,
+      'provider': null,
+      'external_id': null,
+      'canonical_uri': null,
+      'status': null,
+      'start_at': null,
+      'due_at': '2026-08-29T00:30:00+02:00',
+      'metadata': {},
+      'origin': 'user',
+      'state': 'confirmed',
+      'confidence': null,
+      'created_at': '2026-08-28T08:00:00Z',
+      'updated_at': '2026-08-28T08:00:00Z',
+    });
+    final late = SecretaryObject.fromJson({
+      'id': 'task-late',
+      'kind': 'task',
+      'title': 'Late yesterday',
+      'body': null,
+      'provider': null,
+      'external_id': null,
+      'canonical_uri': null,
+      'status': null,
+      'start_at': null,
+      'due_at': '2026-08-28T23:30:00+02:00',
+      'metadata': {},
+      'origin': 'user',
+      'state': 'confirmed',
+      'confidence': null,
+      'created_at': '2026-08-28T08:00:00Z',
+      'updated_at': '2026-08-28T08:00:00Z',
+    });
+
+    final todayAug29 = TodayOut.fromJson({
+      'date': '2026-08-29',
+      'timezone': 'Europe/Amsterdam',
+      'day_start': '2026-08-29T00:00:00+02:00',
+      'tasks': [],
+      'calendar_events': [],
+      'notifications': [],
+    });
+
+    expect(todayAug29.isTaskOverdue(early), isFalse);
+    expect(todayAug29.isTaskOverdue(late), isTrue);
+  });
+
+  testWidgets('overdue label uses day_start not device timezone', (tester) async {
+    await tester.pumpWidget(
+      buildToday(MockClient((request) async {
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-29',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-29T00:00:00+02:00',
+              'tasks': [
+                {
+                  'id': 'task-late',
+                  'kind': 'task',
+                  'title': 'Late yesterday',
+                  'body': null,
+                  'provider': null,
+                  'external_id': null,
+                  'canonical_uri': null,
+                  'status': null,
+                  'start_at': null,
+                  'due_at': '2026-08-28T23:30:00+02:00',
+                  'metadata': {},
+                  'origin': 'user',
+                  'state': 'confirmed',
+                  'confidence': null,
+                  'created_at': '2026-08-28T08:00:00Z',
+                  'updated_at': '2026-08-28T08:00:00Z',
+                },
+              ],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Overdue'), findsOneWidget);
   });
 }

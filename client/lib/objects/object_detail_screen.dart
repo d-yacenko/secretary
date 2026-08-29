@@ -42,6 +42,9 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _loadState = ObjectDetailLoadState.loading;
       _errorMessage = null;
@@ -49,8 +52,17 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
 
     try {
       final object = await widget.apiClient.getObject(widget.objectId);
+      if (!mounted) {
+        return;
+      }
       final neighbors = await widget.apiClient.getObjectNeighbors(widget.objectId);
+      if (!mounted) {
+        return;
+      }
       final context = await widget.apiClient.getObjectContext(widget.objectId);
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _object = object;
         _neighbors = neighbors.neighbors;
@@ -60,6 +72,9 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _loadState = ObjectDetailLoadState.error;
         _errorMessage = e.message;

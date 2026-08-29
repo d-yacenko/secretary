@@ -241,6 +241,7 @@ class NotificationListOut(BaseModel):
 class TodayOut(BaseModel):
     date: str
     timezone: str
+    day_start: datetime
     tasks: list[ObjectOut]
     calendar_events: list[ObjectOut]
     notifications: list[NotificationOut]

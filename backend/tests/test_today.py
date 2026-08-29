@@ -12,7 +12,7 @@ from app.notifications.constants import NOTIFICATION_STATUS_ACCEPTED
 from app.services.errors import NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.notification_service import NotificationService
-from app.services.today_service import TodayService
+from app.services.today_service import TodayService, TODAY_MAX_TASKS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
@@ -448,3 +448,129 @@ def test_http_task_accept_and_today(db_session, auth_client) -> None:
     assert today.status_code == 200
     today_payload = today.json()
     assert any(task["title"] == "Today task" for task in today_payload["tasks"])
+
+
+def test_today_returns_day_start(db_session) -> None:
+    reference = datetime(2026, 8, 29, 12, 0, tzinfo=AMSTERDAM)
+    snapshot = TodayService(db_session, BOOTSTRAP_USER_ID).snapshot(reference_at=reference)
+    assert snapshot["day_start"] == datetime(2026, 8, 29, 0, 0, tzinfo=AMSTERDAM)
+
+
+def test_today_excludes_terminal_tasks_before_limit(db_session) -> None:
+    reference = datetime(2026, 8, 28, 15, 0, tzinfo=AMSTERDAM)
+    day_start, _ = _local_day_bounds(reference)
+
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    for i in range(TODAY_MAX_TASKS):
+        done = graph.create_object(
+            ObjectCreate(
+                kind="task",
+                title=f"Done {i}",
+                origin="user",
+                state="confirmed",
+                due_at=day_start - timedelta(hours=TODAY_MAX_TASKS - i),
+            )
+        )
+        done.status = "done"
+
+    graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Valid task",
+            origin="user",
+            state="confirmed",
+            due_at=day_start + timedelta(hours=12),
+        )
+    )
+
+    snapshot = TodayService(db_session, BOOTSTRAP_USER_ID).snapshot(reference_at=reference)
+    titles = {task.title for task in snapshot["tasks"]}
+    assert "Valid task" in titles
+    assert not any(title.startswith("Done") for title in titles)
+    assert len(snapshot["tasks"]) <= TODAY_MAX_TASKS
+
+
+def test_http_accept_ignored_task_returns_422(
+    db_session, auth_client, notification_service
+) -> None:
+    notification = notification_service.create(
+        title="Ignored task",
+        body=None,
+        priority="normal",
+        proposal={"type": "task", "title": "Nope", "confidence": 0.5, "evidence": []},
+    )
+    notification_service.ignore(notification.id)
+    db_session.flush()
+
+    response = auth_client.post(f"/notifications/{notification.id}/accept")
+    assert response.status_code == 422
+
+    task_count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.kind == "task",
+            Object.metadata_["accepted_from_notification_id"].as_string() == str(notification.id),
+        )
+    )
+    assert task_count == 0
+
+
+def test_http_accept_resolved_task_returns_422(
+    db_session, auth_client, notification_service
+) -> None:
+    notification = notification_service.create(
+        title="Resolved task",
+        body=None,
+        priority="normal",
+        proposal={"type": "task", "title": "Nope", "confidence": 0.5, "evidence": []},
+    )
+    notification_service.resolve(notification.id)
+    db_session.flush()
+
+    response = auth_client.post(f"/notifications/{notification.id}/accept")
+    assert response.status_code == 422
+
+    task_count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.kind == "task",
+            Object.metadata_["accepted_from_notification_id"].as_string() == str(notification.id),
+        )
+    )
+    assert task_count == 0
+
+
+def test_http_accept_task_idempotent(db_session, auth_client, notification_service) -> None:
+    notification = notification_service.create(
+        title="Once",
+        body=None,
+        priority="normal",
+        proposal={
+            "type": "task",
+            "title": "Once task",
+            "description": "Only once",
+            "confidence": 0.7,
+            "evidence": [],
+        },
+    )
+    db_session.flush()
+
+    first = auth_client.post(f"/notifications/{notification.id}/accept")
+    second = auth_client.post(f"/notifications/{notification.id}/accept")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["result_object_id"] == second.json()["result_object_id"]
+
+    task_count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.kind == "task",
+            Object.metadata_["accepted_from_notification_id"].as_string() == str(notification.id),
+        )
+    )
+    assert task_count == 1
+
+
+def test_http_today_includes_day_start(auth_client) -> None:
+    response = auth_client.get("/today")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "day_start" in payload
+    assert payload["timezone"] == "Europe/Amsterdam"

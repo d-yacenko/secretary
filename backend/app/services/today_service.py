@@ -34,13 +34,14 @@ class TodayService:
         day_start = datetime.combine(now_local.date(), time.min, tzinfo=tz)
         day_end = day_start + timedelta(days=1)
 
-        tasks = self._tasks_for_day(day_start, day_end, now_local)
+        tasks = self._tasks_for_day(day_start, day_end)
         events = self._events_for_day(day_start, day_end)
         notifications = self._important_notifications()
 
         return {
             "date": now_local.date().isoformat(),
             "timezone": settings.secretary_timezone,
+            "day_start": day_start,
             "tasks": tasks,
             "calendar_events": events,
             "notifications": notifications,
@@ -50,7 +51,6 @@ class TodayService:
         self,
         day_start: datetime,
         day_end: datetime,
-        now_local: datetime,
     ) -> list[Object]:
         stmt = (
             select(Object)
@@ -60,6 +60,10 @@ class TodayService:
                 Object.state == "confirmed",
                 Object.due_at.is_not(None),
                 or_(
+                    Object.status.is_(None),
+                    Object.status.notin_(list(TERMINAL_TASK_STATUSES)),
+                ),
+                or_(
                     and_(Object.due_at >= day_start, Object.due_at < day_end),
                     Object.due_at < day_start,
                 ),
@@ -67,8 +71,7 @@ class TodayService:
             .order_by(Object.due_at.asc())
             .limit(TODAY_MAX_TASKS)
         )
-        rows = list(self._session.scalars(stmt))
-        return [row for row in rows if row.status not in TERMINAL_TASK_STATUSES]
+        return list(self._session.scalars(stmt))
 
     def _events_for_day(self, day_start: datetime, day_end: datetime) -> list[Object]:
         stmt = (

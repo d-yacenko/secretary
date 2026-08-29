@@ -368,6 +368,7 @@ class TodayOut {
   TodayOut({
     required this.date,
     required this.timezone,
+    required this.dayStart,
     required this.tasks,
     required this.calendarEvents,
     required this.notifications,
@@ -375,6 +376,7 @@ class TodayOut {
 
   final String date;
   final String timezone;
+  final String dayStart;
   final List<SecretaryObject> tasks;
   final List<SecretaryObject> calendarEvents;
   final List<NotificationOut> notifications;
@@ -383,6 +385,7 @@ class TodayOut {
     return TodayOut(
       date: json['date'] as String,
       timezone: json['timezone'] as String,
+      dayStart: json['day_start'] as String,
       tasks: (json['tasks'] as List<dynamic>)
           .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -393,6 +396,20 @@ class TodayOut {
           .map((e) => NotificationOut.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
+  }
+
+  /// Task is overdue when its due instant is before the Secretary local day start.
+  bool isTaskOverdue(SecretaryObject task) {
+    final dueAt = task.dueAt;
+    if (dueAt == null) {
+      return false;
+    }
+    final due = DateTime.tryParse(dueAt);
+    final start = DateTime.tryParse(dayStart);
+    if (due == null || start == null) {
+      return false;
+    }
+    return due.isBefore(start);
   }
 }
 

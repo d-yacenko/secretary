@@ -19,6 +19,7 @@ def get_today(
     return TodayOut(
         date=snapshot["date"],
         timezone=snapshot["timezone"],
+        day_start=snapshot["day_start"],
         tasks=[ObjectOut.from_model(obj) for obj in snapshot["tasks"]],
         calendar_events=[ObjectOut.from_model(obj) for obj in snapshot["calendar_events"]],
         notifications=[

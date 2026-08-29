@@ -78,6 +78,11 @@ def accept_notification(
         notification = service.accept(notification_id)
     except NotFoundError as exc:
         raise _not_found(exc)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        )
     return NotificationOut.from_model(notification)
 
 
