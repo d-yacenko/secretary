@@ -63,6 +63,21 @@ void main() {
     await serverUrlStore.writeServerUrl(baseUrl);
 
     final apiClient = buildApiClient(MockClient((request) async {
+      if (request.url.path == '/notifications') {
+        return http.Response(jsonEncode({'notifications': []}), 200);
+      }
+      if (request.url.path == '/today') {
+        return http.Response(
+          jsonEncode({
+            'date': '2026-08-28',
+            'timezone': 'Europe/Amsterdam',
+            'tasks': [],
+            'calendar_events': [],
+            'notifications': [],
+          }),
+          200,
+        );
+      }
       return http.Response(userMeJson(), 200);
     }));
     final auth = buildController(

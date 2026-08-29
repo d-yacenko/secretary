@@ -63,6 +63,34 @@ class CaptureController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void attachContext(CaptureContextRef ref) {
+    final ids = List<String>.from(_draft.contextObjectIds);
+    final refs = List<CaptureContextRef>.from(_draft.contextRefs);
+    if (!ids.contains(ref.id)) {
+      ids.add(ref.id);
+      refs.add(ref);
+    } else {
+      final index = ids.indexOf(ref.id);
+      refs[index] = ref;
+    }
+    _draft = _draft.copyWith(contextObjectIds: ids, contextRefs: refs);
+    if (submitState != CaptureSubmitState.submitting) {
+      submitState = CaptureSubmitState.idle;
+      errorMessage = null;
+    }
+    notifyListeners();
+  }
+
+  void attachObjectContext(SecretaryObject object) {
+    attachContext(
+      CaptureContextRef(
+        id: object.id,
+        title: object.title,
+        kind: object.kind,
+      ),
+    );
+  }
+
   Future<void> submit() async {
     if (!_draft.canSubmit || submitState == CaptureSubmitState.submitting) {
       if (_draft.isBlank) {

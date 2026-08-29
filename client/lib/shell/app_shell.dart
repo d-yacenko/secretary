@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../account/account_screen.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
-import '../capture/capture_screen.dart';
+import '../inbox/inbox_screen.dart';
+import '../navigation/secretary_navigation.dart';
 import '../screens/placeholder_screen.dart';
+import '../today/today_screen.dart';
 
 const double kShellWideBreakpoint = 600;
 
@@ -37,11 +39,7 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
 
   void _openCapture() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => CaptureScreen(controller: widget.captureController),
-      ),
-    );
+    openCapture(context, captureController: widget.captureController);
   }
 
   void _openAccount() {
@@ -56,7 +54,24 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _destinationScreen(ShellDestination destination) {
-    return PlaceholderScreen(title: destination.label);
+    switch (destination) {
+      case ShellDestination.inbox:
+        return InboxScreen(
+          apiClient: widget.authController.apiClient,
+          authController: widget.authController,
+          captureController: widget.captureController,
+        );
+      case ShellDestination.today:
+        return TodayScreen(
+          apiClient: widget.authController.apiClient,
+          authController: widget.authController,
+          captureController: widget.captureController,
+        );
+      case ShellDestination.graph:
+      case ShellDestination.search:
+      case ShellDestination.assistant:
+        return PlaceholderScreen(title: destination.label);
+    }
   }
 
   @override

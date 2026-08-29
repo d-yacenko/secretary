@@ -210,6 +210,7 @@ class NotificationOut(BaseModel):
     status: str
     source_object_id: UUID | None
     related_object_id: UUID | None
+    result_object_id: UUID | None
     proposal: dict[str, Any]
     read_at: datetime | None
     created_at: datetime
@@ -225,6 +226,7 @@ class NotificationOut(BaseModel):
             status=notification.status,
             source_object_id=notification.source_object_id,
             related_object_id=notification.related_object_id,
+            result_object_id=notification.result_object_id,
             proposal=notification.proposal_,
             read_at=notification.read_at,
             created_at=notification.created_at,
@@ -233,6 +235,14 @@ class NotificationOut(BaseModel):
 
 
 class NotificationListOut(BaseModel):
+    notifications: list[NotificationOut]
+
+
+class TodayOut(BaseModel):
+    date: str
+    timezone: str
+    tasks: list[ObjectOut]
+    calendar_events: list[ObjectOut]
     notifications: list[NotificationOut]
 
 

@@ -1,11 +1,12 @@
 import '../api/api_models.dart';
 
-/// In-memory capture draft for manual task creation and future context wiring.
+/// In-memory capture draft for manual task creation and context wiring.
 class CaptureDraft {
   const CaptureDraft({
     this.text = '',
     this.title,
     this.contextObjectIds = const [],
+    this.contextRefs = const [],
     this.dependsOnIds = const [],
   });
 
@@ -15,6 +16,7 @@ class CaptureDraft {
   final String text;
   final String? title;
   final List<String> contextObjectIds;
+  final List<CaptureContextRef> contextRefs;
   final List<String> dependsOnIds;
 
   bool get isBlank => text.trim().isEmpty;
@@ -30,12 +32,14 @@ class CaptureDraft {
     String? title,
     bool clearTitle = false,
     List<String>? contextObjectIds,
+    List<CaptureContextRef>? contextRefs,
     List<String>? dependsOnIds,
   }) {
     return CaptureDraft(
       text: text ?? this.text,
       title: clearTitle ? null : (title ?? this.title),
       contextObjectIds: contextObjectIds ?? this.contextObjectIds,
+      contextRefs: contextRefs ?? this.contextRefs,
       dependsOnIds: dependsOnIds ?? this.dependsOnIds,
     );
   }

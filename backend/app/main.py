@@ -10,6 +10,7 @@ from app.api.connections import router as connections_router
 from app.api.google import router as google_router
 from app.api.local import router as local_router
 from app.api.me import router as me_router
+from app.api.today import router as today_router
 from app.api.yandex import router as yandex_router
 from app.api.routes.resources import router as resources_router
 from app.api.routes.graph import router as graph_router
@@ -71,6 +72,7 @@ app.include_router(local_router)
 app.include_router(notifications_router)
 app.include_router(google_router)
 app.include_router(yandex_router)
+app.include_router(today_router)
 
 
 if settings.mcp_enabled:

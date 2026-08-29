@@ -2,43 +2,36 @@
 
 ## Current phase
 
-PHASE 20 — Flutter client: **final corrective implemented, awaiting final acceptance**
+PHASE 21 — Flutter Inbox, Today, Object Detail, task-proposal acceptance: **implemented, awaiting review**
+
+PHASE 20 — Flutter client: **accepted / closed** (manual Linux smoke completed by user)
 
 PHASE 19.5 — auth, connections, manual capture: **accepted / closed**
 
-PHASE 19 — local files and huge datasets: **accepted / closed**
-
-PHASE 18 — resource registration: **accepted / closed**
-
 ## Global invariants (PHASE 14.5+)
 
-See `DECISIONS.md`. PHASE 19.5 (auth + connections) completed; required before PHASE 20 Flutter.
+See `DECISIONS.md`.
 
 ## Working components
 
-- PHASE 00–19: (prior phases, PHASE 19 closed)
-- PHASE 19.5:
-  - Bearer auth, `/me`, `/connections`, manual capture
-  - Async embed indexing for captured tasks
-  - Bounded pinned-context excerpts in context assembly
-  - HTTP two-user isolation regressions
-- PHASE 20 (client):
-  - Flutter app in `client/` (Android + Linux platforms)
-  - Bearer auth setup, secure token storage, typed API client
-  - Structured API URL composition; auth session boundary with navigation reset
-  - Capture draft cleared on logout / user identity change
-  - Adaptive shell (Inbox, Today, Graph, Search, Assistant placeholders)
-  - Manual Capture end-to-end via `POST /capture/task`
-  - Account/connections status surface
-  - Android `INTERNET` permission in main manifest
-  - `flutter analyze` + `flutter test` pass (43 tests)
-  - Android debug + release APK builds verified
-  - Linux build blocked on missing host toolchain (CMake/clang/GTK); documented in `client/README.md`
+- PHASE 00–20: (prior phases, PHASE 20 closed)
+- PHASE 21:
+  - Task-proposal notification Accept materializes confirmed local task (`result_object_id` idempotency)
+  - `GET /today` read model (tasks, calendar events, important notifications)
+  - `GET /notifications?status=unresolved` pseudo-filter
+  - Flutter Inbox (Accept / Ignore / Open context)
+  - Flutter Today (tasks, calendar, important notifications)
+  - Object Detail with neighbors/context and **Use as task context**
+  - Capture draft shows attached context labels; session cleanup preserved
+  - Backend + client tests; `flutter analyze` + `flutter test` pass
+  - Android debug APK build verified
+  - Linux build still requires host toolchain (CMake/clang/GTK); see `client/README.md`
 
 ## Not done
 
-- PHASE 21 (Flutter Inbox and Today)
+- PHASE 22 (not started)
+- Search UI, Assistant, voice, graph editor
 
 ## Next phase
 
-PHASE 21 — Flutter Inbox and Today (not started).
+PHASE 22 — not started.

@@ -143,3 +143,275 @@ class HealthStatus {
     return HealthStatus(status: json['status'] as String);
   }
 }
+
+class SecretaryObject {
+  SecretaryObject({
+    required this.id,
+    required this.kind,
+    required this.title,
+    this.body,
+    this.provider,
+    this.externalId,
+    this.canonicalUri,
+    this.status,
+    this.startAt,
+    this.dueAt,
+    required this.metadata,
+    required this.origin,
+    required this.state,
+    this.confidence,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String kind;
+  final String title;
+  final String? body;
+  final String? provider;
+  final String? externalId;
+  final String? canonicalUri;
+  final String? status;
+  final String? startAt;
+  final String? dueAt;
+  final Map<String, dynamic> metadata;
+  final String origin;
+  final String state;
+  final double? confidence;
+  final String createdAt;
+  final String updatedAt;
+
+  factory SecretaryObject.fromJson(Map<String, dynamic> json) {
+    return SecretaryObject(
+      id: json['id'] as String,
+      kind: json['kind'] as String,
+      title: json['title'] as String,
+      body: json['body'] as String?,
+      provider: json['provider'] as String?,
+      externalId: json['external_id'] as String?,
+      canonicalUri: json['canonical_uri'] as String?,
+      status: json['status'] as String?,
+      startAt: json['start_at'] as String?,
+      dueAt: json['due_at'] as String?,
+      metadata: Map<String, dynamic>.from(
+        (json['metadata'] as Map?) ?? const <String, dynamic>{},
+      ),
+      origin: json['origin'] as String,
+      state: json['state'] as String,
+      confidence: (json['confidence'] as num?)?.toDouble(),
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+}
+
+class SecretaryEdge {
+  SecretaryEdge({
+    required this.id,
+    required this.sourceId,
+    required this.targetId,
+    required this.type,
+    required this.origin,
+    this.confidence,
+    required this.state,
+    required this.metadata,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String sourceId;
+  final String targetId;
+  final String type;
+  final String origin;
+  final double? confidence;
+  final String state;
+  final Map<String, dynamic> metadata;
+  final String createdAt;
+  final String updatedAt;
+
+  factory SecretaryEdge.fromJson(Map<String, dynamic> json) {
+    return SecretaryEdge(
+      id: json['id'] as String,
+      sourceId: json['source_id'] as String,
+      targetId: json['target_id'] as String,
+      type: json['type'] as String,
+      origin: json['origin'] as String,
+      confidence: (json['confidence'] as num?)?.toDouble(),
+      state: json['state'] as String,
+      metadata: Map<String, dynamic>.from(
+        (json['metadata'] as Map?) ?? const <String, dynamic>{},
+      ),
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+}
+
+class NeighborOut {
+  NeighborOut({
+    required this.object,
+    required this.edge,
+    required this.direction,
+  });
+
+  final SecretaryObject object;
+  final SecretaryEdge edge;
+  final String direction;
+
+  factory NeighborOut.fromJson(Map<String, dynamic> json) {
+    return NeighborOut(
+      object: SecretaryObject.fromJson(json['object'] as Map<String, dynamic>),
+      edge: SecretaryEdge.fromJson(json['edge'] as Map<String, dynamic>),
+      direction: json['direction'] as String,
+    );
+  }
+}
+
+class NeighborsResponse {
+  NeighborsResponse({required this.objectId, required this.neighbors});
+
+  final String objectId;
+  final List<NeighborOut> neighbors;
+
+  factory NeighborsResponse.fromJson(Map<String, dynamic> json) {
+    return NeighborsResponse(
+      objectId: json['object_id'] as String,
+      neighbors: (json['neighbors'] as List<dynamic>)
+          .map((e) => NeighborOut.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class ContextResponse {
+  ContextResponse({
+    required this.object,
+    required this.edges,
+    required this.neighbors,
+  });
+
+  final SecretaryObject object;
+  final List<SecretaryEdge> edges;
+  final List<SecretaryObject> neighbors;
+
+  factory ContextResponse.fromJson(Map<String, dynamic> json) {
+    return ContextResponse(
+      object: SecretaryObject.fromJson(json['object'] as Map<String, dynamic>),
+      edges: (json['edges'] as List<dynamic>)
+          .map((e) => SecretaryEdge.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      neighbors: (json['neighbors'] as List<dynamic>)
+          .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class NotificationOut {
+  NotificationOut({
+    required this.id,
+    required this.title,
+    this.body,
+    required this.priority,
+    required this.status,
+    this.sourceObjectId,
+    this.relatedObjectId,
+    this.resultObjectId,
+    required this.proposal,
+    this.readAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String? body;
+  final String priority;
+  final String status;
+  final String? sourceObjectId;
+  final String? relatedObjectId;
+  final String? resultObjectId;
+  final Map<String, dynamic> proposal;
+  final String? readAt;
+  final String createdAt;
+  final String updatedAt;
+
+  String? get proposalType => proposal['type'] as String?;
+
+  String? get proposedAction => proposal['action'] as String?;
+
+  String? get proposalDescription =>
+      proposal['description'] as String? ?? body;
+
+  factory NotificationOut.fromJson(Map<String, dynamic> json) {
+    return NotificationOut(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      body: json['body'] as String?,
+      priority: json['priority'] as String,
+      status: json['status'] as String,
+      sourceObjectId: json['source_object_id'] as String?,
+      relatedObjectId: json['related_object_id'] as String?,
+      resultObjectId: json['result_object_id'] as String?,
+      proposal: Map<String, dynamic>.from(
+        (json['proposal'] as Map?) ?? const <String, dynamic>{},
+      ),
+      readAt: json['read_at'] as String?,
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+}
+
+class TodayOut {
+  TodayOut({
+    required this.date,
+    required this.timezone,
+    required this.tasks,
+    required this.calendarEvents,
+    required this.notifications,
+  });
+
+  final String date;
+  final String timezone;
+  final List<SecretaryObject> tasks;
+  final List<SecretaryObject> calendarEvents;
+  final List<NotificationOut> notifications;
+
+  factory TodayOut.fromJson(Map<String, dynamic> json) {
+    return TodayOut(
+      date: json['date'] as String,
+      timezone: json['timezone'] as String,
+      tasks: (json['tasks'] as List<dynamic>)
+          .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      calendarEvents: (json['calendar_events'] as List<dynamic>)
+          .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      notifications: (json['notifications'] as List<dynamic>)
+          .map((e) => NotificationOut.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class CaptureContextRef {
+  const CaptureContextRef({
+    required this.id,
+    required this.title,
+    required this.kind,
+  });
+
+  final String id;
+  final String title;
+  final String kind;
+
+  String get displayLabel {
+    final normalizedKind = kind.trim();
+    if (normalizedKind.isEmpty) {
+      return title;
+    }
+    return '$normalizedKind: $title';
+  }
+}

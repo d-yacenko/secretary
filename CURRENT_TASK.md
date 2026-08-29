@@ -1,33 +1,20 @@
-# Current task — PHASE 20 (awaiting final acceptance)
+# Current task — PHASE 21 (awaiting review)
 
 ## Status
 
-PHASE 19.5 accepted / closed.
+PHASE 20 accepted / closed. Manual Linux smoke completed by user.
 
-PHASE 20 final corrective implemented (safe URL composition, auth navigation boundary, capture session cleanup, Android INTERNET).
+PHASE 21 implemented: Inbox, Today, Object Detail, task-proposal Accept, manual capture context wiring.
 
-PHASE 21 not started.
-
-## Final corrective (this cycle)
-
-- Structured `Uri` API endpoint composition (no string concat)
-- `AuthGate` + session termination pops pushed routes on 401/logout
-- `CaptureController.resetSession()` on logout / user change / auth failure
-- Android `INTERNET` in main manifest
-- Removed public bearer token getter from API client
+PHASE 22 not started.
 
 ## Verification
 
 ```bash
-cd client
-flutter analyze
-flutter test
-flutter build apk --debug
-flutter build apk --release
+cd backend && pytest && ruff check .
+cd client && flutter analyze && flutter test && flutter build apk --debug
 ```
-
-Linux: `flutter build linux` still requires CMake/clang/GTK on the host (not available here).
 
 ## STOP
 
-Do not start PHASE 21 until PHASE 20 is accepted.
+Awaiting PHASE 21 review. Do not start PHASE 22.

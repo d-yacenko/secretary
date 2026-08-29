@@ -1,15 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/capture/capture_draft.dart';
+import 'package:personal_secretary/objects/object_detail_screen.dart';
 
 void main() {
   const baseUrl = 'https://secretary.example';
@@ -186,6 +189,9 @@ void main() {
           text: 'user A secret',
           title: 'A title',
           contextObjectIds: ['ctx-a'],
+          contextRefs: [
+            CaptureContextRef(id: 'ctx-a', title: 'Context A', kind: 'email'),
+          ],
           dependsOnIds: ['dep-a'],
         ),
       );
@@ -201,6 +207,7 @@ void main() {
       expect(capture.draft.text, isEmpty);
       expect(capture.draft.title, isNull);
       expect(capture.draft.contextObjectIds, isEmpty);
+      expect(capture.draft.contextRefs, isEmpty);
       expect(capture.draft.dependsOnIds, isEmpty);
       expect(capture.lastResult, isNull);
     });
@@ -234,6 +241,138 @@ void main() {
       expect(capture.draft.contextObjectIds, ['ctx-1']);
       expect(capture.draft.dependsOnIds, ['dep-1']);
       expect(capture.submitState, CaptureSubmitState.networkError);
+    });
+
+    testWidgets('manual context from object detail preserves text and sends context ids',
+        (tester) async {
+      Map<String, dynamic>? captureBody;
+      final mock = MockClient((request) async {
+        if (request.url.path == '/objects/email-1') {
+          return http.Response(
+            jsonEncode({
+              'id': 'email-1',
+              'kind': 'email',
+              'title': 'Course plan',
+              'body': 'Full email body should not be copied',
+              'provider': 'gmail',
+              'external_id': null,
+              'canonical_uri': null,
+              'status': null,
+              'start_at': null,
+              'due_at': null,
+              'metadata': {},
+              'origin': 'source',
+              'state': 'observed',
+              'confidence': null,
+              'created_at': '2026-08-28T08:00:00Z',
+              'updated_at': '2026-08-28T08:00:00Z',
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/email-1/neighbors') {
+          return http.Response(
+            jsonEncode({'object_id': 'email-1', 'neighbors': []}),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/email-1/context') {
+          return http.Response(
+            jsonEncode({
+              'object': {
+                'id': 'email-1',
+                'kind': 'email',
+                'title': 'Course plan',
+                'body': 'Full email body should not be copied',
+                'provider': 'gmail',
+                'external_id': null,
+                'canonical_uri': null,
+                'status': null,
+                'start_at': null,
+                'due_at': null,
+                'metadata': {},
+                'origin': 'source',
+                'state': 'observed',
+                'confidence': null,
+                'created_at': '2026-08-28T08:00:00Z',
+                'updated_at': '2026-08-28T08:00:00Z',
+              },
+              'edges': [],
+              'neighbors': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/capture/task')) {
+          captureBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'task_id': 'task-new',
+              'context_edge_ids': ['edge-1'],
+              'dependency_edge_ids': [],
+            }),
+            201,
+          );
+        }
+        return http.Response('{}', 404);
+      });
+
+      final auth = AuthController(
+        apiClient: SecretaryApiClient(httpClient: mock),
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.apiClient.configure(baseUrl: baseUrl, token: token);
+      final capture = buildCaptureController(auth);
+      capture.mergeDraft(CaptureDraft(text: '  keep exact  '));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ObjectDetailScreen(
+            objectId: 'email-1',
+            apiClient: auth.apiClient,
+            authController: auth,
+            captureController: capture,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Use as task context'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Context attached: Course plan'), findsOneWidget);
+      expect(capture.draft.contextObjectIds, ['email-1']);
+      expect(capture.draft.contextRefs.length, 1);
+      expect(capture.draft.text, '  keep exact  ');
+
+      capture.attachObjectContext(
+        SecretaryObject.fromJson({
+          'id': 'email-1',
+          'kind': 'email',
+          'title': 'Course plan',
+          'body': null,
+          'provider': null,
+          'external_id': null,
+          'canonical_uri': null,
+          'status': null,
+          'start_at': null,
+          'due_at': null,
+          'metadata': {},
+          'origin': 'source',
+          'state': 'observed',
+          'confidence': null,
+          'created_at': '2026-08-28T08:00:00Z',
+          'updated_at': '2026-08-28T08:00:00Z',
+        }),
+      );
+      expect(capture.draft.contextObjectIds, ['email-1']);
+
+      await capture.submit();
+      expect(captureBody!['context_object_ids'], ['email-1']);
+      expect(captureBody!['text'], '  keep exact  ');
+      expect(captureBody!.containsKey('body'), isFalse);
+      expect(captureBody!.containsKey('context_body'), isFalse);
     });
   });
 }

@@ -99,6 +99,17 @@ class _CaptureScreenState extends State<CaptureScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
+            if (draft.contextRefs.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('Attached context', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              ...draft.contextRefs.map(
+                (ref) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('Context attached: ${ref.title}'),
+                ),
+              ),
+            ],
             const Spacer(),
             FilledButton(
               onPressed: draft.canSubmit && !isSubmitting ? controller.submit : null,

@@ -59,10 +59,57 @@ class SecretaryApiClient {
     return CaptureTaskResponse.fromJson(body);
   }
 
+  Future<List<NotificationOut>> listUnresolvedNotifications() async {
+    final body = await _request(
+      'GET',
+      '/notifications',
+      queryParameters: {'status': 'unresolved'},
+    );
+    return (body['notifications'] as List<dynamic>)
+        .map((e) => NotificationOut.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<NotificationOut> markNotificationRead(String notificationId) async {
+    final body = await _request('POST', '/notifications/$notificationId/read');
+    return NotificationOut.fromJson(body);
+  }
+
+  Future<NotificationOut> acceptNotification(String notificationId) async {
+    final body = await _request('POST', '/notifications/$notificationId/accept');
+    return NotificationOut.fromJson(body);
+  }
+
+  Future<NotificationOut> ignoreNotification(String notificationId) async {
+    final body = await _request('POST', '/notifications/$notificationId/ignore');
+    return NotificationOut.fromJson(body);
+  }
+
+  Future<TodayOut> getToday() async {
+    final body = await _request('GET', '/today');
+    return TodayOut.fromJson(body);
+  }
+
+  Future<SecretaryObject> getObject(String objectId) async {
+    final body = await _request('GET', '/objects/$objectId');
+    return SecretaryObject.fromJson(body);
+  }
+
+  Future<NeighborsResponse> getObjectNeighbors(String objectId) async {
+    final body = await _request('GET', '/objects/$objectId/neighbors');
+    return NeighborsResponse.fromJson(body);
+  }
+
+  Future<ContextResponse> getObjectContext(String objectId) async {
+    final body = await _request('GET', '/objects/$objectId/context');
+    return ContextResponse.fromJson(body);
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     Map<String, dynamic>? jsonBody,
+    Map<String, String>? queryParameters,
     bool authenticated = true,
     Set<int> successStatuses = const {200},
   }) async {
@@ -73,7 +120,9 @@ class SecretaryApiClient {
       throw AuthenticationException();
     }
 
-    final uri = buildApiEndpointUri(_baseUri!, path);
+    final uri = buildApiEndpointUri(_baseUri!, path).replace(
+      queryParameters: queryParameters,
+    );
     final headers = <String, String>{
       'Accept': 'application/json',
       if (jsonBody != null) 'Content-Type': 'application/json',

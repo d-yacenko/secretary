@@ -331,6 +331,10 @@ class Notification(Base):
         ForeignKey("objects.id", ondelete="SET NULL"),
         nullable=True,
     )
+    result_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("objects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     proposal_: Mapped[dict] = mapped_column(
         "proposal",
         JSONB,
