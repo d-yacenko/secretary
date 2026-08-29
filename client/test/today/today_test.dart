@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_models.dart';
-import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/token_store.dart';

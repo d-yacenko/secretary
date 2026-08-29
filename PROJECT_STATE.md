@@ -23,6 +23,7 @@ See `DECISIONS.md`.
   - Flutter Inbox / Today / Object Detail; dispose-safe async screens
   - Manual capture context from Object Detail; session isolation preserved
   - Backend + client tests; Android debug APK verified
+  - VDS deployed at `78aaa28` (Alembic `0015`); live health/notifications/today → 200
 
 ## Not done
 
