@@ -1,20 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  runApp(const PersonalSecretaryApp());
-}
+import 'app.dart';
+import 'api/secretary_api_client.dart';
+import 'auth/auth_controller.dart';
+import 'auth/secure_token_store.dart';
+import 'auth/server_url_store.dart';
 
-class PersonalSecretaryApp extends StatelessWidget {
-  const PersonalSecretaryApp({super.key});
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Personal Secretary',
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Personal Secretary')),
-        body: const Center(child: Text('Personal Secretary OS')),
-      ),
-    );
-  }
+  const defaultBaseUrl = String.fromEnvironment('SECRETARY_API_BASE_URL');
+
+  final prefs = await SharedPreferences.getInstance();
+  final apiClient = SecretaryApiClient();
+  final authController = AuthController(
+    apiClient: apiClient,
+    tokenStore: SecureTokenStore(),
+    serverUrlStore: SharedPreferencesServerUrlStore(prefs),
+    defaultBaseUrl: defaultBaseUrl.isEmpty ? null : defaultBaseUrl,
+  );
+
+  runApp(PersonalSecretaryApp(authController: authController));
 }
