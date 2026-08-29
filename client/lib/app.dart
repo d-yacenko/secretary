@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'auth/auth_controller.dart';
-import 'auth/auth_setup_screen.dart';
+import 'auth/auth_gate.dart';
 import 'capture/capture_controller.dart';
-import 'shell/app_shell.dart';
 
 class PersonalSecretaryApp extends StatefulWidget {
   const PersonalSecretaryApp({super.key, required this.authController});
@@ -15,17 +14,26 @@ class PersonalSecretaryApp extends StatefulWidget {
 }
 
 class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  late final AuthSessionNavigator _authSessionNavigator;
   late final CaptureController _captureController;
 
   @override
   void initState() {
     super.initState();
+    _authSessionNavigator = AuthSessionNavigator(_navigatorKey);
     _captureController = CaptureController(
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
     );
+    widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
     widget.authController.initialize();
+  }
+
+  void _onSessionTerminated() {
+    _captureController.resetSession();
+    _authSessionNavigator.resetNavigationStack();
   }
 
   void _onAuthChanged() {
@@ -34,6 +42,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
 
   @override
   void dispose() {
+    widget.authController.onSessionTerminated = null;
     widget.authController.removeListener(_onAuthChanged);
     _captureController.dispose();
     super.dispose();
@@ -41,32 +50,17 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = widget.authController;
-
-    Widget home;
-    switch (auth.status) {
-      case AuthStatus.initial:
-      case AuthStatus.loading:
-        home = const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
-      case AuthStatus.authenticated:
-        home = AppShell(
-          authController: auth,
-          captureController: _captureController,
-        );
-      case AuthStatus.needsAuth:
-      case AuthStatus.transientError:
-        home = AuthSetupScreen(controller: auth);
-    }
-
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Personal Secretary',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: home,
+      home: AuthGate(
+        authController: widget.authController,
+        captureController: _captureController,
+      ),
     );
   }
 }

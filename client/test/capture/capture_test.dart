@@ -144,4 +144,96 @@ void main() {
     final json = draft.toRequest().toJson();
     expect(jsonEncode(json['text']), jsonEncode('  spaced  '));
   });
+
+  group('capture session boundary', () {
+    CaptureController buildCaptureController(AuthController auth) {
+      return CaptureController(
+        apiClient: auth.apiClient,
+        authController: auth,
+      );
+    }
+
+    test('clears draft after forget token and re-authentication as another user', () async {
+      var currentUserId = 'user-a';
+      final mock = MockClient((request) async {
+        if (request.url.path.endsWith('/me')) {
+          return http.Response(
+            jsonEncode({
+              'id': currentUserId,
+              'display_name': currentUserId,
+              'created_at': '2026-01-01T00:00:00Z',
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      });
+
+      final tokenStore = FakeTokenStore();
+      final serverUrlStore = FakeServerUrlStore();
+      final auth = AuthController(
+        apiClient: SecretaryApiClient(httpClient: mock),
+        tokenStore: tokenStore,
+        serverUrlStore: serverUrlStore,
+      );
+      final capture = buildCaptureController(auth);
+      auth.onSessionTerminated = capture.resetSession;
+
+      auth.apiClient.configure(baseUrl: baseUrl, token: 'token-a');
+      await auth.initialize();
+      capture.mergeDraft(
+        CaptureDraft(
+          text: 'user A secret',
+          title: 'A title',
+          contextObjectIds: ['ctx-a'],
+          dependsOnIds: ['dep-a'],
+        ),
+      );
+
+      await auth.forgetToken();
+      currentUserId = 'user-b';
+      final connected = await auth.connect(
+        serverUrlInput: baseUrl,
+        token: 'token-b',
+      );
+      expect(connected, isTrue);
+
+      expect(capture.draft.text, isEmpty);
+      expect(capture.draft.title, isNull);
+      expect(capture.draft.contextObjectIds, isEmpty);
+      expect(capture.draft.dependsOnIds, isEmpty);
+      expect(capture.lastResult, isNull);
+    });
+
+    test('same-user network failure preserves draft', () async {
+      final mock = MockClient((request) async {
+        if (request.url.path.endsWith('/capture/task')) {
+          throw http.ClientException('connection refused');
+        }
+        return http.Response('{}', 404);
+      });
+
+      final auth = AuthController(
+        apiClient: SecretaryApiClient(httpClient: mock),
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      final capture = buildCaptureController(auth);
+      auth.apiClient.configure(baseUrl: baseUrl, token: token);
+
+      capture.mergeDraft(
+        CaptureDraft(
+          text: 'keep on network error',
+          contextObjectIds: ['ctx-1'],
+          dependsOnIds: ['dep-1'],
+        ),
+      );
+
+      await capture.submit();
+      expect(capture.draft.text, 'keep on network error');
+      expect(capture.draft.contextObjectIds, ['ctx-1']);
+      expect(capture.draft.dependsOnIds, ['dep-1']);
+      expect(capture.submitState, CaptureSubmitState.networkError);
+    });
+  });
 }

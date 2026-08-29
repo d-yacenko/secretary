@@ -180,5 +180,95 @@ void main() {
       expect(capturedUri!.toString().contains(token), isFalse);
       expect(capturedUri!.query.contains(token), isFalse);
     });
+
+    group('safe URL composition', () {
+      Map<String, dynamic> connectionsJson() => {
+            'google': {
+              'connected': false,
+              'gmail_available': false,
+              'calendar_available': false,
+            },
+            'yandex_mail': {'connected': false},
+            'yandex_calendar': {'connected': false},
+          };
+
+      Future<Uri> captureRequestUri(String base, String endpoint) async {
+        Uri? capturedUri;
+        final client = SecretaryApiClient(
+          httpClient: MockClient((request) async {
+            capturedUri = request.url;
+            if (endpoint == '/capture/task') {
+              return http.Response(
+                jsonEncode({
+                  'task_id': 'task-1',
+                  'context_edge_ids': [],
+                  'dependency_edge_ids': [],
+                }),
+                201,
+              );
+            }
+            if (endpoint == '/connections') {
+              return http.Response(jsonEncode(connectionsJson()), 200);
+            }
+            return http.Response(
+              jsonEncode({
+                'id': 'user-1',
+                'display_name': 'Alice',
+                'created_at': '2026-01-01T00:00:00Z',
+              }),
+              200,
+            );
+          }),
+        );
+        client.configure(baseUrl: base, token: token);
+        switch (endpoint) {
+          case '/me':
+            await client.getMe();
+          case '/connections':
+            await client.getConnections();
+          case '/capture/task':
+            await client.captureTask(CaptureTaskRequest(text: 'x'));
+        }
+        return capturedUri!;
+      }
+
+      test('https://host/ resolves /me', () async {
+        final uri = await captureRequestUri('https://host/', '/me');
+        expect(uri.toString(), 'https://host/me');
+        expect(uri.query.contains(token), isFalse);
+      });
+
+      test('https://host/// resolves /me', () async {
+        final uri = await captureRequestUri('https://host///', '/me');
+        expect(uri.toString(), 'https://host/me');
+      });
+
+      test('https://host/api resolves endpoints', () async {
+        expect(
+          (await captureRequestUri('https://host/api', '/me')).toString(),
+          'https://host/api/me',
+        );
+        expect(
+          (await captureRequestUri('https://host/api/', '/connections')).toString(),
+          'https://host/api/connections',
+        );
+        expect(
+          (await captureRequestUri('https://host/api/', '/capture/task')).toString(),
+          'https://host/api/capture/task',
+        );
+      });
+
+      test('rejects query and fragment base URLs', () {
+        final client = SecretaryApiClient();
+        expect(
+          () => client.configure(baseUrl: 'https://host?x=1', token: token),
+          throwsArgumentError,
+        );
+        expect(
+          () => client.configure(baseUrl: 'https://host#frag', token: token),
+          throwsArgumentError,
+        );
+      });
+    });
   });
 }

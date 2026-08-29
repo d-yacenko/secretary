@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import '../api/api_error.dart';
 import '../api/api_models.dart';
@@ -14,6 +14,9 @@ enum AuthStatus {
   needsAuth,
   transientError,
 }
+
+/// Centralized auth session termination: navigation reset and capture cleanup.
+typedef AuthSessionTerminatedCallback = void Function();
 
 class AuthController extends ChangeNotifier {
   AuthController({
@@ -35,6 +38,7 @@ class AuthController extends ChangeNotifier {
   UserMe? user;
   String? serverUrl;
   String? errorMessage;
+  AuthSessionTerminatedCallback? onSessionTerminated;
 
   SecretaryApiClient get apiClient => _apiClient;
 
@@ -58,17 +62,20 @@ class AuthController extends ChangeNotifier {
     try {
       user = await _apiClient.getMe();
       status = AuthStatus.authenticated;
+      notifyListeners();
     } on AuthenticationException {
-      status = AuthStatus.needsAuth;
-      errorMessage = 'Stored token is invalid. Enter a valid bearer token.';
+      terminateAuthenticatedSession(
+        errorMessage: 'Stored token is invalid. Enter a valid bearer token.',
+      );
     } on NetworkException catch (e) {
       status = AuthStatus.transientError;
       errorMessage = e.message;
+      notifyListeners();
     } on ApiException catch (e) {
       status = AuthStatus.transientError;
       errorMessage = e.message;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<bool> connect({
@@ -88,6 +95,8 @@ class AuthController extends ChangeNotifier {
       return false;
     }
 
+    final previousUserId = user?.id;
+
     status = AuthStatus.loading;
     errorMessage = null;
     notifyListeners();
@@ -98,6 +107,9 @@ class AuthController extends ChangeNotifier {
       await _serverUrlStore.writeServerUrl(normalizedUrl);
       await _tokenStore.writeToken(trimmedToken);
       serverUrl = normalizedUrl;
+      if (previousUserId != null && previousUserId != me.id) {
+        terminateAuthenticatedSession(notify: false);
+      }
       user = me;
       status = AuthStatus.authenticated;
       notifyListeners();
@@ -125,16 +137,43 @@ class AuthController extends ChangeNotifier {
 
   Future<void> forgetToken() async {
     await _tokenStore.deleteToken();
-    _apiClient.clearToken();
-    user = null;
-    status = AuthStatus.needsAuth;
-    errorMessage = null;
-    notifyListeners();
+    terminateAuthenticatedSession();
   }
 
   void handleAuthenticationFailure() {
+    terminateAuthenticatedSession(
+      errorMessage: 'Session expired. Enter a valid bearer token.',
+    );
+  }
+
+  void terminateAuthenticatedSession({
+    String? errorMessage,
+    bool notify = true,
+  }) {
+    user = null;
+    _apiClient.clearToken();
     status = AuthStatus.needsAuth;
-    errorMessage = 'Session expired. Enter a valid bearer token.';
-    notifyListeners();
+    if (errorMessage != null) {
+      this.errorMessage = errorMessage;
+    }
+    onSessionTerminated?.call();
+    if (notify) {
+      notifyListeners();
+    }
+  }
+}
+
+/// Pops authenticated routes when the session ends so Auth Setup is visible.
+class AuthSessionNavigator {
+  AuthSessionNavigator(this.navigatorKey);
+
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  void resetNavigationStack() {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) {
+      return;
+    }
+    navigator.popUntil((route) => route.isFirst);
   }
 }

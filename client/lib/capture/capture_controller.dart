@@ -109,4 +109,12 @@ class CaptureController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  void resetSession() {
+    _draft = CaptureDraft.empty;
+    submitState = CaptureSubmitState.idle;
+    errorMessage = null;
+    lastResult = null;
+    notifyListeners();
+  }
 }

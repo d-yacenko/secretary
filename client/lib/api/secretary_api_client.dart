@@ -16,18 +16,17 @@ class SecretaryApiClient {
   final http.Client _httpClient;
   final Duration _timeout;
 
-  String? _baseUrl;
+  Uri? _baseUri;
   String? _token;
 
-  String? get baseUrl => _baseUrl;
-  String? get token => _token;
+  String? get baseUrl => _baseUri?.toString();
 
   void configure({required String baseUrl, String? token}) {
-    final normalized = normalizeBaseUrl(baseUrl);
+    final normalized = parseApiBaseUrl(baseUrl);
     if (normalized == null) {
       throw ArgumentError('Invalid base URL');
     }
-    _baseUrl = normalized;
+    _baseUri = normalized;
     _token = token;
   }
 
@@ -67,14 +66,14 @@ class SecretaryApiClient {
     bool authenticated = true,
     Set<int> successStatuses = const {200},
   }) async {
-    if (_baseUrl == null) {
+    if (_baseUri == null) {
       throw StateError('API client is not configured with a base URL');
     }
     if (authenticated && (_token == null || _token!.isEmpty)) {
       throw AuthenticationException();
     }
 
-    final uri = _buildUri(path);
+    final uri = buildApiEndpointUri(_baseUri!, path);
     final headers = <String, String>{
       'Accept': 'application/json',
       if (jsonBody != null) 'Content-Type': 'application/json',
@@ -97,11 +96,6 @@ class SecretaryApiClient {
     } on http.ClientException catch (e) {
       throw NetworkException(sanitizeErrorMessage(e.message));
     }
-  }
-
-  Uri _buildUri(String path) {
-    final normalizedPath = path.startsWith('/') ? path : '/$path';
-    return Uri.parse('$_baseUrl$normalizedPath');
   }
 
   Map<String, dynamic> _mapResponse(
