@@ -35,15 +35,15 @@ See `DECISIONS.md`.
   - Backend `test_assistant.py`; client search/assistant tests
   - `pytest` 409 passed; `ruff check .` passes
   - `flutter analyze`, `flutter test`, `flutter build apk --debug` verified
-  - VDS deployed at `1f9be4c` (Alembic `0015`); live health/search → 200
-  - VDS assistant smoke: **blocked** — `OPENAI_API_KEY` not present in `/opt/secretary/.env` or container env (`POST /assistant/message` → 500); no non-empty OpenAI-backed answer observed
+  - VDS deployed at `0facbb6` (Alembic `0015`); live health/search/assistant → 200
+  - VDS assistant root cause: missing `OPENAI_API_KEY` in `.env` (config fix); provider errors now → 502
 
 ## Not done
 
 - PHASE 23 voice
 - Graph editor
 - Persistent assistant chat database
-- VDS OpenAI credential for live Assistant smoke (add `OPENAI_API_KEY` to `/opt/secretary/.env` and recreate api/worker; do not commit)
+- VDS OpenAI credential configured in `/opt/secretary/.env` (not in git)
 
 ## Next phase
 
