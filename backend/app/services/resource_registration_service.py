@@ -51,6 +51,7 @@ _METADATA_COMPARE_SKIP_KEYS = frozenset(
         "registered_at",
         "fetched_at",
         "upload_path",
+        "upload_filename",
     }
 )
 
@@ -133,7 +134,31 @@ class ResourceRegistrationService:
         )
 
         if existing is not None and same_revision and not metadata_changed:
+            filename_updated = False
+            if staged_upload is not None:
+                prior = existing.metadata_ or {}
+                if (
+                    prior.get("content_hash") == staged_upload.content_hash
+                    and prior.get("upload_filename") != staged_upload.original_filename
+                ):
+                    updated_meta = dict(prior)
+                    updated_meta["upload_filename"] = staged_upload.original_filename
+                    existing.metadata_ = updated_meta
+                    self._session.flush()
+                    filename_updated = True
             if not data.ingest_content or self._revision_already_ingested(existing, revision):
+                if filename_updated:
+                    return ResourceRegisterResult(
+                        object_id=existing.id,
+                        status="updated",
+                        kind=existing.kind,
+                        title=existing.title,
+                        canonical_uri=existing.canonical_uri,
+                        provider=existing.provider,
+                        external_id=existing.external_id,
+                        jobs_enqueued=0,
+                        representations_created=0,
+                    )
                 return self._unchanged_result(existing)
 
         fetched: WebFetchResult | None = None
@@ -182,8 +207,22 @@ class ResourceRegistrationService:
                     content_changed = True
 
             if staged_upload is not None:
-                prior_hash = (obj.metadata_ or {}).get("content_hash")
-                store_upload = created or staged_upload.content_hash != prior_hash
+                prior_meta = obj.metadata_ or {}
+                prior_hash = prior_meta.get("content_hash")
+                same_content = (
+                    not created
+                    and prior_hash is not None
+                    and staged_upload.content_hash == prior_hash
+                )
+                if same_content:
+                    prior_path = prior_meta.get("upload_path")
+                    if prior_path:
+                        metadata["upload_path"] = prior_path
+                        stored_upload_path = Path(prior_path)
+                    metadata["upload_filename"] = staged_upload.original_filename
+                    store_upload = False
+                else:
+                    store_upload = created or staged_upload.content_hash != prior_hash
                 if store_upload:
                     try:
                         stored_upload_path, was_new_file = self._store_upload(

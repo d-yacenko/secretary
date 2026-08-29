@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 from app.db.models import Object, Representation
 from app.llm.embedding_service import EmbeddingService
 from app.llm.summarizer import FakeSummarizer, Summarizer
-from app.services.chunking import chunk_text
+from app.services.bounded_chunks import (
+    MAX_INDEXED_TEXT_CHUNKS,
+    build_indexing_metadata,
+    chunk_text,
+    select_bounded_chunks,
+)
 from app.services.errors import NotFoundError
 from app.services.representation_embedding import refresh_representation_embedding
 
@@ -104,12 +109,27 @@ class RepresentationService:
                 text=self._summarizer.summarize(text),
             )
         ]
-        for index, chunk in enumerate(chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+        all_chunks = chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
+        selected_chunks, selected_indices = select_bounded_chunks(
+            all_chunks, MAX_INDEXED_TEXT_CHUNKS
+        )
+        indexing_meta = build_indexing_metadata(
+            source_chars=len(text),
+            total_chunks=len(all_chunks),
+            indexed_chunks=len(selected_chunks),
+        )
+        for part_index, (source_index, chunk) in enumerate(
+            zip(selected_indices, selected_chunks, strict=True)
+        ):
             rep = Representation(
                 object_id=obj.id,
                 kind=KIND_CHUNK,
-                part_index=index,
+                part_index=part_index,
                 text=chunk,
+                metadata_={
+                    **indexing_meta,
+                    "source_chunk_index": source_index,
+                },
             )
             if self._embedding_service is not None:
                 refresh_representation_embedding(rep, self._embedding_service, chunk)

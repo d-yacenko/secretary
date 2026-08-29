@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.db.models import Object, Representation
 from app.db.session import SessionLocal
+from app.services.bounded_chunks import MAX_INDEXED_TEXT_CHUNKS
 from app.services.representation_service import KIND_CHUNK
 
 
@@ -30,6 +31,7 @@ def load_unembedded_chunk_targets(object_id: UUID, user_id: UUID) -> list[ChunkE
                 Representation.embedding.is_(None),
             )
             .order_by(Representation.part_index)
+            .limit(MAX_INDEXED_TEXT_CHUNKS)
         ).all()
         return [
             ChunkEmbeddingTarget(rep.id, rep.text or "")

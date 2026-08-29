@@ -626,12 +626,12 @@ def test_register_api_oversized_json_returns_413(client: TestClient) -> None:
 
 
 def test_register_api_oversized_multipart_payload_returns_413(client: TestClient) -> None:
-    with patch("app.api.routes.resources.MAX_MULTIPART_PAYLOAD_BYTES", 64):
-        payload = json.dumps({"kind": "document", "title": "x" * 80})
+    with patch("app.api.routes.resources.MAX_UPLOAD_BYTES", 64), patch(
+        "app.api.routes.resources.MAX_MULTIPART_PAYLOAD_BYTES", 64
+    ):
         response = client.post(
             "/resources/register",
-            data={"payload": payload},
-            files={"file": ("note.txt", b"ok", "text/plain")},
+            files={"payload": (None, "x" * 65)},
         )
     assert response.status_code == 413
 
@@ -949,6 +949,97 @@ def test_new_upload_orphan_cleaned_on_ingest_failure_preserves_old_revision(
     assert obj.metadata_["upload_path"] == str(old_path)
     assert obj.metadata_["content_hash"] == old_staged.content_hash
     assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) is not None
+
+
+def test_same_hash_reupload_preserves_path_and_skips_reingest(
+    db_session, upload_root, tmp_path
+) -> None:
+    source = tmp_path / "same.txt"
+    source.write_text("same bytes content", encoding="utf-8")
+    staged = _staged_upload(source, "original_name.txt")
+    service = _register_service(db_session, upload_root)
+    first = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Same hash doc",
+            ingest_content=True,
+        ),
+        staged_upload=staged,
+    )
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    original_path = Path(obj.metadata_["upload_path"])
+
+    renamed = _staged_upload(source, "renamed_display.txt")
+    second = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Same hash doc",
+            ingest_content=True,
+            provider="upload",
+            external_id=staged.content_hash,
+        ),
+        staged_upload=renamed,
+    )
+    assert second.object_id == first.object_id
+    assert second.status == "updated"
+    assert second.jobs_enqueued == 0
+    assert second.representations_created == 0
+
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    assert Path(obj.metadata_["upload_path"]) == original_path
+    assert original_path.is_file()
+    assert obj.metadata_["upload_filename"] == "renamed_display.txt"
+
+
+def test_worker_chunk_embedding_calls_are_bounded(
+    db_session, upload_root
+) -> None:
+    from app.jobs.handlers import handle_embed_object
+    from app.services.bounded_chunks import MAX_INDEXED_TEXT_CHUNKS
+    from app.services.representation_service import KIND_CHUNK
+
+    service = _register_service(db_session, upload_root)
+    finance_sentence = "Budget planning section with revenue targets and expense review. "
+    long_text = finance_sentence * 40
+    result = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Bounded embed doc",
+            text=long_text,
+            ingest_content=True,
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="bounded-embed-1",
+            metadata={"etag": "bounded-embed-etag"},
+        )
+    )
+    chunk_count = db_session.scalar(
+        select(func.count()).select_from(Representation).where(
+            Representation.object_id == result.object_id,
+            Representation.kind == KIND_CHUNK,
+        )
+    )
+    assert chunk_count is not None
+    assert chunk_count <= MAX_INDEXED_TEXT_CHUNKS
+
+    embed_calls: list[str] = []
+
+    class CountingEmbedding(FakeEmbeddingService):
+        def embed(self, text: str) -> list[float]:
+            embed_calls.append(text)
+            return super().embed(text)
+
+    stub = CountingEmbedding()
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
+    ), patch.object(db_session, "close", lambda: None):
+        handle_embed_object(
+            db_session,
+            stub,
+            {"object_id": str(result.object_id)},
+            BOOTSTRAP_USER_ID,
+        )
+
+    assert len(embed_calls) <= MAX_INDEXED_TEXT_CHUNKS + 1
 
 
 def test_two_users_upload_same_filename_isolated(db_session, upload_root, user_b_id) -> None:

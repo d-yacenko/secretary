@@ -18,6 +18,7 @@ from app.services.representation_service import (
     KIND_SCHEMA,
     KIND_STATISTICS,
     KIND_SUMMARY,
+    MAX_INDEXED_TEXT_CHUNKS,
     RepresentationService,
     SMALL_TEXT_MAX_CHARS,
 )
@@ -83,7 +84,35 @@ def test_long_text_creates_summary_and_chunks(
     assert KIND_SUMMARY in kinds
     chunk_reps = [rep for rep in reps if rep.kind == KIND_CHUNK]
     assert len(chunk_reps) > 1
+    assert len(chunk_reps) <= MAX_INDEXED_TEXT_CHUNKS
     assert all(rep.part_index is not None for rep in chunk_reps)
+
+
+def test_large_text_caps_indexed_chunks_and_marks_truncation(
+    db_session, representation_service: RepresentationService
+) -> None:
+    obj = _create_resource_object(db_session, canonical_uri="file:///data/huge.txt")
+    text = "word " * 25000
+    reps = representation_service.ingest_text_content(obj.id, text)
+    chunk_reps = [rep for rep in reps if rep.kind == KIND_CHUNK]
+
+    assert len(chunk_reps) == MAX_INDEXED_TEXT_CHUNKS
+    assert chunk_reps[0].metadata_["indexing_truncated"] is True
+    assert chunk_reps[0].metadata_["total_chunks"] > MAX_INDEXED_TEXT_CHUNKS
+    assert chunk_reps[0].metadata_["source_chars"] == len(text)
+    db_session.refresh(obj)
+    assert obj.canonical_uri == "file:///data/huge.txt"
+
+
+def test_bounded_chunks_include_document_beginning_and_end(
+    db_session, representation_service: RepresentationService
+) -> None:
+    obj = _create_resource_object(db_session)
+    text = "BEGIN_TOKEN " + ("middle " * 20000) + "END_TOKEN"
+    reps = representation_service.ingest_text_content(obj.id, text)
+    chunk_reps = [rep for rep in reps if rep.kind == KIND_CHUNK]
+    assert chunk_reps[0].text.startswith("BEGIN_TOKEN")
+    assert chunk_reps[-1].text.endswith("END_TOKEN")
 
 
 def test_long_document_retains_canonical_uri(

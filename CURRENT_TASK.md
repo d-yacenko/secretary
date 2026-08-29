@@ -1,19 +1,15 @@
-# Current task — PHASE 18 final narrow corrective
+# Current task — PHASE 18 bounded representation corrective
 
 ## Status
 
 **corrective implemented, awaiting final acceptance**
 
-## Fixes delivered (narrow corrective)
+## Fixes delivered
 
-1. **System metadata preservation** — deferred ingest reuses `upload_path`, `content_revision`, `content_hash`, `upload_filename`; sets `content_ingested_revision` on success; third identical ingest is unchanged
-2. **Failure cleanup** — newly persisted upload orphans removed on extraction failure; prior valid revision file retained
-3. **Multipart bound** — `Request.form(max_part_size=MAX_UPLOAD_BYTES)` with `MultiPartException` → 413; payload field also bounded post-parse via `MAX_MULTIPART_PAYLOAD_BYTES`
-
-## PHASE 18 invariants
-
-- User-owned registration; stable identity; worker-only embeddings
-- System-managed upload metadata survives ingest-only follow-up requests
+1. **Bounded text chunks** — `MAX_INDEXED_TEXT_CHUNKS=64`; deterministic spread selection; indexing metadata on chunk representations
+2. **Worker** — object embed + bounded chunk embeds; no network in DB transaction
+3. **Same-hash reupload** — preserve `upload_path`; update display filename only; skip re-ingest when revision ingested
+4. **Multipart** — parser `max_part_size` + post-parse payload bound; 413 handler for oversized parts on register
 
 ## STOP
 

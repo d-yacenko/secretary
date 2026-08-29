@@ -13,10 +13,10 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 ## Working components
 
 - PHASE 00–17: (prior phases)
-- PHASE 18: resource registration API (final narrow corrective)
-  - Stable resource identity; worker chunk embeddings; volume-backed uploads
-  - System metadata preserved across deferred ingest (`upload_path`, revisions, filenames)
-  - Upload orphan cleanup on failed extraction without deleting prior revision files
+- PHASE 18: resource registration API (bounded representation corrective)
+  - Stable identity; worker embeddings; volume-backed uploads; deferred ingest metadata
+  - Bounded indexed text chunks (`MAX_INDEXED_TEXT_CHUNKS=64`) with truncation metadata
+  - Same-hash upload reupload preserves stored source reference
 
 ## Not done
 

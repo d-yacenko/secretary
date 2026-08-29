@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.google import router as google_router
 from app.api.yandex import router as yandex_router
@@ -24,6 +26,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Personal Secretary", lifespan=lifespan)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def register_multipart_size_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
+    if (
+        exc.status_code == 400
+        and request.url.path.endswith("/resources/register")
+        and "Part exceeded maximum size" in str(exc.detail)
+    ):
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "register payload exceeds size limit"},
+        )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 app.include_router(graph_router)
 app.include_router(resources_router)
 app.include_router(notifications_router)

@@ -52,7 +52,11 @@ async def register_resource(
     staging_dir = Path(settings.resource_upload_root) / "staging"
     try:
         if "multipart/form-data" in content_type:
-            form = await request.form(max_part_size=MAX_UPLOAD_BYTES)
+            # Starlette applies one max_part_size per part; file ingest also streams
+            # with MAX_UPLOAD_BYTES. Payload metadata is bounded post-parse too.
+            form = await request.form(
+                max_part_size=max(MAX_MULTIPART_PAYLOAD_BYTES, MAX_UPLOAD_BYTES),
+            )
             payload_raw = form.get("payload")
             if payload_raw is None:
                 raise ValidationError("multipart register requires payload field")
