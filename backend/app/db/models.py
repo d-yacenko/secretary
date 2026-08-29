@@ -452,3 +452,72 @@ class YandexCalendarAccount(Base):
         Index("ix_yandex_calendar_accounts_user_id", "user_id"),
         sa.UniqueConstraint("user_id", "email", name="uq_yandex_calendar_accounts_user_id_email"),
     )
+
+
+class LocalDevice(Base):
+    __tablename__ = "local_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    device_key: Mapped[str] = mapped_column(nullable=False)
+    display_name: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_local_devices_user_id", "user_id"),
+        sa.UniqueConstraint("user_id", "device_key", name="uq_local_devices_user_id_device_key"),
+    )
+
+
+class LocalRoot(Base):
+    __tablename__ = "local_roots"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("local_devices.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    root_path: Mapped[str] = mapped_column(nullable=False)
+    default_policy: Mapped[str] = mapped_column(
+        nullable=False,
+        server_default="metadata_only",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_local_roots_user_id", "user_id"),
+        Index("ix_local_roots_device_id", "device_id"),
+        sa.UniqueConstraint(
+            "user_id",
+            "device_id",
+            "root_path",
+            name="uq_local_roots_user_device_root_path",
+        ),
+    )

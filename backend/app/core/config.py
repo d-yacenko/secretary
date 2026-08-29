@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     yandex_mail_sync_default_limit: int = 50
     yandex_mail_sync_max_limit: int = 100
     resource_upload_root: str = "/var/lib/secretary/resources"
+    local_files_root: str = "/var/lib/secretary/local-files"
 
     @property
     def database_url(self) -> str:

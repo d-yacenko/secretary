@@ -9,6 +9,7 @@ JOB_STATUS_DONE = "done"
 JOB_STATUS_FAILED = "failed"
 
 JOB_TYPE_EMBED_OBJECT = "embed_object"
+JOB_TYPE_INGEST_LOCAL_FILE = "ingest_local_file"
 
 RETRY_BACKOFF_SECONDS = {
     1: 10,

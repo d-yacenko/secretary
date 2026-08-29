@@ -2,9 +2,9 @@
 
 ## Current phase
 
-PHASE 18 — files, cloud resources and web links: **corrective implemented, awaiting final acceptance**
+PHASE 19 — local files and huge datasets: **implemented, awaiting review**
 
-PHASE 17 — Yandex Calendar: **accepted / closed** (live-smoked)
+PHASE 18 — resource registration: **accepted / closed**
 
 ## Global invariants (PHASE 14.5+)
 
@@ -12,17 +12,19 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 
 ## Working components
 
-- PHASE 00–17: (prior phases)
-- PHASE 18: resource registration API (bounded representation corrective)
-  - Stable identity; worker embeddings; volume-backed uploads; deferred ingest metadata
-  - Bounded indexed text chunks (`MAX_INDEXED_TEXT_CHUNKS=64`) with truncation metadata
-  - Same-hash upload reupload preserves stored source reference
+- PHASE 00–18: (prior phases)
+- PHASE 19: local files and datasets
+  - User-scoped device/root registration; no global filesystem crawl
+  - Bounded root scan and file report batches
+  - Skip re-ingest when file revision unchanged
+  - Worker `ingest_local_file` verifies ownership before mirror access
+  - Dataset tools return schema/sample/stats/column queries without full prompt dump
 
 ## Not done
 
-- PHASE 18 final acceptance
-- PHASE 19+ (local files, datasets tooling)
+- PHASE 19 review acceptance
+- PHASE 19.5+ (auth, Flutter)
 
 ## Next phase
 
-PHASE 19 after PHASE 18 acceptance.
+PHASE 19.5 after PHASE 19 acceptance.

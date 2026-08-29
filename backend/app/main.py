@@ -6,6 +6,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.google import router as google_router
+from app.api.local import router as local_router
 from app.api.yandex import router as yandex_router
 from app.api.routes.resources import router as resources_router
 from app.api.routes.graph import router as graph_router
@@ -46,6 +47,7 @@ async def register_multipart_size_handler(
 
 app.include_router(graph_router)
 app.include_router(resources_router)
+app.include_router(local_router)
 app.include_router(notifications_router)
 app.include_router(google_router)
 app.include_router(yandex_router)
