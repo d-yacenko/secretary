@@ -1,19 +1,4 @@
-from urllib.parse import parse_qsl, urlparse, urlunparse
-
-_SENSITIVE_QUERY_KEYS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "apikey",
-        "auth",
-        "bearer",
-        "credential",
-        "key",
-        "password",
-        "secret",
-        "token",
-    }
-)
+from urllib.parse import urlparse, urlunparse
 
 _LOCAL_PATH_PREFIXES = (
     "/home/",
@@ -32,6 +17,13 @@ _UNSAFE_SCHEMES = frozenset({"file", "ftp"})
 
 def sanitize_canonical_uri_for_assistant(uri: str | None) -> str | None:
     """Return a conservative Assistant-safe canonical URI or omit it."""
+    try:
+        return _sanitize_canonical_uri(uri)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _sanitize_canonical_uri(uri: str | None) -> str | None:
     if uri is None:
         return None
     trimmed = uri.strip()
@@ -62,22 +54,16 @@ def sanitize_canonical_uri_for_assistant(uri: str | None) -> str | None:
     if not host:
         return None
 
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is not None and not (0 <= port <= 65535):
+        return None
+
     netloc = host
-    if parsed.port is not None:
-        netloc = f"{host}:{parsed.port}"
+    if port is not None:
+        netloc = f"{host}:{port}"
 
-    if parsed.query:
-        for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
-            if key.lower() in _SENSITIVE_QUERY_KEYS:
-                return None
-
-    return urlunparse(
-        (
-            parsed.scheme,
-            netloc,
-            parsed.path,
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        )
-    )
+    # Assistant-facing URIs omit query and fragment entirely.
+    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, "", ""))

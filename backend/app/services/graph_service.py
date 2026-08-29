@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -183,6 +183,9 @@ class GraphService:
         limit: int | None = None,
     ) -> list[tuple[Object, Edge, str]]:
         self.get_object(object_id)
+        if limit is not None:
+            return self._get_neighbors_limited(object_id, include_rejected, limit)
+
         edges = self._session.scalars(
             select(Edge).where(
                 Edge.user_id == self._user_id,
@@ -205,8 +208,60 @@ class GraphService:
             if not include_rejected and neighbor.state == "rejected":
                 continue
             results.append((neighbor, edge, direction))
-            if limit is not None and len(results) >= limit:
-                break
+        return results
+
+    def _get_neighbors_limited(
+        self,
+        object_id: UUID,
+        include_rejected: bool,
+        limit: int,
+    ) -> list[tuple[Object, Edge, str]]:
+        outgoing_filters = [
+            Edge.user_id == self._user_id,
+            Edge.source_id == object_id,
+            Object.user_id == self._user_id,
+        ]
+        incoming_filters = [
+            Edge.user_id == self._user_id,
+            Edge.target_id == object_id,
+            Object.user_id == self._user_id,
+        ]
+        if not include_rejected:
+            outgoing_filters.extend([Edge.state != "rejected", Object.state != "rejected"])
+            incoming_filters.extend([Edge.state != "rejected", Object.state != "rejected"])
+
+        outgoing = (
+            select(Edge.id, literal("outgoing").label("direction"))
+            .select_from(Edge)
+            .join(Object, Edge.target_id == Object.id)
+            .where(*outgoing_filters)
+        )
+        incoming = (
+            select(Edge.id, literal("incoming").label("direction"))
+            .select_from(Edge)
+            .join(Object, Edge.source_id == Object.id)
+            .where(*incoming_filters)
+        )
+
+        neighbor_edges = union_all(outgoing, incoming).subquery("neighbor_edges")
+        edge_rows = self._session.execute(
+            select(neighbor_edges.c.id, neighbor_edges.c.direction)
+            .order_by(neighbor_edges.c.id)
+            .limit(limit)
+        ).all()
+
+        results: list[tuple[Object, Edge, str]] = []
+        for edge_id, direction in edge_rows:
+            edge = self._session.get(Edge, edge_id)
+            if edge is None:
+                continue
+            if edge.source_id == object_id:
+                neighbor = self._get_object_row(edge.target_id)
+            else:
+                neighbor = self._get_object_row(edge.source_id)
+            if neighbor is None:
+                continue
+            results.append((neighbor, edge, direction))
         return results
 
     def _validate_object_provenance(self, obj: Object) -> None:

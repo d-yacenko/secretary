@@ -704,26 +704,34 @@ def test_openai_assistant_provider_uses_store_false(monkeypatch) -> None:
     assert captured.get("store") is False
 
 
-    assert captured.get("store") is False
-
-
-def test_canonical_uri_sanitizer_strips_credentials() -> None:
-    unsafe = "https://user:secret@example.com/docs/page"
+def test_canonical_uri_sanitizer_strips_credentials_and_query_fragment() -> None:
+    unsafe = "https://user:secret@example.com/a?token=x#frag"
     safe = sanitize_canonical_uri_for_assistant(unsafe)
-    assert safe == "https://example.com/docs/page"
+    assert safe == "https://example.com/a"
     assert "user" not in (safe or "")
     assert "secret" not in (safe or "")
+    assert "?" not in (safe or "")
+    assert "#" not in (safe or "")
 
 
-def test_canonical_uri_sanitizer_omits_token_query() -> None:
-    assert sanitize_canonical_uri_for_assistant("https://example.com/x?access_token=abc") is None
-
-
-def test_canonical_uri_sanitizer_keeps_safe_https() -> None:
+def test_canonical_uri_sanitizer_strips_query_from_safe_https() -> None:
     assert (
         sanitize_canonical_uri_for_assistant("https://example.com/path?q=search")
-        == "https://example.com/path?q=search"
+        == "https://example.com/path"
     )
+
+
+def test_canonical_uri_sanitizer_invalid_port_returns_none() -> None:
+    assert sanitize_canonical_uri_for_assistant("https://example.com:bad/path") is None
+
+
+def test_canonical_uri_sanitizer_malformed_ipv6_returns_none() -> None:
+    assert sanitize_canonical_uri_for_assistant("https://[bad-ipv6]/path") is None
+
+
+def test_canonical_uri_sanitizer_never_raises_on_garbage() -> None:
+    for garbage in ("not a url", "http://", "https://", "://missing", "%E0%A4%A"):
+        assert sanitize_canonical_uri_for_assistant(garbage) is None
 
 
 def test_canonical_uri_sanitizer_omits_local_paths() -> None:
@@ -813,11 +821,11 @@ def test_assistant_search_execution_bounded_before_model_output(
 
 
 def test_assistant_list_neighbors_execution_bounded(
-    db_session, fake_embedding_service
+    db_session, fake_embedding_service, monkeypatch
 ) -> None:
     graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     hub = graph.create_object(ObjectCreate(kind="project", title="Hub", origin="user"))
-    for index in range(25):
+    for index in range(105):
         leaf = graph.create_object(
             ObjectCreate(kind="task", title=f"hub-leaf-{index}", origin="user")
         )
@@ -831,6 +839,25 @@ def test_assistant_list_neighbors_execution_bounded(
             )
         )
     db_session.flush()
+
+    unlimited_edge_scalars = 0
+    original_scalars = db_session.scalars
+
+    def tracking_scalars(statement):
+        nonlocal unlimited_edge_scalars
+        compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        lowered = compiled.lower()
+        if "edges" in lowered and "limit" not in lowered and (
+            "source_id" in lowered or "target_id" in lowered
+        ):
+            unlimited_edge_scalars += 1
+        return original_scalars(statement)
+
+    monkeypatch.setattr(db_session, "scalars", tracking_scalars)
+
+    neighbors = graph.get_neighbors(hub.id, limit=20)
+    assert len(neighbors) <= 20
+    assert unlimited_edge_scalars == 0
 
     normalized = normalize_assistant_tool_arguments(
         "list_neighbors",
