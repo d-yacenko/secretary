@@ -15,7 +15,15 @@ class AssistantTurnTelemetry:
     retrieve_selected_atom_count: int | None = None
     get_context_calls: int = 0
     openai_input_tokens: int | None = None
+    openai_cached_input_tokens: int | None = None
+    openai_cache_write_tokens: int | None = None
     openai_output_tokens: int | None = None
+    openai_reasoning_tokens: int | None = None
+    openai_responses_rounds: int | None = None
+    openai_model: str | None = None
+    openai_reasoning_effort: str | None = None
+    openai_verbosity: str | None = None
+    openai_max_output_tokens: int | None = None
 
     def record_tool(self, tool_name: str, output: dict | None) -> None:
         self.tool_calls += 1
@@ -34,7 +42,10 @@ class AssistantTurnTelemetry:
             "assistant_turn tool_calls=%d retrieve_horizon_days=%s "
             "retrieve_candidate_count=%s retrieve_hit_count=%s retrieve_mode=%s "
             "retrieve_query_atom_count=%s retrieve_selected_atom_count=%s "
-            "get_context_calls=%d openai_input_tokens=%s openai_output_tokens=%s",
+            "get_context_calls=%d openai_input_tokens=%s openai_cached_input_tokens=%s "
+            "openai_cache_write_tokens=%s openai_output_tokens=%s "
+            "openai_reasoning_tokens=%s openai_responses_rounds=%s openai_model=%s "
+            "openai_reasoning_effort=%s openai_verbosity=%s openai_max_output_tokens=%s",
             self.tool_calls,
             self.retrieve_horizon_days,
             self.retrieve_candidate_count,
@@ -44,5 +55,13 @@ class AssistantTurnTelemetry:
             self.retrieve_selected_atom_count,
             self.get_context_calls,
             self.openai_input_tokens,
+            self.openai_cached_input_tokens,
+            self.openai_cache_write_tokens,
             self.openai_output_tokens,
+            self.openai_reasoning_tokens,
+            self.openai_responses_rounds,
+            self.openai_model,
+            self.openai_reasoning_effort,
+            self.openai_verbosity,
+            self.openai_max_output_tokens,
         )

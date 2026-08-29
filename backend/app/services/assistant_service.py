@@ -16,6 +16,7 @@ from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_pres
 from app.assistant.session import run_assistant_tool
 from app.assistant.tool_runner import BoundAssistantToolRunner, PerTurnToolBudget
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
+from app.core.assistant_openai_config import validated_assistant_openai_settings
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
@@ -120,7 +121,15 @@ class AssistantService:
         )
 
         telemetry.openai_input_tokens = provider_result.openai_input_tokens
+        telemetry.openai_cached_input_tokens = provider_result.openai_cached_input_tokens
+        telemetry.openai_cache_write_tokens = provider_result.openai_cache_write_tokens
         telemetry.openai_output_tokens = provider_result.openai_output_tokens
+        telemetry.openai_reasoning_tokens = provider_result.openai_reasoning_tokens
+        telemetry.openai_responses_rounds = provider_result.openai_responses_rounds
+        telemetry.openai_model = provider_result.openai_model
+        telemetry.openai_reasoning_effort = provider_result.openai_reasoning_effort
+        telemetry.openai_verbosity = provider_result.openai_verbosity
+        telemetry.openai_max_output_tokens = provider_result.openai_max_output_tokens
         telemetry.log_turn()
 
         candidate_ids = cap_reference_candidate_ids(
@@ -344,9 +353,13 @@ def _normalize_history(history: list[AssistantHistoryMessage]) -> list[Assistant
 def create_assistant_provider() -> OpenAIAssistantProvider:
     if not settings.openai_api_key:
         raise AssistantConfigurationError("OPENAI_API_KEY is not configured")
+    assistant_settings = validated_assistant_openai_settings(settings)
     return OpenAIAssistantProvider(
         api_key=settings.openai_api_key,
-        model=settings.openai_model,
+        model=assistant_settings.model,
+        reasoning_effort=assistant_settings.reasoning_effort,
+        verbosity=assistant_settings.verbosity,
+        max_output_tokens=assistant_settings.max_output_tokens,
     )
 
 

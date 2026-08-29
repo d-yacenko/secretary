@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
     openai_model: str = "gpt-5.6-terra"
+    openai_assistant_model: str = "gpt-5.6-luna"
+    openai_assistant_reasoning_effort: str = "low"
+    openai_assistant_verbosity: str = "low"
+    openai_assistant_max_output_tokens: int = 1600
     secretary_timezone: str = "Europe/Amsterdam"
     mcp_enabled: bool = False
     google_oauth_client_file: str = "/run/secrets/google-oauth-client.json"

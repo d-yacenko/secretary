@@ -13,6 +13,7 @@ from app.assistant.reference_ids import collect_object_ids_from_bounded_tool
 from app.assistant.tool_definitions import TOOL_DEFINITIONS
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
+from app.llm.openai_usage import ResponsesUsageAccumulated, response_hit_max_output_tokens
 from app.tools.executor import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,21 @@ class AssistantProviderError(Exception):
 
 
 class OpenAIAssistantProvider:
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        reasoning_effort: str = "low",
+        verbosity: str = "low",
+        max_output_tokens: int = 1600,
+    ) -> None:
         from openai import OpenAI
 
         self._client = OpenAI(api_key=api_key)
         self._model = model
+        self._reasoning_effort = reasoning_effort
+        self._verbosity = verbosity
+        self._max_output_tokens = max_output_tokens
         self._last_store_false = False
         self._last_instructions: str = ""
 
@@ -107,8 +118,7 @@ class OpenAIAssistantProvider:
 
         candidate_ids: list[UUID] = []
         affected_ids: list[UUID] = []
-        total_input_tokens: int | None = None
-        total_output_tokens: int | None = None
+        usage_totals = ResponsesUsageAccumulated()
 
         for _ in range(MAX_ASSISTANT_ROUNDS):
             try:
@@ -118,6 +128,9 @@ class OpenAIAssistantProvider:
                     input=input_items,
                     tools=TOOL_DEFINITIONS,
                     store=False,
+                    reasoning={"effort": self._reasoning_effort},
+                    text={"verbosity": self._verbosity},
+                    max_output_tokens=self._max_output_tokens,
                 )
             except Exception as exc:
                 logger.warning(
@@ -127,22 +140,27 @@ class OpenAIAssistantProvider:
                 )
                 raise AssistantProviderError("assistant provider call failed") from exc
             self._last_store_false = True
-            total_input_tokens, total_output_tokens = _accumulate_usage(
-                response,
-                total_input_tokens,
-                total_output_tokens,
-            )
+            usage_totals.accumulate(response)
+
+            if response_hit_max_output_tokens(response):
+                logger.warning(
+                    "assistant response incomplete: max_output_tokens=%d reached",
+                    self._max_output_tokens,
+                )
+                raise AssistantProviderError("assistant output limit reached")
 
             tool_calls = _extract_function_calls(response)
             if not tool_calls:
                 answer = _extract_output_text(response) or ""
-                return AssistantProviderResult(
+                return _build_provider_result(
                     answer=answer.strip(),
-                    candidate_object_ids=candidate_ids,
-                    affected_object_ids=affected_ids,
-                    store_false_used=True,
-                    openai_input_tokens=total_input_tokens,
-                    openai_output_tokens=total_output_tokens,
+                    candidate_ids=candidate_ids,
+                    affected_ids=affected_ids,
+                    usage_totals=usage_totals,
+                    model=self._model,
+                    reasoning_effort=self._reasoning_effort,
+                    verbosity=self._verbosity,
+                    max_output_tokens=self._max_output_tokens,
                 )
 
             output_items = getattr(response, "output", None) or []
@@ -182,28 +200,33 @@ class OpenAIAssistantProvider:
         raise AssistantProviderError("assistant tool loop exceeded maximum rounds")
 
 
-def _usage_tokens(usage: object | None, field: str) -> int | None:
-    if usage is None:
-        return None
-    value = getattr(usage, field, None)
-    if value is None and isinstance(usage, dict):
-        value = usage.get(field)
-    return int(value) if value is not None else None
-
-
-def _accumulate_usage(
-    response: object,
-    total_input_tokens: int | None,
-    total_output_tokens: int | None,
-) -> tuple[int | None, int | None]:
-    usage = getattr(response, "usage", None)
-    input_tokens = _usage_tokens(usage, "input_tokens")
-    output_tokens = _usage_tokens(usage, "output_tokens")
-    if input_tokens is not None:
-        total_input_tokens = (total_input_tokens or 0) + input_tokens
-    if output_tokens is not None:
-        total_output_tokens = (total_output_tokens or 0) + output_tokens
-    return total_input_tokens, total_output_tokens
+def _build_provider_result(
+    *,
+    answer: str,
+    candidate_ids: list[UUID],
+    affected_ids: list[UUID],
+    usage_totals: ResponsesUsageAccumulated,
+    model: str,
+    reasoning_effort: str,
+    verbosity: str,
+    max_output_tokens: int,
+) -> AssistantProviderResult:
+    return AssistantProviderResult(
+        answer=answer,
+        candidate_object_ids=candidate_ids,
+        affected_object_ids=affected_ids,
+        store_false_used=True,
+        openai_input_tokens=usage_totals.input_tokens,
+        openai_cached_input_tokens=usage_totals.cached_input_tokens,
+        openai_cache_write_tokens=usage_totals.cache_write_tokens,
+        openai_output_tokens=usage_totals.output_tokens,
+        openai_reasoning_tokens=usage_totals.reasoning_tokens,
+        openai_responses_rounds=usage_totals.responses_rounds,
+        openai_model=model,
+        openai_reasoning_effort=reasoning_effort,
+        openai_verbosity=verbosity,
+        openai_max_output_tokens=max_output_tokens,
+    )
 
 
 def _function_call_input_items(output: list) -> list[dict]:
