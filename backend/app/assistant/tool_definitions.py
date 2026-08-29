@@ -3,14 +3,23 @@
 TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
-        "name": "search_objects",
-        "description": "Search the user's objects by semantic and lexical match.",
+        "name": "retrieve",
+        "description": (
+            "Retrieve up to five qualified local objects ranked by relevance. "
+            "Top-K is a maximum, not a target."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
                 "kind": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                "time_scope": {
+                    "type": "string",
+                    "enum": ["auto", "recent", "all"],
+                },
+                "date_from": {"type": "string"},
+                "date_to": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 5},
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -34,7 +43,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "name": "get_context",
         "description": (
             "Build bounded context for one object by id. "
-            "Use search_objects(query) first to discover object ids."
+            "Use retrieve(query) first to discover object ids."
         ),
         "parameters": {
             "type": "object",

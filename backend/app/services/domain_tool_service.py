@@ -21,6 +21,7 @@ from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
+from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import (
@@ -38,6 +39,9 @@ from app.tools.schemas import (
     ListNotificationsInput,
     ListNotificationsOutput,
     NeighborItem,
+    RetrievalHitOut,
+    RetrieveInput,
+    RetrieveOutput,
     SearchObjectsInput,
     SearchObjectsOutput,
     ToolError,
@@ -58,6 +62,7 @@ class DomainToolService:
         self._user_id = user_id
         self._graph = GraphService(session, user_id, embedding_service)
         self._search = SearchService(session, user_id)
+        self._retrieval = RetrievalService(session, user_id)
         self._context = ContextService(session, user_id, embedding_service)
         self._notifications = NotificationService(session, user_id)
         self._defer_write_embeddings = defer_write_embeddings
@@ -96,6 +101,38 @@ class DomainToolService:
             limit=input.limit,
         )
         return SearchObjectsOutput(objects=objects)
+
+    def retrieve(self, input: RetrieveInput) -> RetrieveOutput:
+        try:
+            result = self._retrieval.retrieve(
+                query=input.query,
+                kind=input.kind,
+                time_scope=input.time_scope,
+                date_from=input.date_from,
+                date_to=input.date_to,
+                limit=input.limit,
+            )
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        hits = [
+            RetrievalHitOut(
+                object_id=hit.object_id,
+                title=hit.title,
+                kind=hit.kind,
+                provider=hit.provider,
+                occurred_at=hit.occurred_at,
+                relevance=hit.relevance,
+                reasons=hit.reasons,
+                excerpt=hit.short_excerpt,
+            )
+            for hit in result.hits
+        ]
+        return RetrieveOutput(
+            hits=hits,
+            time_scope_used=result.time_scope_used,
+            horizon_days=result.horizon_days,
+            candidate_count=result.candidate_count,
+        )
 
     def get_object(self, input: GetObjectInput) -> GetObjectOutput:
         try:

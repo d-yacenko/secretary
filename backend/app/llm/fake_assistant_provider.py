@@ -45,13 +45,13 @@ class FakeAssistantProvider:
 
       if "project alpha" in lowered:
           result = tool_runner(
-              "search_objects",
+              "retrieve",
               {"query": "Project Alpha", "limit": 5},
           )
-          self._calls.append(("search_objects", {"query": "Project Alpha", "limit": 5}))
+          self._calls.append(("retrieve", {"query": "Project Alpha", "limit": 5}))
           if result.success and result.output:
-              for obj in result.output.get("objects", []):
-                  _append_uuid(candidate_ids, obj.get("id"))
+              for hit in result.output.get("hits", []):
+                  _append_uuid(candidate_ids, hit.get("object_id"))
           if candidate_ids:
               ctx = tool_runner(
                   "get_context",
@@ -64,6 +64,51 @@ class FakeAssistantProvider:
                   for item in ctx.output.get("items", []):
                       _append_uuid(candidate_ids, item.get("object_id"))
           answer = "Pending items for Project Alpha are listed in the referenced objects."
+      elif "норникел" in lowered:
+          query = (
+              "активность по норникелю"
+              if "активност" in lowered
+              else "норникель"
+          )
+          retrieve_args = {"query": query, "limit": 5}
+          if "стар" in lowered or "письм" in lowered:
+              retrieve_args["time_scope"] = "all"
+          result = tool_runner("retrieve", retrieve_args)
+          self._calls.append(("retrieve", retrieve_args))
+          if result.success and result.output:
+              for hit in result.output.get("hits", []):
+                  _append_uuid(candidate_ids, hit.get("object_id"))
+          if candidate_ids:
+              ctx = tool_runner(
+                  "get_context",
+                  {"object_id": str(candidate_ids[0]), "max_chars": 2000},
+              )
+              self._calls.append(
+                  ("get_context", {"object_id": str(candidate_ids[0]), "max_chars": 2000})
+              )
+              if ctx.success and ctx.output:
+                  for item in ctx.output.get("items", []):
+                      _append_uuid(candidate_ids, item.get("object_id"))
+          if "создай" in lowered or "задач" in lowered:
+              task_result = tool_runner(
+                  "create_task",
+                  {
+                      "title": "Норникель follow-up",
+                      "confidence": 0.75,
+                  },
+              )
+              self._calls.append(
+                  (
+                      "create_task",
+                      {"title": "Норникель follow-up", "confidence": 0.75},
+                  )
+              )
+              if task_result.success and task_result.output:
+                  obj = task_result.output.get("object")
+                  if obj:
+                      _append_uuid(affected_ids, obj.get("id"))
+                      _append_uuid(candidate_ids, obj.get("id"))
+          answer = "По Норникелю найдена релевантная активность."
       elif ui_context and ("what is this" in lowered or "related to" in lowered):
           object_id = _extract_object_id(ui_context)
           args: dict = {"max_chars": 2000}

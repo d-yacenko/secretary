@@ -15,6 +15,7 @@ from app.assistant.constants import (
 from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_preserve_order
 from app.assistant.session import run_assistant_tool
 from app.assistant.tool_runner import PerTurnToolBudget
+from app.assistant.turn_telemetry import AssistantTurnTelemetry
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
@@ -96,7 +97,8 @@ class AssistantService:
         if context_object_id is not None:
             validated_context_ids.append(context_object_id)
 
-        tool_budget = PerTurnToolBudget()
+        telemetry = AssistantTurnTelemetry()
+        tool_budget = PerTurnToolBudget(telemetry=telemetry)
 
         def tool_runner(tool_name: str, arguments: dict):
             return tool_budget.run(self._user_id, tool_name, arguments)
@@ -109,6 +111,10 @@ class AssistantService:
             timezone=tz_name,
             tool_runner=tool_runner,
         )
+
+        telemetry.openai_input_tokens = provider_result.openai_input_tokens
+        telemetry.openai_output_tokens = provider_result.openai_output_tokens
+        telemetry.log_turn()
 
         candidate_ids = cap_reference_candidate_ids(
             dedupe_preserve_order(provider_result.candidate_object_ids),

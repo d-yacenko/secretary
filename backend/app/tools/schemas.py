@@ -31,6 +31,33 @@ class SearchObjectsOutput(BaseModel):
     objects: list[ObjectOut]
 
 
+class RetrieveInput(BaseModel):
+    query: str = Field(min_length=1)
+    kind: str | None = None
+    time_scope: str = Field(default="auto")
+    date_from: datetime | None = None
+    date_to: datetime | None = None
+    limit: int = Field(default=5, ge=1, le=5)
+
+
+class RetrievalHitOut(BaseModel):
+    object_id: UUID
+    title: str
+    kind: str
+    provider: str | None = None
+    occurred_at: datetime | None = None
+    relevance: float
+    reasons: list[str]
+    excerpt: str
+
+
+class RetrieveOutput(BaseModel):
+    hits: list[RetrievalHitOut]
+    time_scope_used: str
+    horizon_days: int | None = None
+    candidate_count: int = 0
+
+
 class GetObjectInput(BaseModel):
     object_id: UUID
 

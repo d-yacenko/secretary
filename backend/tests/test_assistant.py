@@ -91,6 +91,7 @@ def patch_assistant_tool_execution(db_session, fake_embedding_service, monkeypat
 
     monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
+    monkeypatch.setattr("tests.test_assistant.run_assistant_tool", _run)
 
     class _TestSession:
         def __init__(self) -> None:
@@ -252,7 +253,7 @@ def test_assistant_project_alpha_read_scenario(
     payload = response.json()
     assert "Project Alpha" in payload["answer"]
     {item["object_id"] for item in payload["references"]}
-    assert any(call[0] == "search_objects" for call in provider.calls)
+    assert any(call[0] == "retrieve" for call in provider.calls)
 
 
 def test_assistant_context_object_scenario(
@@ -468,7 +469,7 @@ def test_function_call_input_items_skips_reasoning() -> None:
             {
                 "type": "function_call",
                 "call_id": "call_1",
-                "name": "search_objects",
+                "name": "retrieve",
                 "arguments": '{"query":"test"}',
                 "status": "completed",
             },
@@ -478,7 +479,7 @@ def test_function_call_input_items_skips_reasoning() -> None:
     assert items[0] == {
         "type": "function_call",
         "call_id": "call_1",
-        "name": "search_objects",
+        "name": "retrieve",
         "arguments": '{"query":"test"}',
     }
 
@@ -507,7 +508,7 @@ def test_assistant_openai_provider_continues_after_reasoning_tool_call(
             reasoning.type = "reasoning"
             function_call = MagicMock()
             function_call.type = "function_call"
-            function_call.name = "search_objects"
+            function_call.name = "retrieve"
             function_call.call_id = "call-search-1"
             function_call.arguments = '{"query":"норникель"}'
             response.output = [reasoning, function_call]
@@ -579,7 +580,7 @@ def test_assistant_endpoint_openai_multi_round_no_match_returns_200(
             reasoning.type = "reasoning"
             function_call = MagicMock()
             function_call.type = "function_call"
-            function_call.name = "search_objects"
+            function_call.name = "retrieve"
             function_call.call_id = "call-search-1"
             function_call.arguments = '{"query":"норникель"}'
             response.output = [reasoning, function_call]
@@ -643,7 +644,7 @@ def test_assistant_endpoint_openai_multi_round_create_task_success(
             reasoning.type = "reasoning"
             function_call = MagicMock()
             function_call.type = "function_call"
-            function_call.name = "search_objects"
+            function_call.name = "retrieve"
             function_call.call_id = "call-search-1"
             function_call.arguments = '{"query":"норникель"}'
             response.output = [reasoning, function_call]
@@ -1236,6 +1237,155 @@ def test_assistant_response_references_capped(
     service = AssistantService(BOOTSTRAP_USER_ID, ManyRefsProvider())
     result = service.send_message(message="cap test", history=[])
     assert len(result.references) <= MAX_ASSISTANT_REFERENCES
+
+
+def test_assistant_openai_tool_definitions_use_retrieve_not_search() -> None:
+    names = {definition["name"] for definition in TOOL_DEFINITIONS}
+    assert "retrieve" in names
+    assert "search_objects" not in names
+    retrieve = next(defn for defn in TOOL_DEFINITIONS if defn["name"] == "retrieve")
+    assert retrieve["parameters"]["properties"]["limit"]["maximum"] == 5
+
+
+def test_assistant_nornickel_retrieve_regression(
+    db_session, fake_embedding_service
+) -> None:
+    from datetime import timedelta
+
+    now = datetime.now(UTC)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    event = graph.create_object(
+        ObjectCreate(
+            kind="event",
+            title="Вопрос по Норникелю",
+            body="Обсуждение активности",
+            origin="source",
+            provider="google_calendar",
+        )
+    )
+    event.occurred_at = now - timedelta(days=3)
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Re: Норникель quarterly update",
+            body="Норникель activity summary",
+            origin="source",
+            provider="gmail",
+        )
+    )
+    db_session.flush()
+    email = db_session.scalars(
+        select(Object).where(Object.title.startswith("Re: Норникель"))
+    ).first()
+    if email is not None:
+        email.occurred_at = now - timedelta(days=2)
+    graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Тестовая задача из Linux клиента",
+            body="linux client smoke",
+            origin="user",
+        )
+    )
+    for index in range(12):
+        graph.create_object(
+            ObjectCreate(
+                kind="email",
+                title=f"Server status newsletter {index}",
+                body="automated server monitoring message",
+                origin="source",
+                provider="gmail",
+            )
+        )
+        noise = db_session.scalars(
+            select(Object).where(Object.title == f"Server status newsletter {index}")
+        ).first()
+        if noise is not None:
+            noise.occurred_at = now - timedelta(days=1)
+    db_session.flush()
+
+    provider = FakeAssistantProvider()
+    service = AssistantService(BOOTSTRAP_USER_ID, provider)
+    result = service.send_message(
+        message=(
+            "Посмотри, какая есть активность по норникелю, "
+            "что необходимо сделать и создай задачу"
+        ),
+        history=[],
+    )
+
+    assert any(call[0] == "retrieve" for call in provider.calls)
+    assert any(call[0] == "get_context" for call in provider.calls)
+    assert any(call[0] == "create_task" for call in provider.calls)
+    assert len(provider.calls) <= 5
+
+    retrieve_call = next(call for call in provider.calls if call[0] == "retrieve")
+    retrieve_result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "retrieve",
+        retrieve_call[1],
+    )
+    assert retrieve_result.success
+    assert len(retrieve_result.output["hits"]) <= 5
+    hit_titles = {hit["title"] for hit in retrieve_result.output["hits"]}
+    assert "Вопрос по Норникелю" in hit_titles
+    assert "Тестовая задача из Linux клиента" not in hit_titles
+    assert all("Server status newsletter" not in title for title in hit_titles)
+
+    assert result.affected_objects
+    assert result.affected_objects[0].kind == "task"
+    assert result.affected_objects[0].state == PROPOSED_STATE
+    ref_titles = {ref.title for ref in result.references}
+    assert len(result.references) <= 8
+    assert all("Server status newsletter" not in title for title in ref_titles)
+
+
+def test_assistant_retrieve_recent_vs_all_history(
+    db_session, fake_embedding_service
+) -> None:
+    from datetime import timedelta
+
+    now = datetime.now(UTC)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    recent = graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="MailboxRecentUniqueMarker",
+            body="mailbox recent unique marker body",
+            origin="source",
+            provider="gmail",
+        )
+    )
+    recent.occurred_at = now - timedelta(days=5)
+    old = graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="MailboxAncientUniqueMarker",
+            body="mailbox ancient unique marker body",
+            origin="source",
+            provider="gmail",
+        )
+    )
+    old.occurred_at = now - timedelta(days=800)
+    db_session.flush()
+
+    auto_result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "retrieve",
+        {"query": "MailboxRecentUnique", "time_scope": "auto", "limit": 5},
+    )
+    assert auto_result.success
+    auto_titles = {hit["title"] for hit in auto_result.output["hits"]}
+    assert "MailboxRecentUniqueMarker" in auto_titles
+
+    all_result = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "retrieve",
+        {"query": "MailboxAncientUnique", "time_scope": "all", "limit": 5},
+    )
+    assert all_result.success
+    all_titles = {hit["title"] for hit in all_result.output["hits"]}
+    assert "MailboxAncientUniqueMarker" in all_titles
 
 
 @pytest.fixture

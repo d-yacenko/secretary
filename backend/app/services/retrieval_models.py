@@ -23,3 +23,4 @@ class RetrievalResult:
     query: str
     time_scope_used: str
     horizon_days: int | None
+    candidate_count: int = 0

@@ -218,13 +218,14 @@ class RetrievalService:
 
         last_hits: list[RetrievalHit] = []
         last_horizon: int | None = None
+        last_candidate_count = 0
 
         for horizon_days in horizons:
             horizon_cutoff = None
             if horizon_days is not None:
                 horizon_cutoff = now - timedelta(days=horizon_days)
 
-            last_hits = self._score_and_rank(
+            last_hits, last_candidate_count = self._score_and_rank(
                 query=normalized_query,
                 kind=kind,
                 provider=provider,
@@ -248,6 +249,7 @@ class RetrievalService:
             query=normalized_query,
             time_scope_used=effective_scope,
             horizon_days=last_horizon,
+            candidate_count=last_candidate_count,
         )
 
     def _collect_candidate_ids(
@@ -310,7 +312,7 @@ class RetrievalService:
         date_to: datetime | None,
         apply_horizon: bool,
         recency_cutoff: datetime,
-    ) -> list[RetrievalHit]:
+    ) -> tuple[list[RetrievalHit], int]:
         candidate_ids = self._collect_candidate_ids(
             query=query,
             kind=kind,
@@ -322,7 +324,7 @@ class RetrievalService:
             apply_horizon=apply_horizon,
         )
         if not candidate_ids:
-            return []
+            return [], 0
 
         rows = self._session.execute(
             _RANK_QUERY,
@@ -383,7 +385,7 @@ class RetrievalService:
             )
 
         hits.sort(key=lambda item: (-item.relevance, str(item.object_id)))
-        return hits
+        return hits, len(candidate_ids)
 
     def _should_stop_horizon_expansion(self, hits: list[RetrievalHit]) -> bool:
         qualified = [hit for hit in hits if _hit_is_qualified(hit)]

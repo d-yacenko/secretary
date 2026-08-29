@@ -7,6 +7,8 @@ from app.assistant.constants import (
     MAX_ASSISTANT_CONTEXT_CHARS,
     MAX_ASSISTANT_LIST_RESULTS,
     MAX_ASSISTANT_NEIGHBOR_RESULTS,
+    MAX_ASSISTANT_RETRIEVE_EXCERPT,
+    MAX_ASSISTANT_RETRIEVE_RESULTS,
     MAX_ASSISTANT_SEARCH_RESULTS,
     MAX_ASSISTANT_TOOL_OUTPUT_CHARS,
 )
@@ -38,7 +40,41 @@ def _bounded_object(obj: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _bounded_retrieve_excerpt(excerpt: str | None) -> str:
+    if not excerpt:
+        return ""
+    normalized = excerpt.replace("\n", " ").strip()
+    if len(normalized) <= MAX_ASSISTANT_RETRIEVE_EXCERPT:
+        return normalized
+    return normalized[:MAX_ASSISTANT_RETRIEVE_EXCERPT] + "… [truncated]"
+
+
 def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) -> dict[str, Any]:
+    if tool_name == "retrieve":
+        hits = raw_output.get("hits", [])[:MAX_ASSISTANT_RETRIEVE_RESULTS]
+        truncated = len(raw_output.get("hits", [])) > len(hits)
+        payload: dict[str, Any] = {
+            "hits": [
+                {
+                    "object_id": hit.get("object_id"),
+                    "title": hit.get("title"),
+                    "kind": hit.get("kind"),
+                    "provider": hit.get("provider"),
+                    "occurred_at": hit.get("occurred_at"),
+                    "relevance": hit.get("relevance"),
+                    "reasons": hit.get("reasons", []),
+                    "excerpt": _bounded_retrieve_excerpt(hit.get("excerpt")),
+                }
+                for hit in hits
+            ],
+            "time_scope_used": raw_output.get("time_scope_used"),
+            "horizon_days": raw_output.get("horizon_days"),
+            "candidate_count": raw_output.get("candidate_count"),
+        }
+        if truncated:
+            payload["truncated"] = True
+        return payload
+
     if tool_name == "search_objects":
         objects = raw_output.get("objects", [])[:MAX_ASSISTANT_SEARCH_RESULTS]
         truncated = len(raw_output.get("objects", [])) > len(objects)

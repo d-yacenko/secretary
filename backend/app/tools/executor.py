@@ -10,6 +10,7 @@ from app.tools.schemas import (
     LinkObjectsInput,
     ListNeighborsInput,
     ListNotificationsInput,
+    RetrieveInput,
     SearchObjectsInput,
     ToolError,
     UpdateTaskInput,
@@ -73,6 +74,8 @@ class ToolExecutor:
 def _dispatch(tools: DomainToolService, tool_name: str, arguments: dict[str, Any]):
     if tool_name == "search_objects":
         return tools.search_objects(SearchObjectsInput.model_validate(arguments))
+    if tool_name == "retrieve":
+        return tools.retrieve(RetrieveInput.model_validate(arguments))
     if tool_name == "get_object":
         return tools.get_object(GetObjectInput.model_validate(arguments))
     if tool_name == "get_context":

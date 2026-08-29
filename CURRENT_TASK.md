@@ -1,17 +1,19 @@
-# Current task — PHASE 22.5A
+# Current task — PHASE 22.5B
 
 ## Status
 
-PHASE 22.5A closure corrective implemented. STOP for final acceptance.
+PHASE 22.5B Assistant Retrieval Integration implemented. STOP for review.
 
-PHASE 22 accepted / closed. PHASE 22.5B not started. PHASE 23 not started. No VDS deploy.
+PHASE 22.5A accepted / closed. PHASE 23 not started. No VDS deploy.
 
-## Delivered (closure corrective)
+## Delivered
 
-- Migration `0016` email backfill: keyset pagination (`id > last_id`), always terminates
-- Candidate branches: ORDER BY relevance per channel, 50 FTS + 50 trigram quotas, dedupe
-- Regression: 600 malformed rows backfill; strong late candidates not starved by FTS branch
+- Assistant `retrieve` tool (RetrievalService, max 5, compact hits)
+- `search_objects` removed from OpenAI tool definitions; kept for MCP/internal
+- References cap 8; retrieve-based discovery flow
+- Turn telemetry (tool counts, horizon, candidate/hit counts, get_context calls, tokens)
+- Regression: nornickel fixture, recent vs all-history retrieve
 
 ## STOP
 
-Await PHASE 22.5A final acceptance. Do not start PHASE 22.5B or PHASE 23. Do not deploy to VDS.
+Await PHASE 22.5B review. Do not start PHASE 23. Do not deploy to VDS.
