@@ -70,6 +70,24 @@ def _ingest_already_complete(
     return True
 
 
+def _revision_and_policy_match(
+    metadata: dict,
+    expected_revision: str | None,
+    expected_policy: str | None,
+) -> bool:
+    if expected_revision is not None and metadata.get("content_revision") != expected_revision:
+        return False
+    if expected_policy is not None and metadata.get("indexing_policy") != expected_policy:
+        return False
+    return True
+
+
+def _load_user_object(session: Session, object_id: UUID, user_id: UUID) -> Object | None:
+    return session.scalar(
+        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    )
+
+
 def handle_embed_object(
     session: Session,
     embedding_service,
@@ -104,9 +122,7 @@ def handle_ingest_local_file(
 
     lookup_session = SessionLocal()
     try:
-        obj = lookup_session.scalar(
-            select(Object).where(Object.id == object_id, Object.user_id == user_id)
-        )
+        obj = _load_user_object(lookup_session, object_id, user_id)
         if obj is None:
             raise ValueError(f"object ownership mismatch: {object_id}")
 
@@ -114,11 +130,10 @@ def handle_ingest_local_file(
         device_key = metadata.get("device_key")
         root_path = metadata.get("local_root_path")
         relative_path = metadata.get("local_relative_path")
-        current_revision = metadata.get("content_revision")
         if not device_key or not root_path or not relative_path:
             raise ValueError("local object missing path metadata")
 
-        if expected_revision is not None and current_revision != expected_revision:
+        if not _revision_and_policy_match(metadata, expected_revision, expected_policy):
             return
 
         if expected_policy and _ingest_already_complete(
@@ -139,29 +154,47 @@ def handle_ingest_local_file(
 
     ingest_session = SessionLocal()
     try:
+        obj = _load_user_object(ingest_session, object_id, user_id)
+        if obj is None:
+            raise ValueError(f"object ownership mismatch: {object_id}")
+
+        metadata = dict(obj.metadata_ or {})
+        if not _revision_and_policy_match(metadata, expected_revision, expected_policy):
+            return
+
         policy = expected_policy or metadata.get("indexing_policy")
-        content_hash = metadata.get("content_hash")
+        pending_upload_path: str | None = None
+        pending_content_hash: str | None = None
 
         if policy == POLICY_UPLOAD_COPY:
-            copied = copy_local_file_to_upload(
+            copied, content_hash, _ = copy_local_file_to_upload(
                 source_path,
                 upload_root,
                 user_id,
                 object_id,
-                content_hash,
             )
-            metadata["upload_path"] = str(copied)
+            pending_upload_path = str(copied)
+            pending_content_hash = content_hash
+
+        ingest_session.refresh(obj)
+        metadata = dict(obj.metadata_ or {})
+        if not _revision_and_policy_match(metadata, expected_revision, expected_policy):
+            return
 
         representation_service = RepresentationService(ingest_session, user_id)
         representation_service.ingest_file(object_id, source_path)
 
-        obj = ingest_session.scalar(
-            select(Object).where(Object.id == object_id, Object.user_id == user_id)
-        )
-        if obj is None:
-            raise ValueError(f"object ownership mismatch: {object_id}")
-        merged = dict(obj.metadata_ or {})
-        merged.update(metadata)
+        ingest_session.refresh(obj)
+        metadata = dict(obj.metadata_ or {})
+        if not _revision_and_policy_match(metadata, expected_revision, expected_policy):
+            ingest_session.rollback()
+            return
+
+        merged = dict(metadata)
+        if pending_upload_path is not None:
+            merged["upload_path"] = pending_upload_path
+        if pending_content_hash is not None:
+            merged["content_hash"] = pending_content_hash
         if expected_revision is not None:
             merged[CONTENT_INGESTED_REVISION_KEY] = expected_revision
         if expected_policy is not None:

@@ -1,5 +1,7 @@
 import csv
 import hashlib
+import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,37 @@ def stream_content_hash(path: Path, max_bytes: int = CHEAP_HASH_MAX_BYTES) -> st
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def stream_file_to_hashed_path(
+    source_path: Path,
+    target_dir: Path,
+    suffix: str,
+) -> tuple[Path, str, bool]:
+    """Copy source to upload dir using streaming SHA-256; filename is hash + suffix."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = target_dir / f".copy-{uuid.uuid4().hex}{suffix}"
+    digest = hashlib.sha256()
+    try:
+        with source_path.open("rb") as src, temp_path.open("wb") as dst:
+            while True:
+                chunk = src.read(HASH_CHUNK_BYTES)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                dst.write(chunk)
+            dst.flush()
+            os.fsync(dst.fileno())
+        content_hash = digest.hexdigest()
+        final_path = target_dir / f"{content_hash}{suffix}"
+        if final_path.is_file():
+            temp_path.unlink(missing_ok=True)
+            return final_path, content_hash, False
+        temp_path.replace(final_path)
+        return final_path, content_hash, True
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def read_bounded_text(path: Path) -> tuple[str, dict[str, Any]]:

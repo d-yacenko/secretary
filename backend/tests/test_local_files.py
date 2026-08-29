@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,18 +15,29 @@ from app.db.models import Job, Object, Representation, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_INGEST_LOCAL_FILE
 from app.jobs.handlers import handle_ingest_local_file
 from app.local.constants import (
+    CHEAP_HASH_MAX_BYTES,
     MAX_TEXT_WINDOW_BYTES,
     POLICY_INDEX_TEXT,
     POLICY_METADATA_ONLY,
     POLICY_UPLOAD_COPY,
     PROVIDER_LOCAL_DEVICE,
 )
+from app.resources.constants import (
+    CONTENT_INGESTED_POLICY_KEY,
+    CONTENT_INGESTED_REVISION_KEY,
+    REVISION_METADATA_KEYS,
+)
 from app.local.paths import LocalPathResolver
 from app.main import app
 from app.services.dataset_tool_service import DatasetToolService
 from app.services.job_queue_service import JobQueueService
 from app.services.local_device_service import LocalDeviceService
-from app.services.local_file_sync_service import LocalFileReport, LocalFileSyncService
+from app.services.local_file_sync_service import (
+    LocalFileReport,
+    LocalFileSyncService,
+    _revision_signature,
+    copy_local_file_to_upload,
+)
 from app.services.representation_service import KIND_SCHEMA, KIND_SAMPLE, KIND_STATISTICS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -465,3 +477,160 @@ def test_malicious_upload_path_rejected_for_dataset_tools(
 
     with pytest.raises(LocalAccessError):
         tools.get_schema(obj.id)
+
+
+def test_large_upload_copy_streams_full_hash_and_updates_revision(
+    local_mirror: Path, db_session, tmp_path: Path
+) -> None:
+    upload_root = tmp_path / "uploads"
+    device_service = _device_service(db_session, local_mirror)
+    device_service.register_device("upload-big", "Desktop")
+    root = device_service.register_root(
+        "upload-big", "files", default_policy=POLICY_UPLOAD_COPY
+    )
+    root_dir = LocalPathResolver(local_mirror).resolve_root_path(
+        BOOTSTRAP_USER_ID, "upload-big", "files"
+    )
+    blob = root_dir / "blob.txt"
+    revision_a = b"A" * (CHEAP_HASH_MAX_BYTES + 5000)
+    blob.write_bytes(revision_a)
+
+    sync = _sync_service(db_session, local_mirror, upload_root)
+    first = sync.scan_root(root.root_id)
+    assert first.objects_created == 1
+    assert first.ingest_jobs_enqueued == 1
+
+    job = db_session.scalar(select(Job).where(Job.type == JOB_TYPE_INGEST_LOCAL_FILE))
+    assert job is not None
+
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ), patch("app.core.config.settings.local_files_root", str(local_mirror)), patch(
+        "app.core.config.settings.resource_upload_root", str(upload_root)
+    ):
+        handle_ingest_local_file(db_session, None, job.payload, BOOTSTRAP_USER_ID)
+
+    obj = db_session.scalar(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE))
+    assert obj is not None
+    revision_a_sig = obj.metadata_["content_revision"]
+    upload_path = Path(obj.metadata_["upload_path"])
+    assert upload_path.read_bytes() == revision_a
+    assert obj.metadata_["content_hash"] == hashlib.sha256(revision_a).hexdigest()
+    assert obj.metadata_[CONTENT_INGESTED_REVISION_KEY] == revision_a_sig
+
+    revision_b = b"B" * (CHEAP_HASH_MAX_BYTES + 5000)
+    blob.write_bytes(revision_b)
+    second = sync.scan_root(root.root_id)
+    assert second.objects_updated == 1
+    assert second.ingest_jobs_enqueued == 1
+
+    job_b = db_session.scalars(
+        select(Job).where(Job.type == JOB_TYPE_INGEST_LOCAL_FILE)
+    ).all()
+    assert len(job_b) == 2
+    payload_b = job_b[-1].payload
+
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ), patch("app.core.config.settings.local_files_root", str(local_mirror)), patch(
+        "app.core.config.settings.resource_upload_root", str(upload_root)
+    ):
+        handle_ingest_local_file(db_session, None, payload_b, BOOTSTRAP_USER_ID)
+
+    db_session.refresh(obj)
+    revision_b_sig = obj.metadata_["content_revision"]
+    upload_path_b = Path(obj.metadata_["upload_path"])
+    assert upload_path_b.read_bytes() == revision_b
+    assert obj.metadata_["content_hash"] == hashlib.sha256(revision_b).hexdigest()
+    assert obj.metadata_[CONTENT_INGESTED_REVISION_KEY] == revision_b_sig
+    assert upload_path_b != upload_path or revision_a_sig != revision_b_sig
+
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ), patch("app.core.config.settings.local_files_root", str(local_mirror)), patch(
+        "app.core.config.settings.resource_upload_root", str(upload_root)
+    ):
+        handle_ingest_local_file(db_session, None, payload_b, BOOTSTRAP_USER_ID)
+
+    db_session.refresh(obj)
+    assert Path(obj.metadata_["upload_path"]).read_bytes() == revision_b
+
+
+def test_stale_ingest_job_skips_representations_and_embed(
+    local_mirror: Path, db_session, tmp_path: Path
+) -> None:
+    upload_root = tmp_path / "uploads"
+    device_service = _device_service(db_session, local_mirror)
+    device_service.register_device("stale-ingest", "Desktop")
+    root = device_service.register_root(
+        "stale-ingest", "docs", default_policy=POLICY_UPLOAD_COPY
+    )
+    root_dir = LocalPathResolver(local_mirror).resolve_root_path(
+        BOOTSTRAP_USER_ID, "stale-ingest", "docs"
+    )
+    note = root_dir / "note.txt"
+    note.write_text("revision A", encoding="utf-8")
+
+    sync = _sync_service(db_session, local_mirror, upload_root)
+    sync.scan_root(root.root_id)
+    obj = db_session.scalar(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE))
+    assert obj is not None
+    revision_a = obj.metadata_["content_revision"]
+    payload = {
+        "object_id": str(obj.id),
+        "expected_revision": revision_a,
+        "expected_policy": POLICY_UPLOAD_COPY,
+    }
+
+    note.write_text("revision B content", encoding="utf-8")
+    meta_b = {
+        key: obj.metadata_[key]
+        for key in REVISION_METADATA_KEYS
+        if key in obj.metadata_
+    }
+    meta_b["size"] = note.stat().st_size
+    meta_b["modified_at"] = _mtime_iso(note)
+    meta_b.pop("content_hash", None)
+    revision_b = _revision_signature(meta_b)
+
+    real_copy = copy_local_file_to_upload
+
+    def copy_and_mutate_revision(*args, **kwargs):
+        merged = dict(obj.metadata_ or {})
+        merged["content_revision"] = revision_b
+        obj.metadata_ = merged
+        db_session.flush()
+        return real_copy(*args, **kwargs)
+
+    reps_before = len(
+        db_session.scalars(
+            select(Representation).where(Representation.object_id == obj.id)
+        ).all()
+    )
+
+    object_id = obj.id
+
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ), patch("app.core.config.settings.local_files_root", str(local_mirror)), patch(
+        "app.core.config.settings.resource_upload_root", str(upload_root)
+    ), patch(
+        "app.jobs.handlers.copy_local_file_to_upload", copy_and_mutate_revision
+    ):
+        handle_ingest_local_file(db_session, None, payload, BOOTSTRAP_USER_ID)
+
+    reps_after = len(
+        db_session.scalars(
+            select(Representation).where(Representation.object_id == object_id)
+        ).all()
+    )
+    embed_jobs = db_session.scalars(
+        select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+    ).all()
+
+    obj = db_session.scalar(select(Object).where(Object.id == object_id))
+    assert obj is not None
+    assert reps_after == reps_before
+    assert len(embed_jobs) == 0
+    assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) != revision_a
+    assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) != revision_b

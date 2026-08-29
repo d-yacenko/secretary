@@ -1,6 +1,5 @@
-import hashlib
 import json
-import shutil
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import LocalDevice, LocalRoot, Object
-from app.local.bounded_io import stream_content_hash
+from app.local.bounded_io import stream_content_hash, stream_file_to_hashed_path
 from app.local.constants import (
     DEFAULT_LOCAL_POLICY,
     LOCAL_POLICIES,
@@ -29,7 +28,7 @@ from app.local.constants import (
 )
 from app.local.device_keys import validate_device_key
 from app.local.errors import LocalAccessError, LocalFileError
-from app.local.paths import LocalPathResolver, normalize_relative_path
+from app.local.paths import LocalPathResolver, is_path_under, normalize_relative_path
 from app.resources.constants import (
     CONTENT_INGESTED_POLICY_KEY,
     CONTENT_INGESTED_REVISION_KEY,
@@ -87,16 +86,16 @@ class LocalFileSyncService:
             raise ValidationError("registered root is not a directory")
 
         reports: list[LocalFileReport] = []
-        truncated = False
-        for file_path, walk_truncated in _bounded_supported_walk(
+        walk = bounded_supported_walk(
             root_dir,
             MAX_SCAN_DEPTH,
             MAX_SCAN_SUPPORTED_ITEMS,
             MAX_SCAN_INSPECTION_ITEMS,
-        ):
-            rel = file_path.relative_to(root_dir).as_posix()
-            reports.append(_file_report_from_path(file_path, rel))
-            truncated = walk_truncated
+        )
+        truncated = walk.truncated
+        for file_path in walk.paths:
+            rel = file_path.relative_to(root_dir.resolve()).as_posix()
+            reports.append(_file_report_from_path(file_path, rel, root_dir.resolve()))
             if len(reports) >= MAX_SCAN_SUPPORTED_ITEMS:
                 truncated = True
                 break
@@ -271,12 +270,19 @@ class LocalFileSyncService:
         )
 
 
-def _bounded_supported_walk(
+@dataclass(frozen=True)
+class BoundedWalkResult:
+    paths: list[Path]
+    truncated: bool
+
+
+def bounded_supported_walk(
     root_dir: Path,
     max_depth: int,
     max_supported: int,
     max_inspections: int,
-):
+) -> BoundedWalkResult:
+    root_resolved = root_dir.resolve()
     supported: list[Path] = []
     inspections = 0
     truncated = False
@@ -286,32 +292,58 @@ def _bounded_supported_walk(
         if inspections >= max_inspections:
             truncated = True
             break
+
         current, depth = stack.pop()
-        if not current.is_dir():
-            continue
         try:
-            children = sorted(current.iterdir(), key=lambda p: p.name)
+            current_resolved = current.resolve()
         except OSError:
             continue
-        for child in reversed(children):
+        if not is_path_under(current_resolved, root_resolved):
+            continue
+
+        try:
+            if not current.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+
+        try:
+            scandir_iter = os.scandir(current)
+        except OSError:
+            continue
+
+        for entry in scandir_iter:
             inspections += 1
             if inspections > max_inspections:
                 truncated = True
                 break
-            if child.is_dir() and depth < max_depth:
-                stack.append((child, depth + 1))
-            elif child.is_file():
-                if child.suffix.lower() in SUPPORTED_LOCAL_SUFFIXES:
-                    supported.append(child)
-                    yield child, truncated
+
+            if entry.is_symlink():
+                continue
+
+            entry_path = Path(entry.path)
+            try:
+                resolved = entry_path.resolve()
+            except OSError:
+                continue
+            if not is_path_under(resolved, root_resolved):
+                continue
+
+            if entry.is_dir(follow_symlinks=False) and depth < max_depth:
+                stack.append((entry_path, depth + 1))
+            elif entry.is_file(follow_symlinks=False):
+                if entry_path.suffix.lower() in SUPPORTED_LOCAL_SUFFIXES:
                     if len(supported) >= max_supported:
-                        truncated = True
-                        return
-                if len(supported) >= max_supported:
-                    truncated = True
-                    return
+                        return BoundedWalkResult(paths=supported, truncated=True)
+                    supported.append(entry_path)
+
         if truncated:
             break
+
+    if inspections >= max_inspections and stack:
+        truncated = True
+
+    return BoundedWalkResult(paths=supported, truncated=truncated)
 
 
 def _needs_ingest(metadata: dict[str, Any], revision: str | None, policy: str) -> bool:
@@ -327,10 +359,15 @@ def _needs_ingest(metadata: dict[str, Any], revision: str | None, policy: str) -
     return False
 
 
-def _file_report_from_path(path: Path, relative_path: str) -> LocalFileReport:
-    stat = path.stat()
+def _file_report_from_path(
+    path: Path, relative_path: str, root_resolved: Path
+) -> LocalFileReport:
+    resolved = path.resolve()
+    if not is_path_under(resolved, root_resolved):
+        raise LocalFileError("scan candidate escapes registered root")
+    stat = resolved.stat()
     modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
-    content_hash = stream_content_hash(path)
+    content_hash = stream_content_hash(resolved)
     return LocalFileReport(
         relative_path=relative_path,
         size=stat.st_size,
@@ -355,15 +392,7 @@ def copy_local_file_to_upload(
     upload_root: Path,
     user_id: UUID,
     object_id: UUID,
-    content_hash: str | None,
-) -> Path:
+) -> tuple[Path, str, bool]:
     suffix = source_path.suffix.lower()
     target_dir = upload_root / str(user_id) / str(object_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    hash_part = content_hash or stream_content_hash(source_path)
-    if hash_part is None:
-        hash_part = hashlib.sha256(str(object_id).encode()).hexdigest()
-    target_path = target_dir / f"{hash_part}{suffix}"
-    if not target_path.is_file():
-        shutil.copyfile(source_path, target_path)
-    return target_path
+    return stream_file_to_hashed_path(source_path, target_dir, suffix)

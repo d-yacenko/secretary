@@ -67,3 +67,7 @@ def _is_under(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def is_path_under(path: Path, parent: Path) -> bool:
+    return _is_under(path, parent)
