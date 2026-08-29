@@ -24,6 +24,7 @@ RECENT_HORIZON_DAYS = 90
 YEAR_HORIZON_DAYS = 365
 
 MAX_CANDIDATE_POOL = 100
+CANDIDATE_BRANCH_LIMIT = MAX_CANDIDATE_POOL
 DEFAULT_FINAL_HITS = 5
 MAX_FINAL_HITS = 20
 
@@ -37,10 +38,17 @@ RECENCY_WINDOW = timedelta(days=RECENT_HORIZON_DAYS)
 STRONG_TITLE_FTS_THRESHOLD = 0.05
 STRONG_TRIGRAM_THRESHOLD = 0.35
 MIN_BODY_FTS_THRESHOLD = 0.02
-MIN_HIT_SCORE = 0.08
+MIN_TITLE_QUALIFY_THRESHOLD = 0.03
+MIN_TRIGRAM_QUALIFY_THRESHOLD = 0.25
 
 SHORT_EXCERPT_MAX_CHARS = 300
 
 TIME_SCOPE_AUTO = "auto"
 TIME_SCOPE_RECENT = "recent"
 TIME_SCOPE_ALL = "all"
+
+# Combined weighted document — must match migration GIN index expression.
+FTS_DOCUMENT_SQL = (
+    "setweight(to_tsvector('simple', coalesce(o.title, '')), 'A') "
+    "|| setweight(to_tsvector('simple', coalesce(o.body, '')), 'C')"
+)

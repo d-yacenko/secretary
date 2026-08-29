@@ -7,8 +7,10 @@ Create Date: 2026-08-29
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 
 import sqlalchemy as sa
+from sqlalchemy import text
 
 from alembic import op
 
@@ -16,6 +18,56 @@ revision: str = "0016"
 down_revision: str | None = "0015"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
+
+_EMAIL_PROVIDERS = ("gmail", "yandex_mail")
+_BATCH_SIZE = 500
+
+
+def _parse_metadata_timestamp(raw: str | None) -> datetime | None:
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))  # noqa: FURB162
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
+
+
+def _backfill_email_occurred_at(connection: sa.Connection) -> None:
+    while True:
+        rows = connection.execute(
+            text(
+                """
+                SELECT id, metadata->>'timestamp' AS ts
+                FROM objects
+                WHERE occurred_at IS NULL
+                  AND kind = 'email'
+                  AND provider IN ('gmail', 'yandex_mail')
+                  AND metadata ? 'timestamp'
+                LIMIT :batch_size
+                """
+            ),
+            {
+                "batch_size": _BATCH_SIZE,
+            },
+        ).fetchall()
+        if not rows:
+            break
+        for row in rows:
+            parsed = _parse_metadata_timestamp(row.ts)
+            if parsed is None:
+                continue
+            connection.execute(
+                text("UPDATE objects SET occurred_at = :occurred_at WHERE id = :id"),
+                {"occurred_at": parsed, "id": row.id},
+            )
+        if len(rows) < _BATCH_SIZE:
+            break
 
 
 def upgrade() -> None:
@@ -43,16 +95,8 @@ def upgrade() -> None:
         """
     )
 
-    op.execute(
-        """
-        UPDATE objects
-        SET occurred_at = (metadata->>'timestamp')::timestamptz
-        WHERE occurred_at IS NULL
-          AND kind = 'email'
-          AND metadata ? 'timestamp'
-          AND metadata->>'timestamp' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-        """
-    )
+    connection = op.get_bind()
+    _backfill_email_occurred_at(connection)
     op.execute(
         """
         UPDATE objects

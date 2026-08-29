@@ -2,17 +2,19 @@
 
 ## Status
 
-PHASE 22.5A Local Retrieval Foundation implemented. STOP for review.
+PHASE 22.5A final corrective implemented. STOP for review.
 
 PHASE 22 accepted / closed. PHASE 22.5B not started. PHASE 23 not started. No VDS deploy.
 
-## Delivered
+## Delivered (final corrective)
 
-- Migration `0016`: `occurred_at`, `pg_trgm`, FTS/trigram indexes, safe backfill
-- `RetrievalService` + `SearchService` wrapper (PostgreSQL FTS/trigram, no embeddings)
-- Progressive time-sensitive source horizon; personal objects not age-filtered
-- Connector `occurred_at` on Gmail/Yandex mail and calendar ingest
-- `test_retrieval.py` (isolation, top-K max, nornickel fixture, horizons, occurred_at, bounds)
+- Indexed two-stage candidate SQL (`@@` combined FTS document, `%` trigram); rank only bounded candidates
+- `match_quality` / `ranking_score` separation; qualification from textual evidence only
+- Horizon expansion stops only on strong textual match, not weak anchor/recency noise
+- Fail-safe migration `0016` email backfill (Python batches, malformed timestamps stay NULL)
+- `occurred_at=NULL` time-sensitive sources: no recency bonus from `created_at`
+- Explicit `date_from` / `date_to` bounds; reject `date_from > date_to`
+- Regression tests: indexed SQL, horizon widen, recency, date bounds, migration backfill
 
 ## STOP
 

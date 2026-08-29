@@ -5,15 +5,19 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
+from app.services.errors import ValidationError
 from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
     ANCHOR_KINDS,
     BODY_FTS_WEIGHT,
+    CANDIDATE_BRANCH_LIMIT,
     DEFAULT_FINAL_HITS,
+    FTS_DOCUMENT_SQL,
     MAX_CANDIDATE_POOL,
     MAX_FINAL_HITS,
     MIN_BODY_FTS_THRESHOLD,
-    MIN_HIT_SCORE,
+    MIN_TITLE_QUALIFY_THRESHOLD,
+    MIN_TRIGRAM_QUALIFY_THRESHOLD,
     RECENCY_BONUS,
     RECENCY_WINDOW,
     RECENT_HORIZON_DAYS,
@@ -23,15 +27,113 @@ from app.services.retrieval_constants import (
     TIME_SCOPE_ALL,
     TIME_SCOPE_AUTO,
     TIME_SCOPE_RECENT,
+    TIME_SENSITIVE_SOURCE_KINDS,
     TITLE_FTS_WEIGHT,
     TRIGRAM_WEIGHT,
     YEAR_HORIZON_DAYS,
 )
 from app.services.retrieval_models import RetrievalHit, RetrievalResult
 
-_ANCHOR_KIND_SQL = ", ".join(f"'{kind}'" for kind in sorted(ANCHOR_KINDS))
+_BASE_WHERE = """
+    o.user_id = :user_id
+    AND (o.status IS NULL OR o.status != 'deleted')
+    AND o.state != 'rejected'
+"""
 
-_SCORE_QUERY_BASE = """
+
+def _build_filter_suffix(
+    kind: str | None,
+    provider: str | None,
+    project_id: UUID | None,
+    horizon_cutoff: datetime | None,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    apply_horizon: bool,
+) -> str:
+    filters: list[str] = []
+    if kind is not None:
+        filters.append("AND o.kind = :kind")
+    if provider is not None:
+        filters.append("AND o.provider = :provider")
+    if project_id is not None:
+        filters.append(
+            """
+            AND o.id IN (
+                SELECT e.target_id FROM edges e
+                WHERE e.user_id = :user_id AND e.source_id = :project_id
+                UNION
+                SELECT e.source_id FROM edges e
+                WHERE e.user_id = :user_id AND e.target_id = :project_id
+            )
+            """
+        )
+    if apply_horizon and horizon_cutoff is not None:
+        filters.append(
+            """
+            AND (
+                o.kind NOT IN ('email', 'event', 'chat_message')
+                OR (o.occurred_at IS NOT NULL AND o.occurred_at >= :horizon_cutoff)
+            )
+            """
+        )
+    if date_from is not None and date_to is not None:
+        filters.append(
+            """
+            AND (
+                o.kind NOT IN ('email', 'event', 'chat_message')
+                OR (
+                    o.occurred_at IS NOT NULL
+                    AND o.occurred_at >= :date_from
+                    AND o.occurred_at <= :date_to
+                )
+            )
+            """
+        )
+    elif date_from is not None:
+        filters.append(
+            """
+            AND (
+                o.kind NOT IN ('email', 'event', 'chat_message')
+                OR (o.occurred_at IS NOT NULL AND o.occurred_at >= :date_from)
+            )
+            """
+        )
+    elif date_to is not None:
+        filters.append(
+            """
+            AND (
+                o.kind NOT IN ('email', 'event', 'chat_message')
+                OR (o.occurred_at IS NOT NULL AND o.occurred_at <= :date_to)
+            )
+            """
+        )
+    return "".join(filters)
+
+
+def _build_fts_candidate_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM objects o
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      AND ({FTS_DOCUMENT_SQL}) @@ plainto_tsquery('simple', :query)
+    LIMIT :branch_limit
+    """
+
+
+def _build_trigram_candidate_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM objects o
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      AND o.title % :query
+    LIMIT :branch_limit
+    """
+
+
+_RANK_QUERY = text(
+    """
     SELECT
         o.id,
         o.title,
@@ -53,99 +155,9 @@ _SCORE_QUERY_BASE = """
         similarity(coalesce(o.title, ''), :query) AS title_sim
     FROM objects o
     WHERE o.user_id = :user_id
-      AND (o.status IS NULL OR o.status != 'deleted')
-      AND o.state != 'rejected'
-      AND (
-        to_tsvector('simple', coalesce(o.title, '')) @@ plainto_tsquery('simple', :query)
-        OR to_tsvector('simple', coalesce(o.body, '')) @@ plainto_tsquery('simple', :query)
-        OR similarity(coalesce(o.title, ''), :query) > 0.15
-      )
-"""
-
-
-def _build_score_query(
-    kind: str | None,
-    provider: str | None,
-    project_id: UUID | None,
-    horizon_cutoff: datetime | None,
-    date_from: datetime | None,
-    date_to: datetime | None,
-) -> text:
-    filters: list[str] = []
-    if kind is not None:
-        filters.append("AND o.kind = :kind")
-    if provider is not None:
-        filters.append("AND o.provider = :provider")
-    if project_id is not None:
-        filters.append(
-            """
-            AND o.id IN (
-                SELECT e.target_id FROM edges e
-                WHERE e.user_id = :user_id AND e.source_id = :project_id
-                UNION
-                SELECT e.source_id FROM edges e
-                WHERE e.user_id = :user_id AND e.target_id = :project_id
-            )
-            """
-        )
-    if horizon_cutoff is not None:
-        filters.append(
-            """
-            AND (
-                o.kind NOT IN ('email', 'event', 'chat_message')
-                OR (o.occurred_at IS NOT NULL AND o.occurred_at >= :horizon_cutoff)
-            )
-            """
-        )
-    if date_from is not None:
-        if date_to is not None:
-            filters.append(
-                """
-                AND (
-                    o.kind NOT IN ('email', 'event', 'chat_message')
-                    OR (
-                        o.occurred_at IS NOT NULL
-                        AND o.occurred_at >= :date_from
-                        AND o.occurred_at <= :date_to
-                    )
-                )
-                """
-            )
-        else:
-            filters.append(
-                """
-                AND (
-                    o.kind NOT IN ('email', 'event', 'chat_message')
-                    OR (o.occurred_at IS NOT NULL AND o.occurred_at >= :date_from)
-                )
-                """
-            )
-
-    sql = (
-        _SCORE_QUERY_BASE
-        + "".join(filters)
-        + f"""
-    ORDER BY (
-        :title_weight * ts_rank(
-            to_tsvector('simple', coalesce(o.title, '')),
-            plainto_tsquery('simple', :query)
-        )
-        + :body_weight * ts_rank(
-            to_tsvector('simple', coalesce(o.body, '')),
-            plainto_tsquery('simple', :query)
-        )
-        + :trigram_weight * similarity(coalesce(o.title, ''), :query)
-        + CASE WHEN o.kind IN ({_ANCHOR_KIND_SQL}) THEN :anchor_boost ELSE 0 END
-        + CASE
-            WHEN COALESCE(o.occurred_at, o.created_at) >= :recency_cutoff
-            THEN :recency_bonus
-            ELSE 0
-          END
-    ) DESC
-    LIMIT :candidate_limit
+      AND o.id = ANY(:candidate_ids)
     """
-    )
-    return text(sql)
+)
 
 
 class RetrievalService:
@@ -174,11 +186,15 @@ class RetrievalService:
                 horizon_days=None,
             )
 
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValidationError("date_from must be before or equal to date_to")
+
         final_limit = max(1, min(limit, MAX_FINAL_HITS))
         now = datetime.now(UTC)
         recency_cutoff = now - RECENCY_WINDOW
+        explicit_dates = date_from is not None or date_to is not None
 
-        if date_from is not None or date_to is not None:
+        if explicit_dates:
             horizons: list[int | None] = [None]
             effective_scope = TIME_SCOPE_ALL
         elif time_scope == TIME_SCOPE_ALL:
@@ -207,6 +223,7 @@ class RetrievalService:
                 horizon_cutoff=horizon_cutoff,
                 date_from=date_from,
                 date_to=date_to,
+                apply_horizon=not explicit_dates,
                 recency_cutoff=recency_cutoff,
             )
             last_horizon = horizon_days
@@ -224,6 +241,58 @@ class RetrievalService:
             horizon_days=last_horizon,
         )
 
+    def _collect_candidate_ids(
+        self,
+        query: str,
+        kind: str | None,
+        provider: str | None,
+        project_id: UUID | None,
+        horizon_cutoff: datetime | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        apply_horizon: bool,
+    ) -> list[UUID]:
+        filter_suffix = _build_filter_suffix(
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            horizon_cutoff=horizon_cutoff,
+            date_from=date_from,
+            date_to=date_to,
+            apply_horizon=apply_horizon,
+        )
+        params = {
+            "query": query,
+            "user_id": self._user_id,
+            "kind": kind,
+            "provider": provider,
+            "project_id": project_id,
+            "horizon_cutoff": horizon_cutoff,
+            "date_from": date_from,
+            "date_to": date_to,
+            "branch_limit": CANDIDATE_BRANCH_LIMIT,
+        }
+
+        fts_ids = self._session.execute(
+            text(_build_fts_candidate_sql(filter_suffix)),
+            params,
+        ).scalars()
+        trigram_ids = self._session.execute(
+            text(_build_trigram_candidate_sql(filter_suffix)),
+            params,
+        ).scalars()
+
+        seen: set[UUID] = set()
+        candidate_ids: list[UUID] = []
+        for object_id in list(fts_ids) + list(trigram_ids):
+            if object_id in seen:
+                continue
+            seen.add(object_id)
+            candidate_ids.append(object_id)
+            if len(candidate_ids) >= MAX_CANDIDATE_POOL:
+                break
+        return candidate_ids
+
     def _score_and_rank(
         self,
         query: str,
@@ -233,33 +302,28 @@ class RetrievalService:
         horizon_cutoff: datetime | None,
         date_from: datetime | None,
         date_to: datetime | None,
+        apply_horizon: bool,
         recency_cutoff: datetime,
     ) -> list[RetrievalHit]:
+        candidate_ids = self._collect_candidate_ids(
+            query=query,
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            horizon_cutoff=horizon_cutoff,
+            date_from=date_from,
+            date_to=date_to,
+            apply_horizon=apply_horizon,
+        )
+        if not candidate_ids:
+            return []
+
         rows = self._session.execute(
-            _build_score_query(
-                kind=kind,
-                provider=provider,
-                project_id=project_id,
-                horizon_cutoff=horizon_cutoff,
-                date_from=date_from,
-                date_to=date_to,
-            ),
+            _RANK_QUERY,
             {
                 "query": query,
                 "user_id": self._user_id,
-                "kind": kind,
-                "provider": provider,
-                "project_id": project_id,
-                "horizon_cutoff": horizon_cutoff,
-                "date_from": date_from,
-                "date_to": date_to,
-                "title_weight": TITLE_FTS_WEIGHT,
-                "body_weight": BODY_FTS_WEIGHT,
-                "trigram_weight": TRIGRAM_WEIGHT,
-                "anchor_boost": ANCHOR_KIND_BOOST,
-                "recency_cutoff": recency_cutoff,
-                "recency_bonus": RECENCY_BONUS,
-                "candidate_limit": MAX_CANDIDATE_POOL,
+                "candidate_ids": candidate_ids,
             },
         ).mappings()
 
@@ -271,18 +335,19 @@ class RetrievalService:
             kind_value = str(row["kind"])
             occurred_at = row["occurred_at"]
             created_at = row["created_at"]
-            reference_time = occurred_at or created_at
-            recency_signal = (
-                reference_time is not None and reference_time >= recency_cutoff
+            recency_signal = _recency_signal(
+                kind_value, occurred_at, created_at, recency_cutoff
             )
-
-            relevance = (
+            match_quality = (
                 TITLE_FTS_WEIGHT * title_rank
                 + BODY_FTS_WEIGHT * body_rank
                 + TRIGRAM_WEIGHT * title_sim
-                + (ANCHOR_KIND_BOOST if kind_value in ANCHOR_KINDS else 0.0)
-                + (RECENCY_BONUS if recency_signal else 0.0)
             )
+            ranking_score = match_quality
+            if kind_value in ANCHOR_KINDS:
+                ranking_score += ANCHOR_KIND_BOOST
+            if recency_signal:
+                ranking_score += RECENCY_BONUS
 
             reasons = _build_reasons(
                 title_rank=title_rank,
@@ -301,7 +366,7 @@ class RetrievalService:
                     state=str(row["state"]),
                     status=row["status"],
                     occurred_at=occurred_at,
-                    relevance=relevance,
+                    relevance=ranking_score,
                     reasons=reasons,
                     short_excerpt=_short_excerpt(
                         title=str(row["title"]),
@@ -311,24 +376,51 @@ class RetrievalService:
                 )
             )
 
-        hits.sort(key=lambda item: item.relevance, reverse=True)
+        hits.sort(key=lambda item: (-item.relevance, str(item.object_id)))
         return hits
 
     def _should_stop_horizon_expansion(self, hits: list[RetrievalHit]) -> bool:
-        qualified = [hit for hit in hits if hit.relevance >= MIN_HIT_SCORE]
+        qualified = [hit for hit in hits if _hit_is_qualified(hit)]
         if not qualified:
             return False
-        return any(_is_strong_hit(hit) for hit in qualified)
+        return any(_is_strong_textual_hit(hit) for hit in qualified)
 
     def _trim_to_limit(self, hits: list[RetrievalHit], limit: int) -> list[RetrievalHit]:
-        qualified = [hit for hit in hits if hit.relevance >= MIN_HIT_SCORE]
+        qualified = [hit for hit in hits if _hit_is_qualified(hit)]
         return qualified[:limit]
 
 
-def _is_strong_hit(hit: RetrievalHit) -> bool:
-    if "title_match" in hit.reasons or "fuzzy_title" in hit.reasons:
-        return True
-    return "anchor_kind" in hit.reasons and hit.relevance >= MIN_HIT_SCORE
+def _recency_signal(
+    kind: str,
+    occurred_at: datetime | None,
+    created_at: datetime | None,
+    recency_cutoff: datetime,
+) -> bool:
+    if kind in TIME_SENSITIVE_SOURCE_KINDS:
+        if occurred_at is None:
+            return False
+        return occurred_at >= recency_cutoff
+    reference_time = occurred_at or created_at
+    if reference_time is None:
+        return False
+    return reference_time >= recency_cutoff
+
+
+def _hit_is_qualified(hit: RetrievalHit) -> bool:
+    return any(
+        reason in hit.reasons
+        for reason in (
+            "title_match",
+            "title_candidate",
+            "body_match",
+            "fuzzy_title",
+            "fuzzy_title_candidate",
+        )
+    )
+
+
+def _is_strong_textual_hit(hit: RetrievalHit) -> bool:
+    return "title_match" in hit.reasons or "fuzzy_title" in hit.reasons
 
 
 def _build_reasons(
@@ -341,10 +433,14 @@ def _build_reasons(
     reasons: list[str] = []
     if title_rank >= STRONG_TITLE_FTS_THRESHOLD:
         reasons.append("title_match")
+    elif title_rank >= MIN_TITLE_QUALIFY_THRESHOLD:
+        reasons.append("title_candidate")
     if body_rank >= MIN_BODY_FTS_THRESHOLD:
         reasons.append("body_match")
     if title_sim >= STRONG_TRIGRAM_THRESHOLD:
         reasons.append("fuzzy_title")
+    elif title_sim >= MIN_TRIGRAM_QUALIFY_THRESHOLD:
+        reasons.append("fuzzy_title_candidate")
     if kind in ANCHOR_KINDS:
         reasons.append("anchor_kind")
     if recency_signal:

@@ -5,16 +5,22 @@ import pytest
 
 from app.api.schemas import ObjectCreate
 from app.db.models import Object, User
+from app.services.errors import ValidationError
 from app.services.graph_service import GraphService
 from app.services.provenance import REJECTED_STATE
 from app.services.retrieval_constants import (
+    FTS_DOCUMENT_SQL,
     MAX_CANDIDATE_POOL,
     MAX_FINAL_HITS,
     TIME_SCOPE_ALL,
     TIME_SCOPE_AUTO,
     TIME_SCOPE_RECENT,
 )
-from app.services.retrieval_service import RetrievalService
+from app.services.retrieval_service import (
+    RetrievalService,
+    _build_fts_candidate_sql,
+    _build_trigram_candidate_sql,
+)
 from app.services.search_service import SearchService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -358,3 +364,229 @@ def test_retrieval_candidate_bounds(db_session) -> None:
         limit=MAX_FINAL_HITS,
     ).hits
     assert len(hits) <= MAX_FINAL_HITS
+
+
+def test_retrieval_candidate_sql_uses_indexed_operators() -> None:
+    fts_sql = _build_fts_candidate_sql("")
+    trigram_sql = _build_trigram_candidate_sql("")
+
+    assert FTS_DOCUMENT_SQL in fts_sql
+    assert "@@ plainto_tsquery" in fts_sql
+    assert "o.title % :query" in trigram_sql
+    assert "similarity(" not in fts_sql
+    assert "similarity(" not in trigram_sql
+
+
+def test_retrieval_weak_recent_anchors_do_not_stop_horizon(db_session) -> None:
+    now = datetime.now(UTC)
+    marker = "HorizonWidenUniqueMarkerPhrase"
+    old_email = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title=marker,
+        body="little else",
+        provider="gmail",
+        occurred_at=now - timedelta(days=800),
+    )
+    for index in range(6):
+        _create_object(
+            db_session,
+            BOOTSTRAP_USER_ID,
+            kind="task",
+            title="HorizonWide",
+            occurred_at=now - timedelta(days=2),
+        )
+        _create_object(
+            db_session,
+            BOOTSTRAP_USER_ID,
+            kind="event",
+            title="HorizonWide",
+            occurred_at=now - timedelta(days=1),
+        )
+    for index in range(4):
+        _create_object(
+            db_session,
+            BOOTSTRAP_USER_ID,
+            kind="email",
+            title=f"Random unrelated newsletter {index}",
+            body="automated unrelated monitoring",
+            provider="gmail",
+            occurred_at=now - timedelta(days=1),
+        )
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        marker,
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    assert any(hit.object_id == old_email.id for hit in hits)
+
+
+def test_retrieval_unknown_time_email_all_history_no_recent_reason(db_session) -> None:
+    now = datetime.now(UTC)
+    email = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="UnknownTimeAllHistory Norilsk marker",
+        body="Norilsk unknown timestamp body",
+        provider="gmail",
+        occurred_at=None,
+    )
+    email.created_at = now
+    db_session.flush()
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "UnknownTimeAllHistory Norilsk",
+        time_scope=TIME_SCOPE_ALL,
+        limit=5,
+    ).hits
+    matched = [hit for hit in hits if hit.object_id == email.id]
+    assert matched
+    assert "recent" not in matched[0].reasons
+
+
+def test_retrieval_unknown_time_email_no_recency_bonus_in_score(db_session) -> None:
+    now = datetime.now(UTC)
+    title = "RecencyCompare Norilsk marker"
+    unknown = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title=title,
+        body="Norilsk score check",
+        provider="gmail",
+        occurred_at=None,
+    )
+    unknown.created_at = now
+    known = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title=title,
+        body="Norilsk score check",
+        provider="gmail",
+        occurred_at=now,
+    )
+    db_session.flush()
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "RecencyCompare Norilsk",
+        time_scope=TIME_SCOPE_ALL,
+        limit=5,
+    ).hits
+    by_id = {hit.object_id: hit for hit in hits}
+    assert unknown.id in by_id
+    assert known.id in by_id
+    assert "recent" not in by_id[unknown.id].reasons
+    assert "recent" in by_id[known.id].reasons
+    assert by_id[unknown.id].relevance < by_id[known.id].relevance
+
+
+def test_retrieval_explicit_date_from_only(db_session) -> None:
+    now = datetime.now(UTC)
+    early = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateFromOnly Norilsk marker",
+        provider="gmail",
+        occurred_at=now - timedelta(days=120),
+    )
+    late = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateFromOnly Norilsk marker recent",
+        provider="gmail",
+        occurred_at=now - timedelta(days=5),
+    )
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "DateFromOnly Norilsk",
+        date_from=now - timedelta(days=30),
+        limit=10,
+    ).hits
+    ids = {hit.object_id for hit in hits}
+    assert late.id in ids
+    assert early.id not in ids
+
+
+def test_retrieval_explicit_date_to_only(db_session) -> None:
+    now = datetime.now(UTC)
+    early = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateToOnly Norilsk marker",
+        provider="gmail",
+        occurred_at=now - timedelta(days=120),
+    )
+    late = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateToOnly Norilsk marker recent",
+        provider="gmail",
+        occurred_at=now - timedelta(days=5),
+    )
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "DateToOnly Norilsk",
+        date_to=now - timedelta(days=30),
+        limit=10,
+    ).hits
+    ids = {hit.object_id for hit in hits}
+    assert early.id in ids
+    assert late.id not in ids
+
+
+def test_retrieval_explicit_date_range_both(db_session) -> None:
+    now = datetime.now(UTC)
+    too_early = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateRange Norilsk marker",
+        provider="gmail",
+        occurred_at=now - timedelta(days=200),
+    )
+    in_range = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateRange Norilsk marker mid",
+        provider="gmail",
+        occurred_at=now - timedelta(days=60),
+    )
+    too_late = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title="DateRange Norilsk marker recent",
+        provider="gmail",
+        occurred_at=now - timedelta(days=2),
+    )
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "DateRange Norilsk",
+        date_from=now - timedelta(days=90),
+        date_to=now - timedelta(days=30),
+        limit=10,
+    ).hits
+    ids = {hit.object_id for hit in hits}
+    assert in_range.id in ids
+    assert too_early.id not in ids
+    assert too_late.id not in ids
+
+
+def test_retrieval_rejects_invalid_date_range(db_session) -> None:
+    now = datetime.now(UTC)
+    service = RetrievalService(db_session, BOOTSTRAP_USER_ID)
+    with pytest.raises(ValidationError, match="date_from"):
+        service.retrieve(
+            "anything",
+            date_from=now,
+            date_to=now - timedelta(days=1),
+        )
