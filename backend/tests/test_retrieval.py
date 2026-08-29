@@ -759,6 +759,77 @@ def test_retrieval_nl_phrase_nornickel(db_session, nornickel_user_id) -> None:
     assert "Тестовая задача из Linux клиента" not in titles
 
 
+LIVE_NL_PHRASE = (
+    "Посмотри по всем объектам. У нас есть что-то связанное "
+    "с курсами по норникелю? и собери из этого задачу"
+)
+
+
+def test_retrieval_live_nl_phrase_exact_nornickel(db_session, nornickel_user_id) -> None:
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    hits = RetrievalService(db_session, nornickel_user_id).retrieve(
+        LIVE_NL_PHRASE,
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    assert hits
+    assert len(hits) <= 5
+    hit_ids = {hit.object_id for hit in hits}
+    anchor_ids = {
+        corpus["event"].id,
+        corpus["task"].id,
+        corpus["email_adc"].id,
+        corpus["email_training"].id,
+    }
+    assert hit_ids & anchor_ids
+    titles = {hit.title for hit in hits}
+    assert "Тестовая задача из Linux клиента" not in titles
+    assert all("Server status newsletter" not in title for title in titles)
+
+
+def test_retrieval_relaxed_survives_when_strict_pool_full(
+    db_session, nornickel_user_id
+) -> None:
+    now = datetime.now(UTC)
+    flood_token = "WeakStrictFloodToken"
+    survivor_token = "RelaxedSurvivorMarker"
+    generic_body = (
+        f"посмотри объект связанное курсами {flood_token}"
+    )
+    for index in range(110):
+        _create_object(
+            db_session,
+            nornickel_user_id,
+            kind="email",
+            title=f"{flood_token} noise email {index}",
+            body=f"{generic_body} filler {index}",
+            provider="gmail",
+            occurred_at=now - timedelta(days=1),
+        )
+    survivor = _create_object(
+        db_session,
+        nornickel_user_id,
+        kind="event",
+        title=f"{survivor_token} anchor event",
+        body="little else",
+        occurred_at=now,
+    )
+    query = (
+        "посмотри по всем объектам что связанное курсами "
+        f"{flood_token} {survivor_token}"
+    )
+    result = RetrievalService(db_session, nornickel_user_id).retrieve(
+        query,
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    )
+    assert result.candidate_count <= MAX_CANDIDATE_POOL
+    assert result.retrieval_mode == "relaxed"
+    hit_ids = {hit.object_id for hit in result.hits}
+    assert survivor.id in hit_ids
+    assert result.hits[0].object_id == survivor.id
+
+
 def test_retrieval_adc_nornickel(db_session, nornickel_user_id) -> None:
     corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
     hits = RetrievalService(db_session, nornickel_user_id).retrieve(

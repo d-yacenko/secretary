@@ -21,6 +21,7 @@ from app.services.retrieval_constants import (
     RECENCY_BONUS,
     RECENCY_WINDOW,
     RECENT_HORIZON_DAYS,
+    RELAXED_FALLBACK_QUOTA,
     RELAXED_RUSSIAN_FTS_PER_ATOM,
     RELAXED_SIMPLE_FTS_PER_ATOM,
     RELAXED_TRIGRAM_PER_ATOM,
@@ -28,6 +29,7 @@ from app.services.retrieval_constants import (
     RETRIEVAL_MODE_STRICT,
     RUSSIAN_FTS_DOCUMENT_SQL,
     SHORT_EXCERPT_MAX_CHARS,
+    STRICT_FALLBACK_QUOTA,
     STRONG_TITLE_FTS_THRESHOLD,
     STRONG_TRIGRAM_THRESHOLD,
     TERM_COVERAGE_BONUS,
@@ -478,6 +480,7 @@ class RetrievalService:
         date_to: datetime | None,
         apply_horizon: bool,
         existing_ids: set[UUID],
+        max_new_candidates: int = RELAXED_FALLBACK_QUOTA,
     ) -> list[UUID]:
         if not atoms:
             return []
@@ -517,7 +520,12 @@ class RetrievalService:
                         "branch_limit": RELAXED_RUSSIAN_FTS_PER_ATOM,
                     },
                 ).scalars():
-                    _append_candidate(object_id, seen, candidate_ids)
+                    _append_candidate(
+                        object_id,
+                        seen,
+                        candidate_ids,
+                        max_candidates=max_new_candidates,
+                    )
 
             if is_technical_atom(atom) or not is_cyrillic_atom(atom):
                 for object_id in self._session.execute(
@@ -527,7 +535,12 @@ class RetrievalService:
                         "branch_limit": RELAXED_SIMPLE_FTS_PER_ATOM,
                     },
                 ).scalars():
-                    _append_candidate(object_id, seen, candidate_ids)
+                    _append_candidate(
+                        object_id,
+                        seen,
+                        candidate_ids,
+                        max_candidates=max_new_candidates,
+                    )
 
             for object_id in self._session.execute(
                 text(trigram_sql),
@@ -536,7 +549,12 @@ class RetrievalService:
                     "branch_limit": RELAXED_TRIGRAM_PER_ATOM,
                 },
             ).scalars():
-                _append_candidate(object_id, seen, candidate_ids)
+                _append_candidate(
+                    object_id,
+                    seen,
+                    candidate_ids,
+                    max_candidates=max_new_candidates,
+                )
 
         return candidate_ids
 
@@ -609,8 +627,9 @@ class RetrievalService:
             filter_suffix,
             filter_params,
         )
-        seen_ids = set(strict_ids)
-        candidate_ids = list(strict_ids)
+        strict_for_pool = strict_ids[:STRICT_FALLBACK_QUOTA]
+        seen_ids = set(strict_for_pool)
+        candidate_ids = list(strict_for_pool)
         relaxed_ids = self._collect_relaxed_candidate_ids(
             atoms=selected_atoms,
             kind=kind,
@@ -621,12 +640,11 @@ class RetrievalService:
             date_to=date_to,
             apply_horizon=apply_horizon,
             existing_ids=seen_ids,
+            max_new_candidates=RELAXED_FALLBACK_QUOTA,
         )
         for object_id in relaxed_ids:
             if object_id in seen_ids:
                 continue
-            if len(candidate_ids) >= MAX_CANDIDATE_POOL:
-                break
             seen_ids.add(object_id)
             candidate_ids.append(object_id)
 
@@ -779,10 +797,12 @@ def _append_candidate(
     object_id: UUID,
     seen: set[UUID],
     candidate_ids: list[UUID],
+    max_candidates: int | None = None,
 ) -> None:
     if object_id in seen:
         return
-    if len(candidate_ids) >= MAX_CANDIDATE_POOL:
+    pool_limit = max_candidates if max_candidates is not None else MAX_CANDIDATE_POOL
+    if len(candidate_ids) >= pool_limit:
         return
     seen.add(object_id)
     candidate_ids.append(object_id)

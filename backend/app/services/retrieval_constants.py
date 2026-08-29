@@ -61,9 +61,13 @@ RUSSIAN_FTS_DOCUMENT_SQL = (
 )
 
 MAX_QUERY_ATOMS = 8
+MAX_QUERY_TOKENS_SCANNED = 64
 MAX_SELECTED_ATOMS = 4
 MIN_ATOM_LENGTH = 3
 ATOM_PROBE_LIMIT = 20
+
+STRICT_FALLBACK_QUOTA = MAX_CANDIDATE_POOL // 2
+RELAXED_FALLBACK_QUOTA = MAX_CANDIDATE_POOL // 2
 
 RELAXED_SIMPLE_FTS_PER_ATOM = 10
 RELAXED_RUSSIAN_FTS_PER_ATOM = 10
@@ -106,6 +110,7 @@ GENERIC_QUERY_WORDS = frozenset(
         "курсы",
         "курса",
         "курсов",
+        "курсами",
         "история",
         "истории",
         "данные",

@@ -54,3 +54,7 @@ Being inside the synchronization time window does **not** mean the full object m
 4. Personal/active graph objects are not removed merely because they are old.
 5. Retrieval v1 uses PostgreSQL FTS/trigram; embeddings are not required for ordinary retrieval.
 6. Provider-assisted archive search and ML reranking are future fallbacks, not v1 dependencies.
+
+## PHASE 22.5C — Context neighbor selection note
+
+`ContextService` loads graph neighbors via `GraphService.get_neighbors(limit=MAX_NEIGHBORS)` and then applies local `EDGE_TYPE_PRIORITY` sorting on that SQL-limited set. Future high-degree graph work may need priority-aware neighbor selection in SQL rather than post-limit sorting.

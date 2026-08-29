@@ -9,6 +9,7 @@ from app.services.retrieval_constants import (
     FTS_DOCUMENT_SQL,
     GENERIC_QUERY_WORDS,
     MAX_QUERY_ATOMS,
+    MAX_QUERY_TOKENS_SCANNED,
     MAX_SELECTED_ATOMS,
     MIN_ATOM_LENGTH,
     RUSSIAN_FTS_DOCUMENT_SQL,
@@ -52,16 +53,34 @@ _PROBE_TRIGRAM_SQL = f"""
 
 def extract_query_atoms(query: str) -> list[str]:
     seen: set[str] = set()
-    atoms: list[str] = []
+    non_generic: list[str] = []
+    generic: list[str] = []
+    scanned = 0
+
     for token in _TOKEN_RE.findall(query.lower()):
+        scanned += 1
+        if scanned > MAX_QUERY_TOKENS_SCANNED:
+            break
         if len(token) < MIN_ATOM_LENGTH:
             continue
         if token in seen:
             continue
         seen.add(token)
-        atoms.append(token)
+        if token in GENERIC_QUERY_WORDS:
+            generic.append(token)
+        else:
+            non_generic.append(token)
+
+    atoms: list[str] = []
+    for token in non_generic:
         if len(atoms) >= MAX_QUERY_ATOMS:
             break
+        atoms.append(token)
+    if len(atoms) < MAX_QUERY_ATOMS:
+        for token in generic:
+            if len(atoms) >= MAX_QUERY_ATOMS:
+                break
+            atoms.append(token)
     return atoms
 
 

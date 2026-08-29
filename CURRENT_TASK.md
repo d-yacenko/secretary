@@ -1,20 +1,20 @@
-# Current task — PHASE 22.5C awaiting review
+# Current task — PHASE 22.5C closure corrective
 
 ## Status
 
 PHASE 22.5A and PHASE 22.5B accepted / closed.
 
-PHASE 22.5C Natural-language Retrieval Recall implemented locally:
+PHASE 22.5C closure corrective implemented locally:
 
-- strict + relaxed retrieval with Russian morphology channel (`0017`)
-- query atoms, selectivity heuristic, term-aware ranking
-- Search/Assistant share `RetrievalService`; NL Nornickel regressions added
-- `pytest` + `ruff` green locally
+- atom extraction scans bounded tokens, prefers non-generic terms (`норникелю` survives long NL)
+- weak-strict fallback reserves bounded capacity for relaxed candidates (50/50 split)
+- regressions for exact live NL phrase and strict-pool starvation
+- `pytest` + `ruff` pending verification
 
-Production remains on `ab568105ff81316cb58b538970fabcc2abe35833` until review.
+Production remains on `ab568105ff81316cb58b538970fabcc2abe35833`.
 
-PHASE 23 not started.
+PHASE 23 not started. Do not deploy.
 
 ## STOP
 
-Do not deploy PHASE 22.5C or start PHASE 23 until explicitly requested.
+Await acceptance before deploy or PHASE 23.
