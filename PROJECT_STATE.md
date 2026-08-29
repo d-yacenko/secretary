@@ -2,17 +2,17 @@
 
 ## Current phase
 
+PHASE 20 — Flutter client: **current phase, not started**
+
+PHASE 19.5 — auth, connections, manual capture: **accepted / closed**
+
 PHASE 19 — local files and huge datasets: **accepted / closed**
-
-PHASE 19.5 — auth, connections, manual capture: **final corrective implemented, awaiting final acceptance**
-
-PHASE 20 — Flutter client: **not started**
 
 PHASE 18 — resource registration: **accepted / closed**
 
 ## Global invariants (PHASE 14.5+)
 
-See `DECISIONS.md`. PHASE 19.5 required before PHASE 20 Flutter.
+See `DECISIONS.md`. PHASE 19.5 (auth + connections) completed; required before PHASE 20 Flutter.
 
 ## Working components
 
@@ -25,9 +25,8 @@ See `DECISIONS.md`. PHASE 19.5 required before PHASE 20 Flutter.
 
 ## Not done
 
-- PHASE 19.5 final acceptance
-- PHASE 20+ (Flutter)
+- PHASE 20 (Flutter client)
 
 ## Next phase
 
-PHASE 20 after PHASE 19.5 acceptance.
+PHASE 20 — Flutter client (current; implementation not started).
