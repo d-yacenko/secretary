@@ -54,6 +54,12 @@ class AssistantValidationError(Exception):
         super().__init__(message)
 
 
+class AssistantConfigurationError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 class AssistantProvider:
     def run(
         self,
@@ -273,7 +279,7 @@ def _normalize_history(history: list[AssistantHistoryMessage]) -> list[Assistant
 
 def create_assistant_provider() -> OpenAIAssistantProvider:
     if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured")
+        raise AssistantConfigurationError("OPENAI_API_KEY is not configured")
     return OpenAIAssistantProvider(
         api_key=settings.openai_api_key,
         model=settings.openai_model,

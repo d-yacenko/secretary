@@ -6,12 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.deps import get_current_user
 from app.core.current_user import CurrentUserContext
 from app.llm.assistant_models import AssistantHistoryMessage
+from app.llm.openai_assistant_provider import AssistantProviderError
 from app.services.assistant_service import (
+    AssistantConfigurationError,
     AssistantProvider,
     AssistantService,
     AssistantValidationError,
     create_assistant_provider,
 )
+
+ASSISTANT_PROVIDER_UNAVAILABLE = "Assistant provider unavailable"
 from app.services.errors import NotFoundError
 
 router = APIRouter(tags=["assistant"])
@@ -54,7 +58,13 @@ class AssistantMessageResponse(BaseModel):
 
 
 def get_assistant_provider() -> AssistantProvider:
-    return create_assistant_provider()
+    try:
+        return create_assistant_provider()
+    except AssistantConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+        ) from exc
 
 
 def get_assistant_service(
@@ -89,6 +99,11 @@ def assistant_message(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{exc.resource} not found",
+        ) from exc
+    except (AssistantConfigurationError, AssistantProviderError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
         ) from exc
 
     return AssistantMessageResponse(

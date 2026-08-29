@@ -88,13 +88,20 @@ class OpenAIAssistantProvider:
         affected_ids: list[UUID] = []
 
         for _ in range(MAX_ASSISTANT_ROUNDS):
-            response = self._client.responses.create(
-                model=self._model,
-                instructions=instructions,
-                input=input_items,
-                tools=TOOL_DEFINITIONS,
-                store=False,
-            )
+            try:
+                response = self._client.responses.create(
+                    model=self._model,
+                    instructions=instructions,
+                    input=input_items,
+                    tools=TOOL_DEFINITIONS,
+                    store=False,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "assistant OpenAI call failed: %s",
+                    type(exc).__name__,
+                )
+                raise AssistantProviderError("assistant provider call failed") from exc
             self._last_store_false = True
 
             tool_calls = _extract_function_calls(response)

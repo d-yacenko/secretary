@@ -31,7 +31,7 @@ from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.assistant_models import AssistantProviderResult
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.fake_assistant_provider import FakeAssistantProvider
-from app.llm.openai_assistant_provider import OpenAIAssistantProvider
+from app.llm.openai_assistant_provider import AssistantProviderError, OpenAIAssistantProvider
 from app.main import app
 from app.services.assistant_service import AssistantService, create_fake_assistant_provider
 from app.services.domain_tool_service import DomainToolService
@@ -152,6 +152,41 @@ def test_assistant_requires_auth(db_session, fake_embedding_service) -> None:
         )
     app.dependency_overrides.clear()
     assert response.status_code == 401
+
+
+def test_assistant_missing_openai_key_returns_502(
+    db_session,
+    fake_embedding_service,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    from tests.conftest import AuthTestClient
+
+    monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, auth_headers)
+        response = client.post("/assistant/message", json={"message": "hello"})
+    app.dependency_overrides.clear()
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Assistant provider unavailable"
+
+
+def test_assistant_provider_error_returns_502(assistant_client) -> None:
+    client, provider = assistant_client
+
+    def failing_run(*args, **kwargs):
+        raise AssistantProviderError("assistant provider call failed")
+
+    provider.run = failing_run
+    response = client.post("/assistant/message", json={"message": "hello"})
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Assistant provider unavailable"
 
 
 def test_assistant_rejects_user_id(assistant_client) -> None:
