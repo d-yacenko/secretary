@@ -627,9 +627,10 @@ def test_register_api_oversized_json_returns_413(client: TestClient) -> None:
 
 def test_register_api_oversized_multipart_payload_returns_413(client: TestClient) -> None:
     with patch("app.api.routes.resources.MAX_MULTIPART_PAYLOAD_BYTES", 64):
+        payload = json.dumps({"kind": "document", "title": "x" * 80})
         response = client.post(
             "/resources/register",
-            data={"payload": "x" * 65},
+            data={"payload": payload},
             files={"file": ("note.txt", b"ok", "text/plain")},
         )
     assert response.status_code == 413
@@ -847,6 +848,8 @@ def test_metadata_only_upload_persisted_for_later_ingest(
     assert upload_root in stored_path.parents or str(upload_root) in str(stored_path)
     assert obj.metadata_["upload_filename"] == "defer.txt"
     assert stored_path.name == f"{staged.content_hash}.txt"
+    original_hash = obj.metadata_["content_hash"]
+    original_revision = obj.metadata_["content_revision"]
 
     second = service.register(
         ResourceRegisterRequest(
@@ -860,6 +863,92 @@ def test_metadata_only_upload_persisted_for_later_ingest(
     assert second.object_id == first.object_id
     assert second.representations_created == 1
     assert second.jobs_enqueued == 1
+
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    assert obj.metadata_["upload_path"] == str(stored_path)
+    assert Path(obj.metadata_["upload_path"]).is_file()
+    assert obj.metadata_["content_hash"] == original_hash
+    assert obj.metadata_["content_revision"] == original_revision
+    assert obj.metadata_[CONTENT_INGESTED_REVISION_KEY] == original_revision
+    assert obj.metadata_["upload_filename"] == "defer.txt"
+
+    third = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Deferred file",
+            ingest_content=True,
+            provider="upload",
+            external_id=staged.content_hash,
+        ),
+    )
+    assert third.status == "unchanged"
+    assert third.representations_created == 0
+    assert third.jobs_enqueued == 0
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    assert obj.metadata_["upload_path"] == str(stored_path)
+    assert Path(obj.metadata_["upload_path"]).is_file()
+    assert obj.metadata_["content_hash"] == original_hash
+    assert obj.metadata_["content_revision"] == original_revision
+    assert obj.metadata_[CONTENT_INGESTED_REVISION_KEY] == original_revision
+    assert obj.metadata_["upload_filename"] == "defer.txt"
+
+
+def test_new_upload_orphan_cleaned_on_ingest_failure_preserves_old_revision(
+    db_session, upload_root, tmp_path
+) -> None:
+    from app.services.representation_service import RepresentationService
+
+    old_source = tmp_path / "old.txt"
+    old_source.write_text("old revision content", encoding="utf-8")
+    old_staged = _staged_upload(old_source, "old.txt")
+    service = _register_service(db_session, upload_root)
+    first = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Versioned file",
+            ingest_content=True,
+            provider="upload",
+            external_id="versioned-upload-1",
+        ),
+        staged_upload=old_staged,
+    )
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    old_path = Path(obj.metadata_["upload_path"])
+    assert old_path.is_file()
+
+    new_source = tmp_path / "new.txt"
+    new_source.write_text("new revision content fails extraction", encoding="utf-8")
+    new_staged = _staged_upload(new_source, "new.txt")
+    new_path = (
+        upload_root
+        / str(BOOTSTRAP_USER_ID)
+        / str(first.object_id)
+        / f"{new_staged.content_hash}.txt"
+    )
+
+    with patch.object(
+        RepresentationService,
+        "ingest_file",
+        side_effect=ValueError("extract failed"),
+    ):
+        with pytest.raises(ValueError, match="extract failed"):
+            service.register(
+                ResourceRegisterRequest(
+                    kind="document",
+                    title="Versioned file",
+                    ingest_content=True,
+                    provider="upload",
+                    external_id="versioned-upload-1",
+                ),
+                staged_upload=new_staged,
+            )
+
+    assert old_path.is_file()
+    assert not new_path.is_file()
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    assert obj.metadata_["upload_path"] == str(old_path)
+    assert obj.metadata_["content_hash"] == old_staged.content_hash
+    assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) is not None
 
 
 def test_two_users_upload_same_filename_isolated(db_session, upload_root, user_b_id) -> None:

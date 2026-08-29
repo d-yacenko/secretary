@@ -13,6 +13,7 @@ from app.core.current_user import CurrentUserContext
 from app.resources.constants import (
     MAX_MULTIPART_PAYLOAD_BYTES,
     MAX_REGISTER_PAYLOAD_BYTES,
+    MAX_UPLOAD_BYTES,
 )
 from app.resources.request_bounds import read_bounded_body
 from app.resources.upload_staging import stage_upload_file
@@ -51,7 +52,7 @@ async def register_resource(
     staging_dir = Path(settings.resource_upload_root) / "staging"
     try:
         if "multipart/form-data" in content_type:
-            form = await request.form()
+            form = await request.form(max_part_size=MAX_UPLOAD_BYTES)
             payload_raw = form.get("payload")
             if payload_raw is None:
                 raise ValidationError("multipart register requires payload field")

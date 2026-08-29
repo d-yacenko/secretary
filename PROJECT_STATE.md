@@ -13,12 +13,10 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 ## Working components
 
 - PHASE 00–17: (prior phases)
-- PHASE 18: resource registration API (final corrective)
-  - Stable identity via `provider+external_id` or `canonical_uri` (revision never identifies resources)
-  - SSRF-safe web fetch; no network during open DB transactions
-  - Worker `embed_object` embeds object + unembedded chunk representations post-commit
-  - Bounded JSON/multipart payloads and streaming uploads
-  - Persistent Docker volume-backed upload storage (`resource_data`)
+- PHASE 18: resource registration API (final narrow corrective)
+  - Stable resource identity; worker chunk embeddings; volume-backed uploads
+  - System metadata preserved across deferred ingest (`upload_path`, revisions, filenames)
+  - Upload orphan cleanup on failed extraction without deleting prior revision files
 
 ## Not done
 
