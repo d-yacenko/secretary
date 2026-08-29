@@ -256,6 +256,8 @@ def test_seen_evidence_allowed_after_retrieve(
         {"query": "ZZZ_UNIQUE_EXPOSED", "limit": 5},
     )
     assert retrieve.success
+    assert exposed.id in budget.pending_seen_object_ids
+    budget.commit_model_visible_outputs()
 
     create = budget.run(
         BOOTSTRAP_USER_ID,

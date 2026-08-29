@@ -31,6 +31,7 @@ class PerTurnToolBudget:
         self._calls = 0
         self._telemetry = telemetry
         self._seen_object_ids: set[UUID] = set(initial_seen_object_ids or [])
+        self._pending_seen_object_ids: set[UUID] = set()
 
     @property
     def calls_made(self) -> int:
@@ -40,8 +41,17 @@ class PerTurnToolBudget:
     def seen_object_ids(self) -> set[UUID]:
         return set(self._seen_object_ids)
 
+    @property
+    def pending_seen_object_ids(self) -> set[UUID]:
+        return set(self._pending_seen_object_ids)
+
     def seed_seen_object_ids(self, object_ids: Sequence[UUID]) -> None:
         self._seen_object_ids.update(object_ids)
+
+    def commit_model_visible_outputs(self) -> None:
+        """Promote IDs from the last model response after outputs were delivered to input."""
+        self._seen_object_ids.update(self._pending_seen_object_ids)
+        self._pending_seen_object_ids.clear()
 
     def run(self, user_id: UUID, tool_name: str, arguments: dict) -> ToolExecutionResult:
         if self._calls >= self._max_calls:
@@ -69,7 +79,7 @@ class PerTurnToolBudget:
                 for object_id in collect_seen_object_ids_from_bounded_tool(
                     tool_name, model_output.model_visible_payload
                 ):
-                    self._seen_object_ids.add(object_id)
+                    self._pending_seen_object_ids.add(object_id)
             result = ToolExecutionResult(
                 success=result.success,
                 tool_name=result.tool_name,
@@ -107,3 +117,17 @@ class PerTurnToolBudget:
                     error="evidence object was not exposed in this Assistant turn",
                 )
         return None
+
+
+class BoundAssistantToolRunner:
+    """Adapter exposing PerTurnToolBudget to the Assistant provider loop."""
+
+    def __init__(self, budget: PerTurnToolBudget, user_id: UUID) -> None:
+        self._budget = budget
+        self._user_id = user_id
+
+    def __call__(self, tool_name: str, arguments: dict) -> ToolExecutionResult:
+        return self._budget.run(self._user_id, tool_name, arguments)
+
+    def commit_model_visible_outputs(self) -> None:
+        self._budget.commit_model_visible_outputs()

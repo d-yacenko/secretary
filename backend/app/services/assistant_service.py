@@ -14,7 +14,7 @@ from app.assistant.constants import (
 )
 from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_preserve_order
 from app.assistant.session import run_assistant_tool
-from app.assistant.tool_runner import PerTurnToolBudget
+from app.assistant.tool_runner import BoundAssistantToolRunner, PerTurnToolBudget
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -108,9 +108,7 @@ class AssistantService:
             telemetry=telemetry,
             initial_seen_object_ids=ui_context_result.exposed_object_ids,
         )
-
-        def tool_runner(tool_name: str, arguments: dict):
-            return tool_budget.run(self._user_id, tool_name, arguments)
+        tool_runner = BoundAssistantToolRunner(tool_budget, self._user_id)
 
         provider_result = self._provider.run(
             message=normalized_message,

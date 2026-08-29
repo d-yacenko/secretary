@@ -176,6 +176,9 @@ class OpenAIAssistantProvider:
                     }
                 )
 
+            if hasattr(tool_runner, "commit_model_visible_outputs"):
+                tool_runner.commit_model_visible_outputs()
+
         raise AssistantProviderError("assistant tool loop exceeded maximum rounds")
 
 

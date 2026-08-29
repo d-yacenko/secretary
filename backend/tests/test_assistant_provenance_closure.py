@@ -198,6 +198,9 @@ def test_retrieve_and_get_context_ids_still_seen(
         "retrieve",
         {"query": "PROVENANCE_RETRIEVE_MARKER", "limit": 5},
     )
+    assert email.id in budget.pending_seen_object_ids
+    assert email.id not in budget.seen_object_ids
+    budget.commit_model_visible_outputs()
     assert email.id in budget.seen_object_ids
 
     budget.run(
@@ -205,6 +208,8 @@ def test_retrieve_and_get_context_ids_still_seen(
         "get_context",
         {"object_id": str(email.id), "max_chars": 2000},
     )
+    assert email.id in budget.pending_seen_object_ids
+    budget.commit_model_visible_outputs()
     assert email.id in budget.seen_object_ids
 
 
