@@ -43,6 +43,8 @@ from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
 from app.services.notification_service import NotificationService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
+from app.services.retrieval_constants import TIME_SCOPE_AUTO
+from app.services.retrieval_service import RetrievalService
 from app.tools.executor import DEFAULT_MAX_TOOL_CALLS, ToolExecutionResult, _dispatch
 from app.tools.schemas import ToolError
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -1620,6 +1622,132 @@ def test_assistant_nornickel_retrieve_regression(
     assert result.affected_objects[0].state == PROPOSED_STATE
     ref_titles = {ref.title for ref in result.references}
     assert len(result.references) <= 8
+    assert all("Server status newsletter" not in title for title in ref_titles)
+
+
+def test_assistant_nornickel_kursy_nl_provider(
+    monkeypatch, db_session, fake_embedding_service, nornickel_user_id
+) -> None:
+    import json
+
+    from tests.test_retrieval import _seed_nornickel_corpus
+
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    event = corpus["event"]
+    nl_query = (
+        "посмотри по всем объектам что у нас связано с курсами по норникелю"
+    )
+    direct_hits = RetrievalService(db_session, nornickel_user_id).retrieve(
+        nl_query,
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    assert direct_hits
+    direct_titles = {hit.title for hit in direct_hits}
+    assert "Вопрос по Норникелю" in direct_titles or (
+        "Подготовить и провести семинар ADC для Норникеля" in direct_titles
+    )
+    assert "Тестовая задача из Linux клиента" not in direct_titles
+
+    tool_names: list[str] = []
+    retrieve_hit_titles: set[str] = set()
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            input_items = kwargs.get("input", [])
+            tool_output_count = sum(
+                1
+                for item in input_items
+                if isinstance(item, dict) and item.get("type") == "function_call_output"
+            )
+            response = MagicMock()
+            if tool_output_count == 0:
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.name = "retrieve"
+                function_call.call_id = "call-retrieve-kursy"
+                function_call.arguments = '{"query":"норникель","limit":5}'
+                response.output = [function_call]
+                response.output_text = None
+            elif tool_output_count == 1:
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.name = "get_context"
+                function_call.call_id = "call-context-kursy"
+                function_call.arguments = json.dumps({"object_id": str(event.id)})
+                response.output = [function_call]
+                response.output_text = None
+            elif tool_output_count == 2:
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.call_id = "call-create-kursy"
+                function_call.name = "create_task"
+                function_call.arguments = (
+                    '{"title":"Норникель follow-up","confidence":0.75}'
+                )
+                response.output = [function_call]
+                response.output_text = None
+            else:
+                response.output = []
+                response.output_text = "Собрал задачу по курсам Норникеля."
+            return response
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+
+    def _run(user_id, tool_name, arguments):
+        tool_names.append(tool_name)
+        nested = db_session.begin_nested()
+        tools = DomainToolService(
+            db_session, user_id, fake_embedding_service, defer_write_embeddings=True
+        )
+        try:
+            output = _dispatch(tools, tool_name, arguments)
+            nested.commit()
+            result = ToolExecutionResult(
+                success=True, tool_name=tool_name, output=output.model_dump(mode="json")
+            )
+            if tool_name == "retrieve" and result.output:
+                for hit in result.output.get("hits", []):
+                    retrieve_hit_titles.add(hit.get("title", ""))
+            return result
+        except ToolError as exc:
+            nested.rollback()
+            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+
+    monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
+    monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
+
+    provider = OpenAIAssistantProvider(api_key="test", model="gpt-test")
+    service = AssistantService(nornickel_user_id, provider)
+    live_message = (
+        "Посмотри по всем объектам. У нас есть что-то связанное "
+        "с курсами по норникелю? и собери из этого задачу"
+    )
+    result = service.send_message(message=live_message, history=[])
+
+    assert result.answer
+    provider_tool_names = [
+        name
+        for name in tool_names
+        if name in ("retrieve", "get_context", "create_task")
+    ]
+    assert provider_tool_names == ["retrieve", "get_context", "create_task"]
+    assert len(provider_tool_names) <= DEFAULT_MAX_TOOL_CALLS
+
+    assert "Вопрос по Норникелю" in retrieve_hit_titles
+    assert "Тестовая задача из Linux клиента" not in retrieve_hit_titles
+    assert all("Server status newsletter" not in title for title in retrieve_hit_titles)
+
+    assert result.affected_objects
+    assert result.affected_objects[0].kind == "task"
+    assert result.affected_objects[0].state == PROPOSED_STATE
+    ref_titles = {ref.title for ref in result.references}
+    assert len(result.references) <= MAX_ASSISTANT_REFERENCES
+    assert "Тестовая задача из Linux клиента" not in ref_titles
     assert all("Server status newsletter" not in title for title in ref_titles)
 
 

@@ -33,6 +33,14 @@ def user_b_id(db_session) -> uuid.UUID:
     return user_id
 
 
+@pytest.fixture
+def nornickel_user_id(db_session) -> uuid.UUID:
+    user_id = uuid.uuid4()
+    db_session.add(User(id=user_id, display_name="Nornickel corpus user"))
+    db_session.flush()
+    return user_id
+
+
 def _create_object(
     db_session,
     user_id: uuid.UUID,
@@ -639,6 +647,172 @@ def test_retrieval_explicit_date_range_both(db_session) -> None:
     assert in_range.id in ids
     assert too_early.id not in ids
     assert too_late.id not in ids
+
+
+def _seed_nornickel_corpus(db_session, user_id: uuid.UUID) -> dict[str, Object]:
+    now = datetime.now(UTC)
+    event = _create_object(
+        db_session,
+        user_id,
+        kind="event",
+        title="Вопрос по Норникелю",
+        body="Обсуждение активности",
+        provider="google_calendar",
+        occurred_at=now - timedelta(days=3),
+    )
+    task = _create_object(
+        db_session,
+        user_id,
+        kind="task",
+        title="Подготовить и провести семинар ADC для Норникеля",
+        body="Семинар ADC DQF",
+        occurred_at=None,
+    )
+    email_adc = _create_object(
+        db_session,
+        user_id,
+        kind="email",
+        title="Fwd: Обучающий семинар ADC DQF Норникель",
+        body="Обучающий семинар для Норникеля",
+        provider="yandex_mail",
+        occurred_at=now - timedelta(days=4),
+    )
+    email_training = _create_object(
+        db_session,
+        user_id,
+        kind="email",
+        title="Re: Семинары по обучению сотрудников Норникеля",
+        body="План обучения сотрудников",
+        provider="yandex_mail",
+        occurred_at=now - timedelta(days=2),
+    )
+    linux_task = _create_object(
+        db_session,
+        user_id,
+        kind="task",
+        title="Тестовая задача из Linux клиента",
+        body="linux client smoke marker",
+        occurred_at=None,
+    )
+    for index in range(12):
+        _create_object(
+            db_session,
+            user_id,
+            kind="email",
+            title=f"Server status newsletter {index}",
+            body="automated server monitoring message",
+            provider="gmail",
+            occurred_at=now - timedelta(days=1),
+        )
+    _create_object(
+        db_session,
+        user_id,
+        kind="email",
+        title="Random unrelated quarterly bulletin",
+        body="unrelated corporate newsletter",
+        provider="gmail",
+        occurred_at=now - timedelta(days=1),
+    )
+    return {
+        "event": event,
+        "task": task,
+        "email_adc": email_adc,
+        "email_training": email_training,
+        "linux_task": linux_task,
+    }
+
+
+def test_retrieval_nornickel_morphology(db_session, nornickel_user_id) -> None:
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    service = RetrievalService(db_session, nornickel_user_id)
+    anchor_ids = {corpus["event"].id, corpus["task"].id}
+
+    for query in ("норникель", "норникелю", "норникеля"):
+        hits = service.retrieve(query, time_scope=TIME_SCOPE_AUTO, limit=5).hits
+        hit_ids = {hit.object_id for hit in hits}
+        assert anchor_ids & hit_ids
+
+
+def test_retrieval_kursy_po_nornikelyu(db_session, nornickel_user_id) -> None:
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    hits = RetrievalService(db_session, nornickel_user_id).retrieve(
+        "курсы по норникелю",
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    assert hits
+    hit_ids = {hit.object_id for hit in hits}
+    assert corpus["event"].id in hit_ids or corpus["task"].id in hit_ids
+
+
+def test_retrieval_nl_phrase_nornickel(db_session, nornickel_user_id) -> None:
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    hits = RetrievalService(db_session, nornickel_user_id).retrieve(
+        "посмотри по всем объектам что у нас связано с курсами по норникелю",
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    assert hits
+    hit_ids = {hit.object_id for hit in hits}
+    assert corpus["event"].id in hit_ids or corpus["task"].id in hit_ids
+    titles = {hit.title for hit in hits}
+    assert "Тестовая задача из Linux клиента" not in titles
+
+
+def test_retrieval_adc_nornickel(db_session, nornickel_user_id) -> None:
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    hits = RetrievalService(db_session, nornickel_user_id).retrieve(
+        "ADC норникель",
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    hit_ids = {hit.object_id for hit in hits}
+    assert corpus["task"].id in hit_ids or corpus["email_adc"].id in hit_ids
+
+
+def test_retrieval_generic_terms_do_not_starve_distinctive(
+    db_session, nornickel_user_id
+) -> None:
+    corpus = _seed_nornickel_corpus(db_session, nornickel_user_id)
+    hits = RetrievalService(db_session, nornickel_user_id).retrieve(
+        "посмотри по всем объектам что у нас связано с курсами по норникелю",
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    ).hits
+    assert hits
+    assert hits[0].object_id != corpus["linux_task"].id
+    titles = {hit.title for hit in hits}
+    assert "Тестовая задача из Linux клиента" not in titles
+
+
+def test_retrieval_relaxed_mode_telemetry_fields(db_session, nornickel_user_id) -> None:
+    _seed_nornickel_corpus(db_session, nornickel_user_id)
+    result = RetrievalService(db_session, nornickel_user_id).retrieve(
+        "посмотри по всем объектам что у нас связано с курсами по норникелю",
+        time_scope=TIME_SCOPE_AUTO,
+        limit=5,
+    )
+    assert result.retrieval_mode == "relaxed"
+    assert result.query_atom_count > 0
+    assert result.selected_atom_count > 0
+
+
+def test_search_retrieve_consistency(db_session, nornickel_user_id) -> None:
+    _seed_nornickel_corpus(db_session, nornickel_user_id)
+    query = "норникель"
+    retrieval_ids = {
+        hit.object_id
+        for hit in RetrievalService(db_session, nornickel_user_id).retrieve(
+            query,
+            time_scope=TIME_SCOPE_ALL,
+            limit=5,
+        ).hits
+    }
+    search_ids = {
+        obj.id
+        for obj in SearchService(db_session, nornickel_user_id).search(query, limit=5)
+    }
+    assert retrieval_ids == search_ids
 
 
 def test_retrieval_rejects_invalid_date_range(db_session) -> None:

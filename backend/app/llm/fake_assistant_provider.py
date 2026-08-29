@@ -65,11 +65,12 @@ class FakeAssistantProvider:
                       _append_uuid(candidate_ids, item.get("object_id"))
           answer = "Pending items for Project Alpha are listed in the referenced objects."
       elif "норникел" in lowered:
-          query = (
-              "активность по норникелю"
-              if "активност" in lowered
-              else "норникель"
-          )
+          if "курс" in lowered:
+              query = "норникель"
+          elif "активност" in lowered:
+              query = "активность по норникелю"
+          else:
+              query = "норникель"
           retrieve_args = {"query": query, "limit": 5}
           if "стар" in lowered or "письм" in lowered:
               retrieve_args["time_scope"] = "all"

@@ -24,3 +24,6 @@ class RetrievalResult:
     time_scope_used: str
     horizon_days: int | None
     candidate_count: int = 0
+    retrieval_mode: str = "strict"
+    query_atom_count: int = 0
+    selected_atom_count: int = 0

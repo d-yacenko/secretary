@@ -13,6 +13,7 @@ from app.services.retrieval_constants import (
     DEFAULT_FINAL_HITS,
     FTS_BRANCH_LIMIT,
     FTS_DOCUMENT_SQL,
+    MAX_CANDIDATE_POOL,
     MAX_FINAL_HITS,
     MIN_BODY_FTS_THRESHOLD,
     MIN_TITLE_QUALIFY_THRESHOLD,
@@ -20,9 +21,16 @@ from app.services.retrieval_constants import (
     RECENCY_BONUS,
     RECENCY_WINDOW,
     RECENT_HORIZON_DAYS,
+    RELAXED_RUSSIAN_FTS_PER_ATOM,
+    RELAXED_SIMPLE_FTS_PER_ATOM,
+    RELAXED_TRIGRAM_PER_ATOM,
+    RETRIEVAL_MODE_RELAXED,
+    RETRIEVAL_MODE_STRICT,
+    RUSSIAN_FTS_DOCUMENT_SQL,
     SHORT_EXCERPT_MAX_CHARS,
     STRONG_TITLE_FTS_THRESHOLD,
     STRONG_TRIGRAM_THRESHOLD,
+    TERM_COVERAGE_BONUS,
     TIME_SCOPE_ALL,
     TIME_SCOPE_AUTO,
     TIME_SCOPE_RECENT,
@@ -33,6 +41,12 @@ from app.services.retrieval_constants import (
     YEAR_HORIZON_DAYS,
 )
 from app.services.retrieval_models import RetrievalHit, RetrievalResult
+from app.services.retrieval_query_atoms import (
+    extract_query_atoms,
+    is_cyrillic_atom,
+    is_technical_atom,
+    select_selective_atoms,
+)
 
 _BASE_WHERE = """
     o.user_id = :user_id
@@ -141,6 +155,54 @@ def _build_trigram_candidate_sql(filter_suffix: str) -> str:
     """
 
 
+def _build_atom_simple_fts_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM objects o
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      AND ({FTS_DOCUMENT_SQL}) @@ plainto_tsquery('simple', :atom)
+    ORDER BY
+      ts_rank(
+        ({FTS_DOCUMENT_SQL}),
+        plainto_tsquery('simple', :atom)
+      ) DESC,
+      o.id
+    LIMIT :branch_limit
+    """
+
+
+def _build_atom_russian_fts_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM objects o
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      AND ({RUSSIAN_FTS_DOCUMENT_SQL}) @@ plainto_tsquery('russian', :atom)
+    ORDER BY
+      ts_rank(
+        ({RUSSIAN_FTS_DOCUMENT_SQL}),
+        plainto_tsquery('russian', :atom)
+      ) DESC,
+      o.id
+    LIMIT :branch_limit
+    """
+
+
+def _build_atom_trigram_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM objects o
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      AND o.title % :atom
+    ORDER BY
+      similarity(coalesce(o.title, ''), :atom) DESC,
+      o.id
+    LIMIT :branch_limit
+    """
+
+
 _RANK_QUERY = text(
     """
     SELECT
@@ -153,15 +215,85 @@ _RANK_QUERY = text(
         o.occurred_at,
         o.body,
         o.created_at,
-        ts_rank(
-            to_tsvector('simple', coalesce(o.title, '')),
-            plainto_tsquery('simple', :query)
+        GREATEST(
+            ts_rank(
+                to_tsvector('simple', coalesce(o.title, '')),
+                plainto_tsquery('simple', :query)
+            ),
+            ts_rank(
+                to_tsvector('russian', coalesce(o.title, '')),
+                plainto_tsquery('russian', :query)
+            )
         ) AS title_rank,
-        ts_rank(
-            to_tsvector('simple', coalesce(o.body, '')),
-            plainto_tsquery('simple', :query)
+        GREATEST(
+            ts_rank(
+                to_tsvector('simple', coalesce(o.body, '')),
+                plainto_tsquery('simple', :query)
+            ),
+            ts_rank(
+                to_tsvector('russian', coalesce(o.body, '')),
+                plainto_tsquery('russian', :query)
+            )
         ) AS body_rank,
         similarity(coalesce(o.title, ''), :query) AS title_sim
+    FROM objects o
+    WHERE o.user_id = :user_id
+      AND o.id = ANY(:candidate_ids)
+    """
+)
+
+_TERM_RANK_QUERY = text(
+    """
+    SELECT
+        o.id,
+        (
+            SELECT MAX(
+                GREATEST(
+                    ts_rank(
+                        to_tsvector('simple', coalesce(o.title, '')),
+                        plainto_tsquery('simple', atom)
+                    ),
+                    ts_rank(
+                        to_tsvector('russian', coalesce(o.title, '')),
+                        plainto_tsquery('russian', atom)
+                    )
+                )
+            )
+            FROM unnest(CAST(:atoms AS text[])) AS atom
+        ) AS best_atom_title_rank,
+        (
+            SELECT MAX(
+                GREATEST(
+                    ts_rank(
+                        to_tsvector('simple', coalesce(o.body, '')),
+                        plainto_tsquery('simple', atom)
+                    ),
+                    ts_rank(
+                        to_tsvector('russian', coalesce(o.body, '')),
+                        plainto_tsquery('russian', atom)
+                    )
+                )
+            )
+            FROM unnest(CAST(:atoms AS text[])) AS atom
+        ) AS best_atom_body_rank,
+        (
+            SELECT MAX(similarity(coalesce(o.title, ''), atom))
+            FROM unnest(CAST(:atoms AS text[])) AS atom
+        ) AS best_atom_title_sim,
+        (
+            SELECT COUNT(*)::float
+            FROM unnest(CAST(:atoms AS text[])) AS atom
+            WHERE
+                to_tsvector('simple', coalesce(o.title, ''))
+                    @@ plainto_tsquery('simple', atom)
+                OR to_tsvector('russian', coalesce(o.title, ''))
+                    @@ plainto_tsquery('russian', atom)
+                OR to_tsvector('simple', coalesce(o.body, ''))
+                    @@ plainto_tsquery('simple', atom)
+                OR to_tsvector('russian', coalesce(o.body, ''))
+                    @@ plainto_tsquery('russian', atom)
+                OR o.title % atom
+        ) AS atom_match_count
     FROM objects o
     WHERE o.user_id = :user_id
       AND o.id = ANY(:candidate_ids)
@@ -219,13 +351,22 @@ class RetrievalService:
         last_hits: list[RetrievalHit] = []
         last_horizon: int | None = None
         last_candidate_count = 0
+        last_mode = RETRIEVAL_MODE_STRICT
+        last_query_atom_count = 0
+        last_selected_atom_count = 0
 
         for horizon_days in horizons:
             horizon_cutoff = None
             if horizon_days is not None:
                 horizon_cutoff = now - timedelta(days=horizon_days)
 
-            last_hits, last_candidate_count = self._score_and_rank(
+            (
+                last_hits,
+                last_candidate_count,
+                last_mode,
+                last_query_atom_count,
+                last_selected_atom_count,
+            ) = self._score_and_rank(
                 query=normalized_query,
                 kind=kind,
                 provider=provider,
@@ -250,9 +391,34 @@ class RetrievalService:
             time_scope_used=effective_scope,
             horizon_days=last_horizon,
             candidate_count=last_candidate_count,
+            retrieval_mode=last_mode,
+            query_atom_count=last_query_atom_count,
+            selected_atom_count=last_selected_atom_count,
         )
 
     def _collect_candidate_ids(
+        self,
+        query: str,
+        kind: str | None,
+        provider: str | None,
+        project_id: UUID | None,
+        horizon_cutoff: datetime | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        apply_horizon: bool,
+    ) -> list[UUID]:
+        return self._collect_strict_candidate_ids(
+            query=query,
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            horizon_cutoff=horizon_cutoff,
+            date_from=date_from,
+            date_to=date_to,
+            apply_horizon=apply_horizon,
+        )
+
+    def _collect_strict_candidate_ids(
         self,
         query: str,
         kind: str | None,
@@ -301,6 +467,79 @@ class RetrievalService:
             candidate_ids.append(object_id)
         return candidate_ids
 
+    def _collect_relaxed_candidate_ids(
+        self,
+        atoms: list[str],
+        kind: str | None,
+        provider: str | None,
+        project_id: UUID | None,
+        horizon_cutoff: datetime | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        apply_horizon: bool,
+        existing_ids: set[UUID],
+    ) -> list[UUID]:
+        if not atoms:
+            return []
+
+        filter_suffix = _build_filter_suffix(
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            horizon_cutoff=horizon_cutoff,
+            date_from=date_from,
+            date_to=date_to,
+            apply_horizon=apply_horizon,
+        )
+        base_params = {
+            "user_id": self._user_id,
+            "kind": kind,
+            "provider": provider,
+            "project_id": project_id,
+            "horizon_cutoff": horizon_cutoff,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+
+        seen = set(existing_ids)
+        candidate_ids: list[UUID] = []
+        simple_sql = _build_atom_simple_fts_sql(filter_suffix)
+        russian_sql = _build_atom_russian_fts_sql(filter_suffix)
+        trigram_sql = _build_atom_trigram_sql(filter_suffix)
+
+        for atom in atoms:
+            atom_params = {**base_params, "atom": atom}
+            if is_cyrillic_atom(atom):
+                for object_id in self._session.execute(
+                    text(russian_sql),
+                    {
+                        **atom_params,
+                        "branch_limit": RELAXED_RUSSIAN_FTS_PER_ATOM,
+                    },
+                ).scalars():
+                    _append_candidate(object_id, seen, candidate_ids)
+
+            if is_technical_atom(atom) or not is_cyrillic_atom(atom):
+                for object_id in self._session.execute(
+                    text(simple_sql),
+                    {
+                        **atom_params,
+                        "branch_limit": RELAXED_SIMPLE_FTS_PER_ATOM,
+                    },
+                ).scalars():
+                    _append_candidate(object_id, seen, candidate_ids)
+
+            for object_id in self._session.execute(
+                text(trigram_sql),
+                {
+                    **atom_params,
+                    "branch_limit": RELAXED_TRIGRAM_PER_ATOM,
+                },
+            ).scalars():
+                _append_candidate(object_id, seen, candidate_ids)
+
+        return candidate_ids
+
     def _score_and_rank(
         self,
         query: str,
@@ -312,8 +551,28 @@ class RetrievalService:
         date_to: datetime | None,
         apply_horizon: bool,
         recency_cutoff: datetime,
-    ) -> tuple[list[RetrievalHit], int]:
-        candidate_ids = self._collect_candidate_ids(
+    ) -> tuple[list[RetrievalHit], int, str, int, int]:
+        query_atoms = extract_query_atoms(query)
+        filter_suffix = _build_filter_suffix(
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            horizon_cutoff=horizon_cutoff,
+            date_from=date_from,
+            date_to=date_to,
+            apply_horizon=apply_horizon,
+        )
+        filter_params = {
+            "user_id": self._user_id,
+            "kind": kind,
+            "provider": provider,
+            "project_id": project_id,
+            "horizon_cutoff": horizon_cutoff,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+
+        strict_ids = self._collect_strict_candidate_ids(
             query=query,
             kind=kind,
             provider=provider,
@@ -323,9 +582,81 @@ class RetrievalService:
             date_to=date_to,
             apply_horizon=apply_horizon,
         )
-        if not candidate_ids:
-            return [], 0
 
+        retrieval_mode = RETRIEVAL_MODE_STRICT
+        selected_atoms: list[str] = []
+
+        if strict_ids:
+            strict_hits = self._rank_candidates(
+                query=query,
+                candidate_ids=strict_ids,
+                selected_atoms=None,
+                recency_cutoff=recency_cutoff,
+            )
+            if _has_strong_qualified_hits(strict_hits):
+                return (
+                    strict_hits,
+                    len(strict_ids),
+                    RETRIEVAL_MODE_STRICT,
+                    len(query_atoms),
+                    0,
+                )
+
+        selected_atoms = select_selective_atoms(
+            self._session,
+            self._user_id,
+            query_atoms,
+            filter_suffix,
+            filter_params,
+        )
+        seen_ids = set(strict_ids)
+        candidate_ids = list(strict_ids)
+        relaxed_ids = self._collect_relaxed_candidate_ids(
+            atoms=selected_atoms,
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            horizon_cutoff=horizon_cutoff,
+            date_from=date_from,
+            date_to=date_to,
+            apply_horizon=apply_horizon,
+            existing_ids=seen_ids,
+        )
+        for object_id in relaxed_ids:
+            if object_id in seen_ids:
+                continue
+            if len(candidate_ids) >= MAX_CANDIDATE_POOL:
+                break
+            seen_ids.add(object_id)
+            candidate_ids.append(object_id)
+
+        if selected_atoms and relaxed_ids:
+            retrieval_mode = RETRIEVAL_MODE_RELAXED
+
+        if not candidate_ids:
+            return [], 0, retrieval_mode, len(query_atoms), len(selected_atoms)
+
+        hits = self._rank_candidates(
+            query=query,
+            candidate_ids=candidate_ids,
+            selected_atoms=selected_atoms if selected_atoms else None,
+            recency_cutoff=recency_cutoff,
+        )
+        return (
+            hits,
+            len(candidate_ids),
+            retrieval_mode,
+            len(query_atoms),
+            len(selected_atoms),
+        )
+
+    def _rank_candidates(
+        self,
+        query: str,
+        candidate_ids: list[UUID],
+        selected_atoms: list[str] | None,
+        recency_cutoff: datetime,
+    ) -> list[RetrievalHit]:
         rows = self._session.execute(
             _RANK_QUERY,
             {
@@ -334,22 +665,68 @@ class RetrievalService:
                 "candidate_ids": candidate_ids,
             },
         ).mappings()
+        row_map = {row["id"]: dict(row) for row in rows}
 
+        term_map: dict[UUID, dict] = {}
+        if selected_atoms:
+            term_rows = self._session.execute(
+                _TERM_RANK_QUERY,
+                {
+                    "user_id": self._user_id,
+                    "candidate_ids": candidate_ids,
+                    "atoms": selected_atoms,
+                },
+            ).mappings()
+            term_map = {row["id"]: dict(row) for row in term_rows}
+
+        atom_count = len(selected_atoms or [])
         hits: list[RetrievalHit] = []
-        for row in rows:
+        for object_id in candidate_ids:
+            row = row_map.get(object_id)
+            if row is None:
+                continue
+
             title_rank = float(row["title_rank"] or 0.0)
             body_rank = float(row["body_rank"] or 0.0)
             title_sim = float(row["title_sim"] or 0.0)
+
+            best_atom_title_rank = 0.0
+            best_atom_body_rank = 0.0
+            best_atom_title_sim = 0.0
+            coverage = 0.0
+            term_row = term_map.get(object_id)
+            if term_row is not None and atom_count > 0:
+                best_atom_title_rank = float(term_row["best_atom_title_rank"] or 0.0)
+                best_atom_body_rank = float(term_row["best_atom_body_rank"] or 0.0)
+                best_atom_title_sim = float(term_row["best_atom_title_sim"] or 0.0)
+                coverage = float(term_row["atom_match_count"] or 0.0) / atom_count
+
+            strict_quality = (
+                TITLE_FTS_WEIGHT * title_rank
+                + BODY_FTS_WEIGHT * body_rank
+                + TRIGRAM_WEIGHT * title_sim
+            )
+            term_quality = (
+                TITLE_FTS_WEIGHT * best_atom_title_rank
+                + BODY_FTS_WEIGHT * best_atom_body_rank
+                + TRIGRAM_WEIGHT * best_atom_title_sim
+                + TERM_COVERAGE_BONUS * coverage
+            )
+            match_quality = (
+                max(strict_quality, term_quality)
+                if selected_atoms
+                else strict_quality
+            )
+
+            effective_title_rank = max(title_rank, best_atom_title_rank)
+            effective_body_rank = max(body_rank, best_atom_body_rank)
+            effective_title_sim = max(title_sim, best_atom_title_sim)
+
             kind_value = str(row["kind"])
             occurred_at = row["occurred_at"]
             created_at = row["created_at"]
             recency_signal = _recency_signal(
                 kind_value, occurred_at, created_at, recency_cutoff
-            )
-            match_quality = (
-                TITLE_FTS_WEIGHT * title_rank
-                + BODY_FTS_WEIGHT * body_rank
-                + TRIGRAM_WEIGHT * title_sim
             )
             ranking_score = match_quality
             if kind_value in ANCHOR_KINDS:
@@ -358,16 +735,16 @@ class RetrievalService:
                 ranking_score += RECENCY_BONUS
 
             reasons = _build_reasons(
-                title_rank=title_rank,
-                body_rank=body_rank,
-                title_sim=title_sim,
+                title_rank=effective_title_rank,
+                body_rank=effective_body_rank,
+                title_sim=effective_title_sim,
                 kind=kind_value,
                 recency_signal=recency_signal,
             )
 
             hits.append(
                 RetrievalHit(
-                    object_id=row["id"],
+                    object_id=object_id,
                     title=str(row["title"]),
                     kind=kind_value,
                     provider=row["provider"],
@@ -385,7 +762,7 @@ class RetrievalService:
             )
 
         hits.sort(key=lambda item: (-item.relevance, str(item.object_id)))
-        return hits, len(candidate_ids)
+        return hits
 
     def _should_stop_horizon_expansion(self, hits: list[RetrievalHit]) -> bool:
         qualified = [hit for hit in hits if _hit_is_qualified(hit)]
@@ -396,6 +773,24 @@ class RetrievalService:
     def _trim_to_limit(self, hits: list[RetrievalHit], limit: int) -> list[RetrievalHit]:
         qualified = [hit for hit in hits if _hit_is_qualified(hit)]
         return qualified[:limit]
+
+
+def _append_candidate(
+    object_id: UUID,
+    seen: set[UUID],
+    candidate_ids: list[UUID],
+) -> None:
+    if object_id in seen:
+        return
+    if len(candidate_ids) >= MAX_CANDIDATE_POOL:
+        return
+    seen.add(object_id)
+    candidate_ids.append(object_id)
+
+
+def _has_strong_qualified_hits(hits: list[RetrievalHit]) -> bool:
+    qualified = [hit for hit in hits if _hit_is_qualified(hit)]
+    return any(_is_strong_textual_hit(hit) for hit in qualified)
 
 
 def _recency_signal(

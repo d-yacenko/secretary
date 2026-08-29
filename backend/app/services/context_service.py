@@ -160,7 +160,7 @@ class ContextService:
                     )
                 )
 
-            neighbor_rows = self._graph.get_neighbors(object_id)
+            neighbor_rows = self._graph.get_neighbors(object_id, limit=MAX_NEIGHBORS)
             neighbor_rows = sorted(
                 neighbor_rows,
                 key=lambda row: (
@@ -168,7 +168,7 @@ class ContextService:
                     row[1].type,
                     str(row[0].id),
                 ),
-            )[:MAX_NEIGHBORS]
+            )
 
             for neighbor, edge, _direction in neighbor_rows:
                 if neighbor.id in included_object_ids:

@@ -1,4 +1,5 @@
 import os
+import uuid
 from uuid import UUID
 
 os.environ.setdefault("MCP_ENABLED", "false")
@@ -65,6 +66,14 @@ def _ensure_bootstrap_user_exists() -> None:
 @pytest.fixture
 def bootstrap_user_id():
     return BOOTSTRAP_USER_ID
+
+
+@pytest.fixture
+def nornickel_user_id(db_session) -> uuid.UUID:
+    user_id = uuid.uuid4()
+    db_session.add(User(id=user_id, display_name="Nornickel corpus user"))
+    db_session.flush()
+    return user_id
 
 
 @pytest.fixture

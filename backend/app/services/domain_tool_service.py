@@ -132,6 +132,9 @@ class DomainToolService:
             time_scope_used=result.time_scope_used,
             horizon_days=result.horizon_days,
             candidate_count=result.candidate_count,
+            retrieval_mode=result.retrieval_mode,
+            query_atom_count=result.query_atom_count,
+            selected_atom_count=result.selected_atom_count,
         )
 
     def get_object(self, input: GetObjectInput) -> GetObjectOutput:

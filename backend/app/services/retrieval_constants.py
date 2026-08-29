@@ -53,3 +53,110 @@ FTS_DOCUMENT_SQL = (
     "setweight(to_tsvector('simple', coalesce(o.title, '')), 'A') "
     "|| setweight(to_tsvector('simple', coalesce(o.body, '')), 'C')"
 )
+
+# Russian morphology channel — must match migration 0017 GIN index expression.
+RUSSIAN_FTS_DOCUMENT_SQL = (
+    "setweight(to_tsvector('russian', coalesce(o.title, '')), 'A') "
+    "|| setweight(to_tsvector('russian', coalesce(o.body, '')), 'C')"
+)
+
+MAX_QUERY_ATOMS = 8
+MAX_SELECTED_ATOMS = 4
+MIN_ATOM_LENGTH = 3
+ATOM_PROBE_LIMIT = 20
+
+RELAXED_SIMPLE_FTS_PER_ATOM = 10
+RELAXED_RUSSIAN_FTS_PER_ATOM = 10
+RELAXED_TRIGRAM_PER_ATOM = 10
+
+TERM_COVERAGE_BONUS = 0.15
+
+RETRIEVAL_MODE_STRICT = "strict"
+RETRIEVAL_MODE_RELAXED = "relaxed"
+
+GENERIC_QUERY_WORDS = frozenset(
+    {
+        "посмотри",
+        "посмотреть",
+        "найди",
+        "найти",
+        "создай",
+        "создать",
+        "собери",
+        "сделать",
+        "сделай",
+        "было",
+        "была",
+        "были",
+        "есть",
+        "надо",
+        "нужно",
+        "необходимо",
+        "объект",
+        "объекты",
+        "объекта",
+        "объектам",
+        "объектов",
+        "задача",
+        "задачу",
+        "задачи",
+        "активность",
+        "активности",
+        "курс",
+        "курсы",
+        "курса",
+        "курсов",
+        "история",
+        "истории",
+        "данные",
+        "информация",
+        "что",
+        "как",
+        "где",
+        "когда",
+        "почему",
+        "зачем",
+        "нас",
+        "нам",
+        "наш",
+        "наша",
+        "наше",
+        "связано",
+        "связанное",
+        "связанные",
+        "связанный",
+        "всем",
+        "всех",
+        "все",
+        "вся",
+        "чего",
+        "этого",
+        "этом",
+        "этой",
+        "этих",
+        "у",
+        "по",
+        "из",
+        "для",
+        "при",
+        "без",
+        "или",
+        "ещё",
+        "еще",
+        "find",
+        "search",
+        "look",
+        "create",
+        "make",
+        "task",
+        "object",
+        "objects",
+        "activity",
+        "related",
+        "something",
+        "anything",
+        "everything",
+        "all",
+        "about",
+    }
+)
