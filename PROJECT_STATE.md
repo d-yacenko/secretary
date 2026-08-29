@@ -4,7 +4,7 @@
 
 PHASE 19 — local files and huge datasets: **accepted / closed**
 
-PHASE 19.5 — auth, connections, manual capture: **implemented, awaiting review**
+PHASE 19.5 — auth, connections, manual capture: **final corrective implemented, awaiting final acceptance**
 
 PHASE 20 — Flutter client: **not started**
 
@@ -18,15 +18,14 @@ See `DECISIONS.md`. PHASE 19.5 required before PHASE 20 Flutter.
 
 - PHASE 00–19: (prior phases, PHASE 19 closed)
 - PHASE 19.5:
-  - Opaque bearer tokens with hashed storage and operator CLI
-  - Authenticated personal APIs (`/me`, `/connections`, capture)
-  - Manual task capture with pinned context and dependencies
-  - Pinned context priority in context assembly
-  - Google OAuth start requires Secretary auth; callback uses state only
+  - Bearer auth, `/me`, `/connections`, manual capture
+  - Async embed indexing for captured tasks
+  - Bounded pinned-context excerpts in context assembly
+  - HTTP two-user isolation regressions
 
 ## Not done
 
-- PHASE 19.5 review acceptance
+- PHASE 19.5 final acceptance
 - PHASE 20+ (Flutter)
 
 ## Next phase

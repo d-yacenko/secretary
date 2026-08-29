@@ -1,20 +1,18 @@
-# Current task — PHASE 19.5 (implemented; awaiting review)
+# Current task — PHASE 19.5 final corrective (implemented; awaiting final acceptance)
 
 ## Status
 
-PHASE 19.5 implemented. Full offline suite: 335 passed, 2 skipped. Not deployed.
+PHASE 19.5 final corrective complete. Full offline suite: 350 passed, 2 skipped. Not deployed.
 
 PHASE 20 not started.
 
-## Implemented
+## Final corrective
 
-- Bearer token auth (`auth_tokens` migration, operator CLI)
-- `GET /me`, `GET /connections`
-- `POST /capture/task` with pinned context and dependencies
-- Pinned context priority in context assembly
-- Google/Yandex flows scoped to authenticated user
-- No bootstrap-user API fallback
+- Capture enqueues async `embed_object` without synchronous OpenAI
+- Pinned context includes bounded body excerpts when representations absent
+- Exact manual text preserved with explicit input bounds
+- HTTP two-token isolation regressions for auth boundaries
 
 ## STOP
 
-Awaiting PHASE 19.5 review. Do not start PHASE 20 without approval.
+Awaiting PHASE 19.5 final acceptance. Do not start PHASE 20 without approval.

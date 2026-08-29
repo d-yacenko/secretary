@@ -28,6 +28,18 @@ DEFAULT_MAX_CHARS = 8000
 MAX_NEIGHBORS = 10
 MAX_SEMANTIC_CANDIDATES = 10
 MAX_CHUNKS = 8
+PINNED_BODY_EXCERPT_MAX = 1800
+
+USEFUL_REPRESENTATION_KINDS = frozenset(
+    {
+        KIND_FULL,
+        KIND_SUMMARY,
+        KIND_CHUNK,
+        KIND_SCHEMA,
+        KIND_STATISTICS,
+        KIND_SAMPLE,
+    }
+)
 
 STRUCTURAL_EDGE_TYPES = frozenset(
     {
@@ -141,7 +153,7 @@ class ContextService:
                         protected=True,
                         item=self._object_item(
                             neighbor,
-                            content=self._neighbor_reference_content(neighbor),
+                            content=self._pinned_context_content(neighbor),
                             edge=edge,
                             why_included="user-pinned context",
                         ),
@@ -432,6 +444,25 @@ class ContextService:
             canonical_uri=obj.canonical_uri,
         )
 
+    def _pinned_context_content(self, obj: Object) -> str:
+        parts = [obj.title]
+        if obj.canonical_uri:
+            parts.append(f"reference: {obj.canonical_uri}")
+        if self._has_useful_representations(obj.id):
+            return "\n".join(parts)
+        if obj.body:
+            excerpt, truncated = _bounded_body_excerpt(obj.body, PINNED_BODY_EXCERPT_MAX)
+            label = "body excerpt (truncated)" if truncated else "body excerpt"
+            parts.append(f"{label}:\n{excerpt}")
+        return "\n".join(parts)
+
+    def _has_useful_representations(self, object_id: UUID) -> bool:
+        reps = self._representations.list_for_object(object_id)
+        return any(
+            rep.kind in USEFUL_REPRESENTATION_KINDS and (rep.text or rep.kind == KIND_SCHEMA)
+            for rep in reps
+        )
+
     def _target_reference_content(self, obj: Object) -> str:
         reps = self._representations.list_for_object(obj.id)
         if any(rep.kind in {KIND_CHUNK, KIND_SCHEMA} for rep in reps):
@@ -451,6 +482,14 @@ class ContextService:
         if obj.body and len(obj.body) <= 500:
             return f"{obj.title}\n{obj.body}"
         return obj.title
+
+
+def _bounded_body_excerpt(body: str, max_len: int) -> tuple[str, bool]:
+    if len(body) <= max_len:
+        return body, False
+    if max_len <= 1:
+        return "…", True
+    return body[: max_len - 1].rstrip() + "…", True
 
 
 def _item_chars(item: ContextItem) -> int:

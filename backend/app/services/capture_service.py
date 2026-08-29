@@ -6,11 +6,15 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.db.models import Object
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.services.errors import NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.job_queue_service import JobQueueService
 
 MAX_CAPTURE_CONTEXT_IDS = 20
 MAX_CAPTURE_DEPENDS_ON_IDS = 20
+MAX_CAPTURE_TEXT_CHARS = 16000
+MAX_CAPTURE_TITLE_CHARS = 200
 PINNED_CONTEXT_ROLE = "user_pinned"
 PINNED_ADDED_BY = "user"
 
@@ -27,6 +31,7 @@ class CaptureService:
         self._session = session
         self._user_id = user_id
         self._graph = GraphService(session, user_id)
+        self._job_queue = JobQueueService(session)
 
     def capture_task(
         self,
@@ -35,9 +40,10 @@ class CaptureService:
         context_object_ids: list[UUID] | None = None,
         depends_on_ids: list[UUID] | None = None,
     ) -> CaptureTaskResult:
-        body = text.strip()
-        if not body:
+        if not text.strip():
             raise ValidationError("text must not be empty")
+        if len(text) > MAX_CAPTURE_TEXT_CHARS:
+            raise ValidationError("text exceeds maximum length")
 
         context_ids = list(context_object_ids or [])
         dependency_ids = list(depends_on_ids or [])
@@ -46,7 +52,14 @@ class CaptureService:
         if len(dependency_ids) > MAX_CAPTURE_DEPENDS_ON_IDS:
             raise ValidationError("depends_on_ids exceeds limit")
 
-        resolved_title = title.strip() if title else _derive_title(body)
+        if title is not None:
+            if not title.strip():
+                raise ValidationError("title must not be empty when provided")
+            if len(title) > MAX_CAPTURE_TITLE_CHARS:
+                raise ValidationError("title exceeds maximum length")
+            resolved_title = title
+        else:
+            resolved_title = _derive_title(text)
         if not resolved_title:
             raise ValidationError("title could not be derived from text")
 
@@ -57,7 +70,7 @@ class CaptureService:
             ObjectCreate(
                 kind="task",
                 title=resolved_title,
-                body=body,
+                body=text,
                 origin="user",
                 state="confirmed",
             )
@@ -93,6 +106,12 @@ class CaptureService:
             )
             dependency_edge_ids.append(edge.id)
 
+        self._job_queue.enqueue(
+            JOB_TYPE_EMBED_OBJECT,
+            {"object_id": str(task.id)},
+            user_id=self._user_id,
+        )
+
         return CaptureTaskResult(
             task_id=task.id,
             context_edge_ids=context_edge_ids,
@@ -111,7 +130,7 @@ class CaptureService:
                 raise NotFoundError("object", object_id)
 
 
-def _derive_title(text: str, max_len: int = 120) -> str:
+def _derive_title(text: str, max_len: int = MAX_CAPTURE_TITLE_CHARS) -> str:
     for line in text.splitlines():
         stripped = line.strip()
         if stripped:

@@ -3,8 +3,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-MAX_CAPTURE_CONTEXT_IDS = 20
-MAX_CAPTURE_DEPENDS_ON_IDS = 20
+from app.services.capture_service import (
+    MAX_CAPTURE_CONTEXT_IDS,
+    MAX_CAPTURE_DEPENDS_ON_IDS,
+    MAX_CAPTURE_TEXT_CHARS,
+    MAX_CAPTURE_TITLE_CHARS,
+)
 
 
 class UserMeOut(BaseModel):
@@ -39,8 +43,8 @@ class ConnectionsOut(BaseModel):
 
 
 class CaptureTaskRequest(BaseModel):
-    text: str = Field(min_length=1)
-    title: str | None = None
+    text: str = Field(min_length=1, max_length=MAX_CAPTURE_TEXT_CHARS)
+    title: str | None = Field(default=None, max_length=MAX_CAPTURE_TITLE_CHARS)
     context_object_ids: list[UUID] = Field(default_factory=list, max_length=MAX_CAPTURE_CONTEXT_IDS)
     depends_on_ids: list[UUID] = Field(default_factory=list, max_length=MAX_CAPTURE_DEPENDS_ON_IDS)
 
@@ -49,6 +53,13 @@ class CaptureTaskRequest(BaseModel):
     def text_not_blank(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("text must not be empty")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank_when_present(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("title must not be empty when provided")
         return value
 
 
