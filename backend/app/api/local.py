@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
+from app.local.constants import MAX_REPORT_BATCH
+from app.local.errors import LocalAccessError, LocalFileError, LocalPathError
 from app.local.paths import LocalPathResolver
 from app.services.dataset_tool_service import DatasetToolService
 from app.services.errors import NotFoundError, ValidationError
@@ -91,7 +93,7 @@ class LocalFileReportItem(BaseModel):
 class LocalFilesReportRequest(BaseModel):
     device_key: str = Field(min_length=1, max_length=128)
     root_path: str = Field(min_length=1, max_length=512)
-    files: list[LocalFileReportItem] = Field(min_length=1)
+    files: list[LocalFileReportItem] = Field(min_length=1, max_length=MAX_REPORT_BATCH)
 
 
 class LocalSyncOut(BaseModel):
@@ -116,6 +118,12 @@ def _http_error(exc: Exception) -> HTTPException:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{exc.resource} not found",
         )
+    if isinstance(exc, LocalPathError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message)
+    if isinstance(exc, LocalAccessError):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.message)
+    if isinstance(exc, LocalFileError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message)
     raise exc
 
 
@@ -126,7 +134,7 @@ def register_local_device(
 ) -> LocalDeviceRegisterOut:
     try:
         result = service.register_device(data.device_key, data.display_name)
-    except ValidationError as exc:
+    except (ValidationError, LocalPathError) as exc:
         raise _http_error(exc) from exc
     return LocalDeviceRegisterOut(
         device_id=result.device_id,
@@ -147,7 +155,7 @@ def register_local_root(
             data.root_path,
             default_policy=data.default_policy,
         )
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalPathError) as exc:
         raise _http_error(exc) from exc
     return LocalRootRegisterOut(
         root_id=result.root_id,
@@ -165,7 +173,7 @@ def scan_local_root(
 ) -> LocalSyncOut:
     try:
         result = service.scan_root(root_id)
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalPathError, LocalAccessError) as exc:
         raise _http_error(exc) from exc
     return LocalSyncOut(
         objects_created=result.objects_created,
@@ -194,7 +202,7 @@ def report_local_files(
     ]
     try:
         result = service.report_files(data.device_key, data.root_path, reports)
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalPathError, LocalAccessError, LocalFileError) as exc:
         raise _http_error(exc) from exc
     return LocalSyncOut(
         objects_created=result.objects_created,
@@ -213,7 +221,7 @@ def get_dataset_schema(
 ) -> dict:
     try:
         return service.get_schema(object_id)
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalAccessError, LocalFileError) as exc:
         raise _http_error(exc) from exc
 
 
@@ -225,7 +233,7 @@ def get_dataset_sample(
 ) -> dict:
     try:
         return service.get_sample(object_id, limit=limit)
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalAccessError, LocalFileError) as exc:
         raise _http_error(exc) from exc
 
 
@@ -236,7 +244,7 @@ def get_dataset_stats(
 ) -> dict:
     try:
         return service.get_basic_stats(object_id)
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalAccessError, LocalFileError) as exc:
         raise _http_error(exc) from exc
 
 
@@ -248,5 +256,5 @@ def query_dataset_columns(
 ) -> dict:
     try:
         return service.query_columns(object_id, data.columns, limit=data.limit)
-    except (ValidationError, NotFoundError) as exc:
+    except (ValidationError, NotFoundError, LocalAccessError, LocalFileError) as exc:
         raise _http_error(exc) from exc

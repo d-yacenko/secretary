@@ -11,11 +11,13 @@ from sqlalchemy import select
 
 from app.api.deps import get_db
 from app.db.models import Job, Object, Representation, User
-from app.jobs.constants import JOB_TYPE_INGEST_LOCAL_FILE
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_INGEST_LOCAL_FILE
 from app.jobs.handlers import handle_ingest_local_file
 from app.local.constants import (
+    MAX_TEXT_WINDOW_BYTES,
     POLICY_INDEX_TEXT,
     POLICY_METADATA_ONLY,
+    POLICY_UPLOAD_COPY,
     PROVIDER_LOCAL_DEVICE,
 )
 from app.local.paths import LocalPathResolver
@@ -154,7 +156,7 @@ def test_large_csv_local_file_produces_schema_and_sample(
         handle_ingest_local_file(
             db_session,
             None,
-            {"object_id": job.payload["object_id"]},
+            job.payload,
             BOOTSTRAP_USER_ID,
         )
 
@@ -252,7 +254,7 @@ def test_worker_rejects_other_user_local_ingest_job(db_session, local_mirror: Pa
         origin="user",
         state="confirmed",
         provider=PROVIDER_LOCAL_DEVICE,
-        external_id="device-a:secret.txt",
+        external_id="device-a:docs/secret.txt",
         metadata_={
             "device_key": "device-a",
             "local_root_path": "docs",
@@ -267,11 +269,15 @@ def test_worker_rejects_other_user_local_ingest_job(db_session, local_mirror: Pa
     ):
         with pytest.raises(ValueError, match="ownership mismatch"):
             handle_ingest_local_file(
-            db_session,
-            None,
-            {"object_id": str(obj.id)},
-            user_b_id,
-        )
+                db_session,
+                None,
+                {
+                    "object_id": str(obj.id),
+                    "expected_revision": "rev",
+                    "expected_policy": POLICY_INDEX_TEXT,
+                },
+                user_b_id,
+            )
 
 
 def test_local_api_register_and_scan(local_client: TestClient, local_mirror: Path) -> None:
@@ -302,3 +308,160 @@ def test_local_api_register_and_scan(local_client: TestClient, local_mirror: Pat
     body = scan_resp.json()
     assert body["objects_created"] == 1
     assert body["ingest_jobs_enqueued"] == 0
+
+
+def test_same_device_different_roots_create_distinct_objects(
+    local_mirror: Path, db_session, tmp_path: Path
+) -> None:
+    upload_root = tmp_path / "uploads"
+    device_service = _device_service(db_session, local_mirror)
+    device_service.register_device("desk-4", "Desktop")
+    root_a = device_service.register_root("desk-4", "root-a", default_policy=POLICY_METADATA_ONLY)
+    root_b = device_service.register_root("desk-4", "root-b", default_policy=POLICY_METADATA_ONLY)
+
+    dir_a = LocalPathResolver(local_mirror).resolve_root_path(BOOTSTRAP_USER_ID, "desk-4", "root-a")
+    dir_b = LocalPathResolver(local_mirror).resolve_root_path(BOOTSTRAP_USER_ID, "desk-4", "root-b")
+    (dir_a / "readme.md").write_text("root a", encoding="utf-8")
+    (dir_b / "readme.md").write_text("root b", encoding="utf-8")
+
+    sync = _sync_service(db_session, local_mirror, upload_root)
+    sync.scan_root(root_a.root_id)
+    sync.scan_root(root_b.root_id)
+
+    objs = db_session.scalars(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE)).all()
+    assert len(objs) == 2
+    external_ids = {obj.external_id for obj in objs}
+    assert external_ids == {"desk-4:root-a/readme.md", "desk-4:root-b/readme.md"}
+
+
+def test_policy_change_to_index_text_enqueues_single_ingest(
+    local_mirror: Path, db_session, tmp_path: Path
+) -> None:
+    upload_root = tmp_path / "uploads"
+    device_service = _device_service(db_session, local_mirror)
+    device_service.register_device("policy-device", "Desktop")
+    root = device_service.register_root(
+        "policy-device", "docs", default_policy=POLICY_METADATA_ONLY
+    )
+    root_dir = LocalPathResolver(local_mirror).resolve_root_path(
+        BOOTSTRAP_USER_ID, "policy-device", "docs"
+    )
+    note = root_dir / "note.txt"
+    note.write_text("policy change content", encoding="utf-8")
+    mtime = _mtime_iso(note)
+
+    sync = _sync_service(db_session, local_mirror, upload_root)
+    first = sync.report_files(
+        "policy-device",
+        "docs",
+        [
+            LocalFileReport(
+                relative_path="note.txt",
+                size=note.stat().st_size,
+                modified_at=mtime,
+            )
+        ],
+    )
+    assert first.ingest_jobs_enqueued == 0
+
+    second = sync.report_files(
+        "policy-device",
+        "docs",
+        [
+            LocalFileReport(
+                relative_path="note.txt",
+                size=note.stat().st_size,
+                modified_at=mtime,
+                policy=POLICY_INDEX_TEXT,
+            )
+        ],
+    )
+    assert second.ingest_jobs_enqueued == 1
+
+    jobs = db_session.scalars(
+        select(Job).where(Job.type == JOB_TYPE_INGEST_LOCAL_FILE)
+    ).all()
+    assert len(jobs) == 1
+
+    obj = db_session.scalar(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE))
+    assert obj is not None
+    payload = jobs[0].payload
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ), patch("app.core.config.settings.local_files_root", str(local_mirror)):
+        handle_ingest_local_file(db_session, None, payload, BOOTSTRAP_USER_ID)
+        handle_ingest_local_file(db_session, None, payload, BOOTSTRAP_USER_ID)
+
+    embed_jobs = db_session.scalars(
+        select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+    ).all()
+    assert len(embed_jobs) == 1
+
+
+def test_large_csv_stats_are_bounded_and_marked_sampled(
+    local_mirror: Path, db_session, tmp_path: Path
+) -> None:
+    from app.local.constants import MAX_CSV_STATS_SAMPLE_ROWS
+    from app.services.representation_service import KIND_STATISTICS
+
+    upload_root = tmp_path / "uploads"
+    device_service = _device_service(db_session, local_mirror)
+    device_service.register_device("big-csv", "Desktop")
+    root = device_service.register_root("big-csv", "data", default_policy=POLICY_INDEX_TEXT)
+    root_dir = LocalPathResolver(local_mirror).resolve_root_path(
+        BOOTSTRAP_USER_ID, "big-csv", "data"
+    )
+    csv_path = root_dir / "big.csv"
+    rows = ["id,value"] + [f"{i},{i}" for i in range(MAX_CSV_STATS_SAMPLE_ROWS + 500)]
+    csv_path.write_text("\n".join(rows), encoding="utf-8")
+
+    sync = _sync_service(db_session, local_mirror, upload_root)
+    sync.scan_root(root.root_id)
+    job = db_session.scalar(select(Job).where(Job.type == JOB_TYPE_INGEST_LOCAL_FILE))
+    assert job is not None
+
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ), patch("app.core.config.settings.local_files_root", str(local_mirror)):
+        handle_ingest_local_file(db_session, None, job.payload, BOOTSTRAP_USER_ID)
+
+    obj = db_session.scalar(select(Object).where(Object.kind == "dataset"))
+    assert obj is not None
+    stats = db_session.scalar(
+        select(Representation).where(
+            Representation.object_id == obj.id,
+            Representation.kind == KIND_STATISTICS,
+        )
+    )
+    assert stats is not None
+    assert stats.metadata_["stats_truncated"] is True
+
+
+def test_malicious_upload_path_rejected_for_dataset_tools(
+    db_session, tmp_path: Path, local_mirror: Path
+) -> None:
+    upload_root = tmp_path / "uploads"
+    evil = tmp_path / "evil.csv"
+    evil.write_text("a\n1", encoding="utf-8")
+
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="dataset",
+        title="evil",
+        origin="user",
+        state="confirmed",
+        metadata_={"upload_path": str(evil)},
+    )
+    db_session.add(obj)
+    db_session.flush()
+
+    tools = DatasetToolService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        LocalPathResolver(local_mirror),
+        upload_root=upload_root,
+    )
+    from app.local.errors import LocalAccessError
+
+    with pytest.raises(LocalAccessError):
+        tools.get_schema(obj.id)

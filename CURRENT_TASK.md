@@ -1,29 +1,20 @@
-# Current task — PHASE 19 (implemented; awaiting review)
+# Current task — PHASE 19 review corrective (implemented; awaiting review)
 
 ## Status
 
-PHASE 19 code complete. Offline tests pass. Not deployed.
+PHASE 19 review corrective complete. Full offline suite: 312 passed, 2 skipped. Not deployed.
 
-## Goal
+PHASE 19.5 not started. PHASE 20 not started.
 
-Register local desktop resources without forcing upload; bounded dataset tooling.
+## Corrective fixes
 
-## Implemented
-
-- User-scoped `local_devices` + `local_roots` (migration `0013`)
-- Mirror filesystem under `local_files_root` with path traversal guards
-- `POST /local/devices/register`, `/local/roots/register`, `/local/roots/{id}/scan`, `/local/files/report`
-- Policies: `metadata_only` (default), `index_text`, `upload_copy`
-- Objects: `provider=local_device`, `personal://device/<key>/file/<object-id>` URI
-- Stable identity via path-based `external_id`; revision from size/mtime/hash
-- Worker job `ingest_local_file` with ownership check before filesystem access
-- Dataset tools API: schema, sample, stats, column query (bounded rows)
-
-## Defer
-
-- Real auth/session (PHASE 19.5)
-- Flutter client (PHASE 20+)
-- Desktop sync agent (uses report/scan APIs)
+1. **Device/filesystem isolation** — logical `device_key` in DB; filesystem dir derived via `device_keys`; mirror under `LOCAL_FILES_ROOT/<user_id>/`; traversal/symlink rejected; `LocalPathError`/`LocalAccessError` → 4xx.
+2. **Shared local mirror volume** — `local_files_data` mounted in api + worker; `LOCAL_FILES_ROOT` set for both.
+3. **Local resource identity** — `external_id` = `device_key` + normalized full logical path (root + relative).
+4. **Bounded I/O** — no full-file reads for text/CSV/Parquet; streaming hash; truncated/sampled metadata.
+5. **Ingest idempotency** — jobs carry `expected_revision` + `expected_policy`; stale/duplicate no-op; policy-only changes enqueue once.
+6. **Dataset path trust** — only `LocalPathResolver` or validated upload paths under `RESOURCE_UPLOAD_ROOT/<user_id>/<object_id>/`.
+7. **Bounded scan** — separate supported vs inspection caps; honest `items_truncated`; report batch `max_length`.
 
 ## STOP
 

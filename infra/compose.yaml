@@ -38,9 +38,11 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:18080/auth/google/callback}
       SECRETARY_CREDENTIAL_KEY: ${SECRETARY_CREDENTIAL_KEY:-}
       RESOURCE_UPLOAD_ROOT: /var/lib/secretary/resources
+      LOCAL_FILES_ROOT: /var/lib/secretary/local-files
     volumes:
       - ../secrets/google-oauth-client.json:/run/secrets/google-oauth-client.json:ro
       - resource_data:/var/lib/secretary/resources
+      - local_files_data:/var/lib/secretary/local-files
     ports:
       - "${SECRETARY_API_BIND:-0.0.0.0:8000}:8000"
     depends_on:
@@ -68,9 +70,11 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:18080/auth/google/callback}
       SECRETARY_CREDENTIAL_KEY: ${SECRETARY_CREDENTIAL_KEY:-}
       RESOURCE_UPLOAD_ROOT: /var/lib/secretary/resources
+      LOCAL_FILES_ROOT: /var/lib/secretary/local-files
     volumes:
       - ../secrets/google-oauth-client.json:/run/secrets/google-oauth-client.json:ro
       - resource_data:/var/lib/secretary/resources
+      - local_files_data:/var/lib/secretary/local-files
     depends_on:
       db:
         condition: service_healthy
@@ -79,3 +83,4 @@ services:
 volumes:
   db_data:
   resource_data:
+  local_files_data:

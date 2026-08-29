@@ -11,6 +11,7 @@ from app.jobs.constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
+    JOB_TYPE_INGEST_LOCAL_FILE,
     MAX_JOB_ATTEMPTS,
     MAX_LAST_ERROR_LENGTH,
     RETRY_BACKOFF_SECONDS,
@@ -138,6 +139,32 @@ class JobQueueService:
 
     def get_job(self, job_id: UUID) -> Job | None:
         return self._session.get(Job, job_id)
+
+    def has_pending_ingest_job(
+        self,
+        object_id: UUID,
+        expected_revision: str | None,
+        expected_policy: str | None,
+        user_id: UUID,
+    ) -> bool:
+        jobs = self._session.scalars(
+            select(Job).where(
+                Job.user_id == user_id,
+                Job.type == JOB_TYPE_INGEST_LOCAL_FILE,
+                Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING)),
+            )
+        )
+        object_key = str(object_id)
+        for job in jobs:
+            payload = job.payload or {}
+            if payload.get("object_id") != object_key:
+                continue
+            if payload.get("expected_revision") != expected_revision:
+                continue
+            if payload.get("expected_policy") != expected_policy:
+                continue
+            return True
+        return False
 
     def _require_job(self, job_id: UUID) -> Job:
         job = self._session.get(Job, job_id)

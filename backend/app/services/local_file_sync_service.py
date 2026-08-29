@@ -11,23 +11,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import LocalDevice, LocalRoot, Object
+from app.local.bounded_io import stream_content_hash
 from app.local.constants import (
-    CHEAP_HASH_MAX_BYTES,
     DEFAULT_LOCAL_POLICY,
     LOCAL_POLICIES,
     MAX_REPORT_BATCH,
     MAX_SCAN_DEPTH,
-    MAX_SCAN_ITEMS,
+    MAX_SCAN_INSPECTION_ITEMS,
+    MAX_SCAN_SUPPORTED_ITEMS,
     POLICY_METADATA_ONLY,
+    POLICY_UPLOAD_COPY,
     PROVIDER_LOCAL_DEVICE,
     SUPPORTED_LOCAL_SUFFIXES,
     build_local_external_id,
     build_personal_file_uri,
     infer_local_kind,
 )
-from app.local.errors import LocalAccessError, LocalFileError, LocalPathError
+from app.local.device_keys import validate_device_key
+from app.local.errors import LocalAccessError, LocalFileError
 from app.local.paths import LocalPathResolver, normalize_relative_path
-from app.resources.constants import REVISION_METADATA_KEYS
+from app.resources.constants import (
+    CONTENT_INGESTED_POLICY_KEY,
+    CONTENT_INGESTED_REVISION_KEY,
+    REVISION_METADATA_KEYS,
+)
 from app.services.errors import NotFoundError, ValidationError
 from app.services.job_queue_service import JobQueueService
 from app.services.local_device_service import LocalDeviceService
@@ -81,12 +88,16 @@ class LocalFileSyncService:
 
         reports: list[LocalFileReport] = []
         truncated = False
-        for file_path in _bounded_walk(root_dir, MAX_SCAN_DEPTH, MAX_SCAN_ITEMS):
+        for file_path, walk_truncated in _bounded_supported_walk(
+            root_dir,
+            MAX_SCAN_DEPTH,
+            MAX_SCAN_SUPPORTED_ITEMS,
+            MAX_SCAN_INSPECTION_ITEMS,
+        ):
             rel = file_path.relative_to(root_dir).as_posix()
-            if file_path.suffix.lower() not in SUPPORTED_LOCAL_SUFFIXES:
-                continue
             reports.append(_file_report_from_path(file_path, rel))
-            if len(reports) >= MAX_SCAN_ITEMS:
+            truncated = walk_truncated
+            if len(reports) >= MAX_SCAN_SUPPORTED_ITEMS:
                 truncated = True
                 break
 
@@ -183,7 +194,9 @@ class LocalFileSyncService:
             if revision is not None:
                 metadata["content_revision"] = revision
 
-            external_id = build_local_external_id(device.device_key, normalized_rel)
+            external_id = build_local_external_id(
+                device.device_key, root.root_path, normalized_rel
+            )
             obj = self._session.scalar(
                 select(Object).where(
                     Object.user_id == self._user_id,
@@ -214,23 +227,35 @@ class LocalFileSyncService:
             else:
                 prior_meta = obj.metadata_ or {}
                 prior_revision = prior_meta.get("content_revision")
-                if prior_revision == revision:
-                    unchanged += 1
-                    continue
-                obj.title = Path(normalized_rel).name
-                obj.kind = infer_local_kind(Path(normalized_rel).suffix.lower())
                 merged = dict(prior_meta)
                 merged.update(metadata)
+                obj.title = Path(normalized_rel).name
+                obj.kind = infer_local_kind(Path(normalized_rel).suffix.lower())
                 obj.metadata_ = merged
                 obj.canonical_uri = build_personal_file_uri(device.device_key, str(obj.id))
-                updated += 1
+
+                if prior_revision == revision:
+                    if not _needs_ingest(merged, revision, policy):
+                        unchanged += 1
+                        continue
+                    if self._job_queue.has_pending_ingest_job(
+                        obj.id, revision, policy, self._user_id
+                    ):
+                        unchanged += 1
+                        continue
+                else:
+                    updated += 1
 
             if policy == POLICY_METADATA_ONLY:
                 continue
 
             self._job_queue.enqueue(
                 "ingest_local_file",
-                {"object_id": str(obj.id)},
+                {
+                    "object_id": str(obj.id),
+                    "expected_revision": revision,
+                    "expected_policy": policy,
+                },
                 user_id=self._user_id,
             )
             ingest_jobs += 1
@@ -246,10 +271,21 @@ class LocalFileSyncService:
         )
 
 
-def _bounded_walk(root_dir: Path, max_depth: int, max_items: int) -> list[Path]:
-    items: list[Path] = []
+def _bounded_supported_walk(
+    root_dir: Path,
+    max_depth: int,
+    max_supported: int,
+    max_inspections: int,
+):
+    supported: list[Path] = []
+    inspections = 0
+    truncated = False
     stack: list[tuple[Path, int]] = [(root_dir, 0)]
-    while stack and len(items) < max_items:
+
+    while stack:
+        if inspections >= max_inspections:
+            truncated = True
+            break
         current, depth = stack.pop()
         if not current.is_dir():
             continue
@@ -258,21 +294,43 @@ def _bounded_walk(root_dir: Path, max_depth: int, max_items: int) -> list[Path]:
         except OSError:
             continue
         for child in reversed(children):
+            inspections += 1
+            if inspections > max_inspections:
+                truncated = True
+                break
             if child.is_dir() and depth < max_depth:
                 stack.append((child, depth + 1))
             elif child.is_file():
-                items.append(child)
-                if len(items) >= max_items:
-                    break
-    return items
+                if child.suffix.lower() in SUPPORTED_LOCAL_SUFFIXES:
+                    supported.append(child)
+                    yield child, truncated
+                    if len(supported) >= max_supported:
+                        truncated = True
+                        return
+                if len(supported) >= max_supported:
+                    truncated = True
+                    return
+        if truncated:
+            break
+
+
+def _needs_ingest(metadata: dict[str, Any], revision: str | None, policy: str) -> bool:
+    if policy == POLICY_METADATA_ONLY:
+        return False
+    ingested_revision = metadata.get(CONTENT_INGESTED_REVISION_KEY)
+    ingested_policy = metadata.get(CONTENT_INGESTED_POLICY_KEY)
+    if ingested_revision != revision or ingested_policy != policy:
+        return True
+    if policy == POLICY_UPLOAD_COPY:
+        upload_path = metadata.get("upload_path")
+        return not upload_path or not Path(upload_path).is_file()
+    return False
 
 
 def _file_report_from_path(path: Path, relative_path: str) -> LocalFileReport:
     stat = path.stat()
     modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
-    content_hash: str | None = None
-    if stat.st_size <= CHEAP_HASH_MAX_BYTES:
-        content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    content_hash = stream_content_hash(path)
     return LocalFileReport(
         relative_path=relative_path,
         size=stat.st_size,
@@ -302,7 +360,9 @@ def copy_local_file_to_upload(
     suffix = source_path.suffix.lower()
     target_dir = upload_root / str(user_id) / str(object_id)
     target_dir.mkdir(parents=True, exist_ok=True)
-    hash_part = content_hash or hashlib.sha256(source_path.read_bytes()).hexdigest()
+    hash_part = content_hash or stream_content_hash(source_path)
+    if hash_part is None:
+        hash_part = hashlib.sha256(str(object_id).encode()).hexdigest()
     target_path = target_dir / f"{hash_part}{suffix}"
     if not target_path.is_file():
         shutil.copyfile(source_path, target_path)

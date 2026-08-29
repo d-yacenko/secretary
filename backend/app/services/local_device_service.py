@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import LocalDevice, LocalRoot
 from app.local.constants import DEFAULT_LOCAL_POLICY, LOCAL_POLICIES
-from app.local.errors import LocalFileError
+from app.local.device_keys import validate_device_key
 from app.local.paths import LocalPathResolver, normalize_relative_path
 from app.services.errors import NotFoundError, ValidationError
 
@@ -42,9 +42,7 @@ class LocalDeviceService:
         self._path_resolver = path_resolver
 
     def register_device(self, device_key: str, display_name: str) -> LocalDeviceResult:
-        normalized_key = device_key.strip()
-        if not normalized_key:
-            raise ValidationError("device_key must not be empty")
+        normalized_key = validate_device_key(device_key)
         existing = self._session.scalar(
             select(LocalDevice).where(
                 LocalDevice.user_id == self._user_id,

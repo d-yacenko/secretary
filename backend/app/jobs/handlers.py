@@ -12,7 +12,10 @@ from app.jobs.types import JobHandler
 from app.llm.embedding_text import build_embedding_text
 from app.local.constants import POLICY_UPLOAD_COPY
 from app.local.paths import LocalPathResolver
-from app.resources.constants import CONTENT_INGESTED_REVISION_KEY
+from app.resources.constants import (
+    CONTENT_INGESTED_POLICY_KEY,
+    CONTENT_INGESTED_REVISION_KEY,
+)
 from app.services.job_queue_service import JobQueueService
 from app.services.local_file_sync_service import copy_local_file_to_upload
 from app.services.representation_embedding_worker import (
@@ -52,6 +55,21 @@ def _store_object_embedding(object_id: UUID, user_id: UUID, embedding: list[floa
         session.close()
 
 
+def _ingest_already_complete(
+    metadata: dict,
+    expected_revision: str | None,
+    expected_policy: str | None,
+) -> bool:
+    if metadata.get(CONTENT_INGESTED_REVISION_KEY) != expected_revision:
+        return False
+    if metadata.get(CONTENT_INGESTED_POLICY_KEY) != expected_policy:
+        return False
+    if expected_policy == POLICY_UPLOAD_COPY:
+        upload_path = metadata.get("upload_path")
+        return bool(upload_path and Path(upload_path).is_file())
+    return True
+
+
 def handle_embed_object(
     session: Session,
     embedding_service,
@@ -79,8 +97,10 @@ def handle_ingest_local_file(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    expected_revision = payload.get("expected_revision")
+    expected_policy = payload.get("expected_policy")
     path_resolver = LocalPathResolver(Path(settings.local_files_root))
-    upload_root = settings.resource_upload_root
+    upload_root = Path(settings.resource_upload_root)
 
     lookup_session = SessionLocal()
     try:
@@ -89,15 +109,22 @@ def handle_ingest_local_file(
         )
         if obj is None:
             raise ValueError(f"object ownership mismatch: {object_id}")
+
         metadata = dict(obj.metadata_ or {})
         device_key = metadata.get("device_key")
         root_path = metadata.get("local_root_path")
         relative_path = metadata.get("local_relative_path")
-        policy = metadata.get("indexing_policy")
-        content_hash = metadata.get("content_hash")
-        revision = metadata.get("content_revision")
+        current_revision = metadata.get("content_revision")
         if not device_key or not root_path or not relative_path:
             raise ValueError("local object missing path metadata")
+
+        if expected_revision is not None and current_revision != expected_revision:
+            return
+
+        if expected_policy and _ingest_already_complete(
+            metadata, expected_revision, expected_policy
+        ):
+            return
     finally:
         lookup_session.close()
 
@@ -112,10 +139,13 @@ def handle_ingest_local_file(
 
     ingest_session = SessionLocal()
     try:
+        policy = expected_policy or metadata.get("indexing_policy")
+        content_hash = metadata.get("content_hash")
+
         if policy == POLICY_UPLOAD_COPY:
             copied = copy_local_file_to_upload(
                 source_path,
-                Path(upload_root),
+                upload_root,
                 user_id,
                 object_id,
                 content_hash,
@@ -132,8 +162,10 @@ def handle_ingest_local_file(
             raise ValueError(f"object ownership mismatch: {object_id}")
         merged = dict(obj.metadata_ or {})
         merged.update(metadata)
-        if revision is not None:
-            merged[CONTENT_INGESTED_REVISION_KEY] = revision
+        if expected_revision is not None:
+            merged[CONTENT_INGESTED_REVISION_KEY] = expected_revision
+        if expected_policy is not None:
+            merged[CONTENT_INGESTED_POLICY_KEY] = expected_policy
         obj.metadata_ = merged
         ingest_session.flush()
 
