@@ -69,7 +69,6 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             ],
             "time_scope_used": raw_output.get("time_scope_used"),
             "horizon_days": raw_output.get("horizon_days"),
-            "candidate_count": raw_output.get("candidate_count"),
         }
         if truncated:
             payload["truncated"] = True

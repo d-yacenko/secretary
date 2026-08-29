@@ -4,34 +4,19 @@
 
 PHASE 22.5A — Local Retrieval Foundation: **accepted / closed**
 
-PHASE 22.5B — Assistant Retrieval Integration: **implemented, awaiting review**
+PHASE 22.5B — Assistant Retrieval Integration: **final corrective implemented, awaiting acceptance**
 
 PHASE 23 — voice: **not started**
 
-PHASE 22 — Search and Assistant UI: **accepted / closed**
-
-## Global invariants (PHASE 14.5+)
-
-See `DECISIONS.md`.
-
 ## Working components
 
-- PHASE 00–22.5A: (prior phases, 22.5A closed)
-- PHASE 22.5B (awaiting review):
-  - Assistant tool `retrieve` via `RetrievalService` (max 5 hits, compact output)
-  - `search_objects` retained for MCP/internal; removed from OpenAI Assistant tools
-  - References capped at 8; bounded retrieve hits only (no candidate pool exposure)
-  - Turn telemetry logging (counts/metrics only, no content)
-  - Nornickel retrieve → get_context → create_task regression with fake provider
-  - `pytest` 440 passed; `ruff check .` passes
-  - Flutter analyze/test/debug APK build pass
-  - VDS deploy deferred
-
-## Not done
-
-- PHASE 23 voice
-- Graph editor, persistent assistant chat DB
+- PHASE 22.5B (awaiting acceptance):
+  - Assistant `retrieve` tool (max 5 hits, compact output without candidate_count to model)
+  - Multi-round OpenAI usage accumulation across all Responses calls
+  - OpenAI provider nornickel multi-round regression (fake Responses API)
+  - References cap 8; turn telemetry reads candidate_count from raw tool output only
+  - `pytest` passing; VDS deploy deferred
 
 ## Next phase
 
-PHASE 22.5B review. PHASE 23 not started.
+PHASE 22.5B acceptance. PHASE 23 not started.

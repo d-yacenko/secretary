@@ -2,18 +2,16 @@
 
 ## Status
 
-PHASE 22.5B Assistant Retrieval Integration implemented. STOP for review.
+PHASE 22.5B final corrective implemented. STOP for acceptance.
 
 PHASE 22.5A accepted / closed. PHASE 23 not started. No VDS deploy.
 
-## Delivered
+## Delivered (final corrective)
 
-- Assistant `retrieve` tool (RetrievalService, max 5, compact hits)
-- `search_objects` removed from OpenAI tool definitions; kept for MCP/internal
-- References cap 8; retrieve-based discovery flow
-- Turn telemetry (tool counts, horizon, candidate/hit counts, get_context calls, tokens)
-- Regression: nornickel fixture, recent vs all-history retrieve
+- OpenAI token usage accumulated across all Responses rounds in a turn
+- Real OpenAIAssistantProvider multi-round nornickel regression (fake Responses)
+- `candidate_count` removed from model-visible retrieve output (telemetry from raw)
 
 ## STOP
 
-Await PHASE 22.5B review. Do not start PHASE 23. Do not deploy to VDS.
+Await PHASE 22.5B acceptance. Do not start PHASE 23. Do not deploy to VDS.

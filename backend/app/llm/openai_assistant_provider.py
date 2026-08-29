@@ -89,6 +89,8 @@ class OpenAIAssistantProvider:
 
         candidate_ids: list[UUID] = []
         affected_ids: list[UUID] = []
+        total_input_tokens: int | None = None
+        total_output_tokens: int | None = None
 
         for _ in range(MAX_ASSISTANT_ROUNDS):
             try:
@@ -107,18 +109,22 @@ class OpenAIAssistantProvider:
                 )
                 raise AssistantProviderError("assistant provider call failed") from exc
             self._last_store_false = True
+            total_input_tokens, total_output_tokens = _accumulate_usage(
+                response,
+                total_input_tokens,
+                total_output_tokens,
+            )
 
             tool_calls = _extract_function_calls(response)
             if not tool_calls:
                 answer = _extract_output_text(response) or ""
-                usage = getattr(response, "usage", None)
                 return AssistantProviderResult(
                     answer=answer.strip(),
                     candidate_object_ids=candidate_ids,
                     affected_object_ids=affected_ids,
                     store_false_used=True,
-                    openai_input_tokens=_usage_tokens(usage, "input_tokens"),
-                    openai_output_tokens=_usage_tokens(usage, "output_tokens"),
+                    openai_input_tokens=total_input_tokens,
+                    openai_output_tokens=total_output_tokens,
                 )
 
             output_items = getattr(response, "output", None) or []
@@ -157,6 +163,21 @@ def _usage_tokens(usage: object | None, field: str) -> int | None:
     if value is None and isinstance(usage, dict):
         value = usage.get(field)
     return int(value) if value is not None else None
+
+
+def _accumulate_usage(
+    response: object,
+    total_input_tokens: int | None,
+    total_output_tokens: int | None,
+) -> tuple[int | None, int | None]:
+    usage = getattr(response, "usage", None)
+    input_tokens = _usage_tokens(usage, "input_tokens")
+    output_tokens = _usage_tokens(usage, "output_tokens")
+    if input_tokens is not None:
+        total_input_tokens = (total_input_tokens or 0) + input_tokens
+    if output_tokens is not None:
+        total_output_tokens = (total_output_tokens or 0) + output_tokens
+    return total_input_tokens, total_output_tokens
 
 
 def _function_call_input_items(output: list) -> list[dict]:

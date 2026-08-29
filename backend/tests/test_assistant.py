@@ -1247,6 +1247,289 @@ def test_assistant_openai_tool_definitions_use_retrieve_not_search() -> None:
     assert retrieve["parameters"]["properties"]["limit"]["maximum"] == 5
 
 
+def test_retrieve_tool_output_hides_candidate_count_from_model() -> None:
+    bounded = serialize_tool_output_for_model(
+        "retrieve",
+        {
+            "hits": [],
+            "time_scope_used": "auto",
+            "horizon_days": 90,
+            "candidate_count": 42,
+        },
+    )
+    assert "candidate_count" not in bounded
+    serialized = serialize_tool_output_json(
+        "retrieve",
+        {
+            "hits": [
+                {
+                    "object_id": "00000000-0000-0000-0000-000000000001",
+                    "title": "Example",
+                    "kind": "event",
+                    "provider": None,
+                    "occurred_at": None,
+                    "relevance": 1.0,
+                    "reasons": ["title_match"],
+                    "excerpt": "short",
+                }
+            ],
+            "time_scope_used": "auto",
+            "horizon_days": None,
+            "candidate_count": 99,
+        },
+    )
+    assert "candidate_count" not in serialized
+
+
+def test_assistant_openai_provider_accumulates_usage_across_rounds(
+    monkeypatch, db_session, fake_embedding_service
+) -> None:
+    api_calls = 0
+    usage_pairs = [(100, 20), (150, 30), (200, 40)]
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            nonlocal api_calls
+            inp, out = usage_pairs[api_calls]
+            response = MagicMock()
+            response.usage = MagicMock(input_tokens=inp, output_tokens=out)
+            api_calls += 1
+            if api_calls < 3:
+                response.output = [
+                    {
+                        "type": "function_call",
+                        "name": "get_today",
+                        "call_id": f"call-{api_calls}",
+                        "arguments": "{}",
+                    }
+                ]
+                response.output_text = None
+            else:
+                response.output = []
+                response.output_text = "done"
+            return response
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+
+    def _run(user_id, tool_name, arguments):
+        nested = db_session.begin_nested()
+        tools = DomainToolService(
+            db_session, user_id, fake_embedding_service, defer_write_embeddings=True
+        )
+        try:
+            output = _dispatch(tools, tool_name, arguments)
+            nested.commit()
+            return ToolExecutionResult(
+                success=True, tool_name=tool_name, output=output.model_dump(mode="json")
+            )
+        except ToolError as exc:
+            nested.rollback()
+            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+
+    monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
+
+    budget = PerTurnToolBudget()
+    provider = OpenAIAssistantProvider(api_key="test", model="gpt-test")
+    result = provider.run(
+        message="hello",
+        history=[],
+        ui_context="",
+        reference_datetime=datetime.now(UTC),
+        timezone="Europe/Amsterdam",
+        tool_runner=lambda name, args: budget.run(BOOTSTRAP_USER_ID, name, args),
+    )
+    assert result.openai_input_tokens == 450
+    assert result.openai_output_tokens == 90
+    assert api_calls == 3
+
+
+def test_assistant_openai_provider_nornickel_multi_round_responses(
+    monkeypatch, db_session, fake_embedding_service
+) -> None:
+    import json
+    from datetime import timedelta
+
+    now = datetime.now(UTC)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    event = graph.create_object(
+        ObjectCreate(
+            kind="event",
+            title="Вопрос по Норникелю",
+            body="Обсуждение активности",
+            origin="source",
+            provider="google_calendar",
+        )
+    )
+    event.occurred_at = now - timedelta(days=3)
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Re: Норникель quarterly update",
+            body="Норникель activity summary",
+            origin="source",
+            provider="gmail",
+        )
+    )
+    db_session.flush()
+    email = db_session.scalars(
+        select(Object).where(Object.title.startswith("Re: Норникель"))
+    ).first()
+    if email is not None:
+        email.occurred_at = now - timedelta(days=2)
+    graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Тестовая задача из Linux клиента",
+            body="linux client smoke",
+            origin="user",
+        )
+    )
+    for index in range(12):
+        graph.create_object(
+            ObjectCreate(
+                kind="email",
+                title=f"Server status newsletter {index}",
+                body="automated server monitoring message",
+                origin="source",
+                provider="gmail",
+            )
+        )
+        noise = db_session.scalars(
+            select(Object).where(Object.title == f"Server status newsletter {index}")
+        ).first()
+        if noise is not None:
+            noise.occurred_at = now - timedelta(days=1)
+    db_session.flush()
+
+    store_flags: list[bool | None] = []
+    continuation_items: list[dict] = []
+    tool_names: list[str] = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            store_flags.append(kwargs.get("store"))
+            input_items = kwargs.get("input", [])
+            for item in input_items:
+                if isinstance(item, dict) and item.get("type") in (
+                    "function_call",
+                    "function_call_output",
+                ):
+                    continuation_items.append(item)
+            tool_output_count = sum(
+                1
+                for item in input_items
+                if isinstance(item, dict) and item.get("type") == "function_call_output"
+            )
+            response = MagicMock()
+            if tool_output_count == 0:
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.name = "retrieve"
+                function_call.call_id = "call-retrieve-1"
+                function_call.arguments = (
+                    '{"query":"активность по норникелю","limit":5}'
+                )
+                response.output = [function_call]
+                response.output_text = None
+            elif tool_output_count == 1:
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.name = "get_context"
+                function_call.call_id = "call-context-1"
+                function_call.arguments = json.dumps({"object_id": str(event.id)})
+                response.output = [function_call]
+                response.output_text = None
+            elif tool_output_count == 2:
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.call_id = "call-create-1"
+                function_call.name = "create_task"
+                function_call.arguments = (
+                    '{"title":"Норникель follow-up","confidence":0.75}'
+                )
+                response.output = [function_call]
+                response.output_text = None
+            else:
+                response.output = []
+                response.output_text = "Создал proposed задачу по активности Норникеля."
+            return response
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+
+    def _run(user_id, tool_name, arguments):
+        tool_names.append(tool_name)
+        nested = db_session.begin_nested()
+        tools = DomainToolService(
+            db_session, user_id, fake_embedding_service, defer_write_embeddings=True
+        )
+        try:
+            output = _dispatch(tools, tool_name, arguments)
+            nested.commit()
+            return ToolExecutionResult(
+                success=True, tool_name=tool_name, output=output.model_dump(mode="json")
+            )
+        except ToolError as exc:
+            nested.rollback()
+            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+
+    monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
+    monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
+    monkeypatch.setattr("tests.test_assistant.run_assistant_tool", _run)
+
+    provider = OpenAIAssistantProvider(api_key="test", model="gpt-test")
+    service = AssistantService(BOOTSTRAP_USER_ID, provider)
+    result = service.send_message(
+        message=(
+            "Посмотри, какая есть активность по норникелю, "
+            "что необходимо сделать и создай задачу"
+        ),
+        history=[],
+    )
+
+    assert result.answer
+    provider_tool_names = [
+        name
+        for name in tool_names
+        if name in ("retrieve", "get_context", "create_task")
+    ]
+    assert provider_tool_names == ["retrieve", "get_context", "create_task"]
+    assert len(provider_tool_names) <= DEFAULT_MAX_TOOL_CALLS
+    assert all(flag is False for flag in store_flags)
+    assert any(item.get("type") == "function_call" for item in continuation_items)
+    assert any(item.get("type") == "function_call_output" for item in continuation_items)
+
+    retrieve_output = run_assistant_tool(
+        BOOTSTRAP_USER_ID,
+        "retrieve",
+        {"query": "активность по норникелю", "limit": 5},
+    )
+    assert retrieve_output.success
+    assert len(retrieve_output.output["hits"]) <= 5
+    hit_titles = {hit["title"] for hit in retrieve_output.output["hits"]}
+    assert "Вопрос по Норникелю" in hit_titles
+
+    assert result.affected_objects
+    assert result.affected_objects[0].kind == "task"
+    assert result.affected_objects[0].state == PROPOSED_STATE
+    obj = db_session.get(Object, result.affected_objects[0].object_id)
+    assert obj is not None
+    assert obj.origin == AGENT_ORIGIN
+    assert obj.state == PROPOSED_STATE
+
+    ref_titles = {ref.title for ref in result.references}
+    assert len(result.references) <= MAX_ASSISTANT_REFERENCES
+    assert "Тестовая задача из Linux клиента" not in ref_titles
+    assert all("Server status newsletter" not in title for title in ref_titles)
+
+
 def test_assistant_nornickel_retrieve_regression(
     db_session, fake_embedding_service
 ) -> None:
