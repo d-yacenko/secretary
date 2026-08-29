@@ -369,12 +369,72 @@ def test_retrieval_candidate_bounds(db_session) -> None:
 def test_retrieval_candidate_sql_uses_indexed_operators() -> None:
     fts_sql = _build_fts_candidate_sql("")
     trigram_sql = _build_trigram_candidate_sql("")
+    fts_where = fts_sql.split("ORDER BY")[0]
+    trigram_where = trigram_sql.split("ORDER BY")[0]
 
     assert FTS_DOCUMENT_SQL in fts_sql
-    assert "@@ plainto_tsquery" in fts_sql
-    assert "o.title % :query" in trigram_sql
-    assert "similarity(" not in fts_sql
-    assert "similarity(" not in trigram_sql
+    assert "@@ plainto_tsquery" in fts_where
+    assert "ts_rank" in fts_sql
+    assert "ORDER BY" in fts_sql
+    assert "similarity(" not in fts_where
+    assert "o.title % :query" in trigram_where
+    assert "similarity(" not in trigram_where
+    assert "ORDER BY" in trigram_sql
+    assert "similarity(" in trigram_sql
+
+
+def test_retrieval_candidate_branches_rank_and_do_not_starve(db_session) -> None:
+    now = datetime.now(UTC)
+    query = "CandidateBranchUniqueMarker"
+    trigram_title = "CandidateBranchUnique Mark"
+    for index in range(MAX_CANDIDATE_POOL + 50):
+        _create_object(
+            db_session,
+            BOOTSTRAP_USER_ID,
+            kind="email",
+            title=f"Noise email {index}",
+            body=f"{query} filler noise token {index}",
+            provider="gmail",
+            occurred_at=now,
+        )
+    strong_title = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="email",
+        title=query,
+        body="brief",
+        provider="gmail",
+        occurred_at=now,
+    )
+    strong_trigram = _create_object(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        kind="task",
+        title=trigram_title,
+        body="unrelated body text",
+        occurred_at=None,
+    )
+
+    service = RetrievalService(db_session, BOOTSTRAP_USER_ID)
+    candidate_ids = service._collect_candidate_ids(
+        query=query,
+        kind=None,
+        provider=None,
+        project_id=None,
+        horizon_cutoff=None,
+        date_from=None,
+        date_to=None,
+        apply_horizon=False,
+    )
+    assert len(candidate_ids) <= MAX_CANDIDATE_POOL
+    assert strong_title.id in candidate_ids
+    assert strong_trigram.id in candidate_ids
+
+    hits = service.retrieve(query, time_scope=TIME_SCOPE_ALL, limit=5).hits
+    hit_ids = {hit.object_id for hit in hits}
+    assert strong_title.id in hit_ids
+    assert strong_trigram.id in hit_ids
+    assert hits[0].object_id == strong_title.id
 
 
 def test_retrieval_weak_recent_anchors_do_not_stop_horizon(db_session) -> None:

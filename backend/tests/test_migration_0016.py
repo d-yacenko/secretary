@@ -78,3 +78,36 @@ def test_migration_0016_email_backfill_malformed_timestamps(db_session, migratio
     valid_obj = db_session.get(Object, valid_id)
     assert valid_obj is not None
     assert valid_obj.occurred_at == datetime(2024, 6, 15, 10, 30, tzinfo=UTC)
+
+
+def test_migration_0016_backfill_terminates_with_many_malformed(
+    db_session, migration_user_id
+) -> None:
+    valid_early_id = _insert_email_row(
+        db_session,
+        migration_user_id,
+        "2024-01-01T00:00:00+00:00",
+    )
+    malformed_ids = [
+        _insert_email_row(db_session, migration_user_id, "bad-timestamp")
+        for _ in range(600)
+    ]
+    valid_late_id = _insert_email_row(
+        db_session,
+        migration_user_id,
+        "2024-02-01T00:00:00+00:00",
+    )
+
+    _migration._backfill_email_occurred_at(db_session.connection())
+
+    for object_id in malformed_ids:
+        obj = db_session.get(Object, object_id)
+        assert obj is not None
+        assert obj.occurred_at is None
+
+    valid_early = db_session.get(Object, valid_early_id)
+    valid_late = db_session.get(Object, valid_late_id)
+    assert valid_early is not None
+    assert valid_late is not None
+    assert valid_early.occurred_at == datetime(2024, 1, 1, tzinfo=UTC)
+    assert valid_late.occurred_at == datetime(2024, 2, 1, tzinfo=UTC)

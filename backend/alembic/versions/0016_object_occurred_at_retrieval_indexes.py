@@ -39,33 +39,45 @@ def _parse_metadata_timestamp(raw: str | None) -> datetime | None:
 
 
 def _backfill_email_occurred_at(connection: sa.Connection) -> None:
+    last_id: object = None
+    base_where = """
+        WHERE occurred_at IS NULL
+          AND kind = 'email'
+          AND provider IN ('gmail', 'yandex_mail')
+          AND metadata ? 'timestamp'
+    """
     while True:
-        rows = connection.execute(
-            text(
-                """
+        if last_id is None:
+            select_sql = f"""
                 SELECT id, metadata->>'timestamp' AS ts
                 FROM objects
-                WHERE occurred_at IS NULL
-                  AND kind = 'email'
-                  AND provider IN ('gmail', 'yandex_mail')
-                  AND metadata ? 'timestamp'
+                {base_where}
+                ORDER BY id
                 LIMIT :batch_size
-                """
-            ),
-            {
-                "batch_size": _BATCH_SIZE,
-            },
-        ).fetchall()
+            """
+            params: dict[str, object] = {"batch_size": _BATCH_SIZE}
+        else:
+            select_sql = f"""
+                SELECT id, metadata->>'timestamp' AS ts
+                FROM objects
+                {base_where}
+                  AND id > :last_id
+                ORDER BY id
+                LIMIT :batch_size
+            """
+            params = {"last_id": last_id, "batch_size": _BATCH_SIZE}
+
+        rows = connection.execute(text(select_sql), params).fetchall()
         if not rows:
             break
         for row in rows:
             parsed = _parse_metadata_timestamp(row.ts)
-            if parsed is None:
-                continue
-            connection.execute(
-                text("UPDATE objects SET occurred_at = :occurred_at WHERE id = :id"),
-                {"occurred_at": parsed, "id": row.id},
-            )
+            if parsed is not None:
+                connection.execute(
+                    text("UPDATE objects SET occurred_at = :occurred_at WHERE id = :id"),
+                    {"occurred_at": parsed, "id": row.id},
+                )
+            last_id = row.id
         if len(rows) < _BATCH_SIZE:
             break
 

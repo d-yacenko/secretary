@@ -10,10 +10,9 @@ from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
     ANCHOR_KINDS,
     BODY_FTS_WEIGHT,
-    CANDIDATE_BRANCH_LIMIT,
     DEFAULT_FINAL_HITS,
+    FTS_BRANCH_LIMIT,
     FTS_DOCUMENT_SQL,
-    MAX_CANDIDATE_POOL,
     MAX_FINAL_HITS,
     MIN_BODY_FTS_THRESHOLD,
     MIN_TITLE_QUALIFY_THRESHOLD,
@@ -29,6 +28,7 @@ from app.services.retrieval_constants import (
     TIME_SCOPE_RECENT,
     TIME_SENSITIVE_SOURCE_KINDS,
     TITLE_FTS_WEIGHT,
+    TRIGRAM_BRANCH_LIMIT,
     TRIGRAM_WEIGHT,
     YEAR_HORIZON_DAYS,
 )
@@ -117,6 +117,12 @@ def _build_fts_candidate_sql(filter_suffix: str) -> str:
     WHERE {_BASE_WHERE}
       {filter_suffix}
       AND ({FTS_DOCUMENT_SQL}) @@ plainto_tsquery('simple', :query)
+    ORDER BY
+      ts_rank(
+        ({FTS_DOCUMENT_SQL}),
+        plainto_tsquery('simple', :query)
+      ) DESC,
+      o.id
     LIMIT :branch_limit
     """
 
@@ -128,6 +134,9 @@ def _build_trigram_candidate_sql(filter_suffix: str) -> str:
     WHERE {_BASE_WHERE}
       {filter_suffix}
       AND o.title % :query
+    ORDER BY
+      similarity(coalesce(o.title, ''), :query) DESC,
+      o.id
     LIMIT :branch_limit
     """
 
@@ -270,16 +279,15 @@ class RetrievalService:
             "horizon_cutoff": horizon_cutoff,
             "date_from": date_from,
             "date_to": date_to,
-            "branch_limit": CANDIDATE_BRANCH_LIMIT,
         }
 
         fts_ids = self._session.execute(
             text(_build_fts_candidate_sql(filter_suffix)),
-            params,
+            {**params, "branch_limit": FTS_BRANCH_LIMIT},
         ).scalars()
         trigram_ids = self._session.execute(
             text(_build_trigram_candidate_sql(filter_suffix)),
-            params,
+            {**params, "branch_limit": TRIGRAM_BRANCH_LIMIT},
         ).scalars()
 
         seen: set[UUID] = set()
@@ -289,8 +297,6 @@ class RetrievalService:
                 continue
             seen.add(object_id)
             candidate_ids.append(object_id)
-            if len(candidate_ids) >= MAX_CANDIDATE_POOL:
-                break
         return candidate_ids
 
     def _score_and_rank(

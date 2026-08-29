@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 22.5A — Local Retrieval Foundation: **final corrective implemented, awaiting review**
+PHASE 22.5A — Local Retrieval Foundation: **closure corrective implemented, awaiting final acceptance**
 
 PHASE 22.5B — not started
 
@@ -19,10 +19,10 @@ See `DECISIONS.md`.
 ## Working components
 
 - PHASE 00–22: (prior phases, PHASE 22 closed)
-- PHASE 22.5A (awaiting review):
-  - `Object.occurred_at` (migration `0016`) with fail-safe Python batch email backfill
+- PHASE 22.5A (awaiting final acceptance):
+  - `Object.occurred_at` (migration `0016`) with keyset-paginated fail-safe email backfill
   - PostgreSQL FTS + `pg_trgm` indexes (expression GIN + title trigram)
-  - `RetrievalService`: two-stage indexed candidate generation (`@@` FTS + `%` trigram), bounded pool (100)
+  - `RetrievalService`: ordered indexed candidate branches (50 FTS + 50 trigram), bounded pool (100)
   - `match_quality` vs `ranking_score` — anchor/recency bonuses cannot manufacture qualification
   - Progressive horizon (90d → 365d → all-history); stops only on strong textual match
   - Explicit date bounds (`date_from` / `date_to` / both); rejects inverted ranges
@@ -30,7 +30,6 @@ See `DECISIONS.md`.
   - `SearchService` delegates to `RetrievalService` (all-history UI semantics, no embeddings)
   - Connector upserts populate `occurred_at` for Gmail/Yandex mail and calendar events
   - `test_retrieval.py` + `test_migration_0016.py` regression suite
-  - `pytest` 435 passed; `ruff check .` passes
   - VDS deploy deferred (PHASE 22.5A)
 
 ## Not done
@@ -42,4 +41,4 @@ See `DECISIONS.md`.
 
 ## Next phase
 
-PHASE 22.5A review. PHASE 22.5B not started. PHASE 23 not started.
+PHASE 22.5A final acceptance. PHASE 22.5B not started. PHASE 23 not started.
