@@ -1,16 +1,15 @@
-# Current task — PHASE 19 final corrective (implemented; awaiting final acceptance)
+# Current task — PHASE 19 (awaiting final acceptance)
 
 ## Status
 
-PHASE 19 final narrow corrective complete. Full offline suite passing. Not deployed.
+PHASE 19 final corrective complete including Python 3.12 walk compatibility and honest supported-cap truncation. Full offline suite passing. Not deployed.
 
 PHASE 19.5 not started. PHASE 20 not started.
 
-## Final corrective fixes
+## Recent fixes
 
-1. **Safe bounded root walk** — no symlink follow; scandir iteration; inspection cap with explicit truncated state; candidates verified under registered root before stat/hash.
-2. **Large upload_copy** — streaming copy with full SHA-256 filename; no object_id pseudo-hash; revision updates produce correct stored copy.
-3. **Ingest stale recheck** — re-read object before representations and before commit; stale revision/policy => no-op without embed or ingested markers.
+1. **Python 3.12 walk** — no `Path.is_dir(follow_symlinks=...)`; symlink-safe dir checks via `is_symlink()` + `is_dir()`; `DirEntry` follow_symlinks kwargs retained.
+2. **Honest supported cap** — `items_truncated=true` only when candidates were actually omitted (supported/inspection/traversal bounds).
 
 ## STOP
 

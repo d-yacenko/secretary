@@ -15,6 +15,8 @@ from app.users.bootstrap import BOOTSTRAP_DISPLAY_NAME, BOOTSTRAP_USER_ID
 
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_bootstrap_user_exists() -> None:
+    if os.environ.get("SKIP_DB_FIXTURES") == "1":
+        return
     with Session(engine) as session:
         if session.get(User, BOOTSTRAP_USER_ID) is None:
             session.add(

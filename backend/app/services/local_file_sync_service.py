@@ -92,13 +92,10 @@ class LocalFileSyncService:
             MAX_SCAN_SUPPORTED_ITEMS,
             MAX_SCAN_INSPECTION_ITEMS,
         )
-        truncated = walk.truncated
+        root_resolved = root_dir.resolve()
         for file_path in walk.paths:
-            rel = file_path.relative_to(root_dir.resolve()).as_posix()
-            reports.append(_file_report_from_path(file_path, rel, root_dir.resolve()))
-            if len(reports) >= MAX_SCAN_SUPPORTED_ITEMS:
-                truncated = True
-                break
+            rel = file_path.relative_to(root_resolved).as_posix()
+            reports.append(_file_report_from_path(file_path, rel, root_resolved))
 
         result = self._apply_reports(device, root, reports)
         return LocalSyncResult(
@@ -107,7 +104,7 @@ class LocalFileSyncService:
             objects_unchanged=result.objects_unchanged,
             ingest_jobs_enqueued=result.ingest_jobs_enqueued,
             items_seen=len(reports),
-            items_truncated=truncated,
+            items_truncated=walk.truncated,
         )
 
     def report_files(
@@ -276,6 +273,15 @@ class BoundedWalkResult:
     truncated: bool
 
 
+def _is_non_symlink_dir(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return False
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 def bounded_supported_walk(
     root_dir: Path,
     max_depth: int,
@@ -302,7 +308,7 @@ def bounded_supported_walk(
             continue
 
         try:
-            if not current.is_dir(follow_symlinks=False):
+            if not _is_non_symlink_dir(current):
                 continue
         except OSError:
             continue

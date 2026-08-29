@@ -2,7 +2,7 @@
 
 ## Current phase
 
-PHASE 19 — local files and huge datasets: **final corrective implemented, awaiting final acceptance**
+PHASE 19 — local files and huge datasets: **awaiting final acceptance**
 
 PHASE 19.5 — auth + connections: **not started**
 
@@ -17,8 +17,8 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 ## Working components
 
 - PHASE 00–18: (prior phases)
-- PHASE 19 final corrective:
-  - Symlink-safe bounded scan with honest truncation
+- PHASE 19:
+  - Symlink-safe bounded scan (Python 3.12 compatible) with honest truncation
   - Streaming upload_copy with full-file SHA-256 identity
   - Ingest handler optimistic stale recheck before representations/commit
 

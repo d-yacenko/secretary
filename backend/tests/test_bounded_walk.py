@@ -24,14 +24,52 @@ def local_mirror(tmp_path: Path) -> Path:
     return tmp_path / "local-mirror"
 
 
-def _walk(root_dir: Path, max_inspections: int = MAX_SCAN_INSPECTION_ITEMS) -> tuple[list[Path], bool]:
+def _walk(
+    root_dir: Path,
+    max_inspections: int = MAX_SCAN_INSPECTION_ITEMS,
+    max_supported: int = MAX_SCAN_SUPPORTED_ITEMS,
+) -> tuple[list[Path], bool]:
     result = bounded_supported_walk(
         root_dir,
         max_depth=8,
-        max_supported=MAX_SCAN_SUPPORTED_ITEMS,
+        max_supported=max_supported,
         max_inspections=max_inspections,
     )
     return result.paths, result.truncated
+
+
+def test_bounded_walk_runs_without_pathlib_follow_symlinks_kwarg(tmp_path: Path) -> None:
+    """Regression: Path.is_dir(follow_symlinks=...) is not valid on Python 3.12."""
+    root_dir = tmp_path / "walk-root"
+    root_dir.mkdir()
+    (root_dir / "sample.txt").write_text("ok", encoding="utf-8")
+    paths, truncated = _walk(root_dir)
+    assert len(paths) == 1
+    assert truncated is False
+
+
+def test_exactly_max_supported_files_not_truncated(tmp_path: Path) -> None:
+    root_dir = tmp_path / "exact-cap"
+    root_dir.mkdir()
+    cap = 3
+    for index in range(cap):
+        (root_dir / f"file-{index}.txt").write_text(f"text-{index}", encoding="utf-8")
+
+    paths, truncated = _walk(root_dir, max_supported=cap)
+    assert len(paths) == cap
+    assert truncated is False
+
+
+def test_max_supported_plus_one_is_truncated(tmp_path: Path) -> None:
+    root_dir = tmp_path / "over-cap"
+    root_dir.mkdir()
+    cap = 3
+    for index in range(cap + 1):
+        (root_dir / f"file-{index}.txt").write_text(f"text-{index}", encoding="utf-8")
+
+    paths, truncated = _walk(root_dir, max_supported=cap)
+    assert len(paths) == cap
+    assert truncated is True
 
 
 def test_symlink_file_outside_root_not_registered(
