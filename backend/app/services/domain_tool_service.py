@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -13,6 +14,7 @@ from app.api.schemas import (
     ObjectUpdate,
 )
 from app.core.config import settings
+from app.db.models import Edge, Object
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
@@ -20,11 +22,12 @@ from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
-from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
+from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE, REJECTED_STATE
 from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import (
+    MAX_TASK_EVIDENCE_IDS,
     CreateTaskInput,
     CreateTaskOutput,
     GetContextInput,
@@ -120,6 +123,8 @@ class DomainToolService:
                 title=hit.title,
                 kind=hit.kind,
                 provider=hit.provider,
+                state=hit.state,
+                status=hit.status,
                 occurred_at=hit.occurred_at,
                 relevance=hit.relevance,
                 reasons=hit.reasons,
@@ -178,7 +183,66 @@ class DomainToolService:
         ]
         return ListNeighborsOutput(object_id=input.object_id, neighbors=neighbors)
 
+    def _dedupe_evidence_ids(self, evidence_ids: list[UUID]) -> list[UUID]:
+        if len(evidence_ids) > MAX_TASK_EVIDENCE_IDS:
+            raise ToolError(
+                f"evidence_object_ids must contain at most {MAX_TASK_EVIDENCE_IDS} ids"
+            )
+        seen: set[UUID] = set()
+        unique: list[UUID] = []
+        for object_id in evidence_ids:
+            if object_id in seen:
+                continue
+            seen.add(object_id)
+            unique.append(object_id)
+        return unique
+
+    def _validate_evidence_objects(self, evidence_ids: list[UUID]) -> list[Object]:
+        objects: list[Object] = []
+        for object_id in evidence_ids:
+            try:
+                obj = self._graph.get_object(object_id)
+            except NotFoundError as exc:
+                raise ToolError(f"evidence object not found: {exc.entity_id}") from exc
+            if obj.state == REJECTED_STATE:
+                raise ToolError(f"evidence object rejected: {object_id}")
+            if obj.status == "deleted":
+                raise ToolError(f"evidence object deleted: {object_id}")
+            objects.append(obj)
+        return objects
+
+    def _attach_evidence_references(
+        self,
+        task_id: UUID,
+        evidence_ids: list[UUID],
+        confidence: float,
+    ) -> None:
+        for evidence_id in evidence_ids:
+            existing = self._session.scalar(
+                select(Edge).where(
+                    Edge.user_id == self._user_id,
+                    Edge.source_id == task_id,
+                    Edge.target_id == evidence_id,
+                    Edge.type == "references",
+                )
+            )
+            if existing is not None:
+                continue
+            self._write_graph.create_edge(
+                EdgeCreate(
+                    source_id=task_id,
+                    target_id=evidence_id,
+                    type="references",
+                    origin=AGENT_ORIGIN,
+                    state=PROPOSED_STATE,
+                    confidence=confidence,
+                )
+            )
+
     def create_task(self, input: CreateTaskInput) -> CreateTaskOutput:
+        evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
+        if evidence_ids:
+            self._validate_evidence_objects(evidence_ids)
         due_at = normalize_tool_datetime(input.due_at)
         try:
             obj = self._write_graph.create_object(
@@ -196,6 +260,8 @@ class DomainToolService:
             raise ToolError(exc.message) from exc
         except ConflictError as exc:
             raise ToolError(exc.message) from exc
+        if evidence_ids:
+            self._attach_evidence_references(obj.id, evidence_ids, input.confidence)
         self._enqueue_object_embedding(obj.id)
         return CreateTaskOutput(object=ObjectOut.from_model(obj))
 
@@ -206,18 +272,29 @@ class DomainToolService:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
         if obj.kind != "task":
             raise ToolError("update_task only supports task objects")
-        update_data = input.model_dump(exclude={"object_id"}, exclude_none=True)
+        evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
+        if evidence_ids:
+            self._validate_evidence_objects(evidence_ids)
+        update_data = input.model_dump(
+            exclude={"object_id", "evidence_object_ids"},
+            exclude_none=True,
+        )
         if "due_at" in update_data:
             update_data["due_at"] = normalize_tool_datetime(update_data["due_at"])
-        if not update_data:
+        updated = obj
+        if update_data:
+            updates = ObjectUpdate(**update_data)
+            try:
+                updated = self._write_graph.update_object(input.object_id, updates)
+            except ValidationError as exc:
+                raise ToolError(exc.message) from exc
+            except ConflictError as exc:
+                raise ToolError(exc.message) from exc
+        elif not evidence_ids:
             raise ToolError("update_task requires at least one field to update")
-        updates = ObjectUpdate(**update_data)
-        try:
-            updated = self._write_graph.update_object(input.object_id, updates)
-        except ValidationError as exc:
-            raise ToolError(exc.message) from exc
-        except ConflictError as exc:
-            raise ToolError(exc.message) from exc
+        if evidence_ids:
+            confidence = updated.confidence if updated.confidence is not None else 0.5
+            self._attach_evidence_references(updated.id, evidence_ids, confidence)
         self._enqueue_object_embedding(updated.id)
         return UpdateTaskOutput(object=ObjectOut.from_model(updated))
 

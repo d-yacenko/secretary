@@ -7,6 +7,7 @@ from app.api.schemas import ContextItem, EdgeOut, NotificationOut, ObjectOut
 
 MAX_CONTEXT_CHARS = 12000
 DEFAULT_CONTEXT_CHARS = 8000
+MAX_TASK_EVIDENCE_IDS = 8
 
 
 class ToolError(Exception):
@@ -45,6 +46,8 @@ class RetrievalHitOut(BaseModel):
     title: str
     kind: str
     provider: str | None = None
+    state: str
+    status: str | None = None
     occurred_at: datetime | None = None
     relevance: float
     reasons: list[str]
@@ -103,6 +106,7 @@ class CreateTaskInput(BaseModel):
     body: str | None = None
     due_at: datetime | None = None
     status: str | None = None
+    evidence_object_ids: list[UUID] = Field(default_factory=list, max_length=MAX_TASK_EVIDENCE_IDS)
 
 
 class CreateTaskOutput(BaseModel):
@@ -115,6 +119,7 @@ class UpdateTaskInput(BaseModel):
     body: str | None = None
     status: str | None = None
     due_at: datetime | None = None
+    evidence_object_ids: list[UUID] = Field(default_factory=list, max_length=MAX_TASK_EVIDENCE_IDS)
 
 
 class UpdateTaskOutput(BaseModel):

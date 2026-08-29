@@ -58,3 +58,11 @@ Being inside the synchronization time window does **not** mean the full object m
 ## PHASE 22.5C — Context neighbor selection note
 
 `ContextService` loads graph neighbors via `GraphService.get_neighbors(limit=MAX_NEIGHBORS)` and then applies local `EDGE_TYPE_PRIORITY` sorting on that SQL-limited set. Future high-degree graph work may need priority-aware neighbor selection in SQL rather than post-limit sorting.
+
+## PHASE 22.6 — Task taxonomy
+
+`kind=task` is reserved for Secretary-native actionable work ("дело").
+
+Source/evidence objects (email, event, file, web_page, chat_message, note, etc.) support tasks through `references` edges but are not interchangeable with tasks.
+
+Future provider-native todo systems (Google Tasks, Microsoft To Do, etc.) must **not** automatically reuse `kind=task` as authoritative provider objects. A future normalized kind such as `todo_item` with `origin=source` and `state=observed` may link or mirror to a Secretary task through an explicit future policy. That connector is not implemented in PHASE 22.6.

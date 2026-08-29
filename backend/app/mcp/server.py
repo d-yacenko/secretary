@@ -123,6 +123,7 @@ def create_mcp_server() -> MCPServer:
         body: str | None = None,
         due_at: datetime | None = None,
         status: str | None = None,
+        evidence_object_ids: list[str] | None = None,
     ) -> CreateTaskOutput:
         """Create an agent-proposed task with required confidence."""
         return _run_tool(
@@ -134,6 +135,7 @@ def create_mcp_server() -> MCPServer:
                     body=body,
                     due_at=due_at,
                     status=status,
+                    evidence_object_ids=evidence_object_ids or [],
                 )
             ),
         )
@@ -145,6 +147,7 @@ def create_mcp_server() -> MCPServer:
         body: str | None = None,
         status: str | None = None,
         due_at: datetime | None = None,
+        evidence_object_ids: list[str] | None = None,
     ) -> UpdateTaskOutput:
         """Update a task without changing provenance origin."""
         return _run_tool(
@@ -156,6 +159,7 @@ def create_mcp_server() -> MCPServer:
                     body=body,
                     status=status,
                     due_at=due_at,
+                    evidence_object_ids=evidence_object_ids or [],
                 )
             ),
         )

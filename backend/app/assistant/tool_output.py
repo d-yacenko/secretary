@@ -60,6 +60,8 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
                     "title": hit.get("title"),
                     "kind": hit.get("kind"),
                     "provider": hit.get("provider"),
+                    "state": hit.get("state"),
+                    "status": hit.get("status"),
                     "occurred_at": hit.get("occurred_at"),
                     "relevance": hit.get("relevance"),
                     "reasons": hit.get("reasons", []),

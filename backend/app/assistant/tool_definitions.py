@@ -85,7 +85,10 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "name": "create_task",
-        "description": "Create a proposed agent-origin task for the authenticated user.",
+        "description": (
+            "Create a proposed agent-origin task for the authenticated user. "
+            "Pass evidence_object_ids from source objects discovered this turn."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -94,6 +97,11 @@ TOOL_DEFINITIONS: list[dict] = [
                 "body": {"type": "string"},
                 "due_at": {"type": "string"},
                 "status": {"type": "string"},
+                "evidence_object_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 8,
+                },
             },
             "required": ["title", "confidence"],
             "additionalProperties": False,
@@ -103,7 +111,9 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "name": "update_task",
-        "description": "Update an existing task object.",
+        "description": (
+            "Update an existing task object or attach evidence references to it."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -112,6 +122,11 @@ TOOL_DEFINITIONS: list[dict] = [
                 "body": {"type": "string"},
                 "status": {"type": "string"},
                 "due_at": {"type": "string"},
+                "evidence_object_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 8,
+                },
             },
             "required": ["object_id"],
             "additionalProperties": False,
