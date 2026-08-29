@@ -1,17 +1,13 @@
-# Current task — PHASE 22.5B
+# Current task — PHASE 22.5 closed
 
 ## Status
 
-PHASE 22.5B final corrective implemented. STOP for acceptance.
+PHASE 22.5A and PHASE 22.5B accepted / closed.
 
-PHASE 22.5A accepted / closed. PHASE 23 not started. No VDS deploy.
+Deployed and live-smoke verified at `ab568105ff81316cb58b538970fabcc2abe35833`.
 
-## Delivered (final corrective)
-
-- OpenAI token usage accumulated across all Responses rounds in a turn
-- Real OpenAIAssistantProvider multi-round nornickel regression (fake Responses)
-- `candidate_count` removed from model-visible retrieve output (telemetry from raw)
+PHASE 23 not started.
 
 ## STOP
 
-Await PHASE 22.5B acceptance. Do not start PHASE 23. Do not deploy to VDS.
+Do not start PHASE 23 until explicitly requested.
