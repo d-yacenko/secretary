@@ -13,6 +13,6 @@ def refresh_representation_embedding(
 ) -> None:
     try:
         rep.embedding = embedding_service.embed(text)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("representation embedding failed for representation %s", rep.id)
         rep.embedding = None

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ContextBuildResult, ContextItem
 from app.db.models import Edge, Object, Representation
 from app.llm.embedding_service import EmbeddingService
+from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
 from app.services.graph_service import GraphService
 from app.services.representation_service import (
     KIND_CHUNK,
@@ -19,7 +20,6 @@ from app.services.representation_service import (
     KIND_SUMMARY,
     RepresentationService,
 )
-from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
 from app.services.search_service import SearchService
 
 logger = logging.getLogger(__name__)
@@ -389,7 +389,7 @@ class ContextService:
 
         try:
             query_vector = self._embedding_service.embed(query)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("chunk ranking embedding failed; omitting semantic chunks")
             return []
 

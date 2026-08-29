@@ -1,22 +1,42 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from uuid import UUID
 
 from app.db.session import SessionLocal
 from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
+from app.tools.executor import ToolExecutionResult, _dispatch
+from app.tools.schemas import ToolError
 
 
-@contextmanager
-def assistant_tool_session(user_id: UUID) -> Iterator[DomainToolService]:
-    """Short-lived DB session for one Assistant tool invocation."""
+def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolExecutionResult:
+    """One Assistant tool call: short session, commit on success, rollback on failure."""
     session = SessionLocal()
+    tools = DomainToolService(
+        session,
+        user_id,
+        create_embedding_service(),
+        defer_write_embeddings=True,
+    )
     try:
-        tools = DomainToolService(session, user_id, create_embedding_service())
-        yield tools
+        output = _dispatch(tools, tool_name, arguments)
         session.commit()
-    except Exception:
+        return ToolExecutionResult(
+            success=True,
+            tool_name=tool_name,
+            output=output.model_dump(mode="json"),
+        )
+    except ToolError as exc:
         session.rollback()
-        raise
+        return ToolExecutionResult(
+            success=False,
+            tool_name=tool_name,
+            error=exc.message,
+        )
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        return ToolExecutionResult(
+            success=False,
+            tool_name=tool_name,
+            error=f"tool execution failed: {type(exc).__name__}",
+        )
     finally:
         session.close()

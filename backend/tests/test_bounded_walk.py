@@ -9,13 +9,12 @@ from app.local.constants import (
     SUPPORTED_LOCAL_SUFFIXES,
 )
 from app.local.paths import LocalPathResolver
+from app.services.job_queue_service import JobQueueService
+from app.services.local_device_service import LocalDeviceService
 from app.services.local_file_sync_service import (
-    LocalFileReport,
     LocalFileSyncService,
     bounded_supported_walk,
 )
-from app.services.job_queue_service import JobQueueService
-from app.services.local_device_service import LocalDeviceService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 

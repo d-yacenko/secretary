@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -9,13 +9,12 @@ from sqlalchemy.orm import Session
 from app.db.models import AuthToken, User
 from app.services.errors import NotFoundError, ValidationError
 
-
 TOKEN_BYTE_LENGTH = 32
 TOKEN_PREFIX_LENGTH = 8
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _hash_token(plaintext: str) -> str:

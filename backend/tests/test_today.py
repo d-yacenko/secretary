@@ -12,7 +12,7 @@ from app.notifications.constants import NOTIFICATION_STATUS_ACCEPTED
 from app.services.errors import NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.notification_service import NotificationService
-from app.services.today_service import TodayService, TODAY_MAX_TASKS
+from app.services.today_service import TODAY_MAX_TASKS, TodayService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")

@@ -13,7 +13,6 @@ from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.secretary_service import SecretaryService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
-
 FIXED_REFERENCE = datetime(2026, 8, 28, 10, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
 EMAIL_TEXT = (
     "Let's meet tomorrow at 13:30. Please send the updated forecast before the meeting."
@@ -249,7 +248,7 @@ def test_edge_state_transition_to_rejected(db_session) -> None:
 
 def test_patch_null_state_returns_validation_error(db_session) -> None:
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
-    obj = graph.create_object(ObjectCreate(kind="task", title="Task", origin="user"))
+    graph.create_object(ObjectCreate(kind="task", title="Task", origin="user"))
     with pytest.raises(PydanticValidationError):
         ObjectUpdate(state=None)
 

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.api.schemas import ObjectCreate
@@ -10,14 +11,13 @@ from app.services.domain_tool_service import DomainToolService
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.tools.executor import ToolExecutor
-from pydantic import ValidationError
 from app.tools.schemas import (
+    MAX_CONTEXT_CHARS,
     CreateTaskInput,
     GetContextInput,
     GetObjectInput,
     LinkObjectsInput,
     ListNeighborsInput,
-    MAX_CONTEXT_CHARS,
     SearchObjectsInput,
     UpdateTaskInput,
 )
@@ -165,7 +165,7 @@ def test_get_context_rejects_max_chars_above_cap() -> None:
 
 
 def test_create_task_normalizes_naive_due_at_timezone(db_session, domain_tools) -> None:
-    naive_due = datetime(2026, 6, 15, 9, 30, 0)
+    naive_due = datetime(2026, 6, 15, 9, 30, 0)  # noqa: DTZ001
     result = domain_tools.create_task(
         CreateTaskInput(title="Due task", confidence=0.5, due_at=naive_due)
     )

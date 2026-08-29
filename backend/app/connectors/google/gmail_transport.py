@@ -1,18 +1,18 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 import httpx
+from sqlalchemy.orm import Session
 
 from app.connectors.google.constants import GMAIL_API_BASE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError, GoogleOAuthError
 from app.connectors.google.oauth_service import GoogleOAuthService, parse_token_expiry
-from sqlalchemy.orm import Session
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class GmailTransport:

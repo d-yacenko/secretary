@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
@@ -18,8 +18,8 @@ CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
 
 def _format_caldav_time(value: datetime) -> str:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    utc = value.astimezone(timezone.utc)
+        value = value.replace(tzinfo=UTC)
+    utc = value.astimezone(UTC)
     return utc.strftime("%Y%m%dT%H%M%SZ")
 
 
@@ -75,9 +75,7 @@ def _is_stale_sync_token_response(status_code: int, body: str) -> bool:
     body_lower = body.lower()
     if "valid-sync-token" in body_lower:
         return True
-    if "sync-token" in body_lower and "invalid" in body_lower:
-        return True
-    return False
+    return bool("sync-token" in body_lower and "invalid" in body_lower)
 
 
 def _parse_multistatus_root(xml_text: str) -> ET.Element:
@@ -479,8 +477,8 @@ def _parse_dtstart_from_ical(calendar_data: str) -> datetime | None:
         except ValueError:
             return None
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     return None
 
 

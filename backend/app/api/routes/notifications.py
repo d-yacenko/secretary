@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.core.current_user import CurrentUserContext
 from app.api.schemas import NotificationListOut, NotificationOut
+from app.core.current_user import CurrentUserContext
 from app.notifications.constants import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 from app.services.errors import NotFoundError, ValidationError
 from app.services.notification_service import NotificationService

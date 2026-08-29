@@ -3,8 +3,7 @@ import logging
 from app.db.session import SessionLocal
 from app.jobs.handlers import get_handler
 from app.llm.embedding_service import EmbeddingService
-from app.services.job_queue_service import sanitize_job_error
-from app.services.job_queue_service import JobQueueService
+from app.services.job_queue_service import JobQueueService, sanitize_job_error
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ def process_one_job(embedding_service: EmbeddingService) -> bool:
             raise
         finally:
             session.close()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("job %s (%s) failed: %s", claimed.id, claimed.type, type(exc).__name__)
         session = SessionLocal()
         try:

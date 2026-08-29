@@ -1,22 +1,23 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.connectors.yandex.calendar_credentials import (
-    YandexCalendarAccountStore,
-    YandexCalendarSyncSnapshot,
-)
-from app.connectors.yandex.calendar_normalize import normalize_caldav_events
 from app.connectors.yandex.caldav_transport import (
     CalDavCalendar,
     CalDavFetchResult,
     CalDavHttpTransport,
     CalDavTransport,
 )
+from app.connectors.yandex.calendar_credentials import (
+    YandexCalendarAccountStore,
+    YandexCalendarSyncSnapshot,
+)
+from app.connectors.yandex.calendar_normalize import normalize_caldav_events
 from app.connectors.yandex.constants import (
     CALENDAR_BACKFILL_MIN_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_DAYS,
@@ -35,7 +36,7 @@ from app.services.job_queue_service import JobQueueService
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -204,8 +205,7 @@ class YandexCalendarSyncService:
 
         if window_max > covered_end:
             reconcile_start = covered_end - timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
-            if reconcile_start < window_min:
-                reconcile_start = window_min
+            reconcile_start = max(reconcile_start, window_min)
             batch_stats, occurrence_budget, stored = self._run_bounded_reconciliation(
                 transport=transport,
                 snapshot=snapshot,
@@ -251,8 +251,7 @@ class YandexCalendarSyncService:
     ) -> tuple[_BatchStats, int, dict[str, Any]]:
         totals = _BatchStats()
         cursor = self._parse_iso_datetime(stored.get("backfill_cursor")) or range_start
-        if cursor < range_start:
-            cursor = range_start
+        cursor = max(cursor, range_start)
         min_slice = timedelta(days=CALENDAR_BACKFILL_MIN_SLICE_DAYS)
         overlap = timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
         iterations = 0
@@ -267,8 +266,7 @@ class YandexCalendarSyncService:
                 range_end,
             )
             leaf_end = self._parse_iso_datetime(stored.get("backfill_slice_end")) or parent_slice_end
-            if leaf_end > parent_slice_end:
-                leaf_end = parent_slice_end
+            leaf_end = min(leaf_end, parent_slice_end)
             leaf_start = cursor
 
             self._session.commit()
@@ -648,9 +646,7 @@ class YandexCalendarSyncService:
             return True
         if obj.due_at != normalized.get("due_at"):
             return True
-        if obj.metadata_ != normalized["metadata"]:
-            return True
-        return False
+        return obj.metadata_ != normalized["metadata"]
 
     def _apply_normalized_event(self, obj: Object, normalized: dict[str, Any]) -> None:
         obj.title = normalized["title"]
@@ -665,8 +661,8 @@ class YandexCalendarSyncService:
             return None
         parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
 
 
 def build_yandex_calendar_sync_service(

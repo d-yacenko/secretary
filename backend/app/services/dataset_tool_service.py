@@ -16,7 +16,7 @@ from app.local.bounded_io import (
     stream_csv_stats,
 )
 from app.local.constants import MAX_DATASET_QUERY_ROWS, PROVIDER_LOCAL_DEVICE
-from app.local.errors import LocalAccessError, LocalFileError
+from app.local.errors import LocalFileError
 from app.local.paths import LocalPathResolver
 from app.resources.upload_paths import validate_object_upload_path
 from app.services.errors import NotFoundError, ValidationError

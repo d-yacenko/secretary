@@ -211,7 +211,7 @@ class FakeImapTransport:
         max_results: int,
     ) -> list[int]:
         self._check_tx()
-        uids = sorted(uid for uid in self._messages.keys() if uid > after_uid)
+        uids = sorted(uid for uid in self._messages if uid > after_uid)
         if len(uids) > max_results:
             return uids[:max_results]
         return uids

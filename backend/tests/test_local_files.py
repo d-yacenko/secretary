@@ -1,6 +1,6 @@
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,19 +16,17 @@ from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_INGEST_LOCAL_FILE
 from app.jobs.handlers import handle_ingest_local_file
 from app.local.constants import (
     CHEAP_HASH_MAX_BYTES,
-    MAX_TEXT_WINDOW_BYTES,
     POLICY_INDEX_TEXT,
     POLICY_METADATA_ONLY,
     POLICY_UPLOAD_COPY,
     PROVIDER_LOCAL_DEVICE,
 )
+from app.local.paths import LocalPathResolver
+from app.main import app
 from app.resources.constants import (
-    CONTENT_INGESTED_POLICY_KEY,
     CONTENT_INGESTED_REVISION_KEY,
     REVISION_METADATA_KEYS,
 )
-from app.local.paths import LocalPathResolver
-from app.main import app
 from app.services.dataset_tool_service import DatasetToolService
 from app.services.job_queue_service import JobQueueService
 from app.services.local_device_service import LocalDeviceService
@@ -38,7 +36,7 @@ from app.services.local_file_sync_service import (
     _revision_signature,
     copy_local_file_to_upload,
 )
-from app.services.representation_service import KIND_SCHEMA, KIND_SAMPLE, KIND_STATISTICS
+from app.services.representation_service import KIND_SAMPLE, KIND_SCHEMA, KIND_STATISTICS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
@@ -55,9 +53,11 @@ def local_client(db_session, local_mirror: Path, auth_headers):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    with patch("app.core.config.settings.local_files_root", str(local_mirror)):
-        with TestClient(app) as client:
-            yield AuthTestClient(client, auth_headers)
+    with (
+        patch("app.core.config.settings.local_files_root", str(local_mirror)),
+        TestClient(app) as client,
+    ):
+        yield AuthTestClient(client, auth_headers)
     app.dependency_overrides.clear()
 
 
@@ -81,7 +81,7 @@ def _sync_service(db_session, local_mirror: Path, upload_root: Path) -> LocalFil
 
 def _mtime_iso(path: Path) -> str:
     stat = path.stat()
-    return datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
 
 
 def test_register_device_and_root(local_mirror: Path, db_session) -> None:
@@ -190,7 +190,7 @@ def test_dataset_tools_query_columns(local_mirror: Path, db_session, tmp_path: P
     upload_root = tmp_path / "uploads"
     device_service = _device_service(db_session, local_mirror)
     device_service.register_device("desk-3", "Desktop")
-    root = device_service.register_root("desk-3", "tables", default_policy=POLICY_METADATA_ONLY)
+    device_service.register_root("desk-3", "tables", default_policy=POLICY_METADATA_ONLY)
     root_dir = LocalPathResolver(local_mirror).resolve_root_path(
         BOOTSTRAP_USER_ID, "desk-3", "tables"
     )
@@ -280,18 +280,17 @@ def test_worker_rejects_other_user_local_ingest_job(db_session, local_mirror: Pa
 
     with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
         db_session, "close", lambda: None
-    ):
-        with pytest.raises(ValueError, match="ownership mismatch"):
-            handle_ingest_local_file(
-                db_session,
-                None,
-                {
-                    "object_id": str(obj.id),
-                    "expected_revision": "rev",
-                    "expected_policy": POLICY_INDEX_TEXT,
-                },
-                user_b_id,
-            )
+    ), pytest.raises(ValueError, match="ownership mismatch"):
+        handle_ingest_local_file(
+            db_session,
+            None,
+            {
+                "object_id": str(obj.id),
+                "expected_revision": "rev",
+                "expected_policy": POLICY_INDEX_TEXT,
+            },
+            user_b_id,
+        )
 
 
 def test_local_api_register_and_scan(local_client: TestClient, local_mirror: Path) -> None:
@@ -354,7 +353,7 @@ def test_policy_change_to_index_text_enqueues_single_ingest(
     upload_root = tmp_path / "uploads"
     device_service = _device_service(db_session, local_mirror)
     device_service.register_device("policy-device", "Desktop")
-    root = device_service.register_root(
+    device_service.register_root(
         "policy-device", "docs", default_policy=POLICY_METADATA_ONLY
     )
     root_dir = LocalPathResolver(local_mirror).resolve_root_path(

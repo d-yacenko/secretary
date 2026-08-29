@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -24,9 +24,8 @@ from app.services.job_queue_service import JobQueueService
 
 
 def utcnow() -> datetime:
-    from datetime import timezone
 
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_optional_datetime(value: str | None) -> datetime | None:
@@ -97,9 +96,12 @@ class NotificationService:
         status: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
     ) -> list[Notification]:
-        if status is not None and status not in NOTIFICATION_STATUSES:
-            if status != NOTIFICATION_FILTER_UNRESOLVED:
-                raise ValidationError(f"invalid notification status: {status}")
+        if (
+            status is not None
+            and status not in NOTIFICATION_STATUSES
+            and status != NOTIFICATION_FILTER_UNRESOLVED
+        ):
+            raise ValidationError(f"invalid notification status: {status}")
         bounded_limit = max(1, min(limit, MAX_LIST_LIMIT))
         stmt = (
             select(Notification)

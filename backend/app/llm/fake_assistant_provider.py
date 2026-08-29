@@ -15,6 +15,11 @@ class FakeAssistantProvider:
   def __init__(self, store_false: bool = True) -> None:
       self._store_false = store_false
       self._calls: list[tuple[str, dict]] = []
+      self._last_instructions: str = ""
+
+  @property
+  def last_instructions(self) -> str:
+      return self._last_instructions
 
   @property
   def calls(self) -> list[tuple[str, dict]]:
@@ -29,6 +34,11 @@ class FakeAssistantProvider:
       timezone: str,
       tool_runner: Callable[[str, dict], ToolExecutionResult],
   ) -> AssistantProviderResult:
+      self._last_instructions = (
+          "You are the Personal Secretary assistant. "
+          f"Reference datetime: {reference_datetime.isoformat()}\n"
+          f"Timezone: {timezone}"
+      )
       lowered = message.lower()
       candidate_ids: list[UUID] = []
       affected_ids: list[UUID] = []

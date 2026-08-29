@@ -1,6 +1,6 @@
 import json
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -11,10 +11,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.api.deps import get_db
-from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE, GOOGLE_OAUTH_SCOPES
+from app.connectors.google.constants import (
+    GMAIL_READONLY_SCOPE,
+    GOOGLE_OAUTH_SCOPES,
+)
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.google.errors import GoogleConfigurationError, GoogleOAuthError
+from app.connectors.google.errors import GoogleConfigurationError
 from app.connectors.google.gmail_normalize import normalize_gmail_message
 from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.google.gmail_transport import GmailTransport
@@ -30,12 +33,11 @@ from app.mcp.server import MCP_TOOL_NAMES
 from app.services.context_service import ContextService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @pytest.fixture
@@ -661,9 +663,21 @@ def test_embedding_jobs_use_object_reference_only(
         max_limit=100,
         http_client=fake_http,
     )
-    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    sync_result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    assert sync_result["jobs_enqueued"] == 1
 
-    jobs = list(db_session.scalars(select(Job).where(Job.type == "embed_object")))
+    email_object = db_session.scalar(
+        select(Object).where(Object.external_id == "msg-job", Object.provider == "gmail")
+    )
+    assert email_object is not None
+
+    jobs = [
+        job
+        for job in db_session.scalars(
+            select(Job).where(Job.type == "embed_object", Job.user_id == BOOTSTRAP_USER_ID)
+        )
+        if job.payload.get("object_id") == str(email_object.id)
+    ]
     assert len(jobs) == 1
     payload = jobs[0].payload
     assert set(payload.keys()) == {"object_id"}
@@ -833,15 +847,14 @@ def test_oauth_exchange_and_callback_success(
     )
     from unittest.mock import patch
 
-    with patch("app.api.google._google_oauth_service", return_value=oauth_service):
-        with patch(
-            "app.api.google.GmailTransport",
-            return_value=GmailTransport(http_client=fake_http),
-        ):
-            response = client.get(
-                "/auth/google/callback",
-                params={"code": "auth-code", "state": state},
-            )
+    with patch("app.api.google._google_oauth_service", return_value=oauth_service), patch(
+        "app.api.google.GmailTransport",
+        return_value=GmailTransport(http_client=fake_http),
+    ):
+        response = client.get(
+            "/auth/google/callback",
+            params={"code": "auth-code", "state": state},
+        )
 
     assert response.status_code == 200
     body = response.json()

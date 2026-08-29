@@ -6,13 +6,14 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
+from app.db.models import User
 from app.llm.embedding_service import FakeEmbeddingService
+from app.llm.summarizer import FakeSummarizer
 from app.main import app
 from app.services.context_service import ContextService
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.representation_service import KIND_CHUNK, KIND_SUMMARY, RepresentationService
-from app.llm.summarizer import FakeSummarizer
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
@@ -239,7 +240,12 @@ def test_context_omits_chunks_when_embedding_fails(db_session) -> None:
 
 
 def test_long_document_target_context_includes_summary_and_chunks(db_session) -> None:
-    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService())
+    unique_marker = f"xylophone-target-long-{uuid.uuid4()}"
+    user_id = uuid.uuid4()
+    db_session.add(User(id=user_id, display_name="provenance-long-doc"))
+    db_session.flush()
+
+    graph = GraphService(db_session, user_id, FakeEmbeddingService())
     doc = graph.create_object(
         ObjectCreate(
             kind="document",
@@ -250,19 +256,20 @@ def test_long_document_target_context_includes_summary_and_chunks(db_session) ->
     )
     RepresentationService(
         db_session,
-        BOOTSTRAP_USER_ID,
+        user_id,
         embedding_service=FakeEmbeddingService(),
         summarizer=FakeSummarizer(max_chars=80),
-    ).ingest_text_content(doc.id, "budget revenue expense planning " * 100)
+    ).ingest_text_content(doc.id, f"{unique_marker} budget revenue expense planning " * 100)
 
-    result = ContextService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).build_context(
+    result = ContextService(db_session, user_id, FakeEmbeddingService()).build_context(
         object_id=doc.id,
-        query="budget revenue",
+        query=f"{unique_marker} budget revenue",
     )
     object_items = [item for item in result.items if item.representation_kind is None]
     repr_kinds = {item.representation_kind for item in result.items if item.representation_kind}
 
     assert len(object_items) == 1
+    assert object_items[0].object_id == doc.id
     assert "file:///target-long.md" in object_items[0].content
     assert KIND_SUMMARY in repr_kinds
     assert KIND_CHUNK in repr_kinds

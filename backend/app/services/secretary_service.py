@@ -5,7 +5,11 @@ from app.api.schemas import ContextBuildResult
 from app.core.config import settings
 from app.llm.openai_secretary_provider import OpenAISecretaryProvider
 from app.llm.secretary_models import SecretaryAnalysis, SecretaryResult
-from app.llm.secretary_provider import SecretaryAnalysisError, SecretaryConfigurationError, SecretaryProvider
+from app.llm.secretary_provider import (
+    SecretaryAnalysisError,
+    SecretaryConfigurationError,
+    SecretaryProvider,
+)
 
 SECRETARY_INSTRUCTIONS = (
     "You analyze bounded context for a personal secretary. "

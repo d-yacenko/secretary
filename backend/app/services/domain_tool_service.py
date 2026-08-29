@@ -1,16 +1,24 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.api.schemas import EdgeCreate, EdgeOut, NotificationOut, ObjectCreate, ObjectOut, ObjectUpdate
+from app.api.schemas import (
+    EdgeCreate,
+    EdgeOut,
+    NotificationOut,
+    ObjectCreate,
+    ObjectOut,
+    ObjectUpdate,
+)
 from app.core.config import settings
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.search_service import SearchService
@@ -44,6 +52,7 @@ class DomainToolService:
         session: Session,
         user_id: UUID,
         embedding_service: EmbeddingService,
+        defer_write_embeddings: bool = False,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -51,6 +60,22 @@ class DomainToolService:
         self._search = SearchService(session, user_id, embedding_service)
         self._context = ContextService(session, user_id, embedding_service)
         self._notifications = NotificationService(session, user_id)
+        self._defer_write_embeddings = defer_write_embeddings
+        if defer_write_embeddings:
+            self._write_graph = GraphService(session, user_id, None)
+            self._job_queue = JobQueueService(session)
+        else:
+            self._write_graph = self._graph
+            self._job_queue = None
+
+    def _enqueue_object_embedding(self, object_id: UUID) -> None:
+        if self._job_queue is None:
+            return
+        self._job_queue.enqueue(
+            JOB_TYPE_EMBED_OBJECT,
+            {"object_id": str(object_id)},
+            user_id=self._user_id,
+        )
 
     def list_notifications(self, input: ListNotificationsInput) -> ListNotificationsOutput:
         try:
@@ -116,7 +141,7 @@ class DomainToolService:
     def create_task(self, input: CreateTaskInput) -> CreateTaskOutput:
         due_at = normalize_tool_datetime(input.due_at)
         try:
-            obj = self._graph.create_object(
+            obj = self._write_graph.create_object(
                 ObjectCreate(
                     kind="task",
                     title=input.title,
@@ -131,6 +156,7 @@ class DomainToolService:
             raise ToolError(exc.message) from exc
         except ConflictError as exc:
             raise ToolError(exc.message) from exc
+        self._enqueue_object_embedding(obj.id)
         return CreateTaskOutput(object=ObjectOut.from_model(obj))
 
     def update_task(self, input: UpdateTaskInput) -> UpdateTaskOutput:
@@ -147,11 +173,12 @@ class DomainToolService:
             raise ToolError("update_task requires at least one field to update")
         updates = ObjectUpdate(**update_data)
         try:
-            updated = self._graph.update_object(input.object_id, updates)
+            updated = self._write_graph.update_object(input.object_id, updates)
         except ValidationError as exc:
             raise ToolError(exc.message) from exc
         except ConflictError as exc:
             raise ToolError(exc.message) from exc
+        self._enqueue_object_embedding(updated.id)
         return UpdateTaskOutput(object=ObjectOut.from_model(updated))
 
     def link_objects(self, input: LinkObjectsInput) -> LinkObjectsOutput:

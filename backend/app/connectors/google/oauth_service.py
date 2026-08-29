@@ -1,16 +1,16 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
-from app.connectors.google.constants import GOOGLE_OAUTH_SCOPES, GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL
-from app.connectors.google.errors import GoogleApiError, GoogleConnectorError, GoogleOAuthError
+from app.connectors.google.constants import GOOGLE_AUTH_URL, GOOGLE_OAUTH_SCOPES, GOOGLE_TOKEN_URL
+from app.connectors.google.errors import GoogleOAuthError
 from app.connectors.google.oauth_config import load_oauth_client_config
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def parse_token_expiry(expires_in: int | None) -> datetime | None:

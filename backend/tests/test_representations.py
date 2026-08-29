@@ -1,4 +1,3 @@
-import uuid
 from pathlib import Path
 
 import pyarrow as pa
@@ -19,8 +18,8 @@ from app.services.representation_service import (
     KIND_STATISTICS,
     KIND_SUMMARY,
     MAX_INDEXED_TEXT_CHUNKS,
-    RepresentationService,
     SMALL_TEXT_MAX_CHARS,
+    RepresentationService,
 )
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 

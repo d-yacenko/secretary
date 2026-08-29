@@ -7,15 +7,18 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.connectors.google.errors import GoogleConfigurationError
-from app.connectors.yandex.constants import DEFAULT_CALDAV_HOST, DEFAULT_IMAP_HOST, DEFAULT_IMAP_PORT
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
-from app.connectors.yandex.credentials import YandexMailAccountStore
-from app.connectors.yandex.errors import YandexConnectorError, YandexConfigurationError
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
+from app.connectors.yandex.constants import (
+    DEFAULT_CALDAV_HOST,
+    DEFAULT_IMAP_HOST,
+    DEFAULT_IMAP_PORT,
+)
+from app.connectors.yandex.credentials import YandexMailAccountStore
+from app.connectors.yandex.errors import YandexConfigurationError, YandexConnectorError
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
-
 
 router = APIRouter(tags=["yandex"])
 

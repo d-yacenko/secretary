@@ -1,10 +1,12 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.connectors.google.calendar_normalize import normalize_calendar_event
+from app.connectors.google.calendar_transport import CalendarTransport
 from app.connectors.google.constants import (
     CALENDAR_READONLY_SCOPE,
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
@@ -15,8 +17,6 @@ from app.connectors.google.constants import (
 )
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleConnectorError
-from app.connectors.google.calendar_normalize import normalize_calendar_event
-from app.connectors.google.calendar_transport import CalendarTransport
 from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.db.models import Object
@@ -24,7 +24,7 @@ from app.services.job_queue_service import JobQueueService
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class CalendarSyncService:
@@ -185,9 +185,7 @@ class CalendarSyncService:
             return True
         if obj.due_at != normalized.get("due_at"):
             return True
-        if obj.metadata_ != normalized["metadata"]:
-            return True
-        return False
+        return obj.metadata_ != normalized["metadata"]
 
     def _apply_normalized_calendar_object(self, obj: Object, normalized: dict[str, Any]) -> None:
         obj.title = normalized["title"]

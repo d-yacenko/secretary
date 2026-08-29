@@ -10,7 +10,7 @@ def validate_device_key(device_key: str) -> str:
     key = device_key.strip()
     if not key:
         raise LocalPathError("device_key must not be empty")
-    if key.startswith("/") or key.startswith("\\"):
+    if key.startswith(("/", "\\")):
         raise LocalPathError("device_key must not be an absolute path")
     if "/" in key or "\\" in key:
         raise LocalPathError("device_key must not contain path separators")

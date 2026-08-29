@@ -52,9 +52,8 @@ def test_web_fetch_blocks_redirect_to_private_target(_mock_resolve: object) -> N
         side_effect=lambda *args, **kwargs: _REAL_HTTPX_CLIENT(
             transport=transport, follow_redirects=False
         ),
-    ):
-        with pytest.raises(WebFetchError, match="not allowed"):
-            fetch_web_page("http://redirect.test/start")
+    ), pytest.raises(WebFetchError, match="not allowed"):
+        fetch_web_page("http://redirect.test/start")
 
 
 @patch("app.resources.web_fetch.socket.getaddrinfo", side_effect=_public_addrinfo)
@@ -93,9 +92,8 @@ def test_web_fetch_redirect_loop_or_cap_raises(_mock_resolve: object) -> None:
         side_effect=lambda *args, **kwargs: _REAL_HTTPX_CLIENT(
             transport=transport, follow_redirects=False
         ),
-    ):
-        with pytest.raises(WebFetchError, match="redirect limit exceeded"):
-            fetch_web_page("http://redirect.test/loop")
+    ), pytest.raises(WebFetchError, match="redirect limit exceeded"):
+        fetch_web_page("http://redirect.test/loop")
 
 
 @patch("app.resources.web_fetch.socket.getaddrinfo", side_effect=_public_addrinfo)
@@ -109,6 +107,5 @@ def test_web_fetch_wraps_request_errors(_mock_resolve: object) -> None:
         side_effect=lambda *args, **kwargs: _REAL_HTTPX_CLIENT(
             transport=transport, follow_redirects=False
         ),
-    ):
-        with pytest.raises(WebFetchError, match="request failed"):
-            fetch_web_page("http://redirect.test/fail")
+    ), pytest.raises(WebFetchError, match="request failed"):
+        fetch_web_page("http://redirect.test/fail")

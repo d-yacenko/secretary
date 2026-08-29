@@ -1,8 +1,6 @@
-import pytest
 
 from app.services.bounded_chunks import (
     MAX_INDEXED_TEXT_CHUNKS,
-    chunk_text,
     select_bounded_chunk_indices,
     select_bounded_chunks,
 )

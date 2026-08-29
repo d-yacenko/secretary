@@ -10,14 +10,13 @@ from sqlalchemy import func, select
 
 from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import EdgeCreate, ObjectCreate, ResourceRegisterRequest
+from app.core.config import settings
 from app.db.models import Job, Object, Representation, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import FakeEmbeddingService
-from app.core.config import settings
 from app.main import app
 from app.resources.constants import (
     CONTENT_INGESTED_REVISION_KEY,
-    MAX_UPLOAD_BYTES,
     PROVIDER_GOOGLE_DRIVE,
     PROVIDER_YANDEX_DISK,
 )
@@ -41,9 +40,11 @@ def client(db_session, tmp_path: Path, auth_headers):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
-    with patch.object(settings, "resource_upload_root", str(upload_root)):
-        with TestClient(app) as test_client:
-            yield AuthTestClient(test_client, auth_headers)
+    with (
+        patch.object(settings, "resource_upload_root", str(upload_root)),
+        TestClient(app) as test_client,
+    ):
+        yield AuthTestClient(test_client, auth_headers)
     app.dependency_overrides.clear()
 
 
@@ -256,7 +257,7 @@ def test_register_metadata_only_then_ingest_once(db_session, upload_root) -> Non
 
 def test_register_new_revision_ingests_when_requested(db_session, upload_root) -> None:
     service = _register_service(db_session, upload_root)
-    first = service.register(
+    service.register(
         ResourceRegisterRequest(
             kind="document",
             title="Evolving doc",
@@ -810,22 +811,22 @@ def test_worker_rejects_embedding_other_user_chunk_representations(
             metadata={"etag": "pf-1"},
         )
     )
-    with pytest.raises(ValueError, match="ownership mismatch"):
-        with patch(
-            "app.services.representation_embedding_worker.SessionLocal",
-            lambda: db_session,
-        ):
-            load_unembedded_chunk_targets(result.object_id, user_b_id)
-    with pytest.raises(ValueError, match="ownership mismatch"):
-        with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
-            db_session, "close", lambda: None
-        ):
-            handle_embed_object(
-                db_session,
-                FakeEmbeddingService(),
-                {"object_id": str(result.object_id)},
-                user_b_id,
-            )
+    with pytest.raises(ValueError, match="ownership mismatch"), patch(
+        "app.services.representation_embedding_worker.SessionLocal",
+        lambda: db_session,
+    ):
+        load_unembedded_chunk_targets(result.object_id, user_b_id)
+    with (
+        pytest.raises(ValueError, match="ownership mismatch"),
+        patch("app.jobs.handlers.SessionLocal", lambda: db_session),
+        patch.object(db_session, "close", lambda: None),
+    ):
+        handle_embed_object(
+            db_session,
+            FakeEmbeddingService(),
+            {"object_id": str(result.object_id)},
+            user_b_id,
+        )
 
 
 def test_metadata_only_upload_persisted_for_later_ingest(
@@ -932,18 +933,17 @@ def test_new_upload_orphan_cleaned_on_ingest_failure_preserves_old_revision(
         RepresentationService,
         "ingest_file",
         side_effect=ValueError("extract failed"),
-    ):
-        with pytest.raises(ValueError, match="extract failed"):
-            service.register(
-                ResourceRegisterRequest(
-                    kind="document",
-                    title="Versioned file",
-                    ingest_content=True,
-                    provider="upload",
-                    external_id="versioned-upload-1",
-                ),
-                staged_upload=new_staged,
-            )
+    ), pytest.raises(ValueError, match="extract failed"):
+        service.register(
+            ResourceRegisterRequest(
+                kind="document",
+                title="Versioned file",
+                ingest_content=True,
+                provider="upload",
+                external_id="versioned-upload-1",
+            ),
+            staged_upload=new_staged,
+        )
 
     assert old_path.is_file()
     assert not new_path.is_file()

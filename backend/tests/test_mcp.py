@@ -1,22 +1,21 @@
 import uuid
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from httpx import ASGITransport
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
-
-from app.api.schemas import EdgeCreate, ObjectCreate
-from app.mcp.server import MCP_TOOL_NAMES, create_mcp_server
 from mcp.server.transport_security import TransportSecuritySettings
+
+from app.api.schemas import ObjectCreate
+from app.mcp.server import MCP_TOOL_NAMES, create_mcp_server
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.tools.executor import ToolExecutor
 from app.tools.schemas import MAX_CONTEXT_CHARS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-
 
 FORBIDDEN_MCP_TOOLS = frozenset(
     {

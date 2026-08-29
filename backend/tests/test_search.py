@@ -86,7 +86,7 @@ def test_search_project_id_graph_filter(db_session, fake_embedding_service) -> N
     graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     project = graph.create_object(ObjectCreate(kind="project", title="Alpha", origin="system"))
     task = graph.create_object(ObjectCreate(kind="task", title="Alpha task", origin="system"))
-    other = graph.create_object(ObjectCreate(kind="task", title="Other task", origin="system"))
+    graph.create_object(ObjectCreate(kind="task", title="Other task", origin="system"))
 
     from app.api.schemas import EdgeCreate
 

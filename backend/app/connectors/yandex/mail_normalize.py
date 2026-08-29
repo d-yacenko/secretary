@@ -1,11 +1,10 @@
 import re
-from datetime import datetime, timezone
-from email import message_from_bytes
-from email import policy
+from datetime import UTC, datetime
+from email import message_from_bytes, policy
 from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any
 
-from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER, MAX_EMAIL_BODY_CHARS
+from app.connectors.yandex.constants import MAX_EMAIL_BODY_CHARS
 
 
 def _strip_html(text: str) -> str:
@@ -85,14 +84,14 @@ def _extract_body(msg: Any) -> str | None:
 def _parse_timestamp(msg: Any) -> datetime:
     date_header = msg.get("Date")
     if not date_header:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     try:
         parsed = parsedate_to_datetime(date_header)
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
+            return parsed.replace(tzinfo=UTC)
         return parsed
     except (TypeError, ValueError):
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 def build_external_id(folder: str, uidvalidity: int, uid: int) -> str:

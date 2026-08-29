@@ -8,7 +8,7 @@ from app.api.schemas import EdgeCreate, ObjectCreate
 from app.llm.concept_stub_embedding import ConceptStubEmbeddingService
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.summarizer import FakeSummarizer
-from app.services.context_service import ContextService, DEFAULT_MAX_CHARS
+from app.services.context_service import DEFAULT_MAX_CHARS, ContextService
 from app.services.graph_service import GraphService
 from app.services.representation_service import (
     KIND_CHUNK,
@@ -18,7 +18,6 @@ from app.services.representation_service import (
     KIND_STATISTICS,
     KIND_SUMMARY,
     RepresentationService,
-    SMALL_TEXT_MAX_CHARS,
 )
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 

@@ -3,7 +3,7 @@ import json
 import shutil
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -91,7 +91,7 @@ class ResourceRegistrationService:
         provider = self._resolve_provider(data)
         external_id = self._resolve_external_id(data)
         metadata = dict(data.metadata)
-        metadata.setdefault("registered_at", datetime.now().isoformat())
+        metadata.setdefault("registered_at", datetime.now(UTC).isoformat())
         if data.local_path_metadata:
             metadata["local_path_metadata"] = data.local_path_metadata
 
@@ -251,7 +251,7 @@ class ResourceRegistrationService:
                     obj.title = fetched.title
                 obj.body = fetched.text
                 obj.canonical_uri = fetched.final_url
-                metadata["fetched_at"] = datetime.now().isoformat()
+                metadata["fetched_at"] = datetime.now(UTC).isoformat()
                 representations_created = len(
                     self._representation_service().ingest_text_content(obj.id, fetched.text)
                 )

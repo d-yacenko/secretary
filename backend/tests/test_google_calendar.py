@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -8,22 +8,22 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import func, select
 
+from app.connectors.google.calendar_normalize import normalize_calendar_event
+from app.connectors.google.calendar_sync import build_calendar_sync_service
 from app.connectors.google.constants import (
     CALENDAR_API_BASE,
     CALENDAR_READONLY_SCOPE,
     GMAIL_READONLY_SCOPE,
 )
-from app.connectors.google.calendar_normalize import normalize_calendar_event
-from app.connectors.google.calendar_sync import build_calendar_sync_service
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConnectorError
-from app.db.models import Job, Object, User
+from app.db.models import Object, User
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @pytest.fixture

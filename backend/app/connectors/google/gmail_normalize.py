@@ -1,7 +1,7 @@
 import base64
 import html
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parseaddr
 from typing import Any
 
@@ -89,9 +89,9 @@ def normalize_gmail_message(message: dict[str, Any]) -> dict[str, Any]:
     headers = payload.get("headers", [])
     internal_ms = message.get("internalDate")
     if internal_ms is not None:
-        timestamp = datetime.fromtimestamp(int(internal_ms) / 1000, tz=timezone.utc)
+        timestamp = datetime.fromtimestamp(int(internal_ms) / 1000, tz=UTC)
     else:
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
     subject = _header_value(headers, "Subject")
     sender = _header_value(headers, "From")

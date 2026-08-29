@@ -88,6 +88,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 
+  void _openAffectedObject(AssistantAffectedObject affected) {
+    openObjectDetail(
+      context,
+      objectId: affected.objectId,
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      captureController: widget.captureController,
+      assistantController: widget.controller,
+      onAskSecretary: (object) {
+        widget.controller.setObjectContext(object);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -142,6 +156,27 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                 ),
                               )
                               .toList(),
+                        ),
+                      ),
+                    if (!isUser && message.affectedObjects.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Proposed changes:',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                            ...message.affectedObjects.map(
+                              (affected) => ActionChip(
+                                label: Text(
+                                  '${affected.kind}: ${affected.title} — ${affected.state}',
+                                ),
+                                onPressed: () => _openAffectedObject(affected),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],

@@ -1,7 +1,7 @@
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from app.db.models import LocalDevice, LocalRoot, Object
 from app.local.bounded_io import stream_content_hash, stream_file_to_hashed_path
 from app.local.constants import (
-    DEFAULT_LOCAL_POLICY,
     LOCAL_POLICIES,
     MAX_REPORT_BATCH,
     MAX_SCAN_DEPTH,
@@ -26,7 +25,6 @@ from app.local.constants import (
     build_personal_file_uri,
     infer_local_kind,
 )
-from app.local.device_keys import validate_device_key
 from app.local.errors import LocalAccessError, LocalFileError
 from app.local.paths import LocalPathResolver, is_path_under, normalize_relative_path
 from app.resources.constants import (
@@ -203,7 +201,7 @@ class LocalFileSyncService:
 
             was_created = obj is None
             if was_created:
-                metadata["registered_at"] = datetime.now().isoformat()
+                metadata["registered_at"] = datetime.now(UTC).isoformat()
                 suffix = Path(normalized_rel).suffix.lower()
                 obj = Object(
                     user_id=self._user_id,
@@ -337,11 +335,13 @@ def bounded_supported_walk(
 
             if entry.is_dir(follow_symlinks=False) and depth < max_depth:
                 stack.append((entry_path, depth + 1))
-            elif entry.is_file(follow_symlinks=False):
-                if entry_path.suffix.lower() in SUPPORTED_LOCAL_SUFFIXES:
-                    if len(supported) >= max_supported:
-                        return BoundedWalkResult(paths=supported, truncated=True)
-                    supported.append(entry_path)
+            elif (
+                entry.is_file(follow_symlinks=False)
+                and entry_path.suffix.lower() in SUPPORTED_LOCAL_SUFFIXES
+            ):
+                if len(supported) >= max_supported:
+                    return BoundedWalkResult(paths=supported, truncated=True)
+                supported.append(entry_path)
 
         if truncated:
             break
@@ -372,7 +372,7 @@ def _file_report_from_path(
     if not is_path_under(resolved, root_resolved):
         raise LocalFileError("scan candidate escapes registered root")
     stat = resolved.stat()
-    modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+    modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
     content_hash = stream_content_hash(resolved)
     return LocalFileReport(
         relative_path=relative_path,

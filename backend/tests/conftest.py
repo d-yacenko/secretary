@@ -3,8 +3,9 @@ from uuid import UUID
 
 os.environ.setdefault("MCP_ENABLED", "false")
 
-import pytest
 from contextlib import contextmanager
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 

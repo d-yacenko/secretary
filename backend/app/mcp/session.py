@@ -1,5 +1,5 @@
-from contextlib import contextmanager
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from app.auth.errors import AuthenticationError
 from app.db.session import SessionLocal

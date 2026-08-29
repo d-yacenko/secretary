@@ -77,9 +77,7 @@ def _revision_and_policy_match(
 ) -> bool:
     if expected_revision is not None and metadata.get("content_revision") != expected_revision:
         return False
-    if expected_policy is not None and metadata.get("indexing_policy") != expected_policy:
-        return False
-    return True
+    return not (expected_policy is not None and metadata.get("indexing_policy") != expected_policy)
 
 
 def _load_user_object(session: Session, object_id: UUID, user_id: UUID) -> Object | None:

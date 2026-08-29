@@ -12,7 +12,6 @@ from app.tools.schemas import (
     ListNotificationsInput,
     SearchObjectsInput,
     ToolError,
-    ToolResult,
     UpdateTaskInput,
 )
 
@@ -63,7 +62,7 @@ class ToolExecutor:
                 tool_name=tool_name,
                 error=exc.message,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return ToolExecutionResult(
                 success=False,
                 tool_name=tool_name,

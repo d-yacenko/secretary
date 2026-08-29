@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, MAX_EVENT_BODY_CHARS

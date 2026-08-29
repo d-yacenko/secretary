@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -10,10 +10,9 @@ from app.api.deps import get_db
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.auth.token_service import AuthTokenService
 from app.db.models import Edge, Object, User
-from app.llm.embedding_service import FakeEmbeddingService
 from app.main import app
 from app.services.capture_service import PINNED_CONTEXT_ROLE
-from app.services.context_service import ContextService, DEFAULT_MAX_CHARS
+from app.services.context_service import DEFAULT_MAX_CHARS, ContextService
 from app.services.graph_service import GraphService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -553,19 +552,23 @@ def test_http_user_a_cannot_get_user_b_object(dual_auth_clients, db_session) -> 
 
 
 def test_http_search_does_not_return_other_user_objects(dual_auth_clients, db_session) -> None:
+    marker = f"unique-http-search-{uuid.uuid4()}"
     graph_b = GraphService(db_session, dual_auth_clients["user_b_id"])
-    graph_b.create_object(
+    secret = graph_b.create_object(
         ObjectCreate(
             kind="task",
-            title="unique-http-search-marker-b",
+            title=marker,
             origin="user",
             state="confirmed",
         )
     )
     db_session.flush()
-    response = dual_auth_clients["a"].get("/search", params={"q": "unique-http-search-marker-b"})
+    response = dual_auth_clients["a"].get("/search", params={"q": marker})
     assert response.status_code == 200
-    assert response.json() == []
+    titles = [row["title"] for row in response.json()]
+    assert marker not in titles
+    returned_ids = {row["id"] for row in response.json()}
+    assert str(secret.id) not in returned_ids
 
 
 def test_http_user_a_cannot_get_neighbors_for_user_b_object(
@@ -681,7 +684,7 @@ def test_connections_reflect_only_authenticated_user_records(
         scopes=[GMAIL_READONLY_SCOPE],
         access_token="token",
         refresh_token="refresh",
-        token_expiry=datetime.now(timezone.utc) + timedelta(hours=1),
+        token_expiry=datetime.now(UTC) + timedelta(hours=1),
     )
     db_session.flush()
 

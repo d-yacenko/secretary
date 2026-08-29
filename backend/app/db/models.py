@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
 import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Index, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column

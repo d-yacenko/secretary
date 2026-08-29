@@ -184,6 +184,61 @@ void main() {
     expect(find.text('Course context used'), findsOneWidget);
   });
 
+  testWidgets('assistant renders proposed affected objects', (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(
+          jsonEncode({
+            'answer': 'I created a proposed task to prepare the course outline.',
+            'references': [],
+            'affected_objects': [
+              {
+                'object_id': 'task-proposed-1',
+                'title': 'Prepare course outline',
+                'kind': 'task',
+                'state': 'proposed',
+              },
+            ],
+          }),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = AssistantController(apiClient: apiClient, authController: auth);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssistantScreen(
+          controller: assistant,
+          apiClient: apiClient,
+          authController: auth,
+          captureController: CaptureController(
+            apiClient: apiClient,
+            authController: auth,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('assistant_input')), 'Create task');
+    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Proposed changes:'), findsOneWidget);
+    expect(find.text('task: Prepare course outline — proposed'), findsOneWidget);
+  });
+
   testWidgets('logout clears assistant conversation and context', (tester) async {
     final apiClient = SecretaryApiClient(
       httpClient: MockClient((request) async => http.Response('{}', 404)),

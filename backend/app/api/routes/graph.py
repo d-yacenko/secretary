@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_embedding_service
-from app.core.current_user import CurrentUserContext
 from app.api.schemas import (
     ContextOut,
     EdgeCreate,
@@ -15,6 +14,7 @@ from app.api.schemas import (
     ObjectOut,
     ObjectUpdate,
 )
+from app.core.current_user import CurrentUserContext
 from app.llm.embedding_service import EmbeddingService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService

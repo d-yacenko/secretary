@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email import policy
 from email.message import EmailMessage
 
@@ -27,7 +27,7 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _build_raw_email(
@@ -40,7 +40,7 @@ def _build_raw_email(
     msg["From"] = "sender@yandex.ru"
     msg["To"] = "user@yandex.ru"
     msg["Message-ID"] = message_id
-    msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    msg["Date"] = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S +0000")
     msg.set_content(body)
     return msg.as_bytes()
 
@@ -186,7 +186,7 @@ def test_normalize_decodes_rfc2047_unicode_headers() -> None:
     msg["From"] = "Иван <ivan@example.com>"
     msg["To"] = "user@yandex.ru"
     msg["Message-ID"] = "<cyrillic@yandex.test>"
-    msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    msg["Date"] = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S +0000")
     msg.set_content("Текст")
     normalized = normalize_imap_message(
         msg.as_bytes(),
@@ -440,7 +440,7 @@ def test_two_users_can_store_same_yandex_external_id(
             sync_days=30,
             default_limit=50,
             max_limit=100,
-            transport_factory=lambda snapshot: transport,
+            transport_factory=lambda snapshot, _transport=transport: _transport,
         )
         sync_service.sync_account(account.id, user_id, limit=1)
 

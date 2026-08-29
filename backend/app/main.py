@@ -11,11 +11,11 @@ from app.api.connections import router as connections_router
 from app.api.google import router as google_router
 from app.api.local import router as local_router
 from app.api.me import router as me_router
-from app.api.today import router as today_router
-from app.api.yandex import router as yandex_router
-from app.api.routes.resources import router as resources_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.notifications import router as notifications_router
+from app.api.routes.resources import router as resources_router
+from app.api.today import router as today_router
+from app.api.yandex import router as yandex_router
 from app.core.config import settings
 from app.db.engine import engine
 from app.users.current_user_provider import reset_request_bearer_token, set_request_bearer_token

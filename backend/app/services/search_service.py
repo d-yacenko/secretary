@@ -44,7 +44,7 @@ class SearchService:
                 Object.embedding.cosine_distance(query_vector)
             )
             semantic_results = list(self._session.scalars(semantic_stmt.limit(limit)).all())
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("semantic search embedding failed; using lexical fallback")
 
         if len(semantic_results) >= limit:

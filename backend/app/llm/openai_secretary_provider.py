@@ -5,9 +5,9 @@ from datetime import datetime
 from openai import OpenAI
 
 from app.api.schemas import ContextBuildResult
+from app.llm.secretary_context import serialize_context_for_secretary
 from app.llm.secretary_models import SecretaryAnalysis
 from app.llm.secretary_provider import SecretaryAnalysisError
-from app.llm.secretary_context import serialize_context_for_secretary
 
 logger = logging.getLogger(__name__)
 

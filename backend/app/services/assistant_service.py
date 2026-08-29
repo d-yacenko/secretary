@@ -10,7 +10,8 @@ from app.assistant.constants import (
     MAX_ASSISTANT_MESSAGE_CHARS,
     MAX_UI_CONTEXT_CHARS,
 )
-from app.assistant.session import assistant_tool_session
+from app.assistant.session import run_assistant_tool
+from app.assistant.tool_runner import PerTurnToolBudget
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
@@ -19,8 +20,6 @@ from app.llm.openai_assistant_provider import OpenAIAssistantProvider
 from app.services.errors import NotFoundError
 from app.services.notification_service import NotificationService
 from app.services.secretary_service import normalize_reference_datetime
-from app.tools.executor import ToolExecutionResult, ToolExecutor
-from app.tools.schemas import GetContextInput, GetObjectInput, ToolError
 
 
 @dataclass
@@ -88,10 +87,10 @@ class AssistantService:
         if context_object_id is not None:
             validated_context_ids.append(context_object_id)
 
-        def tool_runner(tool_name: str, arguments: dict) -> ToolExecutionResult:
-            with assistant_tool_session(self._user_id) as tools:
-                executor = ToolExecutor(tools)
-                return executor.execute(tool_name, arguments)
+        tool_budget = PerTurnToolBudget()
+
+        def tool_runner(tool_name: str, arguments: dict):
+            return tool_budget.run(self._user_id, tool_name, arguments)
 
         provider_result = self._provider.run(
             message=normalized_message,
@@ -122,11 +121,13 @@ class AssistantService:
         context_notification_id: UUID | None,
     ) -> None:
         if context_object_id is not None:
-            with assistant_tool_session(self._user_id) as tools:
-                try:
-                    tools.get_object(GetObjectInput(object_id=context_object_id))
-                except ToolError as exc:
-                    raise NotFoundError("object", context_object_id) from exc
+            result = run_assistant_tool(
+                self._user_id,
+                "get_object",
+                {"object_id": str(context_object_id)},
+            )
+            if not result.success:
+                raise NotFoundError("object", context_object_id)
         if context_notification_id is not None:
             session = SessionLocal()
             try:
@@ -141,18 +142,29 @@ class AssistantService:
     ) -> str:
         parts: list[str] = []
         if context_object_id is not None:
-            with assistant_tool_session(self._user_id) as tools:
-                obj_out = tools.get_object(GetObjectInput(object_id=context_object_id))
-                context = tools.get_context(
-                    GetContextInput(object_id=context_object_id, max_chars=MAX_UI_CONTEXT_CHARS)
-                )
-            parts.append(
-                f"UI context object: kind={obj_out.object.kind} title={obj_out.object.title} "
-                f"object_id={context_object_id}"
+            obj_result = run_assistant_tool(
+                self._user_id,
+                "get_object",
+                {"object_id": str(context_object_id)},
             )
-            for item in context.items[:8]:
-                excerpt = item.content[:240].replace("\n", " ")
-                parts.append(f"- {item.kind} {item.title}: {excerpt}")
+            context_result = run_assistant_tool(
+                self._user_id,
+                "get_context",
+                {
+                    "object_id": str(context_object_id),
+                    "max_chars": MAX_UI_CONTEXT_CHARS,
+                },
+            )
+            if obj_result.success and obj_result.output:
+                obj = obj_result.output.get("object", {})
+                parts.append(
+                    f"UI context object: kind={obj.get('kind')} title={obj.get('title')} "
+                    f"object_id={context_object_id}"
+                )
+            if context_result.success and context_result.output:
+                for item in context_result.output.get("items", [])[:8]:
+                    excerpt = str(item.get("content", ""))[:240].replace("\n", " ")
+                    parts.append(f"- {item.get('kind')} {item.get('title')}: {excerpt}")
 
         if context_notification_id is not None:
             session = SessionLocal()
@@ -197,39 +209,43 @@ class AssistantService:
 
         references: list[AssistantReference] = []
         for object_id in ordered:
-            with assistant_tool_session(self._user_id) as tools:
-                try:
-                    obj_out = tools.get_object(GetObjectInput(object_id=object_id))
-                except ToolError:
-                    continue
-                obj = obj_out.object
-                references.append(
-                    AssistantReference(
-                        object_id=obj.id,
-                        title=obj.title,
-                        kind=obj.kind,
-                        canonical_uri=obj.canonical_uri,
-                    )
+            result = run_assistant_tool(
+                self._user_id,
+                "get_object",
+                {"object_id": str(object_id)},
+            )
+            if not result.success or not result.output:
+                continue
+            obj = result.output.get("object", {})
+            references.append(
+                AssistantReference(
+                    object_id=UUID(str(obj["id"])),
+                    title=obj["title"],
+                    kind=obj["kind"],
+                    canonical_uri=obj.get("canonical_uri"),
                 )
+            )
         return references
 
     def _serialize_affected(self, affected_ids: list[UUID]) -> list[AssistantAffectedObject]:
         affected: list[AssistantAffectedObject] = []
         for object_id in affected_ids:
-            with assistant_tool_session(self._user_id) as tools:
-                try:
-                    obj_out = tools.get_object(GetObjectInput(object_id=object_id))
-                except ToolError:
-                    continue
-                obj = obj_out.object
-                affected.append(
-                    AssistantAffectedObject(
-                        object_id=obj.id,
-                        title=obj.title,
-                        kind=obj.kind,
-                        state=obj.state,
-                    )
+            result = run_assistant_tool(
+                self._user_id,
+                "get_object",
+                {"object_id": str(object_id)},
+            )
+            if not result.success or not result.output:
+                continue
+            obj = result.output.get("object", {})
+            affected.append(
+                AssistantAffectedObject(
+                    object_id=UUID(str(obj["id"])),
+                    title=obj["title"],
+                    kind=obj["kind"],
+                    state=obj["state"],
                 )
+            )
         return affected
 
 

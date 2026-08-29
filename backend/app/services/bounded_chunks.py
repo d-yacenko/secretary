@@ -34,7 +34,7 @@ def select_bounded_chunk_indices(total_chunks: int, max_chunks: int) -> list[int
     indices: list[int] = []
     seen: set[int] = set()
     for slot in range(max_chunks):
-        index = int(round(slot * (total_chunks - 1) / (max_chunks - 1)))
+        index = round(slot * (total_chunks - 1) / (max_chunks - 1))
         if index not in seen:
             seen.add(index)
             indices.append(index)

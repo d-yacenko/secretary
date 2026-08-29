@@ -2,8 +2,8 @@ import argparse
 import sys
 from uuid import UUID
 
-from app.db.session import SessionLocal
 from app.auth.token_service import AuthTokenService
+from app.db.session import SessionLocal
 from app.services.errors import NotFoundError, ValidationError
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 

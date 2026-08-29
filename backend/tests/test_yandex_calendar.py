@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -9,13 +9,6 @@ from sqlalchemy import func, or_, select
 
 from app.api.deps import get_db
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
-from app.connectors.yandex.calendar_normalize import (
-    build_external_id,
-    normalize_caldav_event,
-    normalize_caldav_events,
-)
-from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.caldav_transport import (
     CalDavCalendar,
     CalDavEvent,
@@ -23,6 +16,13 @@ from app.connectors.yandex.caldav_transport import (
     CalDavHttpTransport,
     FakeCalDavTransport,
 )
+from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
+from app.connectors.yandex.calendar_normalize import (
+    build_external_id,
+    normalize_caldav_event,
+    normalize_caldav_events,
+)
+from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.errors import (
     YandexCalDavError,
     YandexCalDavStaleSyncTokenError,
@@ -31,7 +31,6 @@ from app.connectors.yandex.errors import (
 from app.db.models import Object, User, YandexCalendarAccount
 from app.main import app
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-
 
 CALENDAR_HREF = "/calendars/user@yandex.ru/events-1/"
 PRINCIPAL_HREF = "/principals/users/user@yandex.ru/"
@@ -129,7 +128,7 @@ def test_normalize_moscow_tzid_to_utc() -> None:
     )
     events = normalize_caldav_events(ical, CALENDAR_HREF)
     assert len(events) == 1
-    assert events[0]["start_at"] == datetime(2026, 8, 29, 7, 0, tzinfo=timezone.utc)
+    assert events[0]["start_at"] == datetime(2026, 8, 29, 7, 0, tzinfo=UTC)
 
 
 def test_normalize_recurring_occurrences_have_distinct_external_ids() -> None:
@@ -168,8 +167,8 @@ def test_normalize_filters_occurrences_outside_window() -> None:
         "END:VEVENT\n"
         "END:VCALENDAR\n"
     )
-    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    time_min = datetime(2026, 1, 1, tzinfo=UTC)
+    time_max = datetime(2026, 12, 31, tzinfo=UTC)
     events = normalize_caldav_events(
         ical,
         CALENDAR_HREF,
@@ -242,8 +241,8 @@ def test_query_events_does_not_use_expand_on_yandex_incompatible_calendar_query(
         password="pass",
         http_client=QueryHttpClient(),
     )
-    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    time_min = datetime(2026, 1, 1, tzinfo=UTC)
+    time_max = datetime(2026, 12, 31, tzinfo=UTC)
     transport.query_events(CALENDAR_HREF, time_min, time_max, 10)
     assert "<c:expand" not in captured["body"]
     assert "<c:calendar-data" not in captured["body"]
@@ -286,8 +285,8 @@ def test_calendar_multiget_uses_expand_with_bounded_range() -> None:
         password="pass",
         http_client=TwoStepHttpClient(),
     )
-    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    time_min = datetime(2026, 1, 1, tzinfo=UTC)
+    time_max = datetime(2026, 12, 31, tzinfo=UTC)
     result = transport.query_events(CALENDAR_HREF, time_min, time_max, 10)
     assert call == 2
     assert len(result.events) == 1
@@ -315,8 +314,8 @@ def test_sync_collection_uses_depth_zero_and_dav_limit_wrapper() -> None:
         password="pass",
         http_client=SyncHttpClient(),
     )
-    time_min = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    time_max = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    time_min = datetime(2026, 1, 1, tzinfo=UTC)
+    time_max = datetime(2026, 12, 31, tzinfo=UTC)
     transport.sync_collection(CALENDAR_HREF, "token-start", 100, time_min, time_max)
     assert captured["depth"] == "0"
     assert "<d:limit><d:nresults>100</d:nresults></d:limit>" in captured["body"]
@@ -522,7 +521,7 @@ def test_parse_multistatus_uses_ok_propstat_when_multiple_present() -> None:
         "</d:response></d:multistatus>"
     )
     transport = CalDavHttpTransport(email="user@yandex.ru", password="pass")
-    events, token, deleted, truncated = transport._parse_event_multistatus(xml)
+    events, _token, _deleted, truncated = transport._parse_event_multistatus(xml)
     assert len(events) == 1
     assert "UID:multi-prop" in events[0].calendar_data
     assert truncated is False
@@ -561,8 +560,8 @@ def test_sync_collection_raises_when_fake_exceeds_limit() -> None:
             CALENDAR_HREF,
             "token-start",
             100,
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-            datetime(2026, 12, 31, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 12, 31, tzinfo=UTC),
         )
 
 
@@ -683,7 +682,7 @@ def test_two_users_share_same_external_id_under_different_user_id(
             default_limit=100,
             max_limit=100,
             max_calendars=10,
-            transport_factory=lambda snapshot: transport,
+            transport_factory=lambda snapshot, _transport=transport: _transport,
         )
         sync_service.sync_account(account.id, user_id, limit=1)
 
@@ -784,7 +783,7 @@ def test_bounded_backfill_multiget_expands_recurring_occurrences(
         max_limit=100,
         max_calendars=10,
         transport_factory=lambda snapshot: transport,
-        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=UTC),
     )
     result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
     objs = list(
@@ -842,7 +841,7 @@ def test_bounded_reconciliation_rerun_no_duplicate_embed_jobs(
         max_limit=100,
         max_calendars=10,
         transport_factory=lambda snapshot: transport,
-        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=UTC),
     )
     first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
     assert first["created"] == 3
@@ -863,7 +862,7 @@ def test_bounded_reconciliation_rerun_no_duplicate_embed_jobs(
 
 def _expanded_recurring_ical(occurrence_count: int) -> str:
     lines = ["BEGIN:VCALENDAR"]
-    base = datetime(2026, 8, 29, 10, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 8, 29, 10, 0, tzinfo=UTC)
     for index in range(occurrence_count):
         start = base + timedelta(days=index)
         end = start + timedelta(hours=1)
@@ -1212,9 +1211,9 @@ def test_backfill_imports_full_window_before_steady_state_token(
     )
     db_session.commit()
 
-    base_day = datetime(2026, 6, 29, 10, 0, tzinfo=timezone.utc)
+    base_day = datetime(2026, 6, 29, 10, 0, tzinfo=UTC)
     all_events = _events_in_window(180, base_day, 150)
-    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
     transport = FakeCalDavTransport(
         calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="steady-token")],
         query_events_by_calendar={CALENDAR_HREF: all_events},
@@ -1265,7 +1264,7 @@ def test_future_horizon_reconciliation_imports_newly_visible_event(
         app_password="calendar-app-password",
         caldav_host="caldav.yandex.ru",
     )
-    initial_now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    initial_now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     initial_window_max = initial_now + timedelta(days=90)
     store.update_sync_state(
         account,
@@ -1375,7 +1374,7 @@ def test_incremental_reconcile_tombstones_removed_recurring_occurrences(
         max_limit=100,
         max_calendars=10,
         transport_factory=lambda snapshot: transport,
-        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=UTC),
     )
     result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
     objs = list(
@@ -1458,7 +1457,7 @@ def test_reconcile_does_not_touch_other_user_same_event_href(
         max_limit=100,
         max_calendars=10,
         transport_factory=lambda snapshot: transport,
-        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=UTC),
     )
     sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
 
@@ -1500,7 +1499,7 @@ def test_stale_sync_token_resets_to_bounded_backfill(
     )
     db_session.commit()
 
-    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
     transport = FakeCalDavTransport(
         calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="fresh-token")],
         query_events_by_calendar={CALENDAR_HREF: [_event("evt-stale-recover")]},
@@ -1541,8 +1540,8 @@ def test_backfill_preserves_baseline_sync_token_and_catches_post_baseline_change
     )
     db_session.commit()
 
-    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
-    base_day = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+    base_day = datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
     all_events = _events_in_window(80, base_day, 10)
 
     class BaselineTokenTransport(FakeCalDavTransport):
@@ -1585,7 +1584,7 @@ def test_backfill_preserves_baseline_sync_token_and_catches_post_baseline_change
     assert state["pending_sync_token"] == "T1"
     assert "sync_token" not in state
 
-    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
     state = account.sync_state["calendars"][CALENDAR_HREF]
     assert state["sync_token"] == "T1"
@@ -1609,8 +1608,8 @@ def test_dense_backfill_slice_splits_and_imports_all_resources(
     )
     db_session.commit()
 
-    now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
-    base = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+    base = datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
     dense_events: list[CalDavEvent] = []
     for index in range(150):
         start = base + timedelta(hours=index)
@@ -1642,7 +1641,7 @@ def test_dense_backfill_slice_splits_and_imports_all_resources(
     assert "sync_token" not in state
     assert state.get("backfill_cursor") is not None
 
-    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
     state = account.sync_state["calendars"][CALENDAR_HREF]
     assert state["sync_token"] == "dense-token"
@@ -1728,7 +1727,7 @@ def test_incremental_reconcile_tombstones_when_changed_resource_has_one_vevent(
         max_limit=100,
         max_calendars=10,
         transport_factory=lambda snapshot: transport,
-        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        now_factory=lambda: datetime(2026, 8, 28, 12, 0, tzinfo=UTC),
     )
     result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
     objs = list(
@@ -1774,8 +1773,8 @@ def test_sync_collection_stale_precondition_raises_stale_error() -> None:
             CALENDAR_HREF,
             "old-token",
             100,
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-            datetime(2026, 12, 31, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 12, 31, tzinfo=UTC),
         )
 
 
@@ -1794,8 +1793,8 @@ def test_sync_collection_permission_forbidden_raises_caldav_error_not_stale() ->
             CALENDAR_HREF,
             "steady-token",
             100,
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-            datetime(2026, 12, 31, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 12, 31, tzinfo=UTC),
         )
 
 
@@ -1814,8 +1813,8 @@ def test_sync_collection_unrelated_409_raises_caldav_error_not_stale() -> None:
             CALENDAR_HREF,
             "steady-token",
             100,
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-            datetime(2026, 12, 31, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 12, 31, tzinfo=UTC),
         )
 
 

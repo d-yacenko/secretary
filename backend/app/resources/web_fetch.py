@@ -40,9 +40,7 @@ def _ip_is_blocked(ip_str: str) -> bool:
         return True
     if ip.is_multicast:
         return True
-    if hasattr(ip, "is_global") and not ip.is_global:
-        return True
-    return False
+    return bool(hasattr(ip, "is_global") and not ip.is_global)
 
 
 def _hostname_literal_blocked(hostname: str) -> bool:
@@ -50,7 +48,7 @@ def _hostname_literal_blocked(hostname: str) -> bool:
     if lowered in {"localhost", "0.0.0.0"} or lowered.endswith(".local"):
         return True
     try:
-        ip = ipaddress.ip_address(hostname)
+        ipaddress.ip_address(hostname)
     except ValueError:
         return False
     return _ip_is_blocked(hostname)

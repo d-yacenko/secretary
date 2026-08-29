@@ -136,9 +136,8 @@ def stream_csv_stats(
                 if _looks_int(value):
                     if column_types[name] == "string":
                         column_types[name] = "integer"
-                elif _looks_float(value):
-                    if column_types[name] != "integer":
-                        column_types[name] = "float"
+                elif _looks_float(value) and column_types[name] != "integer":
+                    column_types[name] = "float"
                 try:
                     numeric_values[name].append(float(value))
                 except ValueError:

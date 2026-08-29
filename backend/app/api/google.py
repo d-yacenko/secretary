@@ -6,17 +6,20 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
 from app.connectors.google.calendar_sync import build_calendar_sync_service
+from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
-from app.connectors.google.errors import GoogleConfigurationError, GoogleConnectorError, GoogleOAuthError
+from app.connectors.google.errors import (
+    GoogleConfigurationError,
+    GoogleConnectorError,
+    GoogleOAuthError,
+)
 from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.google.gmail_transport import GmailTransport
 from app.connectors.google.oauth_service import GoogleOAuthService, parse_token_expiry
 from app.connectors.google.oauth_state import OAuthStateService
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
-
 
 router = APIRouter(tags=["google"])
 

@@ -1,9 +1,9 @@
 import os
 from datetime import datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
-from zoneinfo import ZoneInfo
 
 from app.api.schemas import ContextBuildResult, ContextItem
 from app.core.config import settings

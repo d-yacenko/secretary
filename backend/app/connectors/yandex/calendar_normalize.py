@@ -1,7 +1,6 @@
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.connectors.yandex.constants import MAX_EVENT_BODY_CHARS
 
@@ -40,10 +39,9 @@ def _parse_ical_datetime_value(value: str, params: dict[str, str]) -> datetime |
     if tzid:
         try:
             zone = ZoneInfo(tzid)
-        except Exception:
+        except (KeyError, ValueError):
             return None
-        if raw.endswith("Z"):
-            raw = raw[:-1]
+        raw = raw.removesuffix("Z")
         if "T" in raw:
             date_part, time_part = raw.split("T", 1)
             year = int(date_part[0:4])
@@ -52,8 +50,8 @@ def _parse_ical_datetime_value(value: str, params: dict[str, str]) -> datetime |
             hour = int(time_part[0:2])
             minute = int(time_part[2:4])
             second = int(time_part[4:6]) if len(time_part) >= 6 else 0
-            local = datetime(year, month, day, hour, minute, second)
-            return local.replace(tzinfo=zone).astimezone(timezone.utc)
+            local = datetime(year, month, day, hour, minute, second, tzinfo=zone)
+            return local.astimezone(UTC)
         return None
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
@@ -62,8 +60,8 @@ def _parse_ical_datetime_value(value: str, params: dict[str, str]) -> datetime |
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _parse_vevent_block(block: str) -> dict[str, Any]:
@@ -146,9 +144,13 @@ def normalize_caldav_events(
         recurrence_id = fields.get("RECURRENCE-ID")
         start_at = _parse_ical_datetime_value(fields.get("DTSTART", ""), params.get("DTSTART", {}))
         end_at = _parse_ical_datetime_value(fields.get("DTEND", ""), params.get("DTEND", {}))
-        if time_min is not None and time_max is not None and start_at is not None:
-            if start_at < time_min or start_at > time_max:
-                continue
+        if (
+            time_min is not None
+            and time_max is not None
+            and start_at is not None
+            and (start_at < time_min or start_at > time_max)
+        ):
+            continue
 
         description = fields.get("DESCRIPTION")
         body = description[:MAX_EVENT_BODY_CHARS] if description else None

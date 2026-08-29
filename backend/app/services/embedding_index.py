@@ -13,6 +13,6 @@ def refresh_object_embedding(
 ) -> None:
     try:
         obj.embedding = embedding_service.embed(build_embedding_text(obj))
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("embedding refresh failed for object %s", obj.id)
         obj.embedding = None

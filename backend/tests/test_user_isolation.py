@@ -1,7 +1,7 @@
 import json
 import subprocess
 import uuid
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
 
 import httpx
@@ -9,27 +9,26 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
-from app.api.deps import get_db
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConnectorError
 from app.connectors.google.gmail_sync import build_gmail_sync_service
-from app.connectors.google.gmail_transport import GmailTransport, GoogleTokenManager
+from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.connectors.google.oauth_state import OAuthStateService
-from app.db.models import Job, Object, User
+from app.db.models import Object, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.jobs.handlers import handle_embed_object
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.summarizer import FakeSummarizer
-from app.services.representation_service import RepresentationService
 from app.services.context_service import ContextService
 from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
+from app.services.representation_service import RepresentationService
 from app.services.search_service import SearchService
 from app.services.view_service import ViewService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -38,9 +37,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def utcnow():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _create_user(db_session, name: str = "Alt user") -> uuid.UUID:
@@ -331,7 +330,7 @@ def test_same_gmail_external_id_allowed_for_two_users(
         )
         sync_service.sync_account(account.id, user_id, limit=1)
 
-    count = db_session.scalar(
+    db_session.scalar(
         select(Object).where(
             Object.external_id == "shared-x",
             Object.provider == "gmail",

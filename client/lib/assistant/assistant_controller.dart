@@ -18,11 +18,13 @@ class AssistantChatMessage {
     required this.role,
     required this.content,
     this.references = const [],
+    this.affectedObjects = const [],
   });
 
   final String role;
   final String content;
   final List<AssistantReference> references;
+  final List<AssistantAffectedObject> affectedObjects;
 }
 
 class AssistantController extends ChangeNotifier {
@@ -105,6 +107,7 @@ class AssistantController extends ChangeNotifier {
           role: 'assistant',
           content: response.answer,
           references: response.references,
+          affectedObjects: response.affectedObjects,
         ),
       );
       _pendingRetryMessage = null;

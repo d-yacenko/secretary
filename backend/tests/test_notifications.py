@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.api.schemas import ContextBuildResult, ContextItem, ObjectCreate
-from app.db.models import Notification, Object
+from app.db.models import Object
 from app.llm.fake_secretary_provider import FakeSecretaryProvider
 from app.notifications.constants import (
     NOTIFICATION_STATUS_ACCEPTED,
@@ -19,7 +19,6 @@ from app.services.notification_service import NotificationService
 from app.services.secretary_notification_service import create_notifications_from_analysis
 from app.services.secretary_service import SecretaryService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-
 
 FIXED_REFERENCE = datetime(2026, 8, 28, 10, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
 EMAIL_TEXT = (

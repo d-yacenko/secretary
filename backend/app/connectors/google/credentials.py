@@ -1,17 +1,17 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.google.errors import GoogleConfigurationError, GoogleOAuthError
+from app.connectors.google.errors import GoogleOAuthError
 from app.db.models import GoogleAccount
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -122,7 +122,4 @@ class GoogleAccountStore:
         return account
 
     def build_encryption(key: str) -> CredentialEncryption:
-        try:
-            return CredentialEncryption(key)
-        except GoogleConfigurationError:
-            raise
+        return CredentialEncryption(key)
