@@ -275,17 +275,18 @@ def test_secretary_notifications_do_not_create_tasks_or_edges(db_session) -> Non
     assert before_objects == after_objects
 
 
-def test_notification_api_list_and_read(db_session) -> None:
+def test_notification_api_list_and_read(db_session, auth_headers) -> None:
     from fastapi.testclient import TestClient
 
     from app.api.deps import get_db
     from app.main import app
+    from tests.conftest import AuthTestClient
 
     def override_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_db
-    client = TestClient(app)
+    client = AuthTestClient(TestClient(app), auth_headers)
 
     service = NotificationService(db_session, BOOTSTRAP_USER_ID)
     created = service.create(
@@ -309,17 +310,18 @@ def test_notification_api_list_and_read(db_session) -> None:
     app.dependency_overrides.clear()
 
 
-def test_notification_api_invalid_status_returns_422(db_session) -> None:
+def test_notification_api_invalid_status_returns_422(db_session, auth_headers) -> None:
     from fastapi.testclient import TestClient
 
     from app.api.deps import get_db
     from app.main import app
+    from tests.conftest import AuthTestClient
 
     def override_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_db
-    client = TestClient(app)
+    client = AuthTestClient(TestClient(app), auth_headers)
 
     response = client.get("/notifications", params={"status": "invalid"})
     assert response.status_code == 422

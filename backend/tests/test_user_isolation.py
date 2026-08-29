@@ -9,7 +9,7 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_db
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
@@ -406,9 +406,20 @@ def test_google_oauth_json_remains_gitignored() -> None:
     assert "secrets/" in result.stdout
 
 
-def test_current_user_dependency_returns_bootstrap_owner() -> None:
-    ctx = get_current_user()
-    assert ctx.user_id == BOOTSTRAP_USER_ID
+def test_bearer_token_resolves_to_authenticated_user(db_session, issue_bearer) -> None:
+    from app.users.current_user_provider import (
+        reset_request_bearer_token,
+        resolve_current_user,
+        set_request_bearer_token,
+    )
+
+    token = issue_bearer(BOOTSTRAP_USER_ID, label="isolation-test")
+    reset = set_request_bearer_token(token)
+    try:
+        ctx = resolve_current_user(db_session)
+        assert ctx.user_id == BOOTSTRAP_USER_ID
+    finally:
+        reset_request_bearer_token(reset)
 
 
 def test_gmail_second_sync_skips_get_for_known_id_without_duplicate_work(

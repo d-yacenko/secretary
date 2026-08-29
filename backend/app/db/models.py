@@ -28,6 +28,31 @@ class User(Base):
     )
 
 
+class AuthToken(Base):
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(nullable=False)
+    token_prefix: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_auth_tokens_user_id", "user_id"),
+        Index("ix_auth_tokens_token_prefix", "token_prefix"),
+        sa.UniqueConstraint("token_hash", name="uq_auth_tokens_token_hash"),
+    )
+
+
 class Object(Base):
     __tablename__ = "objects"
 

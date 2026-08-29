@@ -2,9 +2,9 @@
 
 ## Current phase
 
-PHASE 19 — local files and huge datasets: **awaiting final acceptance**
+PHASE 19 — local files and huge datasets: **accepted / closed**
 
-PHASE 19.5 — auth + connections: **not started**
+PHASE 19.5 — auth, connections, manual capture: **implemented, awaiting review**
 
 PHASE 20 — Flutter client: **not started**
 
@@ -12,21 +12,23 @@ PHASE 18 — resource registration: **accepted / closed**
 
 ## Global invariants (PHASE 14.5+)
 
-See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flutter.
+See `DECISIONS.md`. PHASE 19.5 required before PHASE 20 Flutter.
 
 ## Working components
 
-- PHASE 00–18: (prior phases)
-- PHASE 19:
-  - Symlink-safe bounded scan (Python 3.12 compatible) with honest truncation
-  - Streaming upload_copy with full-file SHA-256 identity
-  - Ingest handler optimistic stale recheck before representations/commit
+- PHASE 00–19: (prior phases, PHASE 19 closed)
+- PHASE 19.5:
+  - Opaque bearer tokens with hashed storage and operator CLI
+  - Authenticated personal APIs (`/me`, `/connections`, capture)
+  - Manual task capture with pinned context and dependencies
+  - Pinned context priority in context assembly
+  - Google OAuth start requires Secretary auth; callback uses state only
 
 ## Not done
 
-- PHASE 19 final acceptance
-- PHASE 19.5+ (auth, Flutter)
+- PHASE 19.5 review acceptance
+- PHASE 20+ (Flutter)
 
 ## Next phase
 
-PHASE 19.5 after PHASE 19 acceptance.
+PHASE 20 after PHASE 19.5 acceptance.

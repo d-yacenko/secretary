@@ -22,14 +22,16 @@ class FailingEmbeddingService:
 
 
 @pytest.fixture
-def client(db_session):
+def client(db_session, auth_headers):
+    from tests.conftest import AuthTestClient
+
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
     with TestClient(app) as test_client:
-        yield test_client
+        yield AuthTestClient(test_client, auth_headers)
     app.dependency_overrides.clear()
 
 

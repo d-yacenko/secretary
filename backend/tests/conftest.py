@@ -1,16 +1,52 @@
 import os
+from uuid import UUID
 
 os.environ.setdefault("MCP_ENABLED", "false")
 
 import pytest
 from contextlib import contextmanager
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.auth.token_service import AuthTokenService
 from app.db.engine import engine
 from app.db.models import User
 from app.llm.embedding_service import FakeEmbeddingService
+from app.main import app
 from app.services.domain_tool_service import DomainToolService
 from app.users.bootstrap import BOOTSTRAP_DISPLAY_NAME, BOOTSTRAP_USER_ID
+
+
+class AuthTestClient:
+    def __init__(self, client: TestClient, headers: dict[str, str]) -> None:
+        self._client = client
+        self._headers = headers
+
+    def _merge_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
+        merged = dict(self._headers)
+        if headers:
+            merged.update(headers)
+        return merged
+
+    def get(self, url: str, **kwargs):
+        kwargs["headers"] = self._merge_headers(kwargs.get("headers"))
+        return self._client.get(url, **kwargs)
+
+    def post(self, url: str, **kwargs):
+        kwargs["headers"] = self._merge_headers(kwargs.get("headers"))
+        return self._client.post(url, **kwargs)
+
+    def patch(self, url: str, **kwargs):
+        kwargs["headers"] = self._merge_headers(kwargs.get("headers"))
+        return self._client.patch(url, **kwargs)
+
+    def delete(self, url: str, **kwargs):
+        kwargs["headers"] = self._merge_headers(kwargs.get("headers"))
+        return self._client.delete(url, **kwargs)
+
+    def put(self, url: str, **kwargs):
+        kwargs["headers"] = self._merge_headers(kwargs.get("headers"))
+        return self._client.put(url, **kwargs)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -47,6 +83,41 @@ def db_session() -> Session:
 @pytest.fixture
 def fake_embedding_service() -> FakeEmbeddingService:
     return FakeEmbeddingService()
+
+
+@pytest.fixture
+def bootstrap_bearer(db_session) -> str:
+    service = AuthTokenService(db_session)
+    plaintext, _ = service.issue_token(BOOTSTRAP_USER_ID, label="pytest-bootstrap")
+    return plaintext
+
+
+@pytest.fixture
+def auth_headers(bootstrap_bearer: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {bootstrap_bearer}"}
+
+
+@pytest.fixture
+def issue_bearer(db_session):
+    def _issue(user_id: UUID, label: str = "pytest-user") -> str:
+        service = AuthTokenService(db_session)
+        plaintext, _ = service.issue_token(user_id, label=label)
+        return plaintext
+
+    return _issue
+
+
+@pytest.fixture
+def auth_client(db_session, auth_headers) -> AuthTestClient:
+    from app.api.deps import get_db
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as raw:
+        yield AuthTestClient(raw, auth_headers)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

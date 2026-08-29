@@ -19,6 +19,7 @@ from app.services.representation_service import (
     KIND_SUMMARY,
     RepresentationService,
 )
+from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
 from app.services.search_service import SearchService
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,44 @@ class ContextService:
                 )
             )
 
+            pinned_edges = self._session.scalars(
+                select(Edge).where(
+                    Edge.user_id == self._user_id,
+                    Edge.source_id == object_id,
+                    Edge.type == "references",
+                    Edge.state != "rejected",
+                )
+            ).all()
+            for edge in sorted(pinned_edges, key=lambda row: str(row.target_id)):
+                meta = edge.metadata_ or {}
+                if meta.get("context_role") != PINNED_CONTEXT_ROLE:
+                    continue
+                if meta.get("added_by") != PINNED_ADDED_BY:
+                    continue
+                neighbor = self._session.scalar(
+                    select(Object).where(
+                        Object.id == edge.target_id,
+                        Object.user_id == self._user_id,
+                    )
+                )
+                if neighbor is None or neighbor.state == "rejected":
+                    continue
+                included_object_ids.add(neighbor.id)
+                representation_object_ids.add(neighbor.id)
+                slots.append(
+                    _Slot(
+                        sort_key=(0, "pinned", str(neighbor.id), 0),
+                        trim_order=0,
+                        protected=True,
+                        item=self._object_item(
+                            neighbor,
+                            content=self._neighbor_reference_content(neighbor),
+                            edge=edge,
+                            why_included="user-pinned context",
+                        ),
+                    )
+                )
+
             neighbor_rows = self._graph.get_neighbors(object_id)
             neighbor_rows = sorted(
                 neighbor_rows,
@@ -120,6 +159,8 @@ class ContextService:
             )[:MAX_NEIGHBORS]
 
             for neighbor, edge, _direction in neighbor_rows:
+                if neighbor.id in included_object_ids:
+                    continue
                 included_object_ids.add(neighbor.id)
                 representation_object_ids.add(neighbor.id)
                 is_structural = edge.type in STRUCTURAL_EDGE_TYPES

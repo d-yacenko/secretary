@@ -48,14 +48,16 @@ def local_mirror(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def local_client(db_session, local_mirror: Path):
+def local_client(db_session, local_mirror: Path, auth_headers):
+    from tests.conftest import AuthTestClient
+
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
     with patch("app.core.config.settings.local_files_root", str(local_mirror)):
         with TestClient(app) as client:
-            yield client
+            yield AuthTestClient(client, auth_headers)
     app.dependency_overrides.clear()
 
 

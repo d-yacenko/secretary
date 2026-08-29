@@ -5,14 +5,18 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.capture import router as capture_router
+from app.api.connections import router as connections_router
 from app.api.google import router as google_router
 from app.api.local import router as local_router
+from app.api.me import router as me_router
 from app.api.yandex import router as yandex_router
 from app.api.routes.resources import router as resources_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.notifications import router as notifications_router
 from app.core.config import settings
 from app.db.engine import engine
+from app.users.current_user_provider import reset_request_bearer_token, set_request_bearer_token
 
 _mcp_server = None
 
@@ -27,6 +31,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Personal Secretary", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def bearer_context_middleware(request: Request, call_next):
+    authorization = request.headers.get("Authorization")
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip() or None
+    reset = set_request_bearer_token(token)
+    try:
+        return await call_next(request)
+    finally:
+        reset_request_bearer_token(reset)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -45,6 +62,9 @@ async def register_multipart_size_handler(
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
+app.include_router(me_router)
+app.include_router(connections_router)
+app.include_router(capture_router)
 app.include_router(graph_router)
 app.include_router(resources_router)
 app.include_router(local_router)
