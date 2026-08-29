@@ -2,11 +2,9 @@
 
 ## Current phase
 
-PHASE 17 — Yandex Calendar: **live-smoked, awaiting final acceptance**
+PHASE 18 — files, cloud resources and web links: **implemented, awaiting review**
 
-Recurrence corrective: two-step query (href discovery + multiget expand) for bounded backfill/reconciliation.
-
-PHASE 18 — files/cloud links (not started)
+PHASE 17 — Yandex Calendar: live-smoked, awaiting final acceptance
 
 ## Global invariants (PHASE 14.5+)
 
@@ -14,20 +12,19 @@ See `DECISIONS.md`. PHASE 19.5 (auth + connections) required before PHASE 20 Flu
 
 ## Working components
 
-- PHASE 00–16: (prior phases)
-- PHASE 17: Yandex Calendar CalDAV sync — live smoke passed on VDS `185.233.107.66`
-  - Account `ydv@arenadata.io` (`db6353cb-1ac6-4478-9f7f-5fd9f31867de`)
-  - Two-step bounded read: calendar-query (no expand) + calendar-multiget (expand)
-  - Yandex live probe: multiget+expand accepted (207)
-  - Initial backfill: 44 objects; recurring corrective deployed for RRULE instance materialization
-  - Incremental sync-collection expand unchanged
-  - `/health` ok; credentials absent from API responses and logs
+- PHASE 00–17: (prior phases)
+- PHASE 18: resource registration API
+  - `POST /resources/register` — Google Drive / Yandex Disk metadata, web_page stubs, text, uploads
+  - Metadata-first; `ingest_content` for bounded extract/representations
+  - Revision-aware skip (no repeat embed/extract when unchanged)
+  - User-scoped; tasks link via existing graph edges (`attached_to`, etc.)
 
 ## Not done
 
 - PHASE 17 final acceptance
-- PHASE 18+
+- PHASE 18 review acceptance
+- PHASE 19+ (local files, datasets tooling)
 
 ## Next phase
 
-PHASE 18 after PHASE 17 final acceptance.
+PHASE 19 after PHASE 18 acceptance.

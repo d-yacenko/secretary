@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from app.api.google import router as google_router
 from app.api.yandex import router as yandex_router
+from app.api.routes.resources import router as resources_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.notifications import router as notifications_router
 from app.core.config import settings
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Personal Secretary", lifespan=lifespan)
 app.include_router(graph_router)
+app.include_router(resources_router)
 app.include_router(notifications_router)
 app.include_router(google_router)
 app.include_router(yandex_router)

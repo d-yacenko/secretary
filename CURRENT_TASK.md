@@ -1,65 +1,33 @@
-# Current task — PHASE 17
+# Current task — PHASE 18
 
 ## Status
 
-**live-smoked, awaiting final acceptance** (recurrence corrective applied)
+**implemented, awaiting review**
 
-## Recurrence corrective
+## Delivered
 
-Yandex rejects `c:expand` in `calendar-query`. Bounded backfill/reconciliation now uses:
-1. **Step A:** `calendar-query` (href + etag, no expand, closed `c:filter`)
-2. **Step B:** `calendar-multiget` with `calendar-data/expand` in bounded batches
+- `POST /resources/register` — JSON or multipart (`payload` + optional `file`)
+- `GET /resources/{object_id}` — user-scoped read
+- `ResourceRegistrationService` — metadata-first registration with revision skip
+- Providers: `google_drive`, `yandex_disk`, `upload`, `web` (web_page)
+- Explicit `ingest_content` for text/file/web extraction via `RepresentationService`
+- Bounded web fetch with SSRF guards (`app/resources/web_fetch.py`)
+- Revision keys: `etag`, `revision`, `content_hash`, `modified_at`, `provider_revision`
+- Known unchanged cloud resources skip download/extract/embed jobs
+- Tests: `test_resources.py`, `test_web_fetch.py` (263 total suite passing)
 
-Live probe: Yandex accepts multiget+expand (207, 14 VEVENT blocks on recurring resource).
+## PHASE 18 invariants
 
-Incremental `sync-collection` expand unchanged.
+- User-owned from registration (`origin=user`, `user_id`)
+- Selected/scoped only — client supplies explicit provider IDs/URLs, no drive crawl
+- Metadata-first; content on `ingest_content`
+- Unchanged revision → no reprocessing
+- Bounded representations via existing chunk/summary limits
+- Search/context already user-scoped
+- `canonical_uri` / `provider` / `external_id` preserved
 
-## Live smoke (prior)
+## Defer
 
-- Account `ydv@arenadata.io`, 2 calendars, 44 objects after initial backfill
-- First backfill sync: created 44, unchanged 3, synchronized 47, jobs_enqueued 44
-- Second steady-state sync: all counters 0
-- Ownership, embed jobs, health, credentials: OK
-
-## Live repair verification (post-multiget deploy)
-
-| Metric | Before | After |
-|--------|--------|-------|
-| yandex_calendar objects | 44 | 44 |
-| recurrence_id occurrences | 4 | 4 |
-| RRULE masters (no recurrence_id) | 2 | 2 |
-| UID `141zhhu5wu91aiyjysevnpohyandex.ru` occurrences | 4 | 4 |
-
-### Repair sync (forced reconciliation, sync_token removed)
-
-| Field | Value |
-|-------|-------|
-| synchronized | 47 |
-| created | 0 |
-| updated | 0 |
-| unchanged | 47 |
-| tombstoned | 0 |
-| jobs_enqueued | 0 |
-
-### Following steady-state sync
-
-All counters 0.
-
-### Yandex multiget+expand probe
-
-- Recurring resource `141zhhu5wu91aiyjysevnpohyandex.ru.ics`: HTTP 207, 14 VEVENT, 13 RECURRENCE-ID
-- RRULE master `141zhhu5wm72gbs2cx4rgcphyandex.ru.ics`: HTTP 207, 1 VEVENT (Yandex returns master only for this series)
-
-Repair upserted existing objects without duplicates; series already materialized via prior sync-collection path.
-
-### Token state (present/absent only)
-
-Both calendars: `sync_token` present, `backfill_cursor` absent (unchanged after repair).
-
-### Other checks
-
-- Ownership: 44 bootstrap, 0 other users
-- embed_object jobs: 44 done
-- `/health`: ok
-- API/worker logs: no credentials
-
+- PHASE 19 local filesystem crawling
+- PHASE 19.5 auth/connections UI
+- Live Google Drive / Yandex Disk API fetch (metadata supplied at register)

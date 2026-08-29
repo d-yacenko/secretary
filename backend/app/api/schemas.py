@@ -234,3 +234,27 @@ class NotificationOut(BaseModel):
 
 class NotificationListOut(BaseModel):
     notifications: list[NotificationOut]
+
+
+class ResourceRegisterRequest(BaseModel):
+    kind: str
+    title: str
+    canonical_uri: str | None = None
+    provider: str | None = None
+    external_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    text: str | None = None
+    local_path_metadata: dict[str, Any] | None = None
+    ingest_content: bool = False
+
+
+class ResourceRegisterOut(BaseModel):
+    object_id: UUID
+    status: str
+    kind: str
+    title: str
+    canonical_uri: str | None
+    provider: str | None
+    external_id: str | None
+    jobs_enqueued: int
+    representations_created: int

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     yandex_mail_sync_days: int = 30
     yandex_mail_sync_default_limit: int = 50
     yandex_mail_sync_max_limit: int = 100
+    resource_upload_root: str = "/tmp/secretary-uploads"
 
     @property
     def database_url(self) -> str:
