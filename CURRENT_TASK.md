@@ -9,7 +9,7 @@ PHASE 22.5C closure corrective implemented locally:
 - atom extraction scans bounded tokens, prefers non-generic terms (`норникелю` survives long NL)
 - weak-strict fallback reserves bounded capacity for relaxed candidates (50/50 split)
 - regressions for exact live NL phrase and strict-pool starvation
-- `pytest` + `ruff` pending verification
+- `pytest` (456 passed) + `ruff` green
 
 Production remains on `ab568105ff81316cb58b538970fabcc2abe35833`.
 
