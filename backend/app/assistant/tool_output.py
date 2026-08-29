@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
@@ -206,19 +207,41 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
     return raw_output
 
 
-def serialize_tool_output_json(tool_name: str, raw_output: dict[str, Any]) -> str:
+@dataclass(frozen=True)
+class AssistantToolModelOutput:
+    model_output_json: str
+    model_visible_payload: dict[str, Any]
+
+
+def serialize_tool_output_for_assistant(
+    tool_name: str, raw_output: dict[str, Any]
+) -> AssistantToolModelOutput:
+    """Single serialization path: JSON sent to the model and its exact parsed payload."""
     bounded = serialize_tool_output_for_model(tool_name, raw_output)
     if tool_name == "search_objects":
         objects = list(bounded.get("objects", []))
         while objects:
             candidate = dict(bounded)
             candidate["objects"] = objects
-            if len(json.dumps(candidate, ensure_ascii=False)) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
-                return json.dumps(candidate, ensure_ascii=False)
+            text = json.dumps(candidate, ensure_ascii=False)
+            if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
+                return AssistantToolModelOutput(text, candidate)
             objects.pop()
-        return json.dumps({"objects": [], "truncated": True}, ensure_ascii=False)
+        fallback = {"objects": [], "truncated": True}
+        return AssistantToolModelOutput(
+            json.dumps(fallback, ensure_ascii=False),
+            fallback,
+        )
 
     text = json.dumps(bounded, ensure_ascii=False)
     if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
-        return text
-    return json.dumps({"truncated": True, "preview_chars": len(text)}, ensure_ascii=False)
+        return AssistantToolModelOutput(text, bounded)
+    fallback = {"truncated": True, "preview_chars": len(text)}
+    return AssistantToolModelOutput(
+        json.dumps(fallback, ensure_ascii=False),
+        fallback,
+    )
+
+
+def serialize_tool_output_json(tool_name: str, raw_output: dict[str, Any]) -> str:
+    return serialize_tool_output_for_assistant(tool_name, raw_output).model_output_json

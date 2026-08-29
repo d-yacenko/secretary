@@ -3,7 +3,7 @@ from uuid import UUID
 
 import app.assistant.session as assistant_session
 from app.assistant.reference_ids import collect_seen_object_ids_from_bounded_tool
-from app.assistant.tool_output import serialize_tool_output_for_model
+from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
 from app.tools.executor import DEFAULT_MAX_TOOL_CALLS, ToolExecutionResult
 
@@ -64,12 +64,21 @@ class PerTurnToolBudget:
 
         result = assistant_session.run_assistant_tool(user_id, tool_name, arguments)
         if result.success and result.output:
+            model_output = serialize_tool_output_for_assistant(tool_name, result.output)
             if tool_name in _READ_TOOLS or tool_name in _EVIDENCE_WRITE_TOOLS:
-                bounded_output = serialize_tool_output_for_model(tool_name, result.output)
                 for object_id in collect_seen_object_ids_from_bounded_tool(
-                    tool_name, bounded_output
+                    tool_name, model_output.model_visible_payload
                 ):
                     self._seen_object_ids.add(object_id)
+            result = ToolExecutionResult(
+                success=result.success,
+                tool_name=result.tool_name,
+                output=result.output,
+                error=result.error,
+                limit_reached=result.limit_reached,
+                model_output_json=model_output.model_output_json,
+                model_visible_payload=model_output.model_visible_payload,
+            )
             if self._telemetry is not None:
                 self._telemetry.record_tool(tool_name, result.output)
         elif self._telemetry is not None:

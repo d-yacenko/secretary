@@ -8,7 +8,7 @@ PHASE 22.5B — Assistant Retrieval Integration: **accepted / closed**
 
 PHASE 22.5C — Natural-language Retrieval Recall: **accepted / closed**
 
-PHASE 22.6 — Task Materialization, Reuse & Evidence Binding: **closure corrective implemented, awaiting final acceptance**
+PHASE 22.6 — Task Materialization, Reuse & Evidence Binding: **final provenance closure implemented, awaiting acceptance**
 
 PHASE 23 — voice: **not started**
 
@@ -16,18 +16,16 @@ PHASE 23 — voice: **not started**
 
 - SHA: `4607a1800ab2058c62f69b111d00871a48a5d0fb`
 - Deployed: 2026-08-29
-- Live smoke: health 200, Alembic `0017`, Russian + simple FTS/trigram indexes present, retrieval NL phrase OK (`relaxed`), Assistant OpenAI HTTP 200 (~18s), Nornickel hits without newsletter/Linux noise
-- **PHASE 22.6 not deployed** — awaiting final acceptance
+- **PHASE 22.6 not deployed** — awaiting acceptance
 
 ## Working components
 
 - PHASE 22.5A + 22.5B + 22.5C (closed)
-- PHASE 22.6 closure corrective (awaiting final acceptance):
-  - Per-turn evidence allowlist in Assistant tool runner (`seen_object_ids`)
-  - `update_task` reports `changed` / `evidence_edges_created`; affected_objects only on real change
-  - No embed job for evidence-only updates or no-ops
-  - Self-reference rejected on `update_task`
-  - Terminal task status guidance in Assistant instructions
+- PHASE 22.6 final provenance closure (awaiting acceptance):
+  - `serialize_tool_output_for_assistant`: single model-visible JSON + payload
+  - Evidence allowlist from exact model-visible output (not intermediate bounded)
+  - `UiContextResult`: exposed IDs only if present in final truncated UI context text
+  - `update_task` effective field comparison; embed only on real field changes
 
 ## Next phase
 

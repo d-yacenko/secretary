@@ -25,6 +25,8 @@ class ToolExecutionResult(BaseModel):
     output: dict[str, Any] | None = None
     error: str | None = None
     limit_reached: bool = False
+    model_output_json: str | None = None
+    model_visible_payload: dict[str, Any] | None = None
 
 
 class ToolExecutor:

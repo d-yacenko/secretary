@@ -242,6 +242,18 @@ class DomainToolService:
             created += 1
         return created
 
+    def _effective_task_field_updates(self, obj: Object, update_data: dict) -> dict:
+        effective: dict = {}
+        if "title" in update_data and update_data["title"] != obj.title:
+            effective["title"] = update_data["title"]
+        if "body" in update_data and update_data["body"] != obj.body:
+            effective["body"] = update_data["body"]
+        if "status" in update_data and update_data["status"] != obj.status:
+            effective["status"] = update_data["status"]
+        if "due_at" in update_data and update_data["due_at"] != obj.due_at:
+            effective["due_at"] = update_data["due_at"]
+        return effective
+
     def create_task(self, input: CreateTaskInput) -> CreateTaskOutput:
         evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
         if evidence_ids:
@@ -286,10 +298,11 @@ class DomainToolService:
         )
         if "due_at" in update_data:
             update_data["due_at"] = normalize_tool_datetime(update_data["due_at"])
+        effective_updates = self._effective_task_field_updates(obj, update_data)
         updated = obj
         fields_changed = False
-        if update_data:
-            updates = ObjectUpdate(**update_data)
+        if effective_updates:
+            updates = ObjectUpdate(**effective_updates)
             try:
                 updated = self._write_graph.update_object(input.object_id, updates)
             except ValidationError as exc:
@@ -298,7 +311,8 @@ class DomainToolService:
                 raise ToolError(exc.message) from exc
             fields_changed = True
         elif not evidence_ids:
-            raise ToolError("update_task requires at least one field to update")
+            if not update_data:
+                raise ToolError("update_task requires at least one field to update")
         evidence_edges_created = 0
         if evidence_ids:
             confidence = updated.confidence if updated.confidence is not None else 0.5

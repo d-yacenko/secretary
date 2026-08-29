@@ -27,6 +27,12 @@ from app.services.secretary_service import normalize_reference_datetime
 
 
 @dataclass
+class UiContextResult:
+    text: str
+    exposed_object_ids: list[UUID]
+
+
+@dataclass
 class AssistantReference:
     object_id: UUID
     title: str
@@ -89,32 +95,18 @@ class AssistantService:
         normalized_message = _validate_message(message)
         normalized_history = _normalize_history(history)
         self._validate_context_ids(context_object_id, context_notification_id)
-        ui_context = self._build_ui_context(context_object_id, context_notification_id)
+        ui_context_result = self._build_ui_context(context_object_id, context_notification_id)
         tz_name = settings.secretary_timezone
         reference = normalize_reference_datetime(None, tz_name)
 
         validated_context_ids: list[UUID] = []
-        seen_seed_ids: list[UUID] = []
         if context_object_id is not None:
             validated_context_ids.append(context_object_id)
-            seen_seed_ids.append(context_object_id)
-        if context_notification_id is not None:
-            session = SessionLocal()
-            try:
-                notification = NotificationService(session, self._user_id).get(
-                    context_notification_id
-                )
-                if notification.source_object_id is not None:
-                    seen_seed_ids.append(notification.source_object_id)
-                if notification.related_object_id is not None:
-                    seen_seed_ids.append(notification.related_object_id)
-            finally:
-                session.close()
 
         telemetry = AssistantTurnTelemetry()
         tool_budget = PerTurnToolBudget(
             telemetry=telemetry,
-            initial_seen_object_ids=seen_seed_ids,
+            initial_seen_object_ids=ui_context_result.exposed_object_ids,
         )
 
         def tool_runner(tool_name: str, arguments: dict):
@@ -123,7 +115,7 @@ class AssistantService:
         provider_result = self._provider.run(
             message=normalized_message,
             history=normalized_history,
-            ui_context=ui_context,
+            ui_context=ui_context_result.text,
             reference_datetime=reference,
             timezone=tz_name,
             tool_runner=tool_runner,
@@ -172,8 +164,8 @@ class AssistantService:
         self,
         context_object_id: UUID | None,
         context_notification_id: UUID | None,
-    ) -> str:
-        parts: list[str] = []
+    ) -> UiContextResult:
+        lines_with_ids: list[tuple[str, list[UUID]]] = []
         if context_object_id is not None:
             obj_result = run_assistant_tool(
                 self._user_id,
@@ -190,14 +182,24 @@ class AssistantService:
             )
             if obj_result.success and obj_result.output:
                 obj = obj_result.output.get("object", {})
-                parts.append(
-                    f"UI context object: kind={obj.get('kind')} title={obj.get('title')} "
-                    f"object_id={context_object_id}"
+                lines_with_ids.append(
+                    (
+                        (
+                            f"UI context object: kind={obj.get('kind')} title={obj.get('title')} "
+                            f"object_id={context_object_id}"
+                        ),
+                        [context_object_id],
+                    )
                 )
             if context_result.success and context_result.output:
                 for item in context_result.output.get("items", [])[:8]:
                     excerpt = str(item.get("content", ""))[:240].replace("\n", " ")
-                    parts.append(f"- {item.get('kind')} {item.get('title')}: {excerpt}")
+                    lines_with_ids.append(
+                        (
+                            f"- {item.get('kind')} {item.get('title')}: {excerpt}",
+                            [],
+                        )
+                    )
 
         if context_notification_id is not None:
             session = SessionLocal()
@@ -209,23 +211,64 @@ class AssistantService:
             finally:
                 session.close()
 
-            parts.append(
-                f"UI context notification: id={notification_out.id} "
-                f"title={notification_out.title} priority={notification_out.priority}"
+            lines_with_ids.append(
+                (
+                    (
+                        f"UI context notification: id={notification_out.id} "
+                        f"title={notification_out.title} priority={notification_out.priority}"
+                    ),
+                    [],
+                )
             )
             if notification_out.body:
-                parts.append(notification_out.body[:500])
+                lines_with_ids.append((notification_out.body[:500], []))
             proposal_text = json.dumps(notification_out.proposal, ensure_ascii=False)
-            parts.append(f"proposal: {proposal_text[:800]}")
+            lines_with_ids.append((f"proposal: {proposal_text[:800]}", []))
             if notification_out.source_object_id is not None:
-                parts.append(f"source_object_id: {notification_out.source_object_id}")
+                lines_with_ids.append(
+                    (
+                        f"source_object_id: {notification_out.source_object_id}",
+                        [notification_out.source_object_id],
+                    )
+                )
             if notification_out.related_object_id is not None:
-                parts.append(f"related_object_id: {notification_out.related_object_id}")
+                lines_with_ids.append(
+                    (
+                        f"related_object_id: {notification_out.related_object_id}",
+                        [notification_out.related_object_id],
+                    )
+                )
 
-        combined = "\n".join(parts).strip()
-        if len(combined) > MAX_UI_CONTEXT_CHARS:
-            return combined[:MAX_UI_CONTEXT_CHARS]
-        return combined
+        parts: list[str] = []
+        candidate_ids: list[UUID] = []
+        current_len = 0
+        for line, ids in lines_with_ids:
+            separator = 1 if parts else 0
+            available = MAX_UI_CONTEXT_CHARS - current_len - separator
+            if available <= 0:
+                break
+            if len(line) <= available:
+                parts.append(line)
+                current_len += separator + len(line)
+                candidate_ids.extend(ids)
+            else:
+                truncated = line[:available]
+                parts.append(truncated)
+                for object_id in ids:
+                    if str(object_id) in truncated:
+                        candidate_ids.append(object_id)
+                break
+
+        text = "\n".join(parts).strip()
+        exposed: list[UUID] = []
+        seen: set[UUID] = set()
+        for object_id in candidate_ids:
+            if object_id in seen:
+                continue
+            if str(object_id) in text:
+                exposed.append(object_id)
+                seen.add(object_id)
+        return UiContextResult(text=text, exposed_object_ids=exposed)
 
     def _serialize_references(self, candidate_ids: list[UUID]) -> list[AssistantReference]:
         references: list[AssistantReference] = []

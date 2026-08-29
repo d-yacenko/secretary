@@ -11,7 +11,7 @@ from app.assistant.constants import (
 )
 from app.assistant.reference_ids import collect_object_ids_from_bounded_tool
 from app.assistant.tool_definitions import TOOL_DEFINITIONS
-from app.assistant.tool_output import serialize_tool_output_for_model, serialize_tool_output_json
+from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
 from app.tools.executor import ToolExecutionResult
 
@@ -151,10 +151,15 @@ class OpenAIAssistantProvider:
             for call in tool_calls:
                 result = tool_runner(call["name"], call["arguments"])
                 if result.success and result.output:
-                    bounded_output = serialize_tool_output_for_model(
-                        call["name"], result.output
-                    )
-                    output_text = serialize_tool_output_json(call["name"], result.output)
+                    if result.model_output_json is not None and result.model_visible_payload is not None:
+                        output_text = result.model_output_json
+                        bounded_output = result.model_visible_payload
+                    else:
+                        model_output = serialize_tool_output_for_assistant(
+                            call["name"], result.output
+                        )
+                        output_text = model_output.model_output_json
+                        bounded_output = model_output.model_visible_payload
                     collect_object_ids_from_bounded_tool(
                         call["name"],
                         bounded_output,
