@@ -98,8 +98,9 @@ class OpenAIAssistantProvider:
                 )
             except Exception as exc:
                 logger.warning(
-                    "assistant OpenAI call failed: %s",
+                    "assistant OpenAI call failed: %s: %s",
                     type(exc).__name__,
+                    str(exc)[:200],
                 )
                 raise AssistantProviderError("assistant provider call failed") from exc
             self._last_store_false = True
@@ -115,7 +116,7 @@ class OpenAIAssistantProvider:
                 )
 
             output_items = getattr(response, "output", None) or []
-            input_items.extend(_serialize_output_items(output_items))
+            input_items.extend(_function_call_input_items(output_items))
 
             for call in tool_calls:
                 result = tool_runner(call["name"], call["arguments"])
@@ -141,6 +142,41 @@ class OpenAIAssistantProvider:
                 )
 
         raise AssistantProviderError("assistant tool loop exceeded maximum rounds")
+
+
+def _function_call_input_items(output: list) -> list[dict]:
+    """Replay only function_call output items; skip reasoning/message artifacts."""
+    items: list[dict] = []
+    for item in output:
+        item_type = getattr(item, "type", None) or (
+            item.get("type") if isinstance(item, dict) else None
+        )
+        if item_type != "function_call":
+            continue
+        call_id = getattr(item, "call_id", None) or (
+            item.get("call_id") if isinstance(item, dict) else None
+        )
+        name = getattr(item, "name", None) or (
+            item.get("name") if isinstance(item, dict) else None
+        )
+        raw_args = getattr(item, "arguments", None) or (
+            item.get("arguments") if isinstance(item, dict) else None
+        )
+        if not call_id or not name:
+            continue
+        if isinstance(raw_args, str):
+            arguments = raw_args
+        else:
+            arguments = json.dumps(raw_args or {})
+        items.append(
+            {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+            }
+        )
+    return items
 
 
 def _extract_function_calls(response: object) -> list[dict]:
@@ -177,13 +213,3 @@ def _extract_output_text(response: object) -> str | None:
                 if text:
                     chunks.append(text)
     return "\n".join(chunks) if chunks else None
-
-
-def _serialize_output_items(output: list) -> list[dict]:
-    serialized: list[dict] = []
-    for item in output:
-        if hasattr(item, "model_dump"):
-            serialized.append(item.model_dump())
-        elif isinstance(item, dict):
-            serialized.append(item)
-    return serialized

@@ -31,7 +31,11 @@ from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.assistant_models import AssistantProviderResult
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.fake_assistant_provider import FakeAssistantProvider
-from app.llm.openai_assistant_provider import AssistantProviderError, OpenAIAssistantProvider
+from app.llm.openai_assistant_provider import (
+    AssistantProviderError,
+    OpenAIAssistantProvider,
+    _function_call_input_items,
+)
 from app.main import app
 from app.services.assistant_service import AssistantService, create_fake_assistant_provider
 from app.services.domain_tool_service import DomainToolService
@@ -455,6 +459,230 @@ def test_assistant_openai_provider_multi_round_tool_budget(monkeypatch, db_sessi
         tool_runner=lambda name, args: budget.run(BOOTSTRAP_USER_ID, name, args),
     )
     assert budget.calls_made == DEFAULT_MAX_TOOL_CALLS
+
+
+def test_function_call_input_items_skips_reasoning() -> None:
+    items = _function_call_input_items(
+        [
+            {"type": "reasoning", "status": "completed", "id": "rs_test"},
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "search_objects",
+                "arguments": '{"query":"test"}',
+                "status": "completed",
+            },
+        ]
+    )
+    assert len(items) == 1
+    assert items[0] == {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "search_objects",
+        "arguments": '{"query":"test"}',
+    }
+
+
+def test_assistant_openai_provider_continues_after_reasoning_tool_call(
+    monkeypatch, db_session, fake_embedding_service
+) -> None:
+    rounds = 0
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            nonlocal rounds
+            input_items = kwargs.get("input", [])
+            has_tool_output = any(
+                isinstance(item, dict) and item.get("type") == "function_call_output"
+                for item in input_items
+            )
+            if has_tool_output:
+                response = MagicMock()
+                response.output = []
+                response.output_text = "Недостаточно данных о норникеле."
+                return response
+            rounds += 1
+            response = MagicMock()
+            reasoning = MagicMock()
+            reasoning.type = "reasoning"
+            function_call = MagicMock()
+            function_call.type = "function_call"
+            function_call.name = "search_objects"
+            function_call.call_id = "call-search-1"
+            function_call.arguments = '{"query":"норникель"}'
+            response.output = [reasoning, function_call]
+            response.output_text = None
+            return response
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+
+    def _run(user_id, tool_name, arguments):
+        nested = db_session.begin_nested()
+        tools = DomainToolService(
+            db_session, user_id, fake_embedding_service, defer_write_embeddings=True
+        )
+        try:
+            output = _dispatch(tools, tool_name, arguments)
+            nested.commit()
+            return ToolExecutionResult(
+                success=True, tool_name=tool_name, output=output.model_dump(mode="json")
+            )
+        except ToolError as exc:
+            nested.rollback()
+            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+
+    monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
+
+    provider = OpenAIAssistantProvider(api_key="test", model="gpt-test")
+    result = provider.run(
+        message="Посмотри активность по норникелю",
+        history=[],
+        ui_context="",
+        reference_datetime=datetime.now(UTC),
+        timezone="Europe/Amsterdam",
+        tool_runner=lambda name, args: _run(BOOTSTRAP_USER_ID, name, args),
+    )
+    assert rounds == 1
+    assert "Недостаточно данных" in result.answer
+
+
+def _install_openai_assistant_client_mock(monkeypatch, fake_responses_class):
+    class FakeClient:
+        def __init__(self, api_key):
+            self.responses = fake_responses_class()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+
+
+def test_assistant_endpoint_openai_multi_round_no_match_returns_200(
+    db_session, fake_embedding_service, auth_headers, monkeypatch
+) -> None:
+    from tests.conftest import AuthTestClient
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            input_items = kwargs.get("input", [])
+            if any(
+                isinstance(item, dict) and item.get("type") == "function_call_output"
+                for item in input_items
+            ):
+                response = MagicMock()
+                response.output = []
+                response.output_text = "Недостаточно информации о норникеле."
+                return response
+            response = MagicMock()
+            reasoning = MagicMock()
+            reasoning.type = "reasoning"
+            function_call = MagicMock()
+            function_call.type = "function_call"
+            function_call.name = "search_objects"
+            function_call.call_id = "call-search-1"
+            function_call.arguments = '{"query":"норникель"}'
+            response.output = [reasoning, function_call]
+            response.output_text = None
+            return response
+
+    _install_openai_assistant_client_mock(monkeypatch, FakeResponses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_provider():
+        return OpenAIAssistantProvider(api_key="test", model="gpt-test")
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    app.dependency_overrides[get_assistant_provider] = override_provider
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, auth_headers)
+        response = client.post(
+            "/assistant/message",
+            json={"message": "Посмотри активность по норникелю"},
+        )
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert "Недостаточно информации" in response.json()["answer"]
+
+
+def test_assistant_endpoint_openai_multi_round_create_task_success(
+    db_session, fake_embedding_service, auth_headers, monkeypatch
+) -> None:
+    from tests.conftest import AuthTestClient
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            input_items = kwargs.get("input", [])
+            tool_output_count = sum(
+                1
+                for item in input_items
+                if isinstance(item, dict) and item.get("type") == "function_call_output"
+            )
+            if tool_output_count >= 2:
+                response = MagicMock()
+                response.output = []
+                response.output_text = "Создал proposed задачу по норникелю."
+                return response
+            if tool_output_count == 1:
+                response = MagicMock()
+                function_call = MagicMock()
+                function_call.type = "function_call"
+                function_call.name = "create_task"
+                function_call.call_id = "call-create-1"
+                function_call.arguments = (
+                    '{"title":"Норникель follow-up","confidence":0.75}'
+                )
+                response.output = [function_call]
+                response.output_text = None
+                return response
+            response = MagicMock()
+            reasoning = MagicMock()
+            reasoning.type = "reasoning"
+            function_call = MagicMock()
+            function_call.type = "function_call"
+            function_call.name = "search_objects"
+            function_call.call_id = "call-search-1"
+            function_call.arguments = '{"query":"норникель"}'
+            response.output = [reasoning, function_call]
+            response.output_text = None
+            return response
+
+    _install_openai_assistant_client_mock(monkeypatch, FakeResponses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_provider():
+        return OpenAIAssistantProvider(api_key="test", model="gpt-test")
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    app.dependency_overrides[get_assistant_provider] = override_provider
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, auth_headers)
+        response = client.post(
+            "/assistant/message",
+            json={
+                "message": (
+                    "Посмотри активность по норникелю и создай задачу под нее"
+                ),
+            },
+        )
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answer"]
+    assert payload["affected_objects"]
+    affected = payload["affected_objects"][0]
+    assert affected["kind"] == "task"
+    assert affected["state"] == PROPOSED_STATE
+    obj = db_session.get(Object, uuid.UUID(affected["object_id"]))
+    assert obj is not None
+    assert obj.origin == AGENT_ORIGIN
+    assert obj.state == PROPOSED_STATE
 
 
 def test_assistant_failed_tool_write_rolls_back(db_session, fake_embedding_service) -> None:
