@@ -8,6 +8,10 @@ from app.db.session import SessionLocal
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.jobs.types import JobHandler
 from app.llm.embedding_text import build_embedding_text
+from app.services.representation_embedding_worker import (
+    load_unembedded_chunk_targets,
+    store_representation_embeddings,
+)
 
 
 def _load_embedding_text(object_id: UUID, user_id: UUID) -> str:
@@ -50,6 +54,14 @@ def handle_embed_object(
     text = _load_embedding_text(object_id, user_id)
     embedding = embedding_service.embed(text)
     _store_object_embedding(object_id, user_id, embedding)
+
+    chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
+    if chunk_targets:
+        chunk_embeddings = [
+            (target.representation_id, embedding_service.embed(target.text))
+            for target in chunk_targets
+        ]
+        store_representation_embeddings(object_id, user_id, chunk_embeddings)
 
 
 HANDLERS: dict[str, JobHandler] = {

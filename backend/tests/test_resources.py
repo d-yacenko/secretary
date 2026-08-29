@@ -13,6 +13,7 @@ from app.api.schemas import EdgeCreate, ObjectCreate, ResourceRegisterRequest
 from app.db.models import Job, Object, Representation, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import FakeEmbeddingService
+from app.core.config import settings
 from app.main import app
 from app.resources.constants import (
     CONTENT_INGESTED_REVISION_KEY,
@@ -29,14 +30,18 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
 @pytest.fixture
-def client(db_session):
+def client(db_session, tmp_path: Path):
+    upload_root = tmp_path / "api-uploads"
+    upload_root.mkdir()
+
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
-    with TestClient(app) as test_client:
-        yield test_client
+    with patch.object(settings, "resource_upload_root", str(upload_root)):
+        with TestClient(app) as test_client:
+            yield test_client
     app.dependency_overrides.clear()
 
 
@@ -173,6 +178,8 @@ def test_register_same_revision_already_ingested_skips_content(db_session, uploa
             title="Notes",
             text="stable notes",
             ingest_content=True,
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="notes-stable-1",
             metadata=metadata,
         )
     )
@@ -185,6 +192,8 @@ def test_register_same_revision_already_ingested_skips_content(db_session, uploa
                 title="Notes",
                 text="stable notes",
                 ingest_content=True,
+                provider=PROVIDER_GOOGLE_DRIVE,
+                external_id="notes-stable-1",
                 metadata=metadata,
             )
         )
@@ -203,6 +212,8 @@ def test_register_metadata_only_then_ingest_once(db_session, upload_root) -> Non
             kind="document",
             title="Deferred ingest",
             text="content to ingest later",
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="deferred-ingest-1",
             metadata=metadata,
         )
     )
@@ -216,6 +227,8 @@ def test_register_metadata_only_then_ingest_once(db_session, upload_root) -> Non
             title="Deferred ingest",
             text="content to ingest later",
             ingest_content=True,
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="deferred-ingest-1",
             metadata=metadata,
         )
     )
@@ -231,6 +244,8 @@ def test_register_metadata_only_then_ingest_once(db_session, upload_root) -> Non
             title="Deferred ingest",
             text="content to ingest later",
             ingest_content=True,
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="deferred-ingest-1",
             metadata=metadata,
         )
     )
@@ -379,6 +394,8 @@ def test_register_unchanged_ingested_revision_no_embedding_activity(
             title="Stable",
             text="same",
             ingest_content=True,
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="stable-ingest-1",
             metadata=metadata,
         )
     )
@@ -395,6 +412,8 @@ def test_register_unchanged_ingested_revision_no_embedding_activity(
                 title="Stable",
                 text="same",
                 ingest_content=True,
+                provider=PROVIDER_GOOGLE_DRIVE,
+                external_id="stable-ingest-1",
                 metadata=metadata,
             )
         )
@@ -594,6 +613,347 @@ def test_register_api_malformed_payload_returns_422(client: TestClient) -> None:
         headers={"content-type": "application/json"},
     )
     assert bad_json.status_code == 422
+
+
+def test_register_api_oversized_json_returns_413(client: TestClient) -> None:
+    with patch("app.api.routes.resources.MAX_REGISTER_PAYLOAD_BYTES", 128):
+        response = client.post(
+            "/resources/register",
+            content=b"x" * 129,
+            headers={"content-type": "application/json"},
+        )
+    assert response.status_code == 413
+
+
+def test_register_api_oversized_multipart_payload_returns_413(client: TestClient) -> None:
+    with patch("app.api.routes.resources.MAX_MULTIPART_PAYLOAD_BYTES", 64):
+        response = client.post(
+            "/resources/register",
+            data={"payload": "x" * 65},
+            files={"file": ("note.txt", b"ok", "text/plain")},
+        )
+    assert response.status_code == 413
+
+
+def test_different_external_id_same_revision_are_separate_objects(
+    db_session, upload_root
+) -> None:
+    service = _register_service(db_session, upload_root)
+    metadata = {"revision": "42", "modified_at": "2026-03-01T12:00:00Z"}
+    first = service.register(
+        ResourceRegisterRequest(
+            kind="file",
+            title="Yandex file A",
+            provider=PROVIDER_YANDEX_DISK,
+            external_id="disk-file-a",
+            metadata=metadata,
+        )
+    )
+    second = service.register(
+        ResourceRegisterRequest(
+            kind="file",
+            title="Yandex file B",
+            provider=PROVIDER_YANDEX_DISK,
+            external_id="disk-file-b",
+            metadata=metadata,
+        )
+    )
+    assert first.object_id != second.object_id
+
+
+def test_same_revision_different_providers_do_not_merge(db_session, upload_root) -> None:
+    service = _register_service(db_session, upload_root)
+    metadata = {"revision": "42", "modified_at": "2026-03-01T12:00:00Z"}
+    google = service.register(
+        ResourceRegisterRequest(
+            kind="file",
+            title="Drive file",
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="shared-rev-object",
+            metadata=metadata,
+        )
+    )
+    yandex = service.register(
+        ResourceRegisterRequest(
+            kind="file",
+            title="Disk file",
+            provider=PROVIDER_YANDEX_DISK,
+            external_id="shared-rev-object",
+            metadata=metadata,
+        )
+    )
+    assert google.object_id != yandex.object_id
+
+
+def test_same_provider_external_id_updates_in_place(db_session, upload_root) -> None:
+    service = _register_service(db_session, upload_root)
+    first = service.register(
+        ResourceRegisterRequest(
+            kind="file",
+            title="Original title",
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="stable-object-1",
+            metadata={"etag": "rev-1", "modified_at": "2026-01-01T00:00:00Z"},
+        )
+    )
+    second = service.register(
+        ResourceRegisterRequest(
+            kind="file",
+            title="Updated title",
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="stable-object-1",
+            metadata={"etag": "rev-2", "modified_at": "2026-02-01T00:00:00Z"},
+        )
+    )
+    assert second.object_id == first.object_id
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    assert obj.title == "Updated title"
+    assert obj.metadata_["etag"] == "rev-2"
+
+
+def test_register_long_text_chunks_embedded_by_worker_and_ranked_in_context(
+    db_session, upload_root
+) -> None:
+    from app.jobs.handlers import handle_embed_object
+    from app.llm.concept_stub_embedding import ConceptStubEmbeddingService
+    from app.services.context_service import ContextService
+    from app.services.representation_service import KIND_CHUNK, SMALL_TEXT_MAX_CHARS
+
+    service = _register_service(db_session, upload_root)
+    finance_sentence = "Budget planning section with revenue targets and expense review. "
+    long_text = finance_sentence * 40
+    assert len(long_text) > SMALL_TEXT_MAX_CHARS
+
+    with patch.object(ConceptStubEmbeddingService, "embed") as mock_embed:
+        result = service.register(
+            ResourceRegisterRequest(
+                kind="document",
+                title="Finance report",
+                text=long_text,
+                ingest_content=True,
+                provider=PROVIDER_GOOGLE_DRIVE,
+                external_id="finance-long-1",
+                metadata={"etag": "fin-long-1"},
+            )
+        )
+        mock_embed.assert_not_called()
+
+    chunks = list(
+        db_session.scalars(
+            select(Representation).where(
+                Representation.object_id == result.object_id,
+                Representation.kind == KIND_CHUNK,
+            )
+        ).all()
+    )
+    assert chunks
+    assert all(chunk.embedding is None for chunk in chunks)
+
+    stub = ConceptStubEmbeddingService()
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
+    ), patch.object(db_session, "close", lambda: None):
+        handle_embed_object(
+            db_session,
+            stub,
+            {"object_id": str(result.object_id)},
+            BOOTSTRAP_USER_ID,
+        )
+    db_session.expire_all()
+    chunks_after = list(
+        db_session.scalars(
+            select(Representation).where(
+                Representation.object_id == result.object_id,
+                Representation.kind == KIND_CHUNK,
+            )
+        ).all()
+    )
+    assert all(chunk.embedding is not None for chunk in chunks_after)
+
+    context = ContextService(
+        db_session, BOOTSTRAP_USER_ID, ConceptStubEmbeddingService()
+    ).build_context(
+        object_id=result.object_id,
+        query="budget revenue planning",
+    )
+    chunk_items = [
+        item for item in context.items if item.representation_kind == KIND_CHUNK
+    ]
+    assert chunk_items
+
+
+def test_worker_rejects_embedding_other_user_chunk_representations(
+    db_session, upload_root, user_b_id
+) -> None:
+    from app.jobs.handlers import handle_embed_object
+    from app.services.representation_embedding_worker import load_unembedded_chunk_targets
+
+    service_a = ResourceRegistrationService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        JobQueueService(db_session),
+        upload_root=upload_root,
+    )
+    finance_sentence = "Budget planning section with revenue targets and expense review. "
+    long_text = finance_sentence * 40
+    result = service_a.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Private finance",
+            text=long_text,
+            ingest_content=True,
+            provider=PROVIDER_GOOGLE_DRIVE,
+            external_id="private-finance-1",
+            metadata={"etag": "pf-1"},
+        )
+    )
+    with pytest.raises(ValueError, match="ownership mismatch"):
+        with patch(
+            "app.services.representation_embedding_worker.SessionLocal",
+            lambda: db_session,
+        ):
+            load_unembedded_chunk_targets(result.object_id, user_b_id)
+    with pytest.raises(ValueError, match="ownership mismatch"):
+        with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+            db_session, "close", lambda: None
+        ):
+            handle_embed_object(
+                db_session,
+                FakeEmbeddingService(),
+                {"object_id": str(result.object_id)},
+                user_b_id,
+            )
+
+
+def test_metadata_only_upload_persisted_for_later_ingest(
+    db_session, upload_root, tmp_path
+) -> None:
+    source = tmp_path / "defer.txt"
+    source.write_text("deferred upload content", encoding="utf-8")
+    staged = _staged_upload(source, "defer.txt")
+    service = _register_service(db_session, upload_root)
+    first = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Deferred file",
+            ingest_content=False,
+        ),
+        staged_upload=staged,
+    )
+    assert first.jobs_enqueued == 0
+    obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
+    stored_path = Path(obj.metadata_["upload_path"])
+    assert stored_path.is_file()
+    assert upload_root in stored_path.parents or str(upload_root) in str(stored_path)
+    assert obj.metadata_["upload_filename"] == "defer.txt"
+    assert stored_path.name == f"{staged.content_hash}.txt"
+
+    second = service.register(
+        ResourceRegisterRequest(
+            kind="document",
+            title="Deferred file",
+            ingest_content=True,
+            provider="upload",
+            external_id=staged.content_hash,
+        ),
+    )
+    assert second.object_id == first.object_id
+    assert second.representations_created == 1
+    assert second.jobs_enqueued == 1
+
+
+def test_two_users_upload_same_filename_isolated(db_session, upload_root, user_b_id) -> None:
+    service_a = ResourceRegistrationService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        JobQueueService(db_session),
+        upload_root=upload_root,
+    )
+    service_b = ResourceRegistrationService(
+        db_session,
+        user_b_id,
+        JobQueueService(db_session),
+        upload_root=upload_root,
+    )
+    content_a = b"user-a-content"
+    content_b = b"user-b-content"
+    staged_a = StagedUpload(
+        path=Path("/unused"),
+        content_hash=hashlib.sha256(content_a).hexdigest(),
+        original_filename="report.txt",
+        size=len(content_a),
+    )
+    staged_b = StagedUpload(
+        path=Path("/unused"),
+        content_hash=hashlib.sha256(content_b).hexdigest(),
+        original_filename="report.txt",
+        size=len(content_b),
+    )
+    staging = upload_root / "staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    path_a = staging / "a.bin"
+    path_b = staging / "b.bin"
+    path_a.write_bytes(content_a)
+    path_b.write_bytes(content_b)
+    staged_a = StagedUpload(
+        path=path_a,
+        content_hash=staged_a.content_hash,
+        original_filename="report.txt",
+        size=len(content_a),
+    )
+    staged_b = StagedUpload(
+        path=path_b,
+        content_hash=staged_b.content_hash,
+        original_filename="report.txt",
+        size=len(content_b),
+    )
+    result_a = service_a.register(
+        ResourceRegisterRequest(kind="document", title="Report A"),
+        staged_upload=staged_a,
+    )
+    result_b = service_b.register(
+        ResourceRegisterRequest(kind="document", title="Report B"),
+        staged_upload=staged_b,
+    )
+    obj_a = db_session.scalar(select(Object).where(Object.id == result_a.object_id))
+    obj_b = db_session.scalar(select(Object).where(Object.id == result_b.object_id))
+    path_a_stored = Path(obj_a.metadata_["upload_path"])
+    path_b_stored = Path(obj_b.metadata_["upload_path"])
+    assert path_a_stored != path_b_stored
+    assert path_a_stored.read_bytes() == content_a
+    assert path_b_stored.read_bytes() == content_b
+
+
+def test_staging_paths_unique_per_request(tmp_path) -> None:
+    import asyncio
+
+    from app.resources.upload_staging import stage_upload_file
+
+    class FakeUpload:
+        def __init__(self, data: bytes, filename: str) -> None:
+            self._data = data
+            self.filename = filename
+            self._done = False
+
+        async def read(self, size: int = -1) -> bytes:
+            if self._done:
+                return b""
+            self._done = True
+            return self._data
+
+    async def stage_twice() -> list[Path]:
+        staging_dir = tmp_path / "staging"
+        paths: list[Path] = []
+        for _ in range(2):
+            staged = await stage_upload_file(
+                FakeUpload(b"same-bytes", "same-name.txt"),
+                staging_dir,
+            )
+            paths.append(staged.path)
+        return paths
+
+    paths = asyncio.run(stage_twice())
+    assert paths[0] != paths[1]
 
 
 def test_user_b_cannot_access_user_a_registered_resource(

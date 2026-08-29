@@ -10,12 +10,19 @@ from app.api.deps import get_current_user, get_db
 from app.api.schemas import ObjectOut, ResourceRegisterOut, ResourceRegisterRequest
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
+from app.resources.constants import (
+    MAX_MULTIPART_PAYLOAD_BYTES,
+    MAX_REGISTER_PAYLOAD_BYTES,
+)
+from app.resources.request_bounds import read_bounded_body
 from app.resources.upload_staging import stage_upload_file
 from app.services.errors import ConflictError, ValidationError
 from app.services.job_queue_service import JobQueueService
 from app.services.resource_registration_service import ResourceRegistrationService
 
 router = APIRouter()
+
+_PAYLOAD_TOO_LARGE = "register payload exceeds size limit"
 
 
 def _service(
@@ -48,8 +55,11 @@ async def register_resource(
             payload_raw = form.get("payload")
             if payload_raw is None:
                 raise ValidationError("multipart register requires payload field")
+            payload_text = str(payload_raw)
+            if len(payload_text.encode("utf-8")) > MAX_MULTIPART_PAYLOAD_BYTES:
+                raise ValidationError(_PAYLOAD_TOO_LARGE)
             try:
-                payload_data = json.loads(str(payload_raw))
+                payload_data = json.loads(payload_text)
             except json.JSONDecodeError:
                 raise ValidationError("multipart payload must be valid JSON")
             try:
@@ -60,7 +70,11 @@ async def register_resource(
             if upload is not None and hasattr(upload, "read"):
                 staged_upload = await stage_upload_file(upload, staging_dir)
         else:
-            body = await request.body()
+            body = await read_bounded_body(
+                request,
+                MAX_REGISTER_PAYLOAD_BYTES,
+                _PAYLOAD_TOO_LARGE,
+            )
             try:
                 data = ResourceRegisterRequest.model_validate_json(body)
             except (json.JSONDecodeError, PydanticValidationError) as exc:
@@ -70,7 +84,7 @@ async def register_resource(
     except ValidationError as exc:
         status_code = (
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
-            if exc.message == "upload exceeds size limit"
+            if exc.message in {_PAYLOAD_TOO_LARGE, "upload exceeds size limit"}
             else status.HTTP_422_UNPROCESSABLE_ENTITY
         )
         raise HTTPException(status_code=status_code, detail=exc.message) from exc

@@ -1,5 +1,6 @@
 import hashlib
 import re
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,7 +31,7 @@ async def stage_upload_file(upload, temp_dir: Path) -> StagedUpload:
         raise ValidationError(f"unsupported upload format: {suffix or '(none)'}")
 
     temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_path = temp_dir / f"staging-{hashlib.sha256(original_filename.encode()).hexdigest()[:16]}{suffix}"
+    temp_path = temp_dir / f"staging-{uuid.uuid4().hex}{suffix}"
 
     digest = hashlib.sha256()
     total = 0

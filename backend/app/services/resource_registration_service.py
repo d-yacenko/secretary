@@ -1,6 +1,7 @@
 import hashlib
 import json
 import shutil
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -100,9 +101,7 @@ class ResourceRegistrationService:
         if revision is not None:
             metadata["content_revision"] = revision
 
-        existing = self._find_existing(
-            data.kind, provider, external_id, data.canonical_uri, revision
-        )
+        existing = self._find_existing(data.kind, provider, external_id, data.canonical_uri)
         metadata_changed = (
             existing is not None and self._metadata_differs(existing, data, metadata)
         )
@@ -147,6 +146,7 @@ class ResourceRegistrationService:
 
         content_changed = False
         representations_created = 0
+        stored_upload_path: Path | None = None
 
         if data.text is not None:
             bounded = data.text
@@ -158,16 +158,27 @@ class ResourceRegistrationService:
                 )
                 content_changed = True
 
-        if staged_upload is not None and should_ingest:
-            stored_path = self._store_upload(obj.id, staged_upload)
-            metadata["upload_path"] = str(stored_path)
-            metadata["upload_filename"] = staged_upload.original_filename
-            obj.provider = provider or PROVIDER_UPLOAD
-            obj.external_id = external_id or staged_upload.content_hash
-            representations_created = len(
-                self._representation_service().ingest_file(obj.id, stored_path)
-            )
-            content_changed = True
+        if staged_upload is not None:
+            prior_hash = (obj.metadata_ or {}).get("content_hash")
+            store_upload = created or staged_upload.content_hash != prior_hash
+            if store_upload:
+                try:
+                    stored_upload_path = self._store_upload(obj.id, staged_upload)
+                except Exception:
+                    self._cleanup_partial_upload(obj.id, staged_upload.content_hash)
+                    raise
+                metadata["upload_path"] = str(stored_upload_path)
+                metadata["upload_filename"] = staged_upload.original_filename
+                obj.provider = provider or PROVIDER_UPLOAD
+                obj.external_id = external_id or staged_upload.content_hash
+
+        if should_ingest:
+            file_path = stored_upload_path or self._resolve_upload_path(obj, metadata)
+            if file_path is not None and data.text is None:
+                representations_created = len(
+                    self._representation_service().ingest_file(obj.id, file_path)
+                )
+                content_changed = True
 
         if fetched is not None and should_ingest:
             if fetched.title and (created or obj.title == data.title):
@@ -235,6 +246,15 @@ class ResourceRegistrationService:
     def _representation_service(self) -> RepresentationService:
         return RepresentationService(self._session, self._user_id)
 
+    def _resolve_upload_path(self, obj: Object, metadata: dict[str, Any]) -> Path | None:
+        raw_path = metadata.get("upload_path") or (obj.metadata_ or {}).get("upload_path")
+        if not raw_path:
+            return None
+        path = Path(raw_path)
+        if not path.is_file():
+            return None
+        return path
+
     def _resolve_provider(self, data: ResourceRegisterRequest) -> str | None:
         if data.provider:
             return data.provider
@@ -297,10 +317,9 @@ class ResourceRegistrationService:
         provider: str | None,
         external_id: str | None,
         canonical_uri: str | None,
-        revision: str | None = None,
     ) -> Object | None:
         if provider and external_id:
-            obj = self._session.scalar(
+            return self._session.scalar(
                 select(Object).where(
                     Object.user_id == self._user_id,
                     Object.provider == provider,
@@ -308,28 +327,14 @@ class ResourceRegistrationService:
                     Object.external_id == external_id,
                 )
             )
-            if obj is not None:
-                return obj
         if canonical_uri:
-            obj = self._session.scalar(
+            return self._session.scalar(
                 select(Object).where(
                     Object.user_id == self._user_id,
                     Object.kind == kind,
                     Object.canonical_uri == canonical_uri,
                 )
             )
-            if obj is not None:
-                return obj
-        if revision is not None:
-            for candidate in self._session.scalars(
-                select(Object).where(
-                    Object.user_id == self._user_id,
-                    Object.kind == kind,
-                )
-            ).all():
-                stored_revision = (candidate.metadata_ or {}).get("content_revision")
-                if stored_revision == revision:
-                    return candidate
         return None
 
     def _create_object(
@@ -385,9 +390,28 @@ class ResourceRegistrationService:
             raise ValidationError("upload exceeds size limit")
         target_dir = self._upload_root / str(self._user_id) / str(object_id)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / staged.original_filename
-        shutil.copyfile(staged.path, target_path)
+        target_path = target_dir / f"{staged.content_hash}{suffix}"
+        if target_path.is_file():
+            return target_path
+        pending_path = target_dir / f".pending-{uuid.uuid4().hex}{suffix}"
+        try:
+            shutil.copyfile(staged.path, pending_path)
+            pending_path.replace(target_path)
+        except Exception:
+            pending_path.unlink(missing_ok=True)
+            raise
         return target_path
+
+    def _cleanup_partial_upload(self, object_id: UUID, content_hash: str) -> None:
+        target_dir = self._upload_root / str(self._user_id) / str(object_id)
+        if not target_dir.is_dir():
+            return
+        for path in target_dir.glob(f".pending-*"):
+            path.unlink(missing_ok=True)
+        for suffix in ALLOWED_UPLOAD_SUFFIXES:
+            orphan = target_dir / f"{content_hash}{suffix}"
+            if orphan.is_file():
+                orphan.unlink(missing_ok=True)
 
     def get_object_for_user(self, object_id: UUID) -> Object:
         obj = self._session.scalar(
