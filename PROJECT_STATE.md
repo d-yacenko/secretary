@@ -14,14 +14,17 @@ PHASE 22.7 — Assistant Cost & Latency Optimization: **accepted / closed** (`94
 
 PHASE 23A — Voice Transcription Foundation: **accepted / closed** (`43de268`)
 
-PHASE 23B — Flutter push-to-talk: **closure corrective implemented, awaiting acceptance**
+PHASE 23B — Flutter push-to-talk: **accepted / closed** (`e339e2e`)
+
+PHASE 23C — Agent Execution Gateway & Tool Policy: **implemented, awaiting review**
 
 ## VDS production
 
 - SHA: `4607a1800ab2058c62f69b111d00871a48a5d0fb`
 - Deployed: 2026-08-29
 - **Accepted backend/transcription work (`94f04ef` / `43de268`) deployment pending** — VDS SSH credentials unavailable from dev environment
-- **PHASE 23B not deployed** — closure corrective on `review/phase-23b`
+- **PHASE 23B client accepted on `main` (`e339e2e`) — not deployed**
+- **PHASE 23C not deployed** — on `review/phase-23c`
 
 ## PHASE 22.7 baseline note
 
@@ -36,11 +39,14 @@ VDS `assistant_turn` logs were not available from the local development environm
   - `OPENAI_TRANSCRIPTION_MODEL` (default `gpt-4o-mini-transcribe`)
   - OpenAI + fake transcription providers; no audio persistence
   - `assistant_transcription` telemetry (no transcript/audio logging)
-- PHASE 23B (closure corrective on review branch):
+- PHASE 23B (closed at `e339e2e`):
   - Flutter Assistant microphone → temp WAV → `/assistant/transcribe` → `sendMessage(transcript)`
-  - Race-safe voice lifecycle (`starting` / `recording` / `transcribing`)
-  - Preserves object/notification context; ephemeral temp audio; `record 5.2.1` + `minSdk 23`
+  - Race-safe voice lifecycle; `record 5.2.1` + `minSdk 23`
+- PHASE 23C (awaiting review on `review/phase-23c`):
+  - Canonical tool registry with permission classes
+  - `ToolExecutionGateway` between Assistant tool calls and `DomainToolService`
+  - Baseline policy: READ/INTERNAL_WRITE/EXTERNAL_PROPOSE allow; EXTERNAL_WRITE/COMMUNICATE require approval (no persistence yet)
 
 ## Next phase
 
-No further voice phase scheduled beyond 23B review / production integration smoke.
+PHASE 23D — persisted action plans and interactive approval (not started).

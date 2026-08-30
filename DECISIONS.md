@@ -89,3 +89,19 @@ Transcription uses a dedicated configurable model (`OPENAI_TRANSCRIPTION_MODEL`,
 
 Transcripts are routed through existing flows (`/assistant/message`, capture) in later phases rather than introducing a voice domain model (`kind=voice`, audio graph objects, transcription history tables).
 
+## PHASE 23C — Agent execution gateway and tool policy foundation
+
+Secretary is a constrained domain agent, not a one-shot LLM intent decoder.
+
+The LLM controls research strategy, reasoning strategy, tool selection, when enough information has been gathered, and how to explain the result.
+
+Deterministic backend code controls which tools exist, argument validation, authenticated-user isolation, permission class, whether execution is allowed, transaction boundaries, tool budgets, evidence allowlists, future approval enforcement, and audit boundaries.
+
+Canonical permission levels: `READ`, `INTERNAL_WRITE`, `EXTERNAL_PROPOSE`, `EXTERNAL_WRITE`, `COMMUNICATE`.
+
+PHASE 23C preserves current `INTERNAL_WRITE` behavior (baseline policy allows execution).
+
+PHASE 23D will introduce persisted frozen action plans and interactive approval.
+
+MCP and built-in Assistant must ultimately converge on the same governed execution layer (MCP routing through the gateway is planned for PHASE 23E).
+

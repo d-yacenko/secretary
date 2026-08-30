@@ -6,6 +6,7 @@ from mcp.server.mcpserver.exceptions import ToolError as McpToolError
 from pydantic import ValidationError as PydanticValidationError
 
 from app.mcp.session import tool_session
+from app.tools.registry import MCP_TOOL_NAMES  # noqa: F401 — re-exported for tests
 from app.tools.schemas import (
     CreateTaskInput,
     CreateTaskOutput,
@@ -28,21 +29,6 @@ from app.tools.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-MCP_TOOL_NAMES = frozenset(
-    {
-        "search_objects",
-        "get_object",
-        "get_context",
-        "list_neighbors",
-        "create_task",
-        "update_task",
-        "link_objects",
-        "get_today",
-        "list_notifications",
-    }
-)
-
 
 def _run_tool(operation: str, fn) -> object:
     try:
