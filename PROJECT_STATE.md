@@ -34,20 +34,21 @@ PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e
 
 PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
 
-PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30). Non-functional findings moved to PHASE 25: Android Graph node vertical overflow; Russian-first UI cleanup/localization. Not backend/Graph correctness defects.
+PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
 
-PHASE 25 — Russian-first UI & Graph Mobile Polish: **closure corrective** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **accepted / closed** (`143f674`).
 
-Next planned after acceptance: PHASE 26 — Personal Data Correlation (playbook).
+Next planned product phase: PHASE 26 — Personal Data Correlation.
+
+Do not start PHASE 26 until architect/manual UI verification is recorded.
 
 ## VDS production
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `1bc9982f85d6a7f4080fcbc52fd1f3a59fe9da7c`
-- Deployed: 2026-08-30 (PHASE 24 post-deploy E2E corrective)
-- Corrective accepted application: `684233bd816fa7947b7eade784ac7e42324c7252`
-- Final matched-version manual Graph E2E: **functionally PASS** (2026-08-30)
+- SHA: pending PHASE 25 deploy (accepted application `143f674`)
+- Deployed: pending PHASE 25 deploy (2026-08-30)
+- Accepted application: `143f674ad913c0499f9aa3f0c2a7ea3039f7f108`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -58,6 +59,14 @@ Next planned after acceptance: PHASE 26 — Personal Data Correlation (playbook)
 ### PHASE 24 deployment note
 
 The first manual Graph/Delete failures (`{"detail":"Not Found"}`) occurred because the PHASE 24 Flutter client called routes that did not exist on the PHASE 23D-B VDS backend (`b30b95e`). After deploying `e128f26`, `GET /graph/workspace`, rooted graph, and `DELETE /tasks/{id}` return typed domain responses (not generic FastAPI route 404).
+
+## PHASE 25 verification (accepted)
+
+- `flutter analyze`: 23 info/warning, no new errors
+- `flutter test`: 187 passed
+- `flutter build apk --debug`: PASS
+- `flutter build linux`: PASS
+- Android `minSdk`: 23
 
 ## PHASE 22.7 baseline note
 
@@ -90,19 +99,10 @@ VDS `assistant_turn` logs were not available from the local development environm
 - PHASE 23D-C (manual E2E completed):
   - Deployed backend at `b30b95e`; HTTPS proxy `https://web-itx.duckdns.org/secretary`
   - Core Agent loop PASS; voice/mobile UX findings addressed in 23D-D
+- PHASE 25 (closed at `143f674`):
+  - Russian-first Flutter UI (`ru_RU`), domain label mapper, Graph node overflow fix
+  - Notification presentation labels; real-widget Graph overflow regression tests
 
 ## Next phase
 
-PHASE 23E — accepted / closed (`402c234`).
-
-PHASE 24 — accepted / closed (`e128f26`). VDS deployed at same SHA (2026-08-30).
-
-PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
-
-VDS corrective deployed: 2026-08-30 at `1bc9982`.
-
-PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
-
-PHASE 25 — Russian-first UI & Graph Mobile Polish: **closure corrective** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
-
-Do not merge or deploy until review.
+PHASE 26 — Personal Data Correlation (playbook). Do not start until PHASE 25 manual UI verification is recorded.

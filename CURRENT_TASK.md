@@ -1,21 +1,27 @@
-# Current task — PHASE 25 complete (awaiting review)
+# Current task — PHASE 25 accepted; await manual UI verification
 
 ## Status
+
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **accepted / closed** at `143f674ad913c0499f9aa3f0c2a7ea3039f7f108`.
 
 PHASE 24: **accepted / closed** at `e128f26414c1ffb33d6040c2d87e2b2054e35480`.
 
 PHASE 24 post-deploy E2E corrective: **accepted / closed** at `684233bd816fa7947b7eade784ac7e42324c7252`.
 
-PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
+## Verification (PHASE 25 acceptance)
 
-PHASE 25 — Russian-first UI & Graph Mobile Polish: **closure corrective** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
+- `flutter analyze`: 23 info/warning, no new errors
+- `flutter test`: 187 passed
+- `flutter build apk --debug`: PASS
+- `flutter build linux`: PASS
+- Android `minSdk`: 23
 
-Deliverables: task lifecycle presentation fix, notification labels, real-widget Graph overflow regression, canonical status POST body assertion.
+## Next planned product phase
+
+PHASE 26 — Personal Data Correlation (playbook).
 
 ## STOP
 
-Do not merge.
+Do not start PHASE 26.
 
-Do not deploy.
-
-Wait for architect review.
+Wait for architect/manual UI verification on deployed PHASE 25.
