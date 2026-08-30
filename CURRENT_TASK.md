@@ -18,7 +18,11 @@ User performs manual E2E checklist (scenarios A–H). Record findings as scenari
 
 Debug APK (local, not in repo): `client/build/app/outputs/flutter-apk/app-debug.apk`.
 
-Configure server URL and bearer token in app setup. API on VDS: `http://127.0.0.1:18080` (localhost on host).
+Configure server URL and bearer token in app setup.
+
+**Android server URL:** `https://web-itx.duckdns.org/secretary` (no trailing `/health`).
+
+Internal API on VDS host remains `http://127.0.0.1:18080` (localhost only).
 
 ## STOP
 

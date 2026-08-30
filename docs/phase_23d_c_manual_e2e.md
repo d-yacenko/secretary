@@ -76,3 +76,35 @@ APK binary not committed. Configure server URL and bearer token in app setup (ex
 | PHASE 23D-C completion | **not claimed** |
 
 Await user manual validation. Record findings as scenario / expected / actual / severity.
+
+## HTTPS connectivity (2026-08-30)
+
+Path-based proxy on existing `web-itx.duckdns.org` nginx HTTPS server block.
+
+| Item | Value |
+|------|-------|
+| Public Secretary base URL | `https://web-itx.duckdns.org/secretary` |
+| Android app server URL | `https://web-itx.duckdns.org/secretary` (no `/health` suffix) |
+| Internal backend | `http://127.0.0.1:18080` (still `127.0.0.1` only; not on `0.0.0.0`) |
+| nginx config backup | `/etc/nginx/sites-enabled/web-itx-ssl.conf.bak-phase23dc-20260830123256` |
+| TLS certificate | renewed via Certbot webroot (previous cert expired 2026-07-06) |
+
+Route mapping (prefix stripped):
+
+| Public | Backend |
+|--------|---------|
+| `/secretary/health` | `http://127.0.0.1:18080/health` |
+| `/secretary/me` | `http://127.0.0.1:18080/me` |
+| `/secretary/assistant/message` | `http://127.0.0.1:18080/assistant/message` |
+| `/secretary/assistant/transcribe` | `http://127.0.0.1:18080/assistant/transcribe` |
+
+| Check | Result |
+|-------|--------|
+| `nginx -t` | PASS |
+| `systemctl reload nginx` | OK |
+| Public `GET https://web-itx.duckdns.org/secretary/health` | PASS (`HTTP 200`, `{"status":"ok"}`) |
+| Public authenticated `GET /secretary/me` | PASS (`HTTP 200`; ephemeral token, not recorded) |
+| Existing root site `GET https://web-itx.duckdns.org/` | PASS (`HTTP 200`) |
+| Other virtual hosts / services | not modified |
+
+`client_max_body_size 12m` on `/secretary/` for 10 MiB transcription uploads.

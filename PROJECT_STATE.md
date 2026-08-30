@@ -35,7 +35,8 @@ Evidence: `docs/phase_23d_c_manual_e2e.md` (manual scenarios A–H **not yet run
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
-- API: `http://127.0.0.1:18080` on VDS host (localhost only; not on public interface)
+- API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
+- API public HTTPS: `https://web-itx.duckdns.org/secretary` (nginx path proxy; prefix stripped)
 - Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ## PHASE 22.7 baseline note
