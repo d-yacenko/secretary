@@ -401,6 +401,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               message: 'Open full details',
               child: OutlinedButton.icon(
                 onPressed: () async {
+                  final controller = widget.controller;
                   await openObjectDetail(
                     context,
                     objectId: object.id,
@@ -409,9 +410,17 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     captureController: widget.captureController,
                     assistantController: widget.assistantController,
                     onAskSecretary: widget.onAskSecretary,
-                    onShowInGraph: (id) => widget.controller.reRoot(id),
+                    onShowInGraph: (id) => controller.reRoot(id),
                   );
-                  await widget.controller.refreshCurrentWorkspace();
+                  if (!mounted) {
+                    return;
+                  }
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) {
+                      return;
+                    }
+                    controller.refreshCurrentWorkspace();
+                  });
                 },
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: const Text('Details'),

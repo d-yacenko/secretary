@@ -697,4 +697,85 @@ void main() {
     expect(rootedCalls, greaterThanOrEqualTo(2));
     expect(overviewCalls, greaterThanOrEqualTo(2));
   });
+
+  testWidgets('Details Ask Secretary does not refresh disposed Graph screen', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var graphCalls = 0;
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          graphCalls += 1;
+          return http.Response(
+            jsonEncode(
+              _workspaceJson(
+                nodes: [_objectJson(id: 'task-a', title: 'Task A')],
+              ),
+            ),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a') {
+          return http.Response(
+            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/neighbors') {
+          return http.Response(
+            jsonEncode({'object_id': 'task-a', 'neighbors': []}),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/context') {
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'edges': [],
+              'neighbors': [],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    harness.graph.selectObject('task-a');
+    await tester.pump();
+
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+
+    final graphCallsBeforeAsk = graphCalls;
+
+    await tester.tap(find.text('Ask Secretary'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Assistant'), findsWidgets);
+    expect(harness.assistant.objectContext?.id, 'task-a');
+    expect(graphCalls, graphCallsBeforeAsk);
+    expect(find.byType(GraphWorkspaceScreen), findsNothing);
+  });
 }
