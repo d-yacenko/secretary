@@ -65,3 +65,29 @@ class AssistantTurnTelemetry:
             self.openai_verbosity,
             self.openai_max_output_tokens,
         )
+
+    def log_action_plan_resume(
+        self,
+        *,
+        success: bool,
+        elapsed_ms: int,
+    ) -> None:
+        logger.info(
+            "assistant_action_plan_resume success=%s elapsed_ms=%d openai_input_tokens=%s "
+            "openai_cached_input_tokens=%s openai_cache_write_tokens=%s "
+            "openai_output_tokens=%s openai_reasoning_tokens=%s openai_responses_rounds=%s "
+            "openai_model=%s openai_reasoning_effort=%s openai_verbosity=%s "
+            "openai_max_output_tokens=%s",
+            success,
+            elapsed_ms,
+            self.openai_input_tokens,
+            self.openai_cached_input_tokens,
+            self.openai_cache_write_tokens,
+            self.openai_output_tokens,
+            self.openai_reasoning_tokens,
+            self.openai_responses_rounds,
+            self.openai_model,
+            self.openai_reasoning_effort,
+            self.openai_verbosity,
+            self.openai_max_output_tokens,
+        )

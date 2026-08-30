@@ -22,8 +22,11 @@ from app.assistant.tool_runner import BoundAssistantToolRunner, PerTurnToolBudge
 from app.db.models import Edge, Object, PendingActionPlan, User
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
 from app.main import app
+from app.services.domain_tool_service import DomainToolService
 from app.services.graph_service import GraphService
+from app.services.provenance import CONFIRMED_STATE, PROPOSED_STATE
 from app.tools.execution_context import ExecutionContext
+from app.tools.gateway import ToolExecutionGateway
 from app.tools.policy import PolicyDecision, ToolPermission, evaluate_policy
 from app.tools.results import ToolExecutionStatus
 from tests.conftest import AuthTestClient
@@ -107,6 +110,57 @@ class _FailingProvider:
         from app.llm.openai_assistant_provider import AssistantProviderError
 
         raise AssistantProviderError("provider failed")
+
+
+class _ResumeTextOnlyProvider:
+    def __init__(self, answer: str = "Готово. Я создал задачу.") -> None:
+        self._answer = answer
+        self.text_only_calls = 0
+        self.run_calls = 0
+        self.last_finalize_context: str | None = None
+
+    def run(
+        self,
+        message: str,
+        history: list[AssistantHistoryMessage],
+        ui_context: str,
+        reference_datetime: datetime,
+        timezone: str,
+        tool_runner,
+    ) -> AssistantProviderResult:
+        self.run_calls += 1
+        tool_runner(
+            "create_task",
+            {"title": "Resume flow task", "confidence": 0.8},
+        )
+        return AssistantProviderResult(
+            answer="Proposed.",
+            candidate_object_ids=[],
+            affected_object_ids=[],
+            store_false_used=True,
+        )
+
+    def run_text_only(self, message: str, context: str) -> AssistantProviderResult:
+        self.text_only_calls += 1
+        self.last_finalize_context = context
+        return AssistantProviderResult(
+            answer=self._answer,
+            candidate_object_ids=[],
+            affected_object_ids=[],
+            store_false_used=True,
+            openai_model="test-model",
+            openai_input_tokens=10,
+            openai_output_tokens=5,
+            openai_responses_rounds=1,
+        )
+
+
+class _FailingTextOnlyProvider(_ResumeTextOnlyProvider):
+    def run_text_only(self, message: str, context: str) -> AssistantProviderResult:
+        from app.llm.openai_assistant_provider import AssistantProviderError
+
+        self.text_only_calls += 1
+        raise AssistantProviderError("finalize failed")
 
 
 @pytest.fixture
@@ -724,3 +778,314 @@ def test_approve_endpoint_ignores_replacement_arguments(
     ).all()
     assert len(tasks) == 1
     assert tasks[0].title == "Frozen"
+
+
+def _setup_test_session(db_session):
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    import app.services.assistant_service as assistant_service_module
+
+    assistant_service_module.SessionLocal = lambda: _TestSession()
+    return _TestSession
+
+
+def test_approved_create_task_creates_confirmed_task(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    provider = _MutationOnlyProvider(
+        "create_task",
+        {"title": "Confirmed task", "confidence": 0.77},
+    )
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/approve")
+    task = db_session.scalars(
+        select(Object).where(Object.user_id == user_id, Object.kind == "task")
+    ).one()
+    assert task.state == CONFIRMED_STATE
+
+
+def test_approved_link_objects_creates_confirmed_edge(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    graph = GraphService(db_session, user_id)
+    source = graph.create_object(ObjectCreate(kind="note", title="Src", origin="user"))
+    target = graph.create_object(ObjectCreate(kind="note", title="Dst", origin="user"))
+    db_session.flush()
+
+    provider = _MutationOnlyProvider(
+        "link_objects",
+        {
+            "source_id": str(source.id),
+            "target_id": str(target.id),
+            "relation_type": "references",
+            "confidence": 0.9,
+        },
+    )
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "link"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/approve")
+    edge = db_session.scalars(select(Edge).where(Edge.user_id == user_id)).one()
+    assert edge.state == CONFIRMED_STATE
+
+
+def test_approved_task_evidence_edges_are_confirmed(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    graph = GraphService(db_session, user_id)
+    evidence = graph.create_object(ObjectCreate(kind="note", title="Mail", origin="user"))
+    db_session.flush()
+    evidence_id = str(evidence.id)
+
+    plan = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_PENDING,
+        actions=[
+            {
+                "tool_name": "create_task",
+                "permission": "INTERNAL_WRITE",
+                "arguments": {
+                    "title": "With evidence",
+                    "confidence": 0.8,
+                    "evidence_object_ids": [evidence_id],
+                },
+            }
+        ],
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    client.post(f"/assistant/action-plans/{plan.id}/approve")
+    edge = db_session.scalars(
+        select(Edge).where(Edge.user_id == user_id, Edge.type == "references")
+    ).one()
+    assert edge.state == CONFIRMED_STATE
+
+
+def test_baseline_agent_create_task_still_proposed(
+    db_session, fake_embedding_service, action_plan_user
+):
+    tools = DomainToolService(db_session, action_plan_user, fake_embedding_service)
+    gateway = ToolExecutionGateway()
+    result = gateway.execute(
+        tools,
+        "create_task",
+        {"title": "Baseline proposed", "confidence": 0.8},
+        context=ExecutionContext.BASELINE,
+    )
+    assert result.success is True
+    task = db_session.scalars(
+        select(Object).where(
+            Object.user_id == action_plan_user,
+            Object.title == "Baseline proposed",
+        )
+    ).one()
+    assert task.state == PROPOSED_STATE
+
+
+def test_resume_pending_returns_409_without_provider(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, _ = action_plan_client
+    provider = _ResumeTextOnlyProvider()
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    response = client.post(f"/assistant/action-plans/{plan_id}/resume")
+    assert response.status_code == 409
+    assert provider.text_only_calls == 0
+
+
+def test_resume_rejected_returns_409_without_provider(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, _ = action_plan_client
+    provider = _ResumeTextOnlyProvider()
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/reject")
+    response = client.post(f"/assistant/action-plans/{plan_id}/resume")
+    assert response.status_code == 409
+    assert provider.text_only_calls == 0
+
+
+def test_resume_failed_returns_409_without_provider(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    bogus_source = uuid.uuid4()
+    bogus_target = uuid.uuid4()
+    provider = _MultiMutationProvider(
+        [
+            ("create_task", {"title": "Fail resume", "confidence": 0.8}),
+            (
+                "link_objects",
+                {
+                    "source_id": str(bogus_source),
+                    "target_id": str(bogus_target),
+                    "relation_type": "references",
+                    "confidence": 0.9,
+                },
+            ),
+        ]
+    )
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "fail"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/approve")
+    resume_provider = _ResumeTextOnlyProvider()
+    app.dependency_overrides[get_assistant_provider] = lambda: resume_provider
+    response = client.post(f"/assistant/action-plans/{plan_id}/resume")
+    assert response.status_code == 409
+    assert resume_provider.text_only_calls == 0
+
+
+def test_resume_expired_returns_409_without_provider(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    plan = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_EXPIRED,
+        actions=[
+            {
+                "tool_name": "create_task",
+                "permission": "INTERNAL_WRITE",
+                "arguments": {"title": "Expired", "confidence": 0.5},
+            }
+        ],
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    resume_provider = _ResumeTextOnlyProvider()
+    app.dependency_overrides[get_assistant_provider] = lambda: resume_provider
+    response = client.post(f"/assistant/action-plans/{plan.id}/resume")
+    assert response.status_code == 409
+    assert resume_provider.text_only_calls == 0
+
+
+def test_wrong_user_resume_returns_404(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client, issue_bearer
+):
+    client, _ = action_plan_client
+    provider = _ResumeTextOnlyProvider()
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/approve")
+
+    other_user = uuid.uuid4()
+    db_session.add(User(id=other_user, display_name="other resume"))
+    db_session.flush()
+    other_bearer = issue_bearer(other_user)
+    other_headers = {"Authorization": f"Bearer {other_bearer}"}
+
+    resume_provider = _ResumeTextOnlyProvider()
+    app.dependency_overrides[get_assistant_provider] = lambda: resume_provider
+    with TestClient(app) as test_client:
+        other_client = AuthTestClient(test_client, other_headers)
+        response = other_client.post(f"/assistant/action-plans/{plan_id}/resume")
+    assert response.status_code == 404
+    assert resume_provider.text_only_calls == 0
+
+
+def test_resume_executed_calls_text_only_provider_once(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, _ = action_plan_client
+    provider = _ResumeTextOnlyProvider()
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/approve")
+
+    response = client.post(f"/assistant/action-plans/{plan_id}/resume")
+    assert response.status_code == 200
+    assert provider.text_only_calls == 1
+    assert provider.run_calls == 1
+    assert "Execution results" in (provider.last_finalize_context or "")
+
+
+def test_resume_returns_deterministic_affected_objects(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    provider = _ResumeTextOnlyProvider(answer="Готово.")
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+
+    plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    client.post(f"/assistant/action-plans/{plan_id}/approve")
+    task = db_session.scalars(
+        select(Object).where(Object.user_id == user_id, Object.kind == "task")
+    ).one()
+
+    response = client.post(f"/assistant/action-plans/{plan_id}/resume")
+    body = response.json()
+    assert body["answer"] == "Готово."
+    assert len(body["affected_objects"]) == 1
+    assert body["affected_objects"][0]["object_id"] == str(task.id)
+    assert body["affected_objects"][0]["state"] == CONFIRMED_STATE
+
+
+def test_resume_provider_failure_returns_502_plan_stays_executed(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    stage_provider = _ResumeTextOnlyProvider()
+    _setup_test_session(db_session)
+    app.dependency_overrides[get_assistant_provider] = lambda: stage_provider
+
+    message_response = client.post("/assistant/message", json={"message": "create"})
+    plan_id = message_response.json()["pending_action_plan"]["id"]
+    approve_response = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == PENDING_ACTION_PLAN_STATUS_EXECUTED
+
+    fail_provider = _FailingTextOnlyProvider()
+    app.dependency_overrides[get_assistant_provider] = lambda: fail_provider
+    response = client.post(f"/assistant/action-plans/{plan_id}/resume")
+    assert response.status_code == 502
+    assert approve_response.json()["status"] == PENDING_ACTION_PLAN_STATUS_EXECUTED
+    assert approve_response.json()["result"] is not None
+    assert fail_provider.text_only_calls == 1

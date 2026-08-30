@@ -119,3 +119,13 @@ MCP convergence is deferred to PHASE 23E.
 
 PHASE 23D-B will add approval UX and conversational post-approval resume.
 
+## PHASE 23D-B — Approval UX and safe agent resume
+
+Approved action-plan execution uses `DomainWriteMode.APPROVED_CONFIRMED` so agent-created tasks and edges are `confirmed`; baseline agent writes remain `proposed`.
+
+`POST /assistant/action-plans/{plan_id}/resume` performs a tool-free finalization turn with the same Secretary provider configuration after mutations are committed.
+
+Resume derives `affected_objects` deterministically from persisted execution results; OpenAI failure returns HTTP 502 without rolling back executed plans.
+
+Flutter blocks normal send/voice while a pending plan is unresolved and drives approve → resume UX from the proposal message card.
+

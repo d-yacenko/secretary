@@ -56,6 +56,17 @@ SYSTEM_INSTRUCTIONS = (
 )
 
 
+FINALIZATION_INSTRUCTIONS = (
+    "You are the Personal Secretary assistant. "
+    "The action plan has already been executed successfully. "
+    "Briefly tell the user what was completed in approximately 1–3 concise sentences. "
+    "Use only the supplied execution results. "
+    "Do not claim anything not present in the results. "
+    "Do not propose or execute more actions. "
+    "Do not expose chain-of-thought."
+)
+
+
 class AssistantProviderError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
@@ -203,6 +214,69 @@ class OpenAIAssistantProvider:
                 tool_runner.commit_model_visible_outputs()
 
         raise AssistantProviderError("assistant tool loop exceeded maximum rounds")
+
+    def run_text_only(
+        self,
+        message: str,
+        context: str,
+    ) -> AssistantProviderResult:
+        """Single tool-free Secretary response using the same model configuration."""
+        instructions = FINALIZATION_INSTRUCTIONS
+        self._last_instructions = instructions
+
+        input_items: list[dict] = []
+        if context.strip():
+            input_items.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"{UI_CONTEXT_DELIMITER_START}\n"
+                        f"{context.strip()}\n"
+                        f"{UI_CONTEXT_DELIMITER_END}"
+                    ),
+                }
+            )
+        input_items.append({"role": "user", "content": message})
+
+        usage_totals = ResponsesUsageAccumulated()
+        try:
+            response = self._client.responses.create(
+                model=self._model,
+                instructions=instructions,
+                input=input_items,
+                store=False,
+                reasoning={"effort": self._reasoning_effort},
+                text={"verbosity": self._verbosity},
+                max_output_tokens=self._max_output_tokens,
+            )
+        except Exception as exc:
+            logger.warning(
+                "assistant finalize OpenAI call failed: %s: %s",
+                type(exc).__name__,
+                str(exc)[:200],
+            )
+            raise AssistantProviderError("assistant provider call failed") from exc
+        self._last_store_false = True
+        usage_totals.accumulate(response)
+
+        if response_hit_max_output_tokens(response):
+            logger.warning(
+                "assistant finalize response incomplete: max_output_tokens=%d reached",
+                self._max_output_tokens,
+            )
+            raise AssistantProviderError("assistant output limit reached")
+
+        answer = _extract_output_text(response) or ""
+        return _build_provider_result(
+            answer=answer.strip(),
+            candidate_ids=[],
+            affected_ids=[],
+            usage_totals=usage_totals,
+            model=self._model,
+            reasoning_effort=self._reasoning_effort,
+            verbosity=self._verbosity,
+            max_output_tokens=self._max_output_tokens,
+        )
 
 
 def _build_provider_result(

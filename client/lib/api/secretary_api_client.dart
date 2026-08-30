@@ -142,6 +142,32 @@ class SecretaryApiClient {
     return AssistantMessageResponse.fromJson(body);
   }
 
+  Future<ActionPlanResponse> approveActionPlan(String planId) async {
+    final body = await _requestJson(
+      'POST',
+      '/assistant/action-plans/$planId/approve',
+      successStatuses: {200, 409},
+    );
+    return ActionPlanResponse.fromJson(body as Map<String, dynamic>);
+  }
+
+  Future<ActionPlanResponse> rejectActionPlan(String planId) async {
+    final body = await _requestJson(
+      'POST',
+      '/assistant/action-plans/$planId/reject',
+      successStatuses: {200, 409},
+    );
+    return ActionPlanResponse.fromJson(body as Map<String, dynamic>);
+  }
+
+  Future<ActionPlanResumeResponse> resumeActionPlan(String planId) async {
+    final body = await _request(
+      'POST',
+      '/assistant/action-plans/$planId/resume',
+    );
+    return ActionPlanResumeResponse.fromJson(body);
+  }
+
   Future<String> transcribeAudio({
     required List<int> audioBytes,
     required String filename,

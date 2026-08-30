@@ -156,6 +156,18 @@ class FakeAssistantProvider:
           store_false_used=self._store_false,
       )
 
+  def run_text_only(
+      self,
+      message: str,
+      context: str,
+  ) -> AssistantProviderResult:
+      return AssistantProviderResult(
+          answer="Готово. Действие выполнено.",
+          candidate_object_ids=[],
+          affected_object_ids=[],
+          store_false_used=self._store_false,
+      )
+
 
 def _append_uuid(target: list[UUID], value: object) -> None:
     if not value:

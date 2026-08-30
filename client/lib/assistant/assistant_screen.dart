@@ -97,7 +97,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
       await controller.stopVoiceRecordingAndTranscribe();
       return;
     }
-    if (controller.isSending || controller.isVoiceBusy) {
+    if (controller.isInputBlocked &&
+        controller.voiceState != AssistantVoiceState.recording) {
       return;
     }
     if (controller.voiceState == AssistantVoiceState.error) {
@@ -137,7 +138,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    final inputDisabled = controller.isSending || controller.isVoiceBusy;
+    final inputDisabled = controller.isInputBlocked;
     return Scaffold(
       body: Column(
         children: [
@@ -178,6 +179,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
               itemBuilder: (context, index) {
                 final message = controller.messages[index];
                 final isUser = message.role == 'user';
+                final actionPlan = message.actionPlan;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: Column(
@@ -194,6 +196,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         ),
                         child: Text(message.content),
                       ),
+                      if (!isUser && actionPlan != null)
+                        _ActionPlanCard(
+                          actionPlan: actionPlan,
+                          messageIndex: index,
+                          controller: controller,
+                          operationState: controller.actionPlanOperationState,
+                        ),
                       if (!isUser && message.references.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
@@ -343,6 +352,104 @@ class _ContextBanner extends StatelessWidget {
               icon: const Icon(Icons.close),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionPlanCard extends StatelessWidget {
+  const _ActionPlanCard({
+    required this.actionPlan,
+    required this.messageIndex,
+    required this.controller,
+    required this.operationState,
+  });
+
+  final MessageActionPlan actionPlan;
+  final int messageIndex;
+  final AssistantController controller;
+  final AssistantActionPlanOperationState operationState;
+
+  @override
+  Widget build(BuildContext context) {
+    final cardState = actionPlan.cardState;
+    final buttonsDisabled =
+        operationState != AssistantActionPlanOperationState.idle;
+
+    String statusLabel;
+    switch (cardState) {
+      case ActionPlanCardState.pending:
+        statusLabel = 'Requires confirmation';
+      case ActionPlanCardState.completed:
+        statusLabel = 'Completed';
+      case ActionPlanCardState.rejected:
+        statusLabel = 'Rejected';
+      case ActionPlanCardState.failed:
+        statusLabel = 'Failed';
+      case ActionPlanCardState.expired:
+        statusLabel = 'Expired';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                statusLabel,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              ...actionPlan.plan.actions.map(
+                (action) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(action.displayLabel),
+                ),
+              ),
+              if (cardState == ActionPlanCardState.pending)
+                Row(
+                  children: [
+                    FilledButton(
+                      key: Key('assistant_action_plan_approve_$messageIndex'),
+                      onPressed: buttonsDisabled
+                          ? null
+                          : () => controller.approveActionPlanAt(messageIndex),
+                      child: const Text('Approve'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      key: Key('assistant_action_plan_reject_$messageIndex'),
+                      onPressed: buttonsDisabled
+                          ? null
+                          : () => controller.rejectActionPlanAt(messageIndex),
+                      child: const Text('Reject'),
+                    ),
+                  ],
+                ),
+              if (cardState == ActionPlanCardState.completed &&
+                  actionPlan.resumeFailed)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    const Text('Action completed.'),
+                    const Text('Could not load Secretary\'s summary.'),
+                    TextButton(
+                      key: Key('assistant_action_plan_retry_$messageIndex'),
+                      onPressed: buttonsDisabled
+                          ? null
+                          : () =>
+                              controller.retryResumeSummary(actionPlan.plan.id),
+                      child: const Text('Retry summary'),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );

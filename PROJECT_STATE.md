@@ -18,7 +18,9 @@ PHASE 23B — Flutter push-to-talk: **accepted / closed** (`e339e2e`)
 
 PHASE 23C — Agent Execution Gateway & Tool Policy: **accepted / closed** (`7165b7f`)
 
-PHASE 23D-A — Frozen Pending Action Plans: **closure corrective, awaiting acceptance**
+PHASE 23D-A — Frozen Pending Action Plans: **accepted / closed** (`fa24217`)
+
+PHASE 23D-B — Approval UX & Safe Agent Resume: **implemented, awaiting review**
 
 ## VDS production
 
@@ -27,7 +29,8 @@ PHASE 23D-A — Frozen Pending Action Plans: **closure corrective, awaiting acce
 - **Accepted backend/transcription work (`94f04ef` / `43de268`) deployment pending** — VDS SSH credentials unavailable from dev environment
 - **PHASE 23B client accepted on `main` (`e339e2e`) — not deployed**
 - **PHASE 23C accepted on `main` (`7165b7f`) — not deployed**
-- **PHASE 23D-A not deployed** — on `review/phase-23d-a`
+- **PHASE 23D-A accepted on `main` (`fa24217`) — not deployed**
+- **PHASE 23D-B not deployed** — on `review/phase-23d-b`
 
 ## PHASE 22.7 baseline note
 

@@ -21,6 +21,7 @@ from app.assistant.session import execute_approved_actions_with_tools
 from app.db.models import PendingActionPlan
 from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
+from app.services.domain_write_mode import DomainWriteMode
 from app.services.errors import NotFoundError, ValidationError
 
 
@@ -88,6 +89,7 @@ class ActionPlanService:
             self._user_id,
             create_embedding_service(),
             defer_write_embeddings=True,
+            write_mode=DomainWriteMode.APPROVED_CONFIRMED,
         )
         nested = self._session.begin_nested()
         try:
@@ -103,6 +105,12 @@ class ActionPlanService:
             plan.status = PENDING_ACTION_PLAN_STATUS_FAILED
             plan.failure = _safe_failure_message(exc)
             return _to_view(plan)
+
+    def get_for_resume(self, plan_id: UUID) -> PendingActionPlanView:
+        plan = self._get_owned_plan(plan_id)
+        if plan.status != PENDING_ACTION_PLAN_STATUS_EXECUTED:
+            raise ActionPlanConflictError("action plan is not executed")
+        return _to_view(plan)
 
     def reject(self, plan_id: UUID) -> PendingActionPlanView:
         plan = self._get_owned_plan_for_update(plan_id)
@@ -123,6 +131,17 @@ class ActionPlanService:
         plan.status = PENDING_ACTION_PLAN_STATUS_REJECTED
         plan.rejected_at = now
         return _to_view(plan)
+
+    def _get_owned_plan(self, plan_id: UUID) -> PendingActionPlan:
+        plan = self._session.scalar(
+            select(PendingActionPlan).where(
+                PendingActionPlan.id == plan_id,
+                PendingActionPlan.user_id == self._user_id,
+            )
+        )
+        if plan is None:
+            raise NotFoundError("action_plan", plan_id)
+        return plan
 
     def _get_owned_plan_for_update(self, plan_id: UUID) -> PendingActionPlan:
         plan = self._session.execute(

@@ -22,7 +22,13 @@ from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
-from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE, REJECTED_STATE
+from app.services.domain_write_mode import DomainWriteMode
+from app.services.provenance import (
+    AGENT_ORIGIN,
+    CONFIRMED_STATE,
+    PROPOSED_STATE,
+    REJECTED_STATE,
+)
 from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.tools.datetime_utils import normalize_tool_datetime
@@ -60,9 +66,11 @@ class DomainToolService:
         user_id: UUID,
         embedding_service: EmbeddingService,
         defer_write_embeddings: bool = False,
+        write_mode: DomainWriteMode = DomainWriteMode.AGENT_PROPOSED,
     ) -> None:
         self._session = session
         self._user_id = user_id
+        self._write_mode = write_mode
         self._graph = GraphService(session, user_id, embedding_service)
         self._search = SearchService(session, user_id)
         self._retrieval = RetrievalService(session, user_id)
@@ -211,6 +219,11 @@ class DomainToolService:
             objects.append(obj)
         return objects
 
+    def _new_artifact_state(self) -> str:
+        if self._write_mode == DomainWriteMode.APPROVED_CONFIRMED:
+            return CONFIRMED_STATE
+        return PROPOSED_STATE
+
     def _attach_evidence_references(
         self,
         task_id: UUID,
@@ -218,6 +231,7 @@ class DomainToolService:
         confidence: float,
     ) -> int:
         created = 0
+        edge_state = self._new_artifact_state()
         for evidence_id in evidence_ids:
             existing = self._session.scalar(
                 select(Edge).where(
@@ -235,7 +249,7 @@ class DomainToolService:
                     target_id=evidence_id,
                     type="references",
                     origin=AGENT_ORIGIN,
-                    state=PROPOSED_STATE,
+                    state=edge_state,
                     confidence=confidence,
                 )
             )
@@ -265,6 +279,7 @@ class DomainToolService:
                     kind="task",
                     title=input.title,
                     origin=AGENT_ORIGIN,
+                    state=self._new_artifact_state(),
                     body=input.body,
                     status=input.status,
                     due_at=due_at,
@@ -336,7 +351,7 @@ class DomainToolService:
                     target_id=input.target_id,
                     type=input.relation_type,
                     origin=AGENT_ORIGIN,
-                    state=PROPOSED_STATE,
+                    state=self._new_artifact_state(),
                     confidence=input.confidence,
                 )
             )

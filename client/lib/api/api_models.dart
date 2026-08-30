@@ -496,18 +496,133 @@ class AssistantMessageResponse {
     required this.answer,
     required this.references,
     required this.affectedObjects,
+    this.pendingActionPlan,
   });
 
   final String answer;
   final List<AssistantReference> references;
   final List<AssistantAffectedObject> affectedObjects;
+  final PendingActionPlan? pendingActionPlan;
 
   factory AssistantMessageResponse.fromJson(Map<String, dynamic> json) {
+    final pendingRaw = json['pending_action_plan'];
     return AssistantMessageResponse(
       answer: json['answer'] as String,
       references: (json['references'] as List<dynamic>)
           .map((e) => AssistantReference.fromJson(e as Map<String, dynamic>))
           .toList(),
+      affectedObjects: (json['affected_objects'] as List<dynamic>)
+          .map((e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      pendingActionPlan: pendingRaw == null
+          ? null
+          : PendingActionPlan.fromJson(pendingRaw as Map<String, dynamic>),
+    );
+  }
+}
+
+class PendingAction {
+  PendingAction({required this.toolName, required this.arguments});
+
+  final String toolName;
+  final Map<String, dynamic> arguments;
+
+  factory PendingAction.fromJson(Map<String, dynamic> json) {
+    return PendingAction(
+      toolName: json['tool_name'] as String,
+      arguments: Map<String, dynamic>.from(json['arguments'] as Map),
+    );
+  }
+
+  String get displayLabel {
+    switch (toolName) {
+      case 'create_task':
+        final title = arguments['title'];
+        if (title is String && title.trim().isNotEmpty) {
+          return 'Create task: $title';
+        }
+        return 'Create task';
+      case 'update_task':
+        return 'Update task';
+      case 'link_objects':
+        return 'Link objects';
+      default:
+        return toolName.replaceAll('_', ' ');
+    }
+  }
+}
+
+class PendingActionPlan {
+  PendingActionPlan({
+    required this.id,
+    required this.status,
+    required this.expiresAt,
+    required this.actions,
+  });
+
+  final String id;
+  final String status;
+  final String expiresAt;
+  final List<PendingAction> actions;
+
+  factory PendingActionPlan.fromJson(Map<String, dynamic> json) {
+    return PendingActionPlan(
+      id: json['id'] as String,
+      status: json['status'] as String,
+      expiresAt: json['expires_at'] as String,
+      actions: (json['actions'] as List<dynamic>)
+          .map((e) => PendingAction.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class ActionPlanResponse {
+  ActionPlanResponse({
+    required this.id,
+    required this.status,
+    required this.expiresAt,
+    required this.actions,
+    this.result,
+    this.failure,
+  });
+
+  final String id;
+  final String status;
+  final String expiresAt;
+  final List<PendingAction> actions;
+  final Map<String, dynamic>? result;
+  final String? failure;
+
+  factory ActionPlanResponse.fromJson(Map<String, dynamic> json) {
+    final resultRaw = json['result'];
+    return ActionPlanResponse(
+      id: json['id'] as String,
+      status: json['status'] as String,
+      expiresAt: json['expires_at'] as String,
+      actions: (json['actions'] as List<dynamic>)
+          .map((e) => PendingAction.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      result: resultRaw == null
+          ? null
+          : Map<String, dynamic>.from(resultRaw as Map),
+      failure: json['failure'] as String?,
+    );
+  }
+}
+
+class ActionPlanResumeResponse {
+  ActionPlanResumeResponse({
+    required this.answer,
+    required this.affectedObjects,
+  });
+
+  final String answer;
+  final List<AssistantAffectedObject> affectedObjects;
+
+  factory ActionPlanResumeResponse.fromJson(Map<String, dynamic> json) {
+    return ActionPlanResumeResponse(
+      answer: json['answer'] as String,
       affectedObjects: (json['affected_objects'] as List<dynamic>)
           .map((e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
           .toList(),

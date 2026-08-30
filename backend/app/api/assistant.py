@@ -98,6 +98,11 @@ class ActionPlanResponse(BaseModel):
     failure: str | None = None
 
 
+class ActionPlanResumeResponse(BaseModel):
+    answer: str
+    affected_objects: list[AssistantAffectedObjectOut]
+
+
 class AssistantTranscribeResponse(BaseModel):
     text: str
 
@@ -299,3 +304,50 @@ def reject_action_plan(
     if plan.status == PENDING_ACTION_PLAN_STATUS_EXPIRED:
         response.status_code = status.HTTP_409_CONFLICT
     return body
+
+
+@router.post(
+    "/assistant/action-plans/{plan_id}/resume",
+    response_model=ActionPlanResumeResponse,
+)
+def resume_action_plan(
+    plan_id: UUID,
+    current_user: CurrentUserContext = Depends(get_current_user),
+    session: Session = Depends(get_db),
+    provider: AssistantProvider = Depends(get_assistant_provider),
+) -> ActionPlanResumeResponse:
+    plan_service = ActionPlanService(session, current_user.user_id)
+    try:
+        plan = plan_service.get_for_resume(plan_id)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{exc.resource} not found",
+        ) from exc
+    except ActionPlanConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.message,
+        ) from exc
+
+    assistant = AssistantService(current_user.user_id, provider)
+    try:
+        result = assistant.finalize_executed_plan(plan)
+    except (AssistantConfigurationError, AssistantProviderError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+        ) from exc
+
+    return ActionPlanResumeResponse(
+        answer=result.answer,
+        affected_objects=[
+            AssistantAffectedObjectOut(
+                object_id=item.object_id,
+                title=item.title,
+                kind=item.kind,
+                state=item.state,
+            )
+            for item in result.affected_objects
+        ],
+    )

@@ -29,18 +29,48 @@ enum AssistantVoiceState {
   error,
 }
 
+enum AssistantActionPlanOperationState {
+  idle,
+  approving,
+  rejecting,
+  resuming,
+  error,
+}
+
+enum ActionPlanCardState {
+  pending,
+  completed,
+  rejected,
+  failed,
+  expired,
+}
+
+class MessageActionPlan {
+  MessageActionPlan({
+    required this.plan,
+    this.cardState = ActionPlanCardState.pending,
+    this.resumeFailed = false,
+  });
+
+  final PendingActionPlan plan;
+  ActionPlanCardState cardState;
+  bool resumeFailed;
+}
+
 class AssistantChatMessage {
   AssistantChatMessage({
     required this.role,
     required this.content,
     this.references = const [],
     this.affectedObjects = const [],
+    this.actionPlan,
   });
 
   final String role;
   final String content;
   final List<AssistantReference> references;
   final List<AssistantAffectedObject> affectedObjects;
+  final MessageActionPlan? actionPlan;
 }
 
 class AssistantController extends ChangeNotifier {
@@ -67,13 +97,17 @@ class AssistantController extends ChangeNotifier {
   AssistantContextRef? _notificationContext;
   AssistantSendState sendState = AssistantSendState.idle;
   AssistantVoiceState voiceState = AssistantVoiceState.idle;
+  AssistantActionPlanOperationState actionPlanOperationState =
+      AssistantActionPlanOperationState.idle;
   String? errorMessage;
   String? voiceErrorMessage;
+  String? actionPlanErrorMessage;
   String? _pendingRetryMessage;
   String? _activeRecordingPath;
   Timer? _recordingLimitTimer;
   int _voiceStartGeneration = 0;
   bool _voiceStartInFlight = false;
+  bool _approveInFlight = false;
 
   List<AssistantChatMessage> get messages => List.unmodifiable(_messages);
   AssistantContextRef? get objectContext => _objectContext;
@@ -85,6 +119,16 @@ class AssistantController extends ChangeNotifier {
       voiceState == AssistantVoiceState.starting ||
       voiceState == AssistantVoiceState.recording ||
       voiceState == AssistantVoiceState.transcribing;
+  bool get hasPendingActionPlan => _messages.any(
+        (message) =>
+            message.actionPlan != null &&
+            message.actionPlan!.cardState == ActionPlanCardState.pending,
+      );
+  bool get isInputBlocked =>
+      isSending ||
+      isVoiceBusy ||
+      hasPendingActionPlan ||
+      actionPlanOperationState != AssistantActionPlanOperationState.idle;
 
   void setObjectContext(SecretaryObject object) {
     _objectContext = AssistantContextRef(
@@ -118,9 +162,7 @@ class AssistantController extends ChangeNotifier {
 
   Future<void> sendMessage(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty ||
-        sendState == AssistantSendState.sending ||
-        isVoiceBusy) {
+    if (trimmed.isEmpty || isInputBlocked) {
       return;
     }
 
@@ -145,6 +187,9 @@ class AssistantController extends ChangeNotifier {
           content: response.answer,
           references: response.references,
           affectedObjects: response.affectedObjects,
+          actionPlan: response.pendingActionPlan == null
+              ? null
+              : MessageActionPlan(plan: response.pendingActionPlan!),
         ),
       );
       _pendingRetryMessage = null;
@@ -169,6 +214,166 @@ class AssistantController extends ChangeNotifier {
     }
   }
 
+  Future<void> approveActionPlanAt(int messageIndex) async {
+    if (_approveInFlight ||
+        actionPlanOperationState != AssistantActionPlanOperationState.idle) {
+      return;
+    }
+    if (messageIndex < 0 || messageIndex >= _messages.length) {
+      return;
+    }
+    final message = _messages[messageIndex];
+    final actionPlan = message.actionPlan;
+    if (actionPlan == null ||
+        actionPlan.cardState != ActionPlanCardState.pending) {
+      return;
+    }
+
+    _approveInFlight = true;
+    actionPlanOperationState = AssistantActionPlanOperationState.approving;
+    actionPlanErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final response = await _apiClient.approveActionPlan(actionPlan.plan.id);
+      if (response.status == 'failed') {
+        actionPlan.cardState = ActionPlanCardState.failed;
+        actionPlanOperationState = AssistantActionPlanOperationState.idle;
+        notifyListeners();
+        return;
+      }
+      if (response.status == 'expired') {
+        actionPlan.cardState = ActionPlanCardState.expired;
+        actionPlanOperationState = AssistantActionPlanOperationState.idle;
+        notifyListeners();
+        return;
+      }
+      if (response.status == 'executed') {
+        actionPlan.cardState = ActionPlanCardState.completed;
+        actionPlan.resumeFailed = false;
+        notifyListeners();
+        await _resumeExecutedPlan(actionPlan);
+        return;
+      }
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
+      notifyListeners();
+    } on AuthenticationException catch (e) {
+      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanErrorMessage = e.message;
+      _authController.handleAuthenticationFailure();
+      notifyListeners();
+    } on NetworkException catch (e) {
+      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanErrorMessage = e.message;
+      notifyListeners();
+    } on ApiException catch (e) {
+      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanErrorMessage = e.message;
+      notifyListeners();
+    } finally {
+      _approveInFlight = false;
+    }
+  }
+
+  Future<void> rejectActionPlanAt(int messageIndex) async {
+    if (actionPlanOperationState != AssistantActionPlanOperationState.idle) {
+      return;
+    }
+    if (messageIndex < 0 || messageIndex >= _messages.length) {
+      return;
+    }
+    final message = _messages[messageIndex];
+    final actionPlan = message.actionPlan;
+    if (actionPlan == null ||
+        actionPlan.cardState != ActionPlanCardState.pending) {
+      return;
+    }
+
+    actionPlanOperationState = AssistantActionPlanOperationState.rejecting;
+    actionPlanErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final response = await _apiClient.rejectActionPlan(actionPlan.plan.id);
+      if (response.status == 'expired') {
+        actionPlan.cardState = ActionPlanCardState.expired;
+      } else {
+        actionPlan.cardState = ActionPlanCardState.rejected;
+      }
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
+      notifyListeners();
+    } on AuthenticationException catch (e) {
+      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanErrorMessage = e.message;
+      _authController.handleAuthenticationFailure();
+      notifyListeners();
+    } on NetworkException catch (e) {
+      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanErrorMessage = e.message;
+      notifyListeners();
+    } on ApiException catch (e) {
+      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanErrorMessage = e.message;
+      notifyListeners();
+    }
+  }
+
+  Future<void> retryResumeSummary(String planId) async {
+    if (actionPlanOperationState != AssistantActionPlanOperationState.idle) {
+      return;
+    }
+    MessageActionPlan? actionPlan;
+    for (final message in _messages) {
+      final candidate = message.actionPlan;
+      if (candidate != null &&
+          candidate.plan.id == planId &&
+          candidate.cardState == ActionPlanCardState.completed) {
+        actionPlan = candidate;
+        break;
+      }
+    }
+    if (actionPlan == null) {
+      return;
+    }
+    await _resumeExecutedPlan(actionPlan);
+  }
+
+  Future<void> _resumeExecutedPlan(MessageActionPlan actionPlan) async {
+    actionPlanOperationState = AssistantActionPlanOperationState.resuming;
+    actionPlanErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final response = await _apiClient.resumeActionPlan(actionPlan.plan.id);
+      _messages.add(
+        AssistantChatMessage(
+          role: 'assistant',
+          content: response.answer,
+          affectedObjects: response.affectedObjects,
+        ),
+      );
+      actionPlan.resumeFailed = false;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
+      notifyListeners();
+    } on AuthenticationException catch (e) {
+      actionPlan.resumeFailed = true;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
+      actionPlanErrorMessage = e.message;
+      _authController.handleAuthenticationFailure();
+      notifyListeners();
+    } on NetworkException catch (e) {
+      actionPlan.resumeFailed = true;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
+      actionPlanErrorMessage = e.message;
+      notifyListeners();
+    } on ApiException catch (e) {
+      actionPlan.resumeFailed = true;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
+      actionPlanErrorMessage = e.message;
+      notifyListeners();
+    }
+  }
+
   Future<void> startVoiceRecording() async {
     if (_voiceStartInFlight) {
       return;
@@ -177,7 +382,7 @@ class AssistantController extends ChangeNotifier {
         voiceState != AssistantVoiceState.error) {
       return;
     }
-    if (sendState == AssistantSendState.sending) {
+    if (isInputBlocked) {
       return;
     }
 
@@ -294,7 +499,7 @@ class AssistantController extends ChangeNotifier {
       );
       voiceState = AssistantVoiceState.idle;
       notifyListeners();
-      if (sendState == AssistantSendState.sending) {
+      if (isInputBlocked) {
         _pendingRetryMessage = transcript;
         notifyListeners();
         return;
@@ -425,9 +630,12 @@ class AssistantController extends ChangeNotifier {
     _notificationContext = null;
     sendState = AssistantSendState.idle;
     voiceState = AssistantVoiceState.idle;
+    actionPlanOperationState = AssistantActionPlanOperationState.idle;
     errorMessage = null;
     voiceErrorMessage = null;
+    actionPlanErrorMessage = null;
     _pendingRetryMessage = null;
+    _approveInFlight = false;
     notifyListeners();
   }
 
