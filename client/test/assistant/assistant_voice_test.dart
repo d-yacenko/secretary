@@ -743,6 +743,97 @@ void main() {
     assistant.dispose();
   });
 
+  test('cancel during start blocks immediate restart until settled', () async {
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.startDelay = const Duration(milliseconds: 50);
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    final startFutureA = assistant.startVoiceRecording();
+    expect(assistant.voiceState, AssistantVoiceState.starting);
+    while (voiceRecorder.startCallCount == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    await assistant.cancelVoiceRecording();
+
+    await assistant.startVoiceRecording();
+    expect(voiceRecorder.startCallCount, 1);
+    expect(assistant.isVoiceBusy, isTrue);
+
+    await startFutureA;
+
+    expect(voiceRecorder.cancelCallCount, greaterThanOrEqualTo(1));
+    expect(voiceRecorder.isRecording, isFalse);
+    expect(assistant.voiceState, AssistantVoiceState.idle);
+    expect(assistant.isVoiceBusy, isFalse);
+    expect(voiceRecorder.lastStartedPath, isNotNull);
+    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+
+    await assistant.startVoiceRecording();
+    expect(voiceRecorder.startCallCount, 2);
+    expect(assistant.voiceState, AssistantVoiceState.recording);
+    await assistant.cancelVoiceRecording();
+    assistant.dispose();
+  });
+
+  test('reset during start blocks immediate restart until settled', () async {
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.startDelay = const Duration(milliseconds: 50);
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    final startFutureA = assistant.startVoiceRecording();
+    expect(assistant.voiceState, AssistantVoiceState.starting);
+    while (voiceRecorder.startCallCount == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    assistant.resetSession();
+
+    await assistant.startVoiceRecording();
+    expect(voiceRecorder.startCallCount, 1);
+    expect(assistant.isVoiceBusy, isTrue);
+
+    await startFutureA;
+
+    expect(voiceRecorder.isRecording, isFalse);
+    expect(assistant.voiceState, AssistantVoiceState.idle);
+    expect(assistant.isVoiceBusy, isFalse);
+    expect(voiceRecorder.lastStartedPath, isNotNull);
+    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+
+    await assistant.startVoiceRecording();
+    expect(voiceRecorder.startCallCount, 2);
+    expect(assistant.voiceState, AssistantVoiceState.recording);
+    await assistant.cancelVoiceRecording();
+    assistant.dispose();
+  });
+
   testWidgets('permission denial shows safe message', (tester) async {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.permissionGranted = false;

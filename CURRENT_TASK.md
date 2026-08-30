@@ -1,10 +1,10 @@
-# Current task — PHASE 23B final lifecycle corrective awaiting acceptance
+# Current task — PHASE 23B final concurrency closure awaiting acceptance
 
 ## Status
 
 PHASE 23A accepted / closed at `43de268ea550ea4e5f7a94da8085b72609c64d93`.
 
-PHASE 23B final lifecycle corrective: **implemented, awaiting acceptance**.
+PHASE 23B final concurrency closure: **implemented, awaiting acceptance**.
 
 Review branch: `review/phase-23b`.
 

@@ -73,6 +73,7 @@ class AssistantController extends ChangeNotifier {
   String? _activeRecordingPath;
   Timer? _recordingLimitTimer;
   int _voiceStartGeneration = 0;
+  bool _voiceStartInFlight = false;
 
   List<AssistantChatMessage> get messages => List.unmodifiable(_messages);
   AssistantContextRef? get objectContext => _objectContext;
@@ -80,6 +81,7 @@ class AssistantController extends ChangeNotifier {
   String? get pendingRetryMessage => _pendingRetryMessage;
   bool get isSending => sendState == AssistantSendState.sending;
   bool get isVoiceBusy =>
+      _voiceStartInFlight ||
       voiceState == AssistantVoiceState.starting ||
       voiceState == AssistantVoiceState.recording ||
       voiceState == AssistantVoiceState.transcribing;
@@ -168,6 +170,9 @@ class AssistantController extends ChangeNotifier {
   }
 
   Future<void> startVoiceRecording() async {
+    if (_voiceStartInFlight) {
+      return;
+    }
     if (voiceState != AssistantVoiceState.idle &&
         voiceState != AssistantVoiceState.error) {
       return;
@@ -180,8 +185,10 @@ class AssistantController extends ChangeNotifier {
       voiceErrorMessage = null;
     }
 
+    _voiceStartInFlight = true;
     voiceState = AssistantVoiceState.starting;
     final startGeneration = ++_voiceStartGeneration;
+    String? operationPath;
     notifyListeners();
 
     try {
@@ -190,7 +197,7 @@ class AssistantController extends ChangeNotifier {
         final granted = await _voiceRecorder.requestPermission();
         if (!granted) {
           if (!_isActiveVoiceStart(startGeneration)) {
-            await _abortInFlightRecording(startGeneration);
+            await _abortInFlightRecording(startGeneration, operationPath);
             return;
           }
           _setVoiceError('Microphone permission is required for voice input.');
@@ -199,16 +206,16 @@ class AssistantController extends ChangeNotifier {
       }
 
       if (!_isActiveVoiceStart(startGeneration)) {
-        await _abortInFlightRecording(startGeneration);
+        await _abortInFlightRecording(startGeneration, operationPath);
         return;
       }
 
-      final path = await _voiceTempFiles.createTempWavPath();
-      _activeRecordingPath = path;
-      await _voiceRecorder.startRecording(path);
+      operationPath = await _voiceTempFiles.createTempWavPath();
+      _activeRecordingPath = operationPath;
+      await _voiceRecorder.startRecording(operationPath);
 
       if (!_isActiveVoiceStart(startGeneration)) {
-        await _abortInFlightRecording(startGeneration);
+        await _abortInFlightRecording(startGeneration, operationPath);
         return;
       }
 
@@ -223,11 +230,14 @@ class AssistantController extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       if (_isActiveVoiceStart(startGeneration)) {
-        await _cleanupActiveRecording();
+        await _cleanupRecordingPath(operationPath);
         _setVoiceError('Voice recording could not start.');
       } else {
-        await _abortInFlightRecording(startGeneration);
+        await _abortInFlightRecording(startGeneration, operationPath);
       }
+    } finally {
+      _voiceStartInFlight = false;
+      notifyListeners();
     }
   }
 
@@ -349,10 +359,13 @@ class AssistantController extends ChangeNotifier {
     _voiceStartGeneration++;
   }
 
-  Future<void> _abortInFlightRecording(int generation) async {
+  Future<void> _abortInFlightRecording(
+    int generation,
+    String? operationPath,
+  ) async {
     if (generation != _voiceStartGeneration) {
       await _bestEffortCancelRecorder();
-      await _cleanupActiveRecording();
+      await _cleanupRecordingPath(operationPath);
     }
     if (voiceState == AssistantVoiceState.starting ||
         voiceState == AssistantVoiceState.recording) {
@@ -369,10 +382,18 @@ class AssistantController extends ChangeNotifier {
     }
   }
 
-  Future<void> _cleanupActiveRecording() async {
-    final path = _activeRecordingPath;
-    _activeRecordingPath = null;
+  Future<void> _cleanupRecordingPath(String? path) async {
+    if (path == null || path.isEmpty) {
+      return;
+    }
     await _voiceTempFiles.deleteIfExists(path);
+    if (_activeRecordingPath == path) {
+      _activeRecordingPath = null;
+    }
+  }
+
+  Future<void> _cleanupActiveRecording() async {
+    await _cleanupRecordingPath(_activeRecordingPath);
   }
 
   List<AssistantHistoryMessage> _boundedHistory() {
