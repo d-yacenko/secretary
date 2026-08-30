@@ -8,6 +8,14 @@ import 'graph_layout.dart';
 
 enum GraphWorkspaceLoadState { idle, loading, ready, error }
 
+const Set<String> _terminalTaskStatusesForReads = {
+  'done',
+  'completed',
+  'cancelled',
+  'archived',
+  'deleted',
+};
+
 class GraphWorkspaceController extends ChangeNotifier {
   GraphWorkspaceController({
     required SecretaryApiClient apiClient,
@@ -68,20 +76,35 @@ class GraphWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshCurrentWorkspace() async {
+    if (loadState == GraphWorkspaceLoadState.loading) {
+      return;
+    }
+    if (rootId == null) {
+      await loadOverview();
+      return;
+    }
+    await _refreshRooted(rootId!);
+  }
+
   Future<void> loadOverview() async {
+    if (loadState == GraphWorkspaceLoadState.loading) {
+      return;
+    }
     loadState = GraphWorkspaceLoadState.loading;
     errorMessage = null;
     notifyListeners();
     try {
       final workspace = await _apiClient.getGraphWorkspace();
-      _nodes.clear();
-      _edges.clear();
-      _positions.clear();
-      _applyWorkspace(workspace, layoutRoot: null, freshRoot: true);
-      rootId = null;
-      selectedObjectId = null;
+      _replaceWorkspaceState(
+        workspace: workspace,
+        layoutRoot: null,
+        freshRoot: true,
+        rootIdAfter: null,
+        selectObjectId: null,
+        fitAfterLayout: true,
+      );
       loadState = GraphWorkspaceLoadState.ready;
-      shouldFitAfterLayout = true;
     } on AuthenticationException {
       _authController.handleAuthenticationFailure();
     } on ApiException catch (error) {
@@ -95,20 +118,63 @@ class GraphWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> reRoot(String objectId) async {
+    if (loadState == GraphWorkspaceLoadState.loading) {
+      return;
+    }
     loadState = GraphWorkspaceLoadState.loading;
     errorMessage = null;
     notifyListeners();
     try {
       final workspace = await _apiClient.getGraphWorkspace(rootId: objectId);
-      _nodes.clear();
-      _edges.clear();
-      _positions.clear();
-      _applyWorkspace(workspace, layoutRoot: objectId, freshRoot: true);
-      rootId = objectId;
-      selectedObjectId = objectId;
-      selectedEdgeId = null;
+      _replaceWorkspaceState(
+        workspace: workspace,
+        layoutRoot: objectId,
+        freshRoot: true,
+        rootIdAfter: objectId,
+        selectObjectId: objectId,
+        fitAfterLayout: true,
+      );
       loadState = GraphWorkspaceLoadState.ready;
-      shouldFitAfterLayout = true;
+    } on AuthenticationException {
+      _authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = error.message;
+    } catch (_) {
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = 'Failed to load graph workspace';
+    }
+    notifyListeners();
+  }
+
+  Future<void> _refreshRooted(String objectId) async {
+    if (loadState == GraphWorkspaceLoadState.loading) {
+      return;
+    }
+    loadState = GraphWorkspaceLoadState.loading;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final workspace = await _apiClient.getGraphWorkspace(rootId: objectId);
+      final rootPresent = workspace.nodes.any((node) => node.id == objectId);
+      if (!rootPresent) {
+        await loadOverview();
+        errorMessage = 'Root object is no longer available in graph workspace';
+        return;
+      }
+      final preservedSelection = selectedObjectId;
+      _replaceWorkspaceState(
+        workspace: workspace,
+        layoutRoot: objectId,
+        freshRoot: true,
+        rootIdAfter: objectId,
+        selectObjectId: preservedSelection != null &&
+                workspace.nodes.any((node) => node.id == preservedSelection)
+            ? preservedSelection
+            : objectId,
+        fitAfterLayout: true,
+      );
+      loadState = GraphWorkspaceLoadState.ready;
     } on AuthenticationException {
       _authController.handleAuthenticationFailure();
     } on ApiException catch (error) {
@@ -200,6 +266,30 @@ class GraphWorkspaceController extends ChangeNotifier {
         _positions.containsKey(edge.targetId);
   }
 
+  Future<void> applyTaskMutation(SecretaryObject object) async {
+    if (object.kind != 'task') {
+      _nodes[object.id] = object;
+      notifyListeners();
+      return;
+    }
+
+    if (object.isDeletedTask) {
+      _removeObjectFromWorkspace(object.id);
+      if (rootId == object.id) {
+        await loadOverview();
+      }
+      return;
+    }
+
+    if (rootId == null && _isTerminalForActiveOverview(object.status)) {
+      _removeObjectFromWorkspace(object.id);
+      return;
+    }
+
+    _nodes[object.id] = object;
+    notifyListeners();
+  }
+
   void selectObject(String? objectId) {
     selectedObjectId = objectId;
     selectedEdgeId = null;
@@ -234,6 +324,49 @@ class GraphWorkspaceController extends ChangeNotifier {
 
   void clearFitRequest() {
     shouldFitAfterLayout = false;
+  }
+
+  void _removeObjectFromWorkspace(String objectId) {
+    _nodes.remove(objectId);
+    _positions.remove(objectId);
+    _edges.removeWhere(
+      (edge) => edge.sourceId == objectId || edge.targetId == objectId,
+    );
+    if (selectedObjectId == objectId) {
+      selectedObjectId = null;
+    }
+    if (selectedEdgeId != null) {
+      final edge = selectedEdge;
+      if (edge == null ||
+          edge.sourceId == objectId ||
+          edge.targetId == objectId) {
+        selectedEdgeId = null;
+      }
+    }
+    notifyListeners();
+  }
+
+  bool _isTerminalForActiveOverview(String? status) {
+    return status != null && _terminalTaskStatusesForReads.contains(status);
+  }
+
+  void _replaceWorkspaceState({
+    required GraphWorkspaceOut workspace,
+    required String? layoutRoot,
+    required bool freshRoot,
+    required String? rootIdAfter,
+    required String? selectObjectId,
+    required bool fitAfterLayout,
+  }) {
+    _nodes.clear();
+    _edges.clear();
+    _positions.clear();
+    _applyWorkspace(workspace, layoutRoot: layoutRoot, freshRoot: freshRoot);
+    rootId = rootIdAfter;
+    truncated = workspace.truncated;
+    selectedObjectId = selectObjectId;
+    selectedEdgeId = null;
+    shouldFitAfterLayout = fitAfterLayout;
   }
 
   void _mergeWorkspace(GraphWorkspaceOut workspace, {required String expandAround}) {

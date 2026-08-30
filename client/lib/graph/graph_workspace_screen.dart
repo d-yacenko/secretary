@@ -46,9 +46,6 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
-    if (widget.controller.loadState == GraphWorkspaceLoadState.idle) {
-      widget.controller.loadOverview();
-    }
   }
 
   @override
@@ -448,7 +445,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           apiClient: widget.apiClient,
           authController: widget.authController,
           compact: compact,
-          onTaskUpdated: widget.controller.upsertObject,
+          onTaskUpdated: widget.controller.applyTaskMutation,
         ),
         const SizedBox(height: 12),
         Text('Relations', style: Theme.of(context).textTheme.titleSmall),

@@ -62,9 +62,20 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  void _selectDestination(int index) {
+    final previous = ShellDestination.values[_selectedIndex];
+    final next = ShellDestination.values[index];
+    setState(() => _selectedIndex = index);
+    if (next == ShellDestination.graph && previous != ShellDestination.graph) {
+      widget.graphController.refreshCurrentWorkspace();
+    }
+  }
+
   void _showInGraph(String objectId) {
     widget.graphController.reRoot(objectId);
-    setState(() => _selectedIndex = ShellDestination.graph.index);
+    if (_selectedIndex != ShellDestination.graph.index) {
+      setState(() => _selectedIndex = ShellDestination.graph.index);
+    }
   }
 
   void _askSecretaryAbout(SecretaryObject object) {
@@ -154,7 +165,7 @@ class _AppShellState extends State<AppShell> {
           children: [
             NavigationRail(
               selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+              onDestinationSelected: _selectDestination,
               labelType: NavigationRailLabelType.all,
               leading: captureAction,
               trailing: Expanded(
@@ -206,7 +217,7 @@ class _AppShellState extends State<AppShell> {
             ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: _selectDestination,
         destinations: ShellDestination.values
             .map(
               (d) => NavigationDestination(

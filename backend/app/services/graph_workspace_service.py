@@ -3,19 +3,15 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, literal, or_, select, union_all
+from sqlalchemy import case, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeOut, ObjectOut
 from app.db.models import Edge, Object
-from app.domain.task_lifecycle import (
-    TASK_STATUS_DELETED,
-    TASK_STATUS_IN_PROGRESS,
-    TASK_STATUS_OPEN,
-)
+from app.domain.task_lifecycle import TASK_STATUS_DELETED, TERMINAL_TASK_STATUSES_FOR_READS
 from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
-from app.services.provenance import REJECTED_STATE
+from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
 
 DEFAULT_SEED_LIMIT = 12
 MAX_SEED_LIMIT = 24
@@ -182,11 +178,13 @@ class GraphWorkspaceService:
         ) or 0
 
     def _fetch_active_seed_tasks(self, limit: int) -> list[Object]:
+        state_rank = case((Object.state == CONFIRMED_STATE, 0), else_=1)
         stmt = (
             select(Object)
             .where(*self._active_seed_task_filters())
             .order_by(
                 Object.due_at.asc().nulls_last(),
+                state_rank,
                 Object.updated_at.desc(),
                 Object.id.asc(),
             )
@@ -195,14 +193,15 @@ class GraphWorkspaceService:
         return list(self._session.scalars(stmt))
 
     def _active_seed_task_filters(self) -> list:
+        non_terminal_status = or_(
+            Object.status.is_(None),
+            Object.status.not_in(tuple(TERMINAL_TASK_STATUSES_FOR_READS)),
+        )
         return [
             Object.user_id == self._user_id,
             Object.kind == "task",
-            Object.state == "confirmed",
-            or_(
-                Object.status.is_(None),
-                Object.status.in_([TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS]),
-            ),
+            Object.state != REJECTED_STATE,
+            non_terminal_status,
         ]
 
     def _eligible_neighbor_object_filters(self, exclude_deleted_neighbors: bool) -> list:

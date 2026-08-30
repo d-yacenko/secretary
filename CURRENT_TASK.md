@@ -1,16 +1,27 @@
-# Current task — PHASE 24 deployment checkpoint
+# Current task — PHASE 24 E2E corrective
 
 ## Status
 
 PHASE 24: **accepted / closed** at `e128f26414c1ffb33d6040c2d87e2b2054e35480`.
 
-VDS: deployed `e128f26` on 2026-08-30. API routes verified (`/graph/workspace`, `/tasks`, public HTTPS).
+VDS: deployed `e128f26` on 2026-08-30 (matched-version manual E2E baseline).
 
-Prior Graph/Delete `Not Found` was **version skew** (PHASE 24 client vs `b30b95e` backend), not a product defect.
+Manual E2E findings (post-deploy):
 
-## Next
+1. Graph keeps stale workspace after Assistant create/update until Return to Overview.
+2. Direct Delete leaves a `deleted` node on screen until Return to Overview.
+3. Legacy active tasks with `state=proposed` / `status=proposed` excluded from default Graph overview.
 
-Manual PHASE 24 Graph E2E on matched client + backend (user-run).
+Post-deploy corrective implemented on branch `review/phase-24-e2e-corrective`:
+
+- Graph tab activation refreshes current workspace (overview or rooted root).
+- Canonical active-task seed semantics (non-rejected, non-terminal status).
+- Lifecycle-aware `applyTaskMutation` removes deleted/terminal tasks from active overview immediately.
+- Rooted delete falls back to refreshed overview.
+
+**Awaiting architect acceptance.** Do not deploy until accepted.
+
+Do not claim final Graph manual E2E PASS yet.
 
 ## STOP
 

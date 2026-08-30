@@ -30,9 +30,9 @@ PHASE 23D-D — MVP Interaction Closure: **accepted / closed** (`eb433a6`)
 
 PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **accepted / closed** (`402c234`)
 
-PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e128f26`)
+PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e128f26`); manual E2E found Graph freshness and active-task compatibility defects; post-deploy corrective on `review/phase-24-e2e-corrective`, awaiting acceptance.
 
-Next planned after acceptance: follow playbook after PHASE 24 acceptance.
+Next planned after acceptance: follow playbook after PHASE 24 corrective acceptance.
 
 ## VDS production
 
@@ -89,4 +89,4 @@ PHASE 23E — accepted / closed (`402c234`).
 
 PHASE 24 — accepted / closed (`e128f26`). VDS deployed at same SHA (2026-08-30).
 
-Do not start the next product phase until manual PHASE 24 Graph E2E is recorded.
+Do not start the next product phase until PHASE 24 corrective is accepted.

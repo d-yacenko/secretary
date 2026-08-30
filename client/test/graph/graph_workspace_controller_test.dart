@@ -38,14 +38,20 @@ class _FakeAuth extends AuthController {
   }
 }
 
-SecretaryObject _obj(String id, String title) {
+SecretaryObject _obj(
+  String id,
+  String title, {
+  String? status,
+  String state = 'confirmed',
+}) {
   return SecretaryObject(
     id: id,
     kind: 'task',
     title: title,
     metadata: {},
     origin: 'user',
-    state: 'confirmed',
+    state: state,
+    status: status,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   );
@@ -242,5 +248,140 @@ void main() {
     controller.selectObject('a');
     expect(controller.selectedObjectId, 'a');
     expect(controller.selectedObject?.title, 'A');
+  });
+
+  test('refreshCurrentWorkspace reloads overview', () async {
+    var calls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        calls += 1;
+        if (calls == 1) {
+          return _workspace(nodes: [_obj('a', 'A')]);
+        }
+        return _workspace(nodes: [_obj('a', 'A'), _obj('b', 'B')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.loadOverview();
+    expect(controller.nodes.length, 1);
+
+    await controller.refreshCurrentWorkspace();
+    expect(calls, 2);
+    expect(controller.nodes.length, 2);
+    expect(controller.nodeById('b'), isNotNull);
+  });
+
+  test('delete removes task immediately from overview', () async {
+    final auth = _FakeAuth();
+    final edge = SecretaryEdge(
+      id: 'e1',
+      sourceId: 'a',
+      targetId: 'b',
+      type: 'references',
+      origin: 'user',
+      state: 'confirmed',
+      metadata: {},
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((_) async {
+        return GraphWorkspaceOut(
+          rootId: null,
+          seedIds: ['a', 'b'],
+          nodes: [_obj('a', 'A'), _obj('b', 'B')],
+          edges: [edge],
+          truncated: false,
+        );
+      }),
+      authController: auth,
+    );
+
+    await controller.loadOverview();
+    controller.selectObject('a');
+    await controller.applyTaskMutation(_obj('a', 'A', status: 'deleted'));
+
+    expect(controller.nodeById('a'), isNull);
+    expect(controller.positions.containsKey('a'), isFalse);
+    expect(controller.edges, isEmpty);
+    expect(controller.selectedObjectId, isNull);
+    expect(controller.nodeById('b'), isNotNull);
+  });
+
+  test('delete rooted task falls back to overview', () async {
+    var calls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        calls += 1;
+        if (rootId == 'a') {
+          return _workspace(rootId: 'a', nodes: [_obj('a', 'A')]);
+        }
+        return _workspace(nodes: [_obj('b', 'B')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.reRoot('a');
+    await controller.applyTaskMutation(_obj('a', 'A', status: 'deleted'));
+
+    expect(controller.rootId, isNull);
+    expect(controller.nodeById('a'), isNull);
+    expect(controller.nodeById('b'), isNotNull);
+    expect(calls, greaterThanOrEqualTo(2));
+  });
+
+  test('terminal status removes task from overview immediately', () async {
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((_) async {
+        return _workspace(nodes: [_obj('a', 'A', status: 'open')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.loadOverview();
+    await controller.applyTaskMutation(_obj('a', 'A', status: 'done'));
+
+    expect(controller.nodeById('a'), isNull);
+  });
+
+  test('in_progress status keeps task in overview', () async {
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((_) async {
+        return _workspace(nodes: [_obj('a', 'A', status: 'open')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.loadOverview();
+    await controller.applyTaskMutation(_obj('a', 'A', status: 'in_progress'));
+
+    expect(controller.nodeById('a')?.status, 'in_progress');
+  });
+
+  test('refresh after delete does not resurrect removed task', () async {
+    var calls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((_) async {
+        calls += 1;
+        if (calls == 1) {
+          return _workspace(nodes: [_obj('a', 'A'), _obj('b', 'B')]);
+        }
+        return _workspace(nodes: [_obj('b', 'B')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.loadOverview();
+    await controller.applyTaskMutation(_obj('a', 'A', status: 'deleted'));
+    await controller.refreshCurrentWorkspace();
+
+    expect(controller.nodeById('a'), isNull);
+    expect(controller.nodeById('b'), isNotNull);
   });
 }
