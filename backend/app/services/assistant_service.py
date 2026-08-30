@@ -16,7 +16,10 @@ from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_pres
 from app.assistant.session import run_assistant_tool
 from app.assistant.tool_runner import BoundAssistantToolRunner, PerTurnToolBudget
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
-from app.core.assistant_openai_config import validated_assistant_openai_settings
+from app.core.assistant_openai_config import (
+    AssistantOpenAIConfigError,
+    validated_assistant_openai_settings,
+)
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
@@ -353,7 +356,10 @@ def _normalize_history(history: list[AssistantHistoryMessage]) -> list[Assistant
 def create_assistant_provider() -> OpenAIAssistantProvider:
     if not settings.openai_api_key:
         raise AssistantConfigurationError("OPENAI_API_KEY is not configured")
-    assistant_settings = validated_assistant_openai_settings(settings)
+    try:
+        assistant_settings = validated_assistant_openai_settings(settings)
+    except AssistantOpenAIConfigError as exc:
+        raise AssistantConfigurationError(str(exc)) from exc
     return OpenAIAssistantProvider(
         api_key=settings.openai_api_key,
         model=assistant_settings.model,

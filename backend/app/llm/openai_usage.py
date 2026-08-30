@@ -1,13 +1,19 @@
 from dataclasses import dataclass
 
 
+def add_optional(total: int | None, value: int | None) -> int | None:
+    if value is None:
+        return total
+    return (total or 0) + value
+
+
 @dataclass
 class ResponsesUsageAccumulated:
-    input_tokens: int = 0
-    cached_input_tokens: int = 0
-    cache_write_tokens: int = 0
-    output_tokens: int = 0
-    reasoning_tokens: int = 0
+    input_tokens: int | None = None
+    cached_input_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    output_tokens: int | None = None
+    reasoning_tokens: int | None = None
     responses_rounds: int = 0
 
     def accumulate(self, response: object) -> None:
@@ -16,27 +22,30 @@ class ResponsesUsageAccumulated:
         if usage is None:
             return
 
-        input_tokens = _usage_field(usage, "input_tokens")
-        output_tokens = _usage_field(usage, "output_tokens")
-        if input_tokens is not None:
-            self.input_tokens += input_tokens
-        if output_tokens is not None:
-            self.output_tokens += output_tokens
+        self.input_tokens = add_optional(
+            self.input_tokens, _usage_field(usage, "input_tokens")
+        )
+        self.output_tokens = add_optional(
+            self.output_tokens, _usage_field(usage, "output_tokens")
+        )
 
         input_details = _usage_subobject(usage, "input_tokens_details")
         if input_details is not None:
-            cached = _detail_field(input_details, "cached_tokens")
-            cache_write = _detail_field(input_details, "cache_write_tokens")
-            if cached is not None:
-                self.cached_input_tokens += cached
-            if cache_write is not None:
-                self.cache_write_tokens += cache_write
+            self.cached_input_tokens = add_optional(
+                self.cached_input_tokens,
+                _detail_field(input_details, "cached_tokens"),
+            )
+            self.cache_write_tokens = add_optional(
+                self.cache_write_tokens,
+                _detail_field(input_details, "cache_write_tokens"),
+            )
 
         output_details = _usage_subobject(usage, "output_tokens_details")
         if output_details is not None:
-            reasoning = _detail_field(output_details, "reasoning_tokens")
-            if reasoning is not None:
-                self.reasoning_tokens += reasoning
+            self.reasoning_tokens = add_optional(
+                self.reasoning_tokens,
+                _detail_field(output_details, "reasoning_tokens"),
+            )
 
 
 def _usage_field(usage: object, field: str) -> int | None:

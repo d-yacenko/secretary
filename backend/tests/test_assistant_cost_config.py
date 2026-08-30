@@ -6,7 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.api.deps import get_db, get_embedding_service
 from app.core.assistant_openai_config import (
     ALLOWED_ASSISTANT_REASONING_EFFORTS,
     ALLOWED_ASSISTANT_VERBOSITY,
@@ -16,7 +18,8 @@ from app.core.assistant_openai_config import (
 from app.core.config import Settings
 from app.llm.openai_assistant_provider import AssistantProviderError, OpenAIAssistantProvider
 from app.llm.openai_usage import ResponsesUsageAccumulated, response_hit_max_output_tokens
-from app.services.assistant_service import create_assistant_provider
+from app.main import app
+from app.services.assistant_service import AssistantConfigurationError, create_assistant_provider
 from app.tools.executor import ToolExecutionResult
 
 
@@ -144,6 +147,196 @@ def test_usage_accumulates_across_responses_rounds() -> None:
     assert totals.output_tokens == 80
     assert totals.reasoning_tokens == 55
     assert totals.responses_rounds == 2
+
+
+def test_usage_accumulates_dict_shaped_usage() -> None:
+    totals = ResponsesUsageAccumulated()
+    totals.accumulate(
+        SimpleNamespace(
+            usage={
+                "input_tokens": 100,
+                "input_tokens_details": {
+                    "cached_tokens": 40,
+                    "cache_write_tokens": 10,
+                },
+                "output_tokens": 30,
+                "output_tokens_details": {
+                    "reasoning_tokens": 20,
+                },
+            }
+        )
+    )
+
+    assert totals.input_tokens == 100
+    assert totals.cached_input_tokens == 40
+    assert totals.cache_write_tokens == 10
+    assert totals.output_tokens == 30
+    assert totals.reasoning_tokens == 20
+    assert totals.responses_rounds == 1
+
+
+def test_usage_details_absent_metrics_remain_none() -> None:
+    totals = ResponsesUsageAccumulated()
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                input_tokens=50,
+                output_tokens=10,
+                input_tokens_details=None,
+                output_tokens_details=None,
+            )
+        )
+    )
+
+    assert totals.input_tokens == 50
+    assert totals.output_tokens == 10
+    assert totals.cached_input_tokens is None
+    assert totals.cache_write_tokens is None
+    assert totals.reasoning_tokens is None
+
+
+def test_usage_details_object_with_missing_individual_fields() -> None:
+    totals = ResponsesUsageAccumulated()
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                input_tokens=20,
+                output_tokens=5,
+                input_tokens_details=SimpleNamespace(cached_tokens=10),
+                output_tokens_details=SimpleNamespace(),
+            )
+        )
+    )
+
+    assert totals.cached_input_tokens == 10
+    assert totals.cache_write_tokens is None
+    assert totals.reasoning_tokens is None
+
+
+def test_usage_partial_metrics_across_rounds() -> None:
+    totals = ResponsesUsageAccumulated()
+
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                input_tokens=10,
+                output_tokens=5,
+                input_tokens_details=SimpleNamespace(cache_write_tokens=3),
+                output_tokens_details=SimpleNamespace(reasoning_tokens=20),
+            )
+        )
+    )
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                input_tokens=20,
+                output_tokens=10,
+                input_tokens_details=SimpleNamespace(cached_tokens=0),
+                output_tokens_details=None,
+            )
+        )
+    )
+    totals.accumulate(SimpleNamespace(usage=None))
+
+    assert totals.input_tokens == 30
+    assert totals.output_tokens == 15
+    assert totals.cached_input_tokens == 0
+    assert totals.cache_write_tokens == 3
+    assert totals.reasoning_tokens == 20
+    assert totals.responses_rounds == 3
+
+
+def test_usage_reasoning_sums_only_reported_rounds() -> None:
+    totals = ResponsesUsageAccumulated()
+
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                output_tokens_details=SimpleNamespace(reasoning_tokens=20),
+            )
+        )
+    )
+    totals.accumulate(SimpleNamespace(usage=SimpleNamespace(output_tokens_details=None)))
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                output_tokens_details=SimpleNamespace(reasoning_tokens=10),
+            )
+        )
+    )
+
+    assert totals.reasoning_tokens == 30
+    assert totals.responses_rounds == 3
+
+
+def test_usage_cache_write_stays_none_when_never_reported() -> None:
+    totals = ResponsesUsageAccumulated()
+
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                input_tokens_details=SimpleNamespace(cached_tokens=5),
+            )
+        )
+    )
+    totals.accumulate(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                input_tokens_details=SimpleNamespace(cached_tokens=0),
+            )
+        )
+    )
+
+    assert totals.cached_input_tokens == 5
+    assert totals.cache_write_tokens is None
+
+
+def test_create_assistant_provider_invalid_effort_raises_configuration_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.assistant_service.settings",
+        Settings(
+            openai_api_key="sk-test",
+            openai_assistant_reasoning_effort="xhigh",
+        ),
+    )
+    with pytest.raises(AssistantConfigurationError, match="REASONING_EFFORT"):
+        create_assistant_provider()
+
+
+def test_create_assistant_provider_invalid_max_output_raises_configuration_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.assistant_service.settings",
+        Settings(
+            openai_api_key="sk-test",
+            openai_assistant_max_output_tokens=100000,
+        ),
+    )
+    with pytest.raises(AssistantConfigurationError, match="MAX_OUTPUT_TOKENS"):
+        create_assistant_provider()
+
+
+def test_assistant_invalid_openai_assistant_config_returns_502(
+    db_session,
+    fake_embedding_service,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    from tests.conftest import AuthTestClient
+
+    monkeypatch.setattr("app.core.config.settings.openai_api_key", "sk-test")
+    monkeypatch.setattr("app.core.config.settings.openai_assistant_reasoning_effort", "xhigh")
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, auth_headers)
+        response = client.post("/assistant/message", json={"message": "hello"})
+    app.dependency_overrides.clear()
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Assistant provider unavailable"
 
 
 def test_max_output_tokens_incomplete_raises_provider_error(monkeypatch) -> None:
