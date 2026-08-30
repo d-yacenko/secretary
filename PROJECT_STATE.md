@@ -40,9 +40,9 @@ Next planned after acceptance: follow playbook after PHASE 24 corrective deploym
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `e128f26414c1ffb33d6040c2d87e2b2054e35480`
-- Deployed: 2026-08-30 (PHASE 24 deployment checkpoint; pre-corrective)
-- Corrective deployment: **pending**
+- SHA: `1bc9982f85d6a7f4080fcbc52fd1f3a59fe9da7c`
+- Deployed: 2026-08-30 (PHASE 24 post-deploy E2E corrective)
+- Corrective accepted application: `684233bd816fa7947b7eade784ac7e42324c7252`
 - Final matched-version manual Graph E2E: **pending**
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
@@ -95,7 +95,7 @@ PHASE 24 — accepted / closed (`e128f26`). VDS deployed at same SHA (2026-08-30
 
 PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
 
-Deployment: **pending**.
+VDS corrective deployed: 2026-08-30 at `1bc9982`.
 
 Final matched-version manual Graph E2E: **pending**.
 
