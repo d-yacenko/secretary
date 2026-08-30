@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.assistant.action_plan_constants import (
@@ -68,16 +69,15 @@ class ActionPlanService:
         if plan.status == PENDING_ACTION_PLAN_STATUS_REJECTED:
             raise ActionPlanConflictError("action plan was rejected")
         if plan.status == PENDING_ACTION_PLAN_STATUS_FAILED:
-            raise ActionPlanConflictError("action plan execution failed")
+            return _to_view(plan)
         if plan.status == PENDING_ACTION_PLAN_STATUS_EXPIRED:
-            raise ActionPlanConflictError("action plan expired")
+            return _to_view(plan)
 
         now = datetime.now(UTC)
         if plan.expires_at <= now:
             plan.status = PENDING_ACTION_PLAN_STATUS_EXPIRED
             plan.failure = "action plan expired"
-            self._session.flush()
-            raise ActionPlanConflictError("action plan expired")
+            return _to_view(plan)
 
         if plan.status != PENDING_ACTION_PLAN_STATUS_PENDING:
             raise ActionPlanConflictError("action plan is not pending")
@@ -115,8 +115,7 @@ class ActionPlanService:
         if plan.expires_at <= now and plan.status == PENDING_ACTION_PLAN_STATUS_PENDING:
             plan.status = PENDING_ACTION_PLAN_STATUS_EXPIRED
             plan.failure = "action plan expired"
-            self._session.flush()
-            raise ActionPlanConflictError("action plan expired")
+            return _to_view(plan)
 
         if plan.status != PENDING_ACTION_PLAN_STATUS_PENDING:
             raise ActionPlanConflictError("action plan is not pending")
@@ -126,8 +125,15 @@ class ActionPlanService:
         return _to_view(plan)
 
     def _get_owned_plan_for_update(self, plan_id: UUID) -> PendingActionPlan:
-        plan = self._session.get(PendingActionPlan, plan_id, with_for_update=True)
-        if plan is None or plan.user_id != self._user_id:
+        plan = self._session.execute(
+            select(PendingActionPlan)
+            .where(
+                PendingActionPlan.id == plan_id,
+                PendingActionPlan.user_id == self._user_id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if plan is None:
             raise NotFoundError("action_plan", plan_id)
         return plan
 

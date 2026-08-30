@@ -1,14 +1,12 @@
-# Current task — PHASE 23D-A awaiting review
+# Current task — PHASE 23D-A closure corrective
 
 ## Status
 
 PHASE 23C accepted / closed at `7165b7f6311e2e357135cede82eab217e47e9c68`.
 
-PHASE 23D-A Frozen Pending Action Plans: **implemented, awaiting review**.
+PHASE 23D-A closure corrective: **implemented, awaiting acceptance**.
 
 Review branch: `review/phase-23d-a`.
-
-`origin/main` includes accepted PHASE 23C at `7165b7f`.
 
 Do not deploy automatically.
 

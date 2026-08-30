@@ -12,6 +12,7 @@ from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import ObjectCreate
 from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_EXECUTED,
+    PENDING_ACTION_PLAN_STATUS_EXPIRED,
     PENDING_ACTION_PLAN_STATUS_FAILED,
     PENDING_ACTION_PLAN_STATUS_PENDING,
     PENDING_ACTION_PLAN_STATUS_REJECTED,
@@ -121,18 +122,13 @@ def action_plan_client(db_session, fake_embedding_service, action_plan_user, iss
     bearer = issue_bearer(action_plan_user)
     headers = {"Authorization": f"Bearer {bearer}"}
 
-    class _TestSession:
-        def __init__(self) -> None:
-            self._session = db_session
-
-        def close(self) -> None:
-            return None
-
-        def __getattr__(self, name: str):
-            return getattr(self._session, name)
-
     def override_get_db():
-        yield db_session
+        try:
+            yield db_session
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+            raise
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
@@ -140,6 +136,13 @@ def action_plan_client(db_session, fake_embedding_service, action_plan_user, iss
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, headers), action_plan_user
     app.dependency_overrides.clear()
+
+
+def _reload_plan(db_session, plan_id: uuid.UUID) -> PendingActionPlan:
+    db_session.expire_all()
+    plan = db_session.get(PendingActionPlan, plan_id)
+    assert plan is not None
+    return plan
 
 
 def _task_count(db_session, user_id: uuid.UUID) -> int:
@@ -416,7 +419,10 @@ def test_expired_plan_does_not_execute(
     before = _task_count(db_session, user_id)
     response = client.post(f"/assistant/action-plans/{plan.id}/approve")
     assert response.status_code == 409
+    assert response.json()["status"] == PENDING_ACTION_PLAN_STATUS_EXPIRED
     assert _task_count(db_session, user_id) == before
+    reloaded = _reload_plan(db_session, plan.id)
+    assert reloaded.status == PENDING_ACTION_PLAN_STATUS_EXPIRED
 
 
 def test_read_tools_still_execute_during_interactive_turn(action_plan_user):
@@ -514,34 +520,207 @@ def test_multi_action_plan_commits_atomically(
 def test_failed_action_plan_rolls_back_internal_mutations(
     db_session, fake_embedding_service, action_plan_user, action_plan_client
 ):
-    from app.services.action_plan_service import ActionPlanService
-
     client, user_id = action_plan_client
     bogus_source = uuid.uuid4()
     bogus_target = uuid.uuid4()
-    plan = ActionPlanService(db_session, user_id).create_plan(
+    provider = _MultiMutationProvider(
         [
-            {
-                "tool_name": "create_task",
-                "permission": "INTERNAL_WRITE",
-                "arguments": {"title": "Should rollback", "confidence": 0.8},
-            },
-            {
-                "tool_name": "link_objects",
-                "permission": "INTERNAL_WRITE",
-                "arguments": {
+            ("create_task", {"title": "Should rollback", "confidence": 0.8}),
+            (
+                "link_objects",
+                {
                     "source_id": str(bogus_source),
                     "target_id": str(bogus_target),
                     "relation_type": "references",
                     "confidence": 0.9,
                 },
-            },
+            ),
         ]
     )
-    db_session.flush()
+
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    import app.services.assistant_service as assistant_service_module
+
+    assistant_service_module.SessionLocal = lambda: _TestSession()
+
     before = _task_count(db_session, user_id)
-    failed_view = ActionPlanService(db_session, user_id).approve(plan.id)
-    assert failed_view.status == PENDING_ACTION_PLAN_STATUS_FAILED
-    assert _task_count(db_session, user_id) == before
-    response = client.post(f"/assistant/action-plans/{plan.id}/approve")
+    plan_id = client.post("/assistant/message", json={"message": "fail mid plan"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    response = client.post(f"/assistant/action-plans/{plan_id}/approve")
     assert response.status_code == 409
+    assert response.json()["status"] == PENDING_ACTION_PLAN_STATUS_FAILED
+    assert _task_count(db_session, user_id) == before
+    reloaded = _reload_plan(db_session, uuid.UUID(plan_id))
+    assert reloaded.status == PENDING_ACTION_PLAN_STATUS_FAILED
+
+
+def test_http_approve_execution_failure_persists_failed_status(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    bogus_source = uuid.uuid4()
+    bogus_target = uuid.uuid4()
+    provider = _MultiMutationProvider(
+        [
+            ("create_task", {"title": "HTTP failed", "confidence": 0.8}),
+            (
+                "link_objects",
+                {
+                    "source_id": str(bogus_source),
+                    "target_id": str(bogus_target),
+                    "relation_type": "references",
+                    "confidence": 0.9,
+                },
+            ),
+        ]
+    )
+
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    import app.services.assistant_service as assistant_service_module
+
+    assistant_service_module.SessionLocal = lambda: _TestSession()
+
+    plan_id = client.post("/assistant/message", json={"message": "stage fail"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    before = _task_count(db_session, user_id)
+    response = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert response.status_code == 409
+    assert response.json()["status"] == PENDING_ACTION_PLAN_STATUS_FAILED
+    assert _task_count(db_session, user_id) == before
+    assert _reload_plan(db_session, uuid.UUID(plan_id)).status == PENDING_ACTION_PLAN_STATUS_FAILED
+
+
+def test_second_approve_of_failed_plan_remains_failed(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    bogus_source = uuid.uuid4()
+    bogus_target = uuid.uuid4()
+    provider = _MultiMutationProvider(
+        [
+            ("create_task", {"title": "Stay failed", "confidence": 0.8}),
+            (
+                "link_objects",
+                {
+                    "source_id": str(bogus_source),
+                    "target_id": str(bogus_target),
+                    "relation_type": "references",
+                    "confidence": 0.9,
+                },
+            ),
+        ]
+    )
+
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    import app.services.assistant_service as assistant_service_module
+
+    assistant_service_module.SessionLocal = lambda: _TestSession()
+
+    plan_id = client.post("/assistant/message", json={"message": "fail twice"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    first = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert first.status_code == 409
+    before = _task_count(db_session, user_id)
+    second = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert second.status_code == 409
+    assert _task_count(db_session, user_id) == before
+    assert _reload_plan(db_session, uuid.UUID(plan_id)).status == PENDING_ACTION_PLAN_STATUS_FAILED
+
+
+def test_http_reject_expired_persists_expired_status(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    plan = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_PENDING,
+        actions=[
+            {
+                "tool_name": "create_task",
+                "permission": "INTERNAL_WRITE",
+                "arguments": {"title": "Expired reject", "confidence": 0.5},
+            }
+        ],
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    before = _task_count(db_session, user_id)
+    response = client.post(f"/assistant/action-plans/{plan.id}/reject")
+    assert response.status_code == 409
+    assert response.json()["status"] == PENDING_ACTION_PLAN_STATUS_EXPIRED
+    assert _task_count(db_session, user_id) == before
+    assert _reload_plan(db_session, plan.id).status == PENDING_ACTION_PLAN_STATUS_EXPIRED
+
+
+def test_approve_endpoint_ignores_replacement_arguments(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    provider = _MutationOnlyProvider(
+        "create_task",
+        {"title": "Frozen", "confidence": 0.77},
+    )
+
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    import app.services.assistant_service as assistant_service_module
+
+    assistant_service_module.SessionLocal = lambda: _TestSession()
+
+    plan_id = client.post("/assistant/message", json={"message": "freeze title"}).json()[
+        "pending_action_plan"
+    ]["id"]
+    response = client.post(
+        f"/assistant/action-plans/{plan_id}/approve",
+        json={"title": "Changed", "arguments": {"title": "Changed"}},
+    )
+    assert response.status_code == 200
+    tasks = db_session.scalars(
+        select(Object).where(Object.user_id == user_id, Object.kind == "task")
+    ).all()
+    assert len(tasks) == 1
+    assert tasks[0].title == "Frozen"

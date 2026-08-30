@@ -1,11 +1,14 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.assistant.action_plan_constants import PENDING_ACTION_PLAN_STATUS_FAILED
+from app.assistant.action_plan_constants import (
+    PENDING_ACTION_PLAN_STATUS_EXPIRED,
+    PENDING_ACTION_PLAN_STATUS_FAILED,
+)
 from app.assistant.transcription_constants import AUDIO_TOO_LARGE
 from app.core.current_user import CurrentUserContext
 from app.llm.assistant_models import AssistantHistoryMessage
@@ -241,6 +244,7 @@ def assistant_message(
 )
 def approve_action_plan(
     plan_id: UUID,
+    response: Response,
     current_user: CurrentUserContext = Depends(get_current_user),
     session: Session = Depends(get_db),
 ) -> ActionPlanResponse:
@@ -258,13 +262,13 @@ def approve_action_plan(
             detail=exc.message,
         ) from exc
 
-    if plan.status == PENDING_ACTION_PLAN_STATUS_FAILED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=plan.failure or "action plan execution failed",
-        )
-
-    return _serialize_action_plan_response(plan)
+    body = _serialize_action_plan_response(plan)
+    if plan.status in (
+        PENDING_ACTION_PLAN_STATUS_FAILED,
+        PENDING_ACTION_PLAN_STATUS_EXPIRED,
+    ):
+        response.status_code = status.HTTP_409_CONFLICT
+    return body
 
 
 @router.post(
@@ -273,6 +277,7 @@ def approve_action_plan(
 )
 def reject_action_plan(
     plan_id: UUID,
+    response: Response,
     current_user: CurrentUserContext = Depends(get_current_user),
     session: Session = Depends(get_db),
 ) -> ActionPlanResponse:
@@ -290,4 +295,7 @@ def reject_action_plan(
             detail=exc.message,
         ) from exc
 
-    return _serialize_action_plan_response(plan)
+    body = _serialize_action_plan_response(plan)
+    if plan.status == PENDING_ACTION_PLAN_STATUS_EXPIRED:
+        response.status_code = status.HTTP_409_CONFLICT
+    return body

@@ -18,7 +18,7 @@ PHASE 23B — Flutter push-to-talk: **accepted / closed** (`e339e2e`)
 
 PHASE 23C — Agent Execution Gateway & Tool Policy: **accepted / closed** (`7165b7f`)
 
-PHASE 23D-A — Frozen Pending Action Plans: **implemented, awaiting review**
+PHASE 23D-A — Frozen Pending Action Plans: **closure corrective, awaiting acceptance**
 
 ## VDS production
 
