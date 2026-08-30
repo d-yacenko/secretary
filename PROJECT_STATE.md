@@ -12,16 +12,16 @@ PHASE 22.6 — Task Materialization, Reuse & Evidence Binding: **accepted / clos
 
 PHASE 22.7 — Assistant Cost & Latency Optimization: **accepted / closed** (`94f04ef`)
 
-PHASE 23A — Voice Transcription Foundation: **closure corrective implemented, awaiting acceptance**
+PHASE 23A — Voice Transcription Foundation: **accepted / closed** (`43de268`)
 
-PHASE 23B — Flutter push-to-talk: **not started**
+PHASE 23B — Flutter push-to-talk: **implemented, awaiting review**
 
 ## VDS production
 
 - SHA: `4607a1800ab2058c62f69b111d00871a48a5d0fb`
 - Deployed: 2026-08-29
-- **PHASE 22.7 (`94f04ef`) deployment pending** — VDS SSH credentials unavailable from dev environment
-- **PHASE 23A closure corrective not deployed** — awaiting acceptance
+- **Accepted backend/transcription work (`94f04ef` / `43de268`) deployment pending** — VDS SSH credentials unavailable from dev environment
+- **PHASE 23B not deployed** — awaiting review
 
 ## PHASE 22.7 baseline note
 
@@ -30,18 +30,17 @@ VDS `assistant_turn` logs were not available from the local development environm
 ## Working components
 
 - PHASE 22.6 (closed at `a1bcb90`)
-- PHASE 22.7 (closed at `94f04ef`):
-  - Separate `OPENAI_ASSISTANT_*` settings (default Luna / low / low / 1600)
-  - Explicit Responses profile on every round (`store=False` preserved)
-  - Extended usage telemetry with optional missing-vs-zero semantics
-  - Invalid assistant config → controlled `AssistantConfigurationError` / HTTP 502
-  - `max_output_tokens` incomplete → controlled provider failure (no auto-retry)
-- PHASE 23A (closure corrective, awaiting acceptance):
+- PHASE 22.7 (closed at `94f04ef`)
+- PHASE 23A (closed at `43de268`):
   - `POST /assistant/transcribe` bounded multipart upload (`audio` field, 10 MiB max)
   - `OPENAI_TRANSCRIPTION_MODEL` (default `gpt-4o-mini-transcribe`)
   - OpenAI + fake transcription providers; no audio persistence
   - `assistant_transcription` telemetry (no transcript/audio logging)
+- PHASE 23B (awaiting review):
+  - Flutter Assistant microphone → temp WAV → `/assistant/transcribe` → `sendMessage(transcript)`
+  - Preserves object/notification context through existing `AssistantController`
+  - Ephemeral temp audio lifecycle; `record` + `path_provider`
 
 ## Next phase
 
-PHASE 23B — Flutter push-to-talk and Assistant integration — **not started**
+No further voice phase scheduled beyond 23B review / production integration smoke.

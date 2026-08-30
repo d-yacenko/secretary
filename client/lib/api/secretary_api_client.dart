@@ -141,6 +141,48 @@ class SecretaryApiClient {
     return AssistantMessageResponse.fromJson(body);
   }
 
+  Future<String> transcribeAudio({
+    required List<int> audioBytes,
+    required String filename,
+    String? contentType,
+  }) async {
+    if (_baseUri == null) {
+      throw StateError('API client is not configured with a base URL');
+    }
+    if (_token == null || _token!.isEmpty) {
+      throw AuthenticationException();
+    }
+
+    final uri = buildApiEndpointUri(_baseUri!, '/assistant/transcribe');
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Accept'] = 'application/json';
+    request.headers['Authorization'] = 'Bearer $_token';
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'audio',
+        audioBytes,
+        filename: filename,
+      ),
+    );
+
+    try {
+      final streamed = await _httpClient.send(request).timeout(_timeout);
+      final response = await http.Response.fromStream(streamed);
+      final decoded = _mapResponse(response, const {200});
+      if (decoded is Map<String, dynamic>) {
+        final text = decoded['text'];
+        if (text is String) {
+          return text;
+        }
+      }
+      throw ServerException('Unexpected response format');
+    } on TimeoutException {
+      throw NetworkException('Request timed out');
+    } on http.ClientException catch (e) {
+      throw NetworkException(sanitizeErrorMessage(e.message));
+    }
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -226,6 +268,8 @@ class SecretaryApiClient {
       case 404:
         throw NotFoundException(safeMessage);
       case 422:
+        throw ValidationException(safeMessage);
+      case 413:
         throw ValidationException(safeMessage);
       default:
         if (response.statusCode >= 500) {

@@ -48,6 +48,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   void _onControllerChanged() {
     if (mounted) {
+      final pending = widget.controller.pendingRetryMessage;
+      if (pending != null && _inputController.text != pending) {
+        _inputController.text = pending;
+        _inputController.selection = TextSelection.collapsed(offset: pending.length);
+      }
       setState(() {});
       _scrollToEnd();
     }
@@ -58,11 +63,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
       if (!_scrollController.hasClients) {
         return;
       }
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      final target = _scrollController.position.maxScrollExtent;
+      if (_scrollController.offset == target) {
+        return;
+      }
+      _scrollController.jumpTo(target);
     });
   }
 
@@ -72,6 +77,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (widget.controller.sendState != AssistantSendState.error) {
       _inputController.clear();
     }
+  }
+
+  Future<void> _onVoicePressed() async {
+    final controller = widget.controller;
+    if (controller.isSending || controller.isVoiceBusy) {
+      if (controller.voiceState == AssistantVoiceState.recording) {
+        await controller.stopVoiceRecordingAndTranscribe();
+      }
+      return;
+    }
+    if (controller.voiceState == AssistantVoiceState.error) {
+      controller.clearVoiceError();
+    }
+    await controller.startVoiceRecording();
   }
 
   void _openReference(AssistantReference reference) {
@@ -105,129 +124,184 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final voiceDisabled =
+        controller.isSending || controller.voiceState == AssistantVoiceState.transcribing;
     return Scaffold(
       body: Column(
         children: [
-        if (controller.objectContext != null)
-          _ContextBanner(
-            label: 'Context: ${controller.objectContext!.displayLabel}',
-            onClear: controller.clearObjectContext,
-          ),
-        if (controller.notificationContext != null)
-          _ContextBanner(
-            label: 'Context: ${controller.notificationContext!.displayLabel}',
-            onClear: controller.clearNotificationContext,
-          ),
-        Expanded(
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16),
-            itemCount: controller.messages.length,
-            itemBuilder: (context, index) {
-              final message = controller.messages[index];
-              final isUser = message.role == 'user';
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  crossAxisAlignment:
-                      isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          if (controller.objectContext != null)
+            _ContextBanner(
+              label: 'Context: ${controller.objectContext!.displayLabel}',
+              onClear: controller.clearObjectContext,
+            ),
+          if (controller.notificationContext != null)
+            _ContextBanner(
+              label: 'Context: ${controller.notificationContext!.displayLabel}',
+              onClear: controller.clearNotificationContext,
+            ),
+          if (controller.voiceState == AssistantVoiceState.recording)
+            Material(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isUser
-                            ? Theme.of(context).colorScheme.primaryContainer
-                            : Theme.of(context).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(message.content),
+                    const Icon(Icons.mic, size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('Recording… tap microphone to stop')),
+                    TextButton(
+                      key: const Key('assistant_voice_stop'),
+                      onPressed: controller.stopVoiceRecordingAndTranscribe,
+                      child: const Text('Stop'),
                     ),
-                    if (!isUser && message.references.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: message.references
-                              .map(
-                                (ref) => ActionChip(
-                                  label: Text(ref.displayLabel),
-                                  onPressed: () => _openReference(ref),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ),
-                    if (!isUser && message.affectedObjects.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Proposed changes:',
-                              style: Theme.of(context).textTheme.labelLarge,
-                            ),
-                            ...message.affectedObjects.map(
-                              (affected) => ActionChip(
-                                label: Text(
-                                  '${affected.kind}: ${affected.title} — ${affected.state}',
-                                ),
-                                onPressed: () => _openAffectedObject(affected),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
-              );
-            },
+              ),
+            ),
+          Expanded(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: controller.messages.length,
+              itemBuilder: (context, index) {
+                final message = controller.messages[index];
+                final isUser = message.role == 'user';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment:
+                        isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isUser
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(message.content),
+                      ),
+                      if (!isUser && message.references.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: message.references
+                                .map(
+                                  (ref) => ActionChip(
+                                    label: Text(ref.displayLabel),
+                                    onPressed: () => _openReference(ref),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      if (!isUser && message.affectedObjects.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Proposed changes:',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                              ...message.affectedObjects.map(
+                                (affected) => ActionChip(
+                                  label: Text(
+                                    '${affected.kind}: ${affected.title} — ${affected.state}',
+                                  ),
+                                  onPressed: () => _openAffectedObject(affected),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        if (controller.sendState == AssistantSendState.error &&
-            controller.errorMessage != null)
+          if (controller.sendState == AssistantSendState.error &&
+              controller.errorMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(child: Text(controller.errorMessage!)),
+                  TextButton(onPressed: _send, child: const Text('Retry')),
+                ],
+              ),
+            ),
+          if (controller.voiceState == AssistantVoiceState.error &&
+              controller.voiceErrorMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(child: Text(controller.voiceErrorMessage!)),
+                  TextButton(
+                    onPressed: voiceDisabled ? null : _onVoicePressed,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Expanded(child: Text(controller.errorMessage!)),
-                TextButton(onPressed: _send, child: const Text('Retry')),
+                Expanded(
+                  child: TextField(
+                    key: const Key('assistant_input'),
+                    controller: _inputController,
+                    minLines: 1,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Ask Secretary…',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: controller.isSending ? null : (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  key: const Key('assistant_voice_button'),
+                  tooltip: controller.voiceState == AssistantVoiceState.recording
+                      ? 'Stop recording'
+                      : 'Record voice command',
+                  onPressed: voiceDisabled && controller.voiceState != AssistantVoiceState.recording
+                      ? null
+                      : _onVoicePressed,
+                  icon: controller.voiceState == AssistantVoiceState.transcribing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          controller.voiceState == AssistantVoiceState.recording
+                              ? Icons.stop_circle_outlined
+                              : Icons.mic_none_outlined,
+                        ),
+                ),
+                FilledButton(
+                  onPressed: controller.isSending ? null : _send,
+                  child: controller.isSending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Send'),
+                ),
               ],
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('assistant_input'),
-                  controller: _inputController,
-                  minLines: 1,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    hintText: 'Ask Secretary…',
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: controller.isSending ? null : (_) => _send(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: controller.isSending ? null : _send,
-                child: controller.isSending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Send'),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
       ),
     );
   }

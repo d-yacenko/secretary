@@ -24,6 +24,18 @@ flutter run -d linux
 
 Linux builds require the desktop toolchain (`clang++`, `cmake`, `ninja`, GTK 3 dev libraries). On this development host, `flutter build linux` currently fails because CMake and related packages are not installed.
 
+### Linux voice recording runtime
+
+Assistant voice input on Linux uses the `record` package, which depends on external audio tooling when available:
+
+```text
+parecord
+pactl
+ffmpeg
+```
+
+If the local recording stack is unavailable, voice input shows a normal user-visible error instead of crashing.
+
 ## Run (Android)
 
 ```bash
@@ -35,6 +47,8 @@ Debug APK build verified with:
 ```bash
 flutter build apk --debug
 ```
+
+Android voice input requires `RECORD_AUDIO` (declared in the app manifest). The `record` package handles runtime microphone permission where supported.
 
 ## Configuration
 
@@ -67,11 +81,8 @@ Never put a real bearer token in documentation, logs, or commits.
 
 Use the prominent **Capture** action from the app shell. Typed task text is sent to `POST /capture/task` without client-side OpenAI. Optional title, context object IDs, and dependency IDs are supported in the API contract for later UI wiring.
 
-## Voice (not implemented in PHASE 20)
+## Voice (PHASE 23B)
 
-Future voice input will feed the same capture and assistant flows:
+Assistant voice input records a short command to a temporary WAV file, uploads it to `POST /assistant/transcribe`, then sends the transcript through the existing Assistant message flow (`POST /assistant/message`) with the current object or notification context preserved.
 
-- direct capture: voice → transcript → `CaptureDraft` → `POST /capture/task`
-- commands: voice → transcript → Secretary assistant/command flow
-
-Voice implementation is deferred to PHASE 23 or a later approved phase.
+Voice recordings are ephemeral temp files only. Capture-screen voice is not implemented yet.

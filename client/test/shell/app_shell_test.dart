@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,8 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
+import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
@@ -69,6 +72,10 @@ void main() {
     final assistant = AssistantController(
       apiClient: auth.apiClient,
       authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('shell_test_voice'),
+      ),
     );
 
     await tester.pumpWidget(
@@ -102,6 +109,10 @@ void main() {
     final assistant = AssistantController(
       apiClient: auth.apiClient,
       authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('shell_test_voice'),
+      ),
     );
 
     await tester.pumpWidget(

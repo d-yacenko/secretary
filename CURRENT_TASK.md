@@ -1,15 +1,15 @@
-# Current task — PHASE 23A closure corrective awaiting acceptance
+# Current task — PHASE 23B awaiting review
 
 ## Status
 
-PHASE 22.7 accepted / closed at `94f04ef7fae02fef8f7cfe4cc581e429602f6842`.
+PHASE 23A accepted / closed at `43de268ea550ea4e5f7a94da8085b72609c64d93`.
 
-PHASE 23A closure corrective: **implemented, awaiting acceptance**.
+PHASE 23B Flutter voice input: **implemented, awaiting review**.
 
-PHASE 23B not started. **Do not deploy.**
+Do not deploy automatically.
 
-VDS remains on `4607a1800ab2058c62f69b111d00871a48a5d0fb`. PHASE 22.7 (`94f04ef`) deployment pending.
+VDS remains on `4607a1800ab2058c62f69b111d00871a48a5d0fb`. Accepted backend/transcription work deployment pending.
 
 ## STOP
 
-Await acceptance. Do not start PHASE 23B until explicitly requested.
+Await review. Do not start another phase until explicitly requested.

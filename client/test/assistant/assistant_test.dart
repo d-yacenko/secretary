@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,8 @@ import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/assistant_screen.dart';
+import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
@@ -93,7 +96,14 @@ void main() {
     );
     auth.status = AuthStatus.authenticated;
     final capture = CaptureController(apiClient: apiClient, authController: auth);
-    final assistant = AssistantController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('assistant_test_voice'),
+      ),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -144,7 +154,14 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final assistant = AssistantController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('assistant_test_voice'),
+      ),
+    );
     assistant.setObjectContext(
       SecretaryObject(
         id: 'obj-1',
@@ -214,7 +231,14 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final assistant = AssistantController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('assistant_test_voice'),
+      ),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -250,7 +274,14 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final assistant = AssistantController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('assistant_test_voice'),
+      ),
+    );
     assistant.setObjectContext(
       SecretaryObject(
         id: 'obj-1',

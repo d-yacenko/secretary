@@ -181,6 +181,34 @@ void main() {
       expect(capturedUri!.query.contains(token), isFalse);
     });
 
+    test('transcribeAudio sends authenticated multipart audio field', () async {
+      String? method;
+      Uri? uri;
+      String? authorization;
+      String bodyText = '';
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          method = request.method;
+          uri = request.url;
+          authorization = request.headers['Authorization'];
+          bodyText = utf8.decode(request.bodyBytes, allowMalformed: true);
+          return http.Response(jsonEncode({'text': 'recognized speech'}), 200);
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      final text = await client.transcribeAudio(
+        audioBytes: [1, 2, 3, 4],
+        filename: 'secretary_voice.wav',
+        contentType: 'audio/wav',
+      );
+      expect(text, 'recognized speech');
+      expect(method, 'POST');
+      expect(uri?.path, '/assistant/transcribe');
+      expect(authorization, 'Bearer $token');
+      expect(bodyText, contains('name="audio"'));
+      expect(bodyText, contains('secretary_voice.wav'));
+    });
+
     group('safe URL composition', () {
       Map<String, dynamic> connectionsJson() => {
             'google': {

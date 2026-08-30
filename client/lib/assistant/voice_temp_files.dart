@@ -1,0 +1,26 @@
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
+
+/// Creates and removes ephemeral voice recording files in app temp storage.
+class VoiceTempFiles {
+  VoiceTempFiles({Directory? directory}) : _directory = directory;
+
+  final Directory? _directory;
+
+  Future<String> createTempWavPath() async {
+    final directory = _directory ?? await getTemporaryDirectory();
+    final unique = DateTime.now().microsecondsSinceEpoch;
+    return '${directory.path}/secretary_voice_$unique.wav';
+  }
+
+  Future<void> deleteIfExists(String? path) async {
+    if (path == null || path.isEmpty) {
+      return;
+    }
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+}
