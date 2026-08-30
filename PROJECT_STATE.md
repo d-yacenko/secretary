@@ -30,16 +30,20 @@ PHASE 23D-D — MVP Interaction Closure: **accepted / closed** (`eb433a6`)
 
 PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **accepted / closed** (`402c234`)
 
-PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e128f26`); manual E2E found Graph freshness and active-task compatibility defects; post-deploy corrective on `review/phase-24-e2e-corrective`, awaiting acceptance.
+PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e128f26`).
 
-Next planned after acceptance: follow playbook after PHASE 24 corrective acceptance.
+PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
+
+Next planned after acceptance: follow playbook after PHASE 24 corrective deployment and final manual Graph E2E.
 
 ## VDS production
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - SHA: `e128f26414c1ffb33d6040c2d87e2b2054e35480`
-- Deployed: 2026-08-30 (PHASE 24 deployment checkpoint)
+- Deployed: 2026-08-30 (PHASE 24 deployment checkpoint; pre-corrective)
+- Corrective deployment: **pending**
+- Final matched-version manual Graph E2E: **pending**
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -89,4 +93,10 @@ PHASE 23E — accepted / closed (`402c234`).
 
 PHASE 24 — accepted / closed (`e128f26`). VDS deployed at same SHA (2026-08-30).
 
-Do not start the next product phase until PHASE 24 corrective is accepted.
+PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
+
+Deployment: **pending**.
+
+Final matched-version manual Graph E2E: **pending**.
+
+Do not start the next product phase until final manual Graph E2E is recorded.
