@@ -213,7 +213,7 @@ void main() {
     }
   });
 
-  test('rooted ring layout does not overlap fixed-size node cards', () {
+  test('rooted ring layout does not overlap for neighbor counts 1..24', () {
     final root = SecretaryObject(
       id: 'root',
       kind: 'task',
@@ -224,33 +224,36 @@ void main() {
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
     );
-    final ring = List.generate(
-      8,
-      (index) => SecretaryObject(
-        id: 'ring-$index',
-        kind: 'email',
-        title: 'Email $index',
-        metadata: {},
-        origin: 'source',
-        state: 'observed',
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-      ),
-    );
-    final positions = GraphLayout.computePositions(
-      nodes: [root, ...ring],
-      rootId: 'root',
-      existing: {},
-      freshRoot: true,
-    );
-    final ids = positions.keys.toList();
-    for (var i = 0; i < ids.length; i++) {
-      for (var j = i + 1; j < ids.length; j++) {
-        expect(
-          GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
-          isFalse,
-          reason: 'overlap between ${ids[i]} and ${ids[j]}',
-        );
+
+    for (var count = 1; count <= 24; count++) {
+      final ring = List.generate(
+        count,
+        (index) => SecretaryObject(
+          id: 'ring-$index',
+          kind: 'email',
+          title: 'Email $index',
+          metadata: {},
+          origin: 'source',
+          state: 'observed',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        ),
+      );
+      final positions = GraphLayout.computePositions(
+        nodes: [root, ...ring],
+        rootId: 'root',
+        existing: {},
+        freshRoot: true,
+      );
+      final ids = positions.keys.toList();
+      for (var i = 0; i < ids.length; i++) {
+        for (var j = i + 1; j < ids.length; j++) {
+          expect(
+            GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
+            isFalse,
+            reason: 'count=$count overlap between ${ids[i]} and ${ids[j]}',
+          );
+        }
       }
     }
   });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/graph/graph_layout.dart';
 import 'package:personal_secretary/graph/graph_workspace_controller.dart';
@@ -99,9 +100,27 @@ void main() {
 
     expect(find.text(objectKindLabel('task')), findsWidgets);
     expect(find.text(objectKindLabel('email')), findsWidgets);
-    expect(find.text('G'), findsWidgets);
-    expect(find.text('Я'), findsWidgets);
-    expect(find.text('ПК'), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('graph_node_overview-0')),
+        matching: find.text(objectKindLabel('task')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('graph_node_overview-1')),
+        matching: find.text(objectKindLabel('email')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('graph_node_overview-1')),
+        matching: find.text('G'),
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -151,5 +170,54 @@ void main() {
     );
     expect(endpoints.start.dx, greaterThan(50));
     expect(endpoints.end.dx, lessThan(300));
+  });
+
+  testWidgets('graph task detail shows semantic date without duplicate prefix',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return jsonUtf8Response({'notifications': []});
+        }
+        if (request.url.path == '/today') {
+          return jsonUtf8Response({
+            'date': '2026-08-28',
+            'timezone': 'Europe/Amsterdam',
+            'day_start': '2026-08-28T00:00:00+02:00',
+            'tasks': [],
+            'calendar_events': [],
+            'notifications': [],
+          });
+        }
+        if (request.url.path == '/graph/workspace') {
+          return jsonUtf8Response(
+            graphWorkspaceJson(
+              nodes: [
+                graphObjectJson(
+                  id: 'task-due',
+                  title: 'Задача со сроком',
+                  dueAt: '2026-08-30T18:00:00Z',
+                ),
+              ],
+              truncated: false,
+            ),
+          );
+        }
+        return jsonUtf8Response({}, statusCode: 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    harness.graph.selectObject('task-due');
+    await tester.pump();
+
+    expect(find.textContaining('Срок: 30.08.2026'), findsWidgets);
+    expect(find.textContaining('Срок: Срок:'), findsNothing);
   });
 }

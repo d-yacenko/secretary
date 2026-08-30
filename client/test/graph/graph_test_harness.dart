@@ -31,6 +31,7 @@ Map<String, dynamic> graphObjectJson({
   String kind = 'task',
   String status = 'open',
   String? provider,
+  String? dueAt,
 }) {
   return {
     'id': id,
@@ -42,7 +43,7 @@ Map<String, dynamic> graphObjectJson({
     'canonical_uri': null,
     'status': status,
     'start_at': null,
-    'due_at': null,
+    'due_at': dueAt,
     'metadata': {},
     'origin': 'user',
     'state': 'confirmed',

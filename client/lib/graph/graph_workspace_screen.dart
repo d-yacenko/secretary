@@ -355,7 +355,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
       (edge) => edge.sourceId == object.id || edge.targetId == object.id,
     );
 
-    final primaryDate = objectPrimaryDateLabel(object);
+    final primaryDateValue = objectPrimaryDateDisplayValue(object);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -396,13 +396,11 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                 const SizedBox(height: 8),
                 Text(object.body!),
               ],
-              if (primaryDate.isNotEmpty)
+              if (primaryDateValue.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    object.kind == 'task'
-                        ? 'Срок: $primaryDate'
-                        : 'Дата: $primaryDate',
+                    '${objectPrimaryDateFieldLabel(object)}: $primaryDateValue',
                   ),
                 ),
             ],
@@ -842,7 +840,10 @@ class _GraphNodeCard extends StatelessWidget {
       opacity: focusDimmed ? 0.35 : 1,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: card,
+        child: KeyedSubtree(
+          key: Key('graph_node_${object.id}'),
+          child: card,
+        ),
       ),
     );
   }

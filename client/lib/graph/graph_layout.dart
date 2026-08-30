@@ -36,17 +36,25 @@ class GraphLayout {
       if (!positions.containsKey(rootId)) {
         positions[rootId] = const Offset(0, 0);
       }
-      final center = positions[rootId]!;
       final ringNodes = sorted.where((node) => node.id != rootId).toList();
       final newcomers = ringNodes.where((node) => !positions.containsKey(node.id)).toList();
       if (newcomers.isNotEmpty) {
+        final rootTopLeft = positions[rootId]!;
+        final rootCenter = Offset(
+          rootTopLeft.dx + kGraphNodeWidth / 2,
+          rootTopLeft.dy + kGraphNodeHeight / 2,
+        );
         final radius = _ringRadiusForCount(newcomers.length);
         final step = (2 * math.pi) / newcomers.length;
         for (var index = 0; index < newcomers.length; index++) {
           final angle = step * index - math.pi / 2;
+          final ringCenter = Offset(
+            rootCenter.dx + math.cos(angle) * radius,
+            rootCenter.dy + math.sin(angle) * radius,
+          );
           positions[newcomers[index].id] = Offset(
-            center.dx + math.cos(angle) * radius,
-            center.dy + math.sin(angle) * radius,
+            ringCenter.dx - kGraphNodeWidth / 2,
+            ringCenter.dy - kGraphNodeHeight / 2,
           );
         }
       }
@@ -72,13 +80,23 @@ class GraphLayout {
     return positions;
   }
 
+  static double _minCenterSeparation() {
+    final sepW = kGraphNodeWidth + kGraphNodeHorizontalGap;
+    final sepH = kGraphNodeHeight + kGraphNodeVerticalGap;
+    return math.sqrt(sepW * sepW + sepH * sepH);
+  }
+
   static double _ringRadiusForCount(int count) {
-    if (count <= 1) {
-      return kGraphNodeWidth + kGraphNodeHorizontalGap;
+    if (count <= 0) {
+      return 0;
     }
-    final minCenterDistance = kGraphNodeWidth + kGraphNodeHorizontalGap;
-    final halfAngle = math.pi / count;
-    return minCenterDistance / (2 * math.sin(halfAngle));
+    final minCenter = _minCenterSeparation();
+    final rootClearance = minCenter;
+    if (count == 1) {
+      return rootClearance;
+    }
+    final neighborClearance = minCenter / (2 * math.sin(math.pi / count));
+    return math.max(rootClearance, neighborClearance);
   }
 
   static Rect nodeRectAt(Offset position) {
