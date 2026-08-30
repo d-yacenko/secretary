@@ -10,11 +10,11 @@ from app.assistant.constants import (
     UI_CONTEXT_DELIMITER_START,
 )
 from app.assistant.reference_ids import collect_object_ids_from_bounded_tool
-from app.assistant.tool_definitions import TOOL_DEFINITIONS
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
 from app.llm.openai_usage import ResponsesUsageAccumulated, response_hit_max_output_tokens
 from app.tools.executor import ToolExecutionResult
+from app.tools.registry import ASSISTANT_TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class OpenAIAssistantProvider:
                     model=self._model,
                     instructions=instructions,
                     input=input_items,
-                    tools=TOOL_DEFINITIONS,
+                    tools=ASSISTANT_TOOL_DEFINITIONS,
                     store=False,
                     reasoning={"effort": self._reasoning_effort},
                     text={"verbosity": self._verbosity},

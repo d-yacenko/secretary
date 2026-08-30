@@ -39,6 +39,7 @@ def domain_tools(db_session, fake_embedding_service) -> DomainToolService:
 def patch_assistant_tool_session(db_session, fake_embedding_service, monkeypatch):
     from app.assistant.tool_args import normalize_assistant_tool_arguments
     from app.tools.executor import ToolExecutionResult, _dispatch
+    from app.tools.results import ToolExecutionStatus
 
     def _run(user_id, tool_name, arguments):
         try:
@@ -48,6 +49,7 @@ def patch_assistant_tool_session(db_session, fake_embedding_service, monkeypatch
                 success=False,
                 tool_name=tool_name,
                 error=exc.message,
+                status=ToolExecutionStatus.TOOL_ERROR,
             )
         nested = db_session.begin_nested()
         tools = DomainToolService(
@@ -70,6 +72,7 @@ def patch_assistant_tool_session(db_session, fake_embedding_service, monkeypatch
                 success=False,
                 tool_name=tool_name,
                 error=exc.message,
+                status=ToolExecutionStatus.TOOL_ERROR,
             )
         except Exception as exc:  # noqa: BLE001
             nested.rollback()
@@ -77,6 +80,7 @@ def patch_assistant_tool_session(db_session, fake_embedding_service, monkeypatch
                 success=False,
                 tool_name=tool_name,
                 error=f"tool execution failed: {type(exc).__name__}",
+                status=ToolExecutionStatus.EXECUTION_FAILED,
             )
 
     monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)

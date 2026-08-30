@@ -1,10 +1,10 @@
-# Current task — PHASE 23C awaiting review
+# Current task — PHASE 23C closure corrective
 
 ## Status
 
 PHASE 23B accepted / closed at `e339e2e5e768815c4c80ee125b5c1fe36db4e0f2`.
 
-PHASE 23C Agent Execution Gateway & Tool Policy: **implemented, awaiting review**.
+PHASE 23C closure corrective: **implemented, awaiting acceptance**.
 
 Review branch: `review/phase-23c`.
 

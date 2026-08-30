@@ -17,6 +17,7 @@ from app.services.domain_tool_service import DomainToolService
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.tools.executor import DEFAULT_MAX_TOOL_CALLS, ToolExecutionResult, _dispatch
+from app.tools.results import ToolExecutionStatus
 from app.tools.schemas import ToolError
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -46,6 +47,7 @@ def assistant_tool_env(db_session, fake_embedding_service, monkeypatch):
                 success=False,
                 tool_name=tool_name,
                 error=exc.message,
+                status=ToolExecutionStatus.TOOL_ERROR,
             )
         nested = db_session.begin_nested()
         tools = DomainToolService(
@@ -68,6 +70,7 @@ def assistant_tool_env(db_session, fake_embedding_service, monkeypatch):
                 success=False,
                 tool_name=tool_name,
                 error=exc.message,
+                status=ToolExecutionStatus.TOOL_ERROR,
             )
         except Exception as exc:  # noqa: BLE001
             nested.rollback()
@@ -75,6 +78,7 @@ def assistant_tool_env(db_session, fake_embedding_service, monkeypatch):
                 success=False,
                 tool_name=tool_name,
                 error=f"tool execution failed: {type(exc).__name__}",
+                status=ToolExecutionStatus.EXECUTION_FAILED,
             )
 
     monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)

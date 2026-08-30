@@ -16,7 +16,7 @@ PHASE 23A — Voice Transcription Foundation: **accepted / closed** (`43de268`)
 
 PHASE 23B — Flutter push-to-talk: **accepted / closed** (`e339e2e`)
 
-PHASE 23C — Agent Execution Gateway & Tool Policy: **implemented, awaiting review**
+PHASE 23C — Agent Execution Gateway & Tool Policy: **closure corrective, awaiting acceptance**
 
 ## VDS production
 

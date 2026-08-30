@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.assistant.tool_definitions import TOOL_DEFINITIONS as _ASSISTANT_TOOL_DEFINITIONS
 from app.services.domain_tool_service import DomainToolService
+from app.tools.assistant_contracts import ASSISTANT_FUNCTION_SCHEMAS
 from app.tools.policy import ToolPermission
 from app.tools.schemas import (
     CreateTaskInput,
@@ -22,8 +22,6 @@ from app.tools.schemas import (
     UpdateTaskInput,
 )
 
-_ASSISTANT_DEFINITION_BY_NAME = {item["name"]: item for item in _ASSISTANT_TOOL_DEFINITIONS}
-
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -37,7 +35,16 @@ class ToolSpec:
 
 
 def _assistant_definition(name: str) -> dict:
-    return _ASSISTANT_DEFINITION_BY_NAME[name]
+    return ASSISTANT_FUNCTION_SCHEMAS[name]
+
+
+def _build_tool_registry(specs: tuple[ToolSpec, ...]) -> dict[str, ToolSpec]:
+    names = [spec.name for spec in specs]
+    if len(names) != len(set(names)):
+        seen: set[str] = set()
+        duplicates = [name for name in names if name in seen or seen.add(name)]
+        raise ValueError(f"duplicate tool registry names: {duplicates}")
+    return {spec.name: spec for spec in specs}
 
 
 TOOL_SPECS: tuple[ToolSpec, ...] = (
@@ -132,7 +139,10 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
-TOOL_REGISTRY: dict[str, ToolSpec] = {spec.name: spec for spec in TOOL_SPECS}
+TOOL_REGISTRY: dict[str, ToolSpec] = _build_tool_registry(TOOL_SPECS)
+
+if len(TOOL_SPECS) != len(TOOL_REGISTRY):
+    raise RuntimeError("tool registry size mismatch after construction")
 
 ASSISTANT_TOOL_DEFINITIONS: list[dict] = [
     spec.assistant_definition

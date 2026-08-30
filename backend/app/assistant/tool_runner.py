@@ -5,7 +5,8 @@ import app.assistant.session as assistant_session
 from app.assistant.reference_ids import collect_seen_object_ids_from_bounded_tool
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
-from app.tools.executor import DEFAULT_MAX_TOOL_CALLS, ToolExecutionResult
+from app.tools.executor import DEFAULT_MAX_TOOL_CALLS
+from app.tools.results import ToolExecutionResult, ToolExecutionStatus
 
 _READ_TOOLS = frozenset(
     {
@@ -62,6 +63,7 @@ class PerTurnToolBudget:
                 tool_name=tool_name,
                 error="tool call limit reached",
                 limit_reached=True,
+                status=ToolExecutionStatus.LIMIT_REACHED,
             )
         self._calls += 1
 
@@ -80,14 +82,11 @@ class PerTurnToolBudget:
                     tool_name, model_output.model_visible_payload
                 ):
                     self._pending_seen_object_ids.add(object_id)
-            result = ToolExecutionResult(
-                success=result.success,
-                tool_name=result.tool_name,
-                output=result.output,
-                error=result.error,
-                limit_reached=result.limit_reached,
-                model_output_json=model_output.model_output_json,
-                model_visible_payload=model_output.model_visible_payload,
+            result = result.model_copy(
+                update={
+                    "model_output_json": model_output.model_output_json,
+                    "model_visible_payload": model_output.model_visible_payload,
+                }
             )
             if self._telemetry is not None:
                 self._telemetry.record_tool(tool_name, result.output)
@@ -109,12 +108,14 @@ class PerTurnToolBudget:
                     success=False,
                     tool_name=tool_name,
                     error="invalid evidence object id",
+                    status=ToolExecutionStatus.TOOL_ERROR,
                 )
             if parsed not in self._seen_object_ids:
                 return ToolExecutionResult(
                     success=False,
                     tool_name=tool_name,
                     error="evidence object was not exposed in this Assistant turn",
+                    status=ToolExecutionStatus.TOOL_ERROR,
                 )
         return None
 

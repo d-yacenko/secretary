@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ToolExecutionStatus(str, Enum):
@@ -30,3 +30,11 @@ class ToolExecutionResult(BaseModel):
     model_output_json: str | None = None
     model_visible_payload: dict[str, Any] | None = None
     raw_output: Any = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _status_matches_success(self) -> "ToolExecutionResult":
+        if self.success and self.status != ToolExecutionStatus.SUCCESS:
+            raise ValueError("success=True requires status=SUCCESS")
+        if not self.success and self.status == ToolExecutionStatus.SUCCESS:
+            raise ValueError("success=False requires status other than SUCCESS")
+        return self

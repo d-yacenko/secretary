@@ -46,6 +46,7 @@ from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
 from app.services.retrieval_constants import TIME_SCOPE_AUTO
 from app.services.retrieval_service import RetrievalService
 from app.tools.executor import DEFAULT_MAX_TOOL_CALLS, ToolExecutionResult, _dispatch
+from app.tools.results import ToolExecutionStatus
 from app.tools.schemas import ToolError
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -60,6 +61,7 @@ def patch_assistant_tool_execution(db_session, fake_embedding_service, monkeypat
                 success=False,
                 tool_name=tool_name,
                 error=exc.message,
+                status=ToolExecutionStatus.TOOL_ERROR,
             )
         nested = db_session.begin_nested()
         tools = DomainToolService(
@@ -82,6 +84,7 @@ def patch_assistant_tool_execution(db_session, fake_embedding_service, monkeypat
                 success=False,
                 tool_name=tool_name,
                 error=exc.message,
+                status=ToolExecutionStatus.TOOL_ERROR,
             )
         except Exception as exc:  # noqa: BLE001
             nested.rollback()
@@ -89,6 +92,7 @@ def patch_assistant_tool_execution(db_session, fake_embedding_service, monkeypat
                 success=False,
                 tool_name=tool_name,
                 error=f"tool execution failed: {type(exc).__name__}",
+                status=ToolExecutionStatus.EXECUTION_FAILED,
             )
 
     monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
@@ -447,7 +451,9 @@ def test_assistant_openai_provider_multi_round_tool_budget(monkeypatch, db_sessi
             )
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
 
@@ -536,7 +542,9 @@ def test_assistant_openai_provider_continues_after_reasoning_tool_call(
             )
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
 
@@ -747,7 +755,9 @@ def test_assistant_write_defers_embedding_and_queues_job(
             )
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     jobs_before = db_session.scalar(
         select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
@@ -916,7 +926,9 @@ def test_assistant_db_session_not_open_during_provider_gap(
             )
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
 
@@ -1330,7 +1342,9 @@ def test_assistant_openai_provider_accumulates_usage_across_rounds(
             )
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
 
@@ -1480,7 +1494,9 @@ def test_assistant_openai_provider_nornickel_multi_round_responses(
             )
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
@@ -1716,7 +1732,9 @@ def test_assistant_nornickel_kursy_nl_provider(
             return result
         except ToolError as exc:
             nested.rollback()
-            return ToolExecutionResult(success=False, tool_name=tool_name, error=exc.message)
+            return ToolExecutionResult(
+                success=False, tool_name=tool_name, error=exc.message, status=ToolExecutionStatus.TOOL_ERROR
+            )
 
     monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
     monkeypatch.setattr("app.services.assistant_service.run_assistant_tool", _run)
