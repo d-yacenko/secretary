@@ -260,7 +260,9 @@ class _NotificationRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       title: Text(notification.title),
-      subtitle: Text('${notification.priority} • ${notificationEvidenceLabel(notification)}'),
+      subtitle: Text(
+        '${notificationPriorityLabel(notification.priority)} • ${notificationEvidenceLabel(notification)}',
+      ),
       onTap: onTap,
     );
   }

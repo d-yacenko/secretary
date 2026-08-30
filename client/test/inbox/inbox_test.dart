@@ -73,7 +73,7 @@ void main() {
 
   test('evidence source label renders', () {
     final label = notificationEvidenceLabel(sampleNotification());
-    expect(label, contains('email'));
+    expect(label, contains('Письмо'));
     expect(label, contains('Gmail message'));
   });
 

@@ -203,12 +203,14 @@ void main() {
 
   testWidgets('status change sends POST status', (tester) async {
     String? path;
+    Map<String, dynamic>? body;
     await tester.pumpWidget(
       buildActions(
         task: taskObject(status: 'open'),
         mock: MockClient((request) async {
           if (request.method == 'POST' && request.url.path.endsWith('/status')) {
             path = request.url.path;
+            body = jsonDecode(request.body) as Map<String, dynamic>;
             return http.Response(
               jsonEncode({
                 'object': taskJson(taskObject(status: 'in_progress')),
@@ -230,6 +232,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(path, '/tasks/task-1/status');
+    expect(body, {'status': 'in_progress'});
   });
 
   testWidgets('delete cancel sends no DELETE', (tester) async {

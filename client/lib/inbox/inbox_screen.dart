@@ -245,14 +245,18 @@ class _NotificationCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
-            Text('Приоритет: ${notification.priority}'),
+            Text('Приоритет: ${notificationPriorityLabel(notification.priority)}'),
             if (notification.proposalType != null)
-              Text('Тип: ${notification.proposalType}'),
+              Text(
+                'Тип: ${notificationProposalTypeLabel(notification.proposalType!)}',
+              ),
             Text('Источник: ${notificationEvidenceLabel(notification)}'),
             if (notification.proposalDescription != null)
               Text(notification.proposalDescription!),
             if (notification.proposedAction != null)
-              Text('Действие: ${notification.proposedAction}'),
+              Text(
+                'Действие: ${notificationProposedActionLabel(notification.proposedAction!)}',
+              ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,

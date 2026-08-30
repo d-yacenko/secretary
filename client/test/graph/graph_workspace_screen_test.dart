@@ -10,157 +10,12 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
-import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
-import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/graph/graph_layout.dart';
-import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/graph/graph_workspace_screen.dart';
-import 'package:personal_secretary/shell/app_shell.dart';
 
-Map<String, dynamic> _objectJson({
-  required String id,
-  required String title,
-  String kind = 'task',
-  String status = 'open',
-}) {
-  return {
-    'id': id,
-    'kind': kind,
-    'title': title,
-    'body': null,
-    'provider': null,
-    'external_id': null,
-    'canonical_uri': null,
-    'status': status,
-    'start_at': null,
-    'due_at': null,
-    'metadata': {},
-    'origin': 'user',
-    'state': 'confirmed',
-    'confidence': null,
-    'created_at': '2026-01-01T00:00:00Z',
-    'updated_at': '2026-01-01T00:00:00Z',
-  };
-}
-
-Map<String, dynamic> _workspaceJson({
-  String? rootId,
-  required List<Map<String, dynamic>> nodes,
-  List<Map<String, dynamic>> edges = const [],
-  bool truncated = false,
-}) {
-  return {
-    'root_id': rootId,
-    'seed_ids': nodes.map((n) => n['id']).toList(),
-    'nodes': nodes,
-    'edges': edges,
-    'truncated': truncated,
-  };
-}
-
-class GraphTestHarness {
-  GraphTestHarness(this.mock);
-
-  final MockClient mock;
-  late final AuthController auth;
-  late final CaptureController capture;
-  late final AssistantController assistant;
-  late final GraphWorkspaceController graph;
-
-  void configure() {
-    final apiClient = SecretaryApiClient(httpClient: mock);
-    apiClient.configure(baseUrl: 'https://example.com', token: 'token');
-    auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    auth.user = UserMe(
-      id: 'u1',
-      displayName: 'Alice',
-      createdAt: '2026-01-01T00:00:00Z',
-    );
-    capture = CaptureController(apiClient: apiClient, authController: auth);
-    assistant = AssistantController(
-      apiClient: apiClient,
-      authController: auth,
-      voiceRecorder: FakeVoiceRecorder(),
-      voiceTempFiles: VoiceTempFiles(
-        directory: Directory.systemTemp.createTempSync('graph_screen_test'),
-      ),
-    );
-    graph = GraphWorkspaceController(
-      apiClient: apiClient,
-      authController: auth,
-    );
-  }
-
-  Widget app() {
-    return MaterialApp(
-      home: AppShell(
-        authController: auth,
-        captureController: capture,
-        assistantController: assistant,
-        graphController: graph,
-      ),
-    );
-  }
-}
-
-MockClient overviewMock({
-  bool truncated = true,
-  String nodeId = 'task-1',
-  String title = 'Graph task',
-}) {
-  return MockClient((request) async {
-    if (request.url.path == '/notifications') {
-      return http.Response(jsonEncode({'notifications': []}), 200);
-    }
-    if (request.url.path == '/today') {
-      return http.Response(
-        jsonEncode({
-          'date': '2026-08-28',
-          'timezone': 'Europe/Amsterdam',
-          'day_start': '2026-08-28T00:00:00+02:00',
-          'tasks': [],
-          'calendar_events': [],
-          'notifications': [],
-        }),
-        200,
-      );
-    }
-    if (request.url.path == '/graph/workspace') {
-      return http.Response(
-        jsonEncode(
-          _workspaceJson(
-            nodes: [_objectJson(id: nodeId, title: title)],
-            truncated: truncated,
-          ),
-        ),
-        200,
-      );
-    }
-    if (request.url.path == '/search') {
-      return http.Response(
-        jsonEncode([
-          _objectJson(id: 'search-root', title: 'Search hit'),
-        ]),
-        200,
-      );
-    }
-    return http.Response('{}', 404);
-  });
-}
-
-Future<void> openGraph(WidgetTester tester, GraphTestHarness harness) async {
-  await tester.pumpWidget(harness.app());
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Граф'));
-  await tester.pumpAndSettle();
-}
+import 'graph_test_harness.dart';
 
 void main() {
   final sizes = <Size>[
@@ -232,9 +87,9 @@ void main() {
           if (root == 'search-root') {
             return http.Response(
               jsonEncode(
-                _workspaceJson(
+                graphWorkspaceJson(
                   rootId: 'search-root',
-                  nodes: [_objectJson(id: 'search-root', title: 'Search hit')],
+                  nodes: [graphObjectJson(id: 'search-root', title: 'Search hit')],
                 ),
               ),
               200,
@@ -242,8 +97,8 @@ void main() {
           }
           return http.Response(
             jsonEncode(
-              _workspaceJson(
-                nodes: [_objectJson(id: 'old-node', title: 'Old node')],
+              graphWorkspaceJson(
+                nodes: [graphObjectJson(id: 'old-node', title: 'Old node')],
               ),
             ),
             200,
@@ -252,7 +107,7 @@ void main() {
         if (request.url.path == '/search') {
           return http.Response(
             jsonEncode([
-              _objectJson(id: 'search-root', title: 'Search hit'),
+              graphObjectJson(id: 'search-root', title: 'Search hit'),
             ]),
             200,
           );
@@ -303,7 +158,7 @@ void main() {
 
     final nodes = List.generate(
       12,
-      (index) => _objectJson(id: 'wide-$index', title: 'Wide graph $index'),
+      (index) => graphObjectJson(id: 'wide-$index', title: 'Wide graph $index'),
     );
     final harness = GraphTestHarness(
       MockClient((request) async {
@@ -325,7 +180,7 @@ void main() {
         }
         if (request.url.path == '/graph/workspace') {
           return http.Response(
-            jsonEncode(_workspaceJson(nodes: nodes)),
+            jsonEncode(graphWorkspaceJson(nodes: nodes)),
             200,
           );
         }
@@ -400,10 +255,10 @@ void main() {
           if (root == 'task-a') {
             return http.Response(
               jsonEncode(
-                _workspaceJson(
+                graphWorkspaceJson(
                   rootId: 'task-a',
                   nodes: [
-                    _objectJson(
+                    graphObjectJson(
                       id: 'task-a',
                       title: rootedRefreshed ? 'Renamed A' : 'Task A',
                     ),
@@ -415,8 +270,8 @@ void main() {
           }
           return http.Response(
             jsonEncode(
-              _workspaceJson(
-                nodes: [_objectJson(id: 'task-a', title: 'Task A')],
+              graphWorkspaceJson(
+                nodes: [graphObjectJson(id: 'task-a', title: 'Task A')],
               ),
             ),
             200,
@@ -424,7 +279,7 @@ void main() {
         }
         if (request.url.path == '/objects/task-a') {
           return http.Response(
-            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            jsonEncode(graphObjectJson(id: 'task-a', title: 'Task A')),
             200,
           );
         }
@@ -437,7 +292,7 @@ void main() {
         if (request.url.path == '/objects/task-a/context') {
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'object': graphObjectJson(id: 'task-a', title: 'Task A'),
               'edges': [],
               'neighbors': [],
             }),
@@ -448,7 +303,7 @@ void main() {
           rootedRefreshed = true;
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Renamed A'),
+              'object': graphObjectJson(id: 'task-a', title: 'Renamed A'),
             }),
             200,
           );
@@ -513,15 +368,15 @@ void main() {
           overviewCalls += 1;
           final nodes = overviewCalls == 1
               ? [
-                  _objectJson(id: 'task-a', title: 'Task A'),
-                  _objectJson(id: 'task-b', title: 'Task B'),
+                  graphObjectJson(id: 'task-a', title: 'Task A'),
+                  graphObjectJson(id: 'task-b', title: 'Task B'),
                 ]
-              : [_objectJson(id: 'task-b', title: 'Task B')];
-          return http.Response(jsonEncode(_workspaceJson(nodes: nodes)), 200);
+              : [graphObjectJson(id: 'task-b', title: 'Task B')];
+          return http.Response(jsonEncode(graphWorkspaceJson(nodes: nodes)), 200);
         }
         if (request.url.path == '/objects/task-a') {
           return http.Response(
-            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            jsonEncode(graphObjectJson(id: 'task-a', title: 'Task A')),
             200,
           );
         }
@@ -534,7 +389,7 @@ void main() {
         if (request.url.path == '/objects/task-a/context') {
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'object': graphObjectJson(id: 'task-a', title: 'Task A'),
               'edges': [],
               'neighbors': [],
             }),
@@ -544,7 +399,7 @@ void main() {
         if (request.method == 'DELETE' && request.url.path == '/tasks/task-a') {
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Task A', status: 'deleted'),
+              'object': graphObjectJson(id: 'task-a', title: 'Task A', status: 'deleted'),
               'new_status': 'deleted',
             }),
             200,
@@ -615,9 +470,9 @@ void main() {
             if (rootedCalls == 1) {
               return http.Response(
                 jsonEncode(
-                  _workspaceJson(
+                  graphWorkspaceJson(
                     rootId: 'task-a',
-                    nodes: [_objectJson(id: 'task-a', title: 'Task A')],
+                    nodes: [graphObjectJson(id: 'task-a', title: 'Task A')],
                   ),
                 ),
                 200,
@@ -627,13 +482,13 @@ void main() {
           }
           overviewCalls += 1;
           final nodes = overviewCalls == 1
-              ? [_objectJson(id: 'task-a', title: 'Task A')]
-              : [_objectJson(id: 'task-b', title: 'Task B')];
-          return http.Response(jsonEncode(_workspaceJson(nodes: nodes)), 200);
+              ? [graphObjectJson(id: 'task-a', title: 'Task A')]
+              : [graphObjectJson(id: 'task-b', title: 'Task B')];
+          return http.Response(jsonEncode(graphWorkspaceJson(nodes: nodes)), 200);
         }
         if (request.url.path == '/objects/task-a') {
           return http.Response(
-            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            jsonEncode(graphObjectJson(id: 'task-a', title: 'Task A')),
             200,
           );
         }
@@ -646,7 +501,7 @@ void main() {
         if (request.url.path == '/objects/task-a/context') {
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'object': graphObjectJson(id: 'task-a', title: 'Task A'),
               'edges': [],
               'neighbors': [],
             }),
@@ -656,7 +511,7 @@ void main() {
         if (request.method == 'DELETE' && request.url.path == '/tasks/task-a') {
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Task A', status: 'deleted'),
+              'object': graphObjectJson(id: 'task-a', title: 'Task A', status: 'deleted'),
               'new_status': 'deleted',
             }),
             200,
@@ -727,8 +582,8 @@ void main() {
           graphCalls += 1;
           return http.Response(
             jsonEncode(
-              _workspaceJson(
-                nodes: [_objectJson(id: 'task-a', title: 'Task A')],
+              graphWorkspaceJson(
+                nodes: [graphObjectJson(id: 'task-a', title: 'Task A')],
               ),
             ),
             200,
@@ -736,7 +591,7 @@ void main() {
         }
         if (request.url.path == '/objects/task-a') {
           return http.Response(
-            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            jsonEncode(graphObjectJson(id: 'task-a', title: 'Task A')),
             200,
           );
         }
@@ -749,7 +604,7 @@ void main() {
         if (request.url.path == '/objects/task-a/context') {
           return http.Response(
             jsonEncode({
-              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'object': graphObjectJson(id: 'task-a', title: 'Task A'),
               'edges': [],
               'neighbors': [],
             }),

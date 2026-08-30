@@ -7,6 +7,7 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../capture/capture_screen.dart';
+import '../inbox/notification_labels.dart';
 import '../objects/object_detail_screen.dart';
 
 typedef AskSecretaryHandler = void Function(SecretaryObject object);
@@ -92,13 +93,17 @@ Future<void> openNotificationContext(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Приоритет: ${notification.priority}'),
+            Text('Приоритет: ${notificationPriorityLabel(notification.priority)}'),
             if (notification.proposalType != null)
-              Text('Предложение: ${notification.proposalType}'),
+              Text(
+                'Предложение: ${notificationProposalTypeLabel(notification.proposalType!)}',
+              ),
             if (notification.proposalDescription != null)
               Text(notification.proposalDescription!),
             if (notification.proposedAction != null)
-              Text('Действие: ${notification.proposedAction}'),
+              Text(
+                'Действие: ${notificationProposedActionLabel(notification.proposedAction!)}',
+              ),
           ],
         ),
       ),

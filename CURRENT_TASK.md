@@ -8,9 +8,9 @@ PHASE 24 post-deploy E2E corrective: **accepted / closed** at `684233bd816fa7947
 
 PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
 
-PHASE 25 — Russian-first UI & Graph Mobile Polish: **implemented** on branch `review/phase-25-russian-ui-graph-polish`.
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **closure corrective** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
 
-Deliverables: Graph node height fix (`kGraphNodeHeight = 80`), `ru_RU` locale, Russian UI sweep, `domain_labels.dart`, `date_format.dart`, updated tests (182 passed).
+Deliverables: task lifecycle presentation fix, notification labels, real-widget Graph overflow regression, canonical status POST body assertion.
 
 ## STOP
 

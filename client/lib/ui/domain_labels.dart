@@ -72,9 +72,7 @@ String neighborDirectionLabel(String direction) =>
     _neighborDirectionLabels[direction] ?? _fallback(direction);
 
 String objectLifecycleDisplayLabel(SecretaryObject object) {
-  if (object.kind == 'task' &&
-      object.status != null &&
-      object.status!.trim().isNotEmpty) {
+  if (object.kind == 'task') {
     return taskStatusLabel(object.status);
   }
   return provenanceStateLabel(object.state);
@@ -82,9 +80,11 @@ String objectLifecycleDisplayLabel(SecretaryObject object) {
 
 String affectedObjectDisplayLabel(AssistantAffectedObject affected) {
   final kind = objectKindLabel(affected.kind);
-  final lifecycle = affected.status != null && affected.status!.trim().isNotEmpty
+  final lifecycle = affected.kind == 'task'
       ? taskStatusLabel(affected.status)
-      : provenanceStateLabel(affected.state);
+      : affected.status != null && affected.status!.trim().isNotEmpty
+          ? taskStatusLabel(affected.status)
+          : provenanceStateLabel(affected.state);
   return '$kind: ${affected.title} — $lifecycle';
 }
 

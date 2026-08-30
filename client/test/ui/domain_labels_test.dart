@@ -37,7 +37,11 @@ void main() {
     );
     expect(
       objectLifecycleDisplayLabel(_task(status: null, state: 'proposed')),
-      'Предложено',
+      'Открыта',
+    );
+    expect(
+      objectSummaryLabel(_task(status: null, state: 'proposed')),
+      'Задача • Открыта • Предложено',
     );
   });
 

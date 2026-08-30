@@ -303,7 +303,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Затронутые объекты:'), findsOneWidget);
-    expect(find.text('Задача: Prepare course outline — Предложено'), findsOneWidget);
+    expect(find.text('Задача: Prepare course outline — Открыта'), findsOneWidget);
   });
 
   testWidgets('logout clears assistant conversation and context', (tester) async {

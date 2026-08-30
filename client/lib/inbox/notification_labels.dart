@@ -1,4 +1,35 @@
 import '../api/api_models.dart';
+import '../ui/domain_labels.dart';
+
+const Map<String, String> _notificationPriorityLabels = {
+  'low': 'Низкий',
+  'normal': 'Обычный',
+  'high': 'Высокий',
+  'urgent': 'Срочный',
+};
+
+const Map<String, String> _notificationProposalTypeLabels = {
+  'task': 'Задача',
+  'deadline': 'Срок',
+  'meeting': 'Встреча',
+  'relation': 'Связь',
+  'note': 'Заметка',
+};
+
+const Map<String, String> _notificationProposedActionLabels = {
+  'create_task': 'Создать задачу',
+};
+
+String _fallback(String value) => value;
+
+String notificationPriorityLabel(String priority) =>
+    _notificationPriorityLabels[priority] ?? _fallback(priority);
+
+String notificationProposalTypeLabel(String type) =>
+    _notificationProposalTypeLabels[type] ?? _fallback(type);
+
+String notificationProposedActionLabel(String action) =>
+    _notificationProposedActionLabels[action] ?? _fallback(action);
 
 String notificationEvidenceLabel(NotificationOut notification) {
   final evidence = notification.proposal['evidence'];
@@ -10,7 +41,7 @@ String notificationEvidenceLabel(NotificationOut notification) {
       final title = first['title'] as String?;
       final why = first['why_included'] as String?;
       if (kind != null && kind.isNotEmpty) {
-        parts.add(kind);
+        parts.add(objectKindLabel(kind));
       }
       if (title != null && title.isNotEmpty) {
         parts.add(title);
@@ -26,9 +57,9 @@ String notificationEvidenceLabel(NotificationOut notification) {
 
   final proposalType = notification.proposalType;
   if (proposalType != null && proposalType.isNotEmpty) {
-    return proposalType;
+    return notificationProposalTypeLabel(proposalType);
   }
-  return 'Notification';
+  return 'Уведомление';
 }
 
 bool notificationIsUrgent(NotificationOut notification) {

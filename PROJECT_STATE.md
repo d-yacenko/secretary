@@ -36,9 +36,9 @@ PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
 
 PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30). Non-functional findings moved to PHASE 25: Android Graph node vertical overflow; Russian-first UI cleanup/localization. Not backend/Graph correctness defects.
 
-PHASE 25 — Russian-first UI & Graph Mobile Polish: **implemented** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **closure corrective** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
 
-Next planned after acceptance: follow playbook PHASE 25 (Secretary correlation pipeline) or architect review of UI polish branch.
+Next planned after acceptance: PHASE 26 — Personal Data Correlation (playbook).
 
 ## VDS production
 
@@ -103,6 +103,6 @@ VDS corrective deployed: 2026-08-30 at `1bc9982`.
 
 PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
 
-PHASE 25 — Russian-first UI & Graph Mobile Polish: **implemented** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **closure corrective** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
 
 Do not merge or deploy until review.

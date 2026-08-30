@@ -317,7 +317,7 @@ void main() {
     expect(resumeCalls, 1);
     expect(find.text('Done. I created the task.'), findsOneWidget);
     expect(find.text('Затронутые объекты:'), findsOneWidget);
-    expect(find.text('Задача: Review the letter — Подтверждено'), findsOneWidget);
+    expect(find.text('Задача: Review the letter — Открыта'), findsOneWidget);
   });
 
   testWidgets('reject changes card to Rejected without resume', (tester) async {
