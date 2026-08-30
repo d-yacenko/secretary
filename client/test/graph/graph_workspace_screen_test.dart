@@ -14,6 +14,7 @@ import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
+import 'package:personal_secretary/graph/graph_layout.dart';
 import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/graph/graph_workspace_screen.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
@@ -291,5 +292,79 @@ void main() {
       find.text('Some connected objects are hidden by the workspace limit.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('large canvas stays unconstrained and distant node reachable after fit at 320x640',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final nodes = List.generate(
+      12,
+      (index) => _objectJson(id: 'wide-$index', title: 'Wide graph $index'),
+    );
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          return http.Response(
+            jsonEncode(_workspaceJson(nodes: nodes)),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    final viewer = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
+    expect(viewer.constrained, isFalse);
+    expect(viewer.minScale, kGraphMinScale);
+    expect(viewer.maxScale, kGraphMaxScale);
+
+    final viewerBox = tester.renderObject<RenderBox>(find.byType(InteractiveViewer));
+    final viewportWidth = viewerBox.size.width;
+    final viewportHeight = viewerBox.size.height;
+    expect(viewportWidth, greaterThan(0));
+
+    final canvasFinder = find.descendant(
+      of: find.byType(InteractiveViewer),
+      matching: find.byWidgetPredicate(
+        (widget) => widget is SizedBox && widget.child is Stack,
+      ),
+    );
+    final canvasSize = tester.getSize(canvasFinder);
+    expect(canvasSize.width, greaterThan(viewportWidth));
+    expect(canvasSize.height, greaterThan(viewportHeight));
+
+    expect(harness.graph.selectedObjectId, isNull);
+
+    await tester.tap(find.byTooltip('Fit graph'));
+    await tester.pumpAndSettle();
+
+    final distantNode = find.text('Wide graph 11');
+    await tester.ensureVisible(distantNode);
+    await tester.tap(distantNode);
+    await tester.pumpAndSettle();
+
+    expect(harness.graph.selectedObjectId, 'wide-11');
   });
 }

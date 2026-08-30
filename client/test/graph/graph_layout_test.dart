@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -136,5 +137,36 @@ void main() {
     );
 
     expect(canvasFit.width, lessThan(screenFit.width));
+  });
+
+  test('fit clamps to shared scale range for large bounded overview graph', () {
+    final positions = <String, Offset>{};
+    for (var index = 0; index < 16; index++) {
+      positions['wide-$index'] = Offset(index * 180.0, (index % 4) * 200.0);
+    }
+    final viewport = const Size(320, 500);
+    final canvasBounds = GraphLayout.canvasBoundsFromPositions(positions);
+    final naturalScale = math.min(
+      (viewport.width - kGraphCanvasPadding * 2) / canvasBounds.width,
+      (viewport.height - kGraphCanvasPadding * 2) / canvasBounds.height,
+    );
+    expect(naturalScale, lessThan(0.2));
+
+    final transform = GraphLayout.fitTransform(
+      positions: positions,
+      viewportSize: viewport,
+    );
+    final scale = transform.getMaxScaleOnAxis();
+    expect(scale, greaterThanOrEqualTo(kGraphMinScale));
+    expect(scale, lessThanOrEqualTo(kGraphMaxScale));
+
+    final bounds = GraphLayout.viewportBoundsAfterFit(
+      positions: positions,
+      viewportSize: viewport,
+    );
+    expect(bounds.left, greaterThanOrEqualTo(0));
+    expect(bounds.top, greaterThanOrEqualTo(0));
+    expect(bounds.right, lessThanOrEqualTo(viewport.width));
+    expect(bounds.bottom, lessThanOrEqualTo(viewport.height));
   });
 }

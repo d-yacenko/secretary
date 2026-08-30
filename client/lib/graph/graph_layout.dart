@@ -8,6 +8,8 @@ import '../api/api_models.dart';
 const double kGraphNodeWidth = 132;
 const double kGraphNodeHeight = 68;
 const double kGraphCanvasPadding = 80;
+const double kGraphMinScale = 0.05;
+const double kGraphMaxScale = 2.5;
 
 class GraphLayout {
   static Map<String, Offset> computePositions({
@@ -104,7 +106,7 @@ class GraphLayout {
     }
     final scaleX = (viewportSize.width - padding * 2) / graphWidth;
     final scaleY = (viewportSize.height - padding * 2) / graphHeight;
-    final scale = math.min(math.min(scaleX, scaleY), 1.5);
+    final scale = math.min(scaleX, scaleY).clamp(kGraphMinScale, kGraphMaxScale);
     final centerX = canvasBounds.left + graphWidth / 2;
     final centerY = canvasBounds.top + graphHeight / 2;
 

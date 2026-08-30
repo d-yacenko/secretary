@@ -287,9 +287,10 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           });
         }
         return InteractiveViewer(
+          constrained: false,
           transformationController: _transform,
-          minScale: 0.2,
-          maxScale: 2.5,
+          minScale: kGraphMinScale,
+          maxScale: kGraphMaxScale,
           boundaryMargin: const EdgeInsets.all(200),
           child: SizedBox(
             width: canvasWidth,
