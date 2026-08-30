@@ -16,7 +16,9 @@ PHASE 23A — Voice Transcription Foundation: **accepted / closed** (`43de268`)
 
 PHASE 23B — Flutter push-to-talk: **accepted / closed** (`e339e2e`)
 
-PHASE 23C — Agent Execution Gateway & Tool Policy: **closure corrective, awaiting acceptance**
+PHASE 23C — Agent Execution Gateway & Tool Policy: **accepted / closed** (`7165b7f`)
+
+PHASE 23D-A — Frozen Pending Action Plans: **implemented, awaiting review**
 
 ## VDS production
 
@@ -24,7 +26,8 @@ PHASE 23C — Agent Execution Gateway & Tool Policy: **closure corrective, await
 - Deployed: 2026-08-29
 - **Accepted backend/transcription work (`94f04ef` / `43de268`) deployment pending** — VDS SSH credentials unavailable from dev environment
 - **PHASE 23B client accepted on `main` (`e339e2e`) — not deployed**
-- **PHASE 23C not deployed** — on `review/phase-23c`
+- **PHASE 23C accepted on `main` (`7165b7f`) — not deployed**
+- **PHASE 23D-A not deployed** — on `review/phase-23d-a`
 
 ## PHASE 22.7 baseline note
 
@@ -42,11 +45,16 @@ VDS `assistant_turn` logs were not available from the local development environm
 - PHASE 23B (closed at `e339e2e`):
   - Flutter Assistant microphone → temp WAV → `/assistant/transcribe` → `sendMessage(transcript)`
   - Race-safe voice lifecycle; `record 5.2.1` + `minSdk 23`
-- PHASE 23C (awaiting review on `review/phase-23c`):
+- PHASE 23C (closed at `7165b7f`):
   - Canonical tool registry with permission classes
   - `ToolExecutionGateway` between Assistant tool calls and `DomainToolService`
   - Baseline policy: READ/INTERNAL_WRITE/EXTERNAL_PROPOSE allow; EXTERNAL_WRITE/COMMUNICATE require approval (no persistence yet)
+- PHASE 23D-A (awaiting review on `review/phase-23d-a`):
+  - Interactive Assistant `INTERNAL_WRITE` requires approval (`ExecutionContext.INTERACTIVE_ASSISTANT`)
+  - `pending_action_plans` table with frozen validated actions
+  - `POST /assistant/action-plans/{id}/approve` and `/reject` execute exact stored arguments
+  - Assistant `/assistant/message` returns optional `pending_action_plan`
 
 ## Next phase
 
-PHASE 23D — persisted action plans and interactive approval (not started).
+PHASE 23D-B — approval UX and conversational post-approval resume (not started).

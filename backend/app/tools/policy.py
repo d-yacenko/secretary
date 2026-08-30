@@ -2,6 +2,8 @@
 
 from enum import Enum
 
+from app.tools.execution_context import ExecutionContext
+
 
 class ToolPermission(str, Enum):
     READ = "READ"
@@ -17,8 +19,39 @@ class PolicyDecision(str, Enum):
     DENY = "DENY"
 
 
-def evaluate_policy(permission: ToolPermission) -> PolicyDecision:
-    """PHASE 23C baseline: preserve current INTERNAL_WRITE behavior."""
+def evaluate_policy(
+    permission: ToolPermission,
+    context: ExecutionContext = ExecutionContext.BASELINE,
+) -> PolicyDecision:
+    if context == ExecutionContext.APPROVED_ACTION_PLAN:
+        if permission in (
+            ToolPermission.READ,
+            ToolPermission.INTERNAL_WRITE,
+            ToolPermission.EXTERNAL_PROPOSE,
+        ):
+            return PolicyDecision.ALLOW
+        if permission in (
+            ToolPermission.EXTERNAL_WRITE,
+            ToolPermission.COMMUNICATE,
+        ):
+            return PolicyDecision.REQUIRE_APPROVAL
+        return PolicyDecision.DENY
+
+    if context == ExecutionContext.INTERACTIVE_ASSISTANT:
+        if permission == ToolPermission.READ:
+            return PolicyDecision.ALLOW
+        if permission == ToolPermission.INTERNAL_WRITE:
+            return PolicyDecision.REQUIRE_APPROVAL
+        if permission == ToolPermission.EXTERNAL_PROPOSE:
+            return PolicyDecision.ALLOW
+        if permission in (
+            ToolPermission.EXTERNAL_WRITE,
+            ToolPermission.COMMUNICATE,
+        ):
+            return PolicyDecision.REQUIRE_APPROVAL
+        return PolicyDecision.DENY
+
+    # BASELINE / SYSTEM
     if permission in (
         ToolPermission.READ,
         ToolPermission.INTERNAL_WRITE,

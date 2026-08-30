@@ -1,17 +1,20 @@
+from typing import Any
 from uuid import UUID
 
 from app.assistant.tool_args import normalize_assistant_tool_arguments
 from app.db.session import SessionLocal
 from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
+from app.tools.execution_context import ExecutionContext
 from app.tools.gateway import ToolExecutionGateway
 from app.tools.results import ToolExecutionResult, ToolExecutionStatus
+from app.tools.schemas import ToolError
 
 _GATEWAY = ToolExecutionGateway()
 
 
 def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolExecutionResult:
-    """One Assistant tool call: short session, commit on success, rollback on failure."""
+    """One interactive Assistant tool call: short session, commit on success, rollback on failure."""
     session = SessionLocal()
     tools = DomainToolService(
         session,
@@ -21,7 +24,12 @@ def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolEx
     )
     try:
         normalized_arguments = normalize_assistant_tool_arguments(tool_name, arguments)
-        result = _GATEWAY.execute(tools, tool_name, normalized_arguments)
+        result = _GATEWAY.execute(
+            tools,
+            tool_name,
+            normalized_arguments,
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
         if result.success:
             session.commit()
         else:
@@ -37,3 +45,30 @@ def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolEx
         )
     finally:
         session.close()
+
+
+def execute_approved_actions_with_tools(
+    tools: DomainToolService,
+    actions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Execute frozen plan actions using the caller's DB session (no commit)."""
+    action_results: list[dict[str, Any]] = []
+    for action in actions:
+        tool_name = action["tool_name"]
+        arguments = action["arguments"]
+        result = _GATEWAY.execute(
+            tools,
+            tool_name,
+            arguments,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        if not result.success:
+            raise ToolError(result.error or "action plan execution failed")
+        action_results.append(
+            {
+                "tool_name": tool_name,
+                "success": True,
+                "output": result.output,
+            }
+        )
+    return {"actions": action_results}

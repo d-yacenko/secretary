@@ -2,13 +2,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_db
+from app.assistant.action_plan_constants import PENDING_ACTION_PLAN_STATUS_FAILED
 from app.assistant.transcription_constants import AUDIO_TOO_LARGE
 from app.core.current_user import CurrentUserContext
 from app.llm.assistant_models import AssistantHistoryMessage
 from app.llm.openai_assistant_provider import AssistantProviderError
 from app.llm.openai_transcription_provider import TranscriptionProviderError
+from app.services.action_plan_service import (
+    ActionPlanConflictError,
+    ActionPlanService,
+    PendingActionPlanView,
+)
 from app.services.assistant_service import (
     AssistantConfigurationError,
     AssistantProvider,
@@ -60,10 +67,32 @@ class AssistantAffectedObjectOut(BaseModel):
     state: str
 
 
+class PendingActionOut(BaseModel):
+    tool_name: str
+    arguments: dict
+
+
+class PendingActionPlanOut(BaseModel):
+    id: UUID
+    status: str
+    expires_at: str
+    actions: list[PendingActionOut]
+
+
 class AssistantMessageResponse(BaseModel):
     answer: str
     references: list[AssistantReferenceOut]
     affected_objects: list[AssistantAffectedObjectOut]
+    pending_action_plan: PendingActionPlanOut | None = None
+
+
+class ActionPlanResponse(BaseModel):
+    id: UUID
+    status: str
+    expires_at: str
+    actions: list[PendingActionOut]
+    result: dict | None = None
+    failure: str | None = None
 
 
 class AssistantTranscribeResponse(BaseModel):
@@ -95,6 +124,20 @@ def get_transcription_provider() -> TranscriptionProvider:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=TRANSCRIPTION_PROVIDER_UNAVAILABLE,
         ) from exc
+
+
+def _serialize_action_plan_response(plan: PendingActionPlanView) -> ActionPlanResponse:
+    return ActionPlanResponse(
+        id=plan.id,
+        status=plan.status,
+        expires_at=plan.expires_at.isoformat(),
+        actions=[
+            PendingActionOut(tool_name=action["tool_name"], arguments=action["arguments"])
+            for action in plan.actions
+        ],
+        result=plan.result,
+        failure=plan.failure,
+    )
 
 
 @router.post("/assistant/transcribe", response_model=AssistantTranscribeResponse)
@@ -153,6 +196,21 @@ def assistant_message(
             detail=ASSISTANT_PROVIDER_UNAVAILABLE,
         ) from exc
 
+    pending_action_plan = None
+    if result.pending_action_plan is not None:
+        pending_action_plan = PendingActionPlanOut(
+            id=result.pending_action_plan.id,
+            status=result.pending_action_plan.status,
+            expires_at=result.pending_action_plan.expires_at.isoformat(),
+            actions=[
+                PendingActionOut(
+                    tool_name=action.tool_name,
+                    arguments=action.arguments,
+                )
+                for action in result.pending_action_plan.actions
+            ],
+        )
+
     return AssistantMessageResponse(
         answer=result.answer,
         references=[
@@ -173,4 +231,63 @@ def assistant_message(
             )
             for item in result.affected_objects
         ],
+        pending_action_plan=pending_action_plan,
     )
+
+
+@router.post(
+    "/assistant/action-plans/{plan_id}/approve",
+    response_model=ActionPlanResponse,
+)
+def approve_action_plan(
+    plan_id: UUID,
+    current_user: CurrentUserContext = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> ActionPlanResponse:
+    service = ActionPlanService(session, current_user.user_id)
+    try:
+        plan = service.approve(plan_id)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{exc.resource} not found",
+        ) from exc
+    except ActionPlanConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.message,
+        ) from exc
+
+    if plan.status == PENDING_ACTION_PLAN_STATUS_FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=plan.failure or "action plan execution failed",
+        )
+
+    return _serialize_action_plan_response(plan)
+
+
+@router.post(
+    "/assistant/action-plans/{plan_id}/reject",
+    response_model=ActionPlanResponse,
+)
+def reject_action_plan(
+    plan_id: UUID,
+    current_user: CurrentUserContext = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> ActionPlanResponse:
+    service = ActionPlanService(session, current_user.user_id)
+    try:
+        plan = service.reject(plan_id)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{exc.resource} not found",
+        ) from exc
+    except ActionPlanConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.message,
+        ) from exc
+
+    return _serialize_action_plan_response(plan)

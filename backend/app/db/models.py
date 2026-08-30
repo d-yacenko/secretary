@@ -362,6 +362,35 @@ class Notification(Base):
     )
 
 
+class PendingActionPlan(Base):
+    __tablename__ = "pending_action_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(nullable=False)
+    actions: Mapped[list] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    failure: Mapped[str | None] = mapped_column(nullable=True)
+
+    __table_args__ = (
+        Index("ix_pending_action_plans_user_id", "user_id"),
+        Index("ix_pending_action_plans_status", "status"),
+        Index("ix_pending_action_plans_expires_at", "expires_at"),
+    )
+
+
 class GoogleAccount(Base):
     __tablename__ = "google_accounts"
 

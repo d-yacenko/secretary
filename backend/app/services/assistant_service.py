@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from app.api.schemas import NotificationOut
@@ -25,6 +26,7 @@ from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
 from app.llm.fake_assistant_provider import FakeAssistantProvider
 from app.llm.openai_assistant_provider import OpenAIAssistantProvider
+from app.services.action_plan_service import ActionPlanService
 from app.services.errors import NotFoundError
 from app.services.notification_service import NotificationService
 from app.services.secretary_service import normalize_reference_datetime
@@ -53,10 +55,25 @@ class AssistantAffectedObject:
 
 
 @dataclass
+class AssistantPendingAction:
+    tool_name: str
+    arguments: dict
+
+
+@dataclass
+class AssistantPendingActionPlan:
+    id: UUID
+    status: str
+    expires_at: datetime
+    actions: list[AssistantPendingAction]
+
+
+@dataclass
 class AssistantMessageResult:
     answer: str
     references: list[AssistantReference]
     affected_objects: list[AssistantAffectedObject]
+    pending_action_plan: AssistantPendingActionPlan | None = None
 
 
 class AssistantValidationError(Exception):
@@ -144,11 +161,37 @@ class AssistantService:
 
         references = self._serialize_references(candidate_ids)
         affected_objects = self._serialize_affected(affected_ids)
+        pending_action_plan = self._persist_staged_action_plan(tool_budget.staged_actions)
         return AssistantMessageResult(
             answer=provider_result.answer,
             references=references,
             affected_objects=affected_objects,
+            pending_action_plan=pending_action_plan,
         )
+
+    def _persist_staged_action_plan(
+        self, staged_actions: list[dict]
+    ) -> AssistantPendingActionPlan | None:
+        if not staged_actions:
+            return None
+        session = SessionLocal()
+        try:
+            plan = ActionPlanService(session, self._user_id).create_plan(staged_actions)
+            session.commit()
+            return AssistantPendingActionPlan(
+                id=plan.id,
+                status=plan.status,
+                expires_at=plan.expires_at,
+                actions=[
+                    AssistantPendingAction(
+                        tool_name=action["tool_name"],
+                        arguments=action["arguments"],
+                    )
+                    for action in plan.actions
+                ],
+            )
+        finally:
+            session.close()
 
     def _validate_context_ids(
         self,

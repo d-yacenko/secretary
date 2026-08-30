@@ -187,7 +187,7 @@ def test_gateway_policy_deny_does_not_call_handler(monkeypatch):
 
     monkeypatch.setattr(
         "app.tools.gateway.evaluate_policy",
-        lambda permission: PolicyDecision.DENY,
+        lambda permission, context=None: PolicyDecision.DENY,
     )
 
     result = gateway.execute(

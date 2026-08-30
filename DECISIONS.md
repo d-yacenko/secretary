@@ -105,3 +105,17 @@ PHASE 23D will introduce persisted frozen action plans and interactive approval.
 
 MCP and built-in Assistant must ultimately converge on the same governed execution layer (MCP routing through the gateway is planned for PHASE 23E).
 
+## PHASE 23D-A — Frozen pending action plans and exact approval execution
+
+Interactive Assistant mutations require explicit user approval.
+
+Approval binds a persisted frozen action plan with validated exact arguments.
+
+The approval endpoint executes stored exact arguments; the LLM does not regenerate them.
+
+Background/system `INTERNAL_WRITE` policy remains separately controllable via `ExecutionContext.BASELINE`.
+
+MCP convergence is deferred to PHASE 23E.
+
+PHASE 23D-B will add approval UX and conversational post-approval resume.
+

@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 import app.assistant.session as assistant_session
+from app.assistant.action_plan_constants import MAX_ACTIONS_PER_PLAN
 from app.assistant.reference_ids import collect_seen_object_ids_from_bounded_tool
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
@@ -19,6 +20,7 @@ _READ_TOOLS = frozenset(
     }
 )
 _EVIDENCE_WRITE_TOOLS = frozenset({"create_task", "update_task"})
+_MUTATION_TOOLS = frozenset({"create_task", "update_task", "link_objects"})
 
 
 class PerTurnToolBudget:
@@ -33,6 +35,8 @@ class PerTurnToolBudget:
         self._telemetry = telemetry
         self._seen_object_ids: set[UUID] = set(initial_seen_object_ids or [])
         self._pending_seen_object_ids: set[UUID] = set()
+        self._staged_actions: list[dict] = []
+        self._plan_sealed = False
 
     @property
     def calls_made(self) -> int:
@@ -46,6 +50,10 @@ class PerTurnToolBudget:
     def pending_seen_object_ids(self) -> set[UUID]:
         return set(self._pending_seen_object_ids)
 
+    @property
+    def staged_actions(self) -> list[dict]:
+        return list(self._staged_actions)
+
     def seed_seen_object_ids(self, object_ids: Sequence[UUID]) -> None:
         self._seen_object_ids.update(object_ids)
 
@@ -53,6 +61,8 @@ class PerTurnToolBudget:
         """Promote IDs from the last model response after outputs were delivered to input."""
         self._seen_object_ids.update(self._pending_seen_object_ids)
         self._pending_seen_object_ids.clear()
+        if self._staged_actions:
+            self._plan_sealed = True
 
     def run(self, user_id: UUID, tool_name: str, arguments: dict) -> ToolExecutionResult:
         if self._calls >= self._max_calls:
@@ -67,6 +77,26 @@ class PerTurnToolBudget:
             )
         self._calls += 1
 
+        if tool_name in _MUTATION_TOOLS:
+            if self._plan_sealed:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return ToolExecutionResult(
+                    success=False,
+                    tool_name=tool_name,
+                    error="action plan already staged for approval",
+                    status=ToolExecutionStatus.TOOL_ERROR,
+                )
+            if len(self._staged_actions) >= MAX_ACTIONS_PER_PLAN:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return ToolExecutionResult(
+                    success=False,
+                    tool_name=tool_name,
+                    error="action plan exceeds maximum actions",
+                    status=ToolExecutionStatus.TOOL_ERROR,
+                )
+
         if tool_name in _EVIDENCE_WRITE_TOOLS:
             evidence_error = self._validate_evidence_allowlist(tool_name, arguments)
             if evidence_error is not None:
@@ -75,6 +105,12 @@ class PerTurnToolBudget:
                 return evidence_error
 
         result = assistant_session.run_assistant_tool(user_id, tool_name, arguments)
+        if result.status == ToolExecutionStatus.APPROVAL_REQUIRED and result.staged_action:
+            self._stage_action(result.staged_action)
+            if self._telemetry is not None:
+                self._telemetry.tool_calls += 1
+            return result
+
         if result.success and result.output:
             model_output = serialize_tool_output_for_assistant(tool_name, result.output)
             if tool_name in _READ_TOOLS or tool_name in _EVIDENCE_WRITE_TOOLS:
@@ -93,6 +129,20 @@ class PerTurnToolBudget:
         elif self._telemetry is not None:
             self._telemetry.tool_calls += 1
         return result
+
+    def _stage_action(self, staged_action: dict) -> None:
+        if self._is_duplicate_action(staged_action):
+            return
+        self._staged_actions.append(staged_action)
+
+    def _is_duplicate_action(self, staged_action: dict) -> bool:
+        for existing in self._staged_actions:
+            if (
+                existing.get("tool_name") == staged_action.get("tool_name")
+                and existing.get("arguments") == staged_action.get("arguments")
+            ):
+                return True
+        return False
 
     def _validate_evidence_allowlist(
         self, tool_name: str, arguments: dict

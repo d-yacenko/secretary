@@ -29,6 +29,7 @@ class ToolExecutionResult(BaseModel):
     status: ToolExecutionStatus = ToolExecutionStatus.SUCCESS
     model_output_json: str | None = None
     model_visible_payload: dict[str, Any] | None = None
+    staged_action: dict[str, Any] | None = None
     raw_output: Any = Field(default=None, exclude=True)
 
     @model_validator(mode="after")

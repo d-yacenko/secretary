@@ -163,6 +163,13 @@ def registered_tool_names() -> frozenset[str]:
     return frozenset(TOOL_REGISTRY.keys())
 
 
+def validate_tool_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> dict[str, Any]:
+    if spec.input_model is None:
+        return {}
+    validated = spec.input_model.model_validate(arguments)
+    return validated.model_dump(mode="json")
+
+
 def execute_registered_tool(
     tools: DomainToolService,
     spec: ToolSpec,
