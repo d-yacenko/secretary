@@ -122,7 +122,7 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "object_id": {"type": "string"},
-                "title": {"type": "string"},
+                "title": {"type": "string", "minLength": 1},
                 "body": {"type": ["string", "null"]},
                 "due_at": {"type": ["string", "null"]},
                 "evidence_object_ids": {

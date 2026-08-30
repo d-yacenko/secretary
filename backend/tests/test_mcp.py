@@ -14,7 +14,6 @@ from app.api.schemas import ObjectCreate
 from app.db.models import Object
 from app.mcp.server import MCP_TOOL_NAMES, create_mcp_server
 from app.services.graph_service import GraphService
-from app.tools.registry import MCP_TOOL_NAMES
 from app.tools.executor import ToolExecutor
 from app.tools.schemas import MAX_CONTEXT_CHARS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -176,6 +175,54 @@ async def test_mcp_link_objects_requires_approval(db_session, mcp_server) -> Non
 
     assert result.is_error
     assert "approval" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_task_requires_approval(db_session, mcp_server) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    task = _create_task(graph, "MCP update unchanged")
+    async with Client(mcp_server) as client:
+        result = await client.call_tool(
+            "update_task",
+            {"object_id": str(task.id), "title": "Should not apply"},
+        )
+    assert result.is_error
+    assert "approval" in result.content[0].text.lower()
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).title == "MCP update unchanged"
+
+
+@pytest.mark.asyncio
+async def test_mcp_set_task_status_requires_approval(db_session, mcp_server) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    task = graph.create_object(
+        ObjectCreate(kind="task", title="MCP status", origin="user", status="open")
+    )
+    async with Client(mcp_server) as client:
+        result = await client.call_tool(
+            "set_task_status",
+            {"object_id": str(task.id), "status": "done"},
+        )
+    assert result.is_error
+    assert "approval" in result.content[0].text.lower()
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "open"
+
+
+@pytest.mark.asyncio
+async def test_mcp_delete_task_requires_approval(db_session, mcp_server) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    task = graph.create_object(
+        ObjectCreate(kind="task", title="MCP delete", origin="user", status="open")
+    )
+    async with Client(mcp_server) as client:
+        result = await client.call_tool("delete_task", {"object_id": str(task.id)})
+    assert result.is_error
+    assert "approval" in result.content[0].text.lower()
+    db_session.expire_all()
+    row = db_session.get(Object, task.id)
+    assert row is not None
+    assert row.status == "open"
 
 
 @pytest.mark.asyncio

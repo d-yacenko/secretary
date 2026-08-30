@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from app.api.assistant import get_assistant_provider
 import app.api.assistant as assistant_api_module
 from app.api.deps import get_db, get_embedding_service
-from app.api.schemas import ObjectCreate
+from app.api.schemas import ObjectCreate, EdgeCreate
 from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_EXECUTED,
     PENDING_ACTION_PLAN_STATUS_EXPIRED,
@@ -1410,3 +1410,273 @@ def test_terminal_plan_history_covers_executed_expired_failed(
     assert "EXPIRED-23D" in terminal_text
     assert "terminal state: failed" in terminal_text
     assert "FAILED-23D" in terminal_text
+
+
+def _bind_action_plan_test_session(db_session) -> None:
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    import app.assistant.session as assistant_session_module
+    import app.services.assistant_service as assistant_service_module
+
+    test_session_factory = lambda: _TestSession()
+    assistant_service_module.SessionLocal = test_session_factory
+    assistant_session_module.SessionLocal = test_session_factory
+
+
+def _create_confirmed_task_for_user(
+    db_session,
+    user_id: uuid.UUID,
+    title: str = "Original",
+    body: str = "Keep body",
+    due_at: datetime | None = None,
+    status: str | None = "open",
+) -> Object:
+    graph = GraphService(db_session, user_id)
+    return graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title=title,
+            body=body,
+            origin="user",
+            state=CONFIRMED_STATE,
+            status=status,
+            due_at=due_at,
+        )
+    )
+
+
+def test_frozen_update_task_rename_preserves_omitted_fields(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    due_at = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+    task = _create_confirmed_task_for_user(
+        db_session,
+        user_id,
+        due_at=due_at,
+    )
+    provider = _MutationOnlyProvider(
+        "update_task",
+        {"object_id": str(task.id), "title": "Renamed"},
+    )
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _bind_action_plan_test_session(db_session)
+
+    message_response = client.post(
+        "/assistant/message",
+        json={"message": "rename", "context_object_id": str(task.id)},
+    )
+    plan = message_response.json()["pending_action_plan"]
+    frozen = plan["actions"][0]["arguments"]
+    assert frozen == {"object_id": str(task.id), "title": "Renamed"}
+    assert "body" not in frozen
+    assert "due_at" not in frozen
+
+    approve = client.post(f"/assistant/action-plans/{plan['id']}/approve")
+    assert approve.status_code == 200
+    db_session.expire_all()
+    updated = db_session.get(Object, task.id)
+    assert updated.title == "Renamed"
+    assert updated.body == "Keep body"
+    assert updated.due_at == due_at
+
+
+def test_frozen_update_task_clear_body_preserves_other_fields(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    due_at = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+    task = _create_confirmed_task_for_user(
+        db_session,
+        user_id,
+        title="Stable title",
+        due_at=due_at,
+    )
+    provider = _MutationOnlyProvider(
+        "update_task",
+        {"object_id": str(task.id), "body": None},
+    )
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _bind_action_plan_test_session(db_session)
+
+    message_response = client.post(
+        "/assistant/message",
+        json={"message": "clear body", "context_object_id": str(task.id)},
+    )
+    plan = message_response.json()["pending_action_plan"]
+    frozen = plan["actions"][0]["arguments"]
+    assert frozen == {"object_id": str(task.id), "body": None}
+    assert "title" not in frozen
+    assert "due_at" not in frozen
+
+    approve = client.post(f"/assistant/action-plans/{plan['id']}/approve")
+    assert approve.status_code == 200
+    db_session.expire_all()
+    updated = db_session.get(Object, task.id)
+    assert updated.body is None
+    assert updated.title == "Stable title"
+    assert updated.due_at == due_at
+
+
+def test_frozen_update_task_clear_due_at_preserves_other_fields(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    due_at = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+    task = _create_confirmed_task_for_user(
+        db_session,
+        user_id,
+        body="Stable body",
+        due_at=due_at,
+    )
+    provider = _MutationOnlyProvider(
+        "update_task",
+        {"object_id": str(task.id), "due_at": None},
+    )
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _bind_action_plan_test_session(db_session)
+
+    message_response = client.post(
+        "/assistant/message",
+        json={"message": "clear due", "context_object_id": str(task.id)},
+    )
+    plan = message_response.json()["pending_action_plan"]
+    frozen = plan["actions"][0]["arguments"]
+    assert frozen == {"object_id": str(task.id), "due_at": None}
+    assert "title" not in frozen
+    assert "body" not in frozen
+
+    approve = client.post(f"/assistant/action-plans/{plan['id']}/approve")
+    assert approve.status_code == 200
+    db_session.expire_all()
+    updated = db_session.get(Object, task.id)
+    assert updated.due_at is None
+    assert updated.title == "Original"
+    assert updated.body == "Stable body"
+
+
+def test_invalid_update_title_null_not_staged(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    task = _create_confirmed_task_for_user(db_session, user_id)
+    provider = _MutationOnlyProvider(
+        "update_task",
+        {"object_id": str(task.id), "title": None},
+    )
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _bind_action_plan_test_session(db_session)
+
+    response = client.post(
+        "/assistant/message",
+        json={"message": "bad title", "context_object_id": str(task.id)},
+    )
+    assert response.status_code == 200
+    assert response.json()["pending_action_plan"] is None
+
+
+def test_set_task_status_reject_then_approve_lifecycle(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    task = _create_confirmed_task_for_user(db_session, user_id, status="open")
+    provider = _MutationOnlyProvider(
+        "set_task_status",
+        {"object_id": str(task.id), "status": "done"},
+    )
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _bind_action_plan_test_session(db_session)
+
+    plan_id = client.post(
+        "/assistant/message",
+        json={"message": "complete", "context_object_id": str(task.id)},
+    ).json()["pending_action_plan"]["id"]
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "open"
+
+    reject = client.post(f"/assistant/action-plans/{plan_id}/reject")
+    assert reject.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "open"
+
+    plan_id = client.post(
+        "/assistant/message",
+        json={"message": "complete again", "context_object_id": str(task.id)},
+    ).json()["pending_action_plan"]["id"]
+    approve = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert approve.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "done"
+
+    second = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert second.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "done"
+
+
+def test_delete_task_reject_and_approve_lifecycle(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client
+):
+    client, user_id = action_plan_client
+    task = _create_confirmed_task_for_user(db_session, user_id, status="open")
+    evidence = _create_confirmed_task_for_user(db_session, user_id, title="Evidence")
+    graph = GraphService(db_session, user_id)
+    graph.create_edge(
+        EdgeCreate(
+            source_id=task.id,
+            target_id=evidence.id,
+            type="references",
+            origin="user",
+            state=CONFIRMED_STATE,
+        )
+    )
+    provider = _MutationOnlyProvider(
+        "delete_task",
+        {"object_id": str(task.id)},
+    )
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _bind_action_plan_test_session(db_session)
+
+    plan_id = client.post(
+        "/assistant/message",
+        json={"message": "delete", "context_object_id": str(task.id)},
+    ).json()["pending_action_plan"]["id"]
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "open"
+    edge_count = db_session.scalar(
+        select(func.count()).select_from(Edge).where(Edge.source_id == task.id)
+    )
+    assert edge_count == 1
+
+    reject = client.post(f"/assistant/action-plans/{plan_id}/reject")
+    assert reject.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "open"
+
+    plan_id = client.post(
+        "/assistant/message",
+        json={"message": "delete again", "context_object_id": str(task.id)},
+    ).json()["pending_action_plan"]["id"]
+    approve = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert approve.status_code == 200
+    db_session.expire_all()
+    deleted = db_session.get(Object, task.id)
+    assert deleted is not None
+    assert deleted.status == "deleted"
+    edge_count = db_session.scalar(
+        select(func.count()).select_from(Edge).where(Edge.source_id == task.id)
+    )
+    assert edge_count == 1
+
+    second = client.post(f"/assistant/action-plans/{plan_id}/approve")
+    assert second.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Object, task.id).status == "deleted"

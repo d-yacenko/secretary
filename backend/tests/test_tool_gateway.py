@@ -8,6 +8,7 @@ import pytest
 from app.assistant.tool_definitions import TOOL_DEFINITIONS
 from app.assistant.tool_runner import PerTurnToolBudget
 from app.llm.openai_assistant_provider import OpenAIAssistantProvider
+from app.tools.execution_context import ExecutionContext
 from app.tools.gateway import ToolExecutionGateway
 from app.tools.policy import PolicyDecision, ToolPermission, evaluate_policy
 from app.tools.registry import (
@@ -284,3 +285,93 @@ def test_per_turn_budget_success_preserves_gateway_status(monkeypatch):
     assert result.success is True
     assert result.status == ToolExecutionStatus.SUCCESS
     assert result.model_output_json is not None
+
+
+def test_validate_update_task_title_only_excludes_unset_fields():
+    from app.tools.registry import get_tool_spec, validate_tool_arguments
+
+    spec = get_tool_spec("update_task")
+    assert spec is not None
+    task_id = uuid4()
+    validated = validate_tool_arguments(
+        spec,
+        {"object_id": str(task_id), "title": "New title"},
+    )
+    assert validated == {"object_id": str(task_id), "title": "New title"}
+    assert "body" not in validated
+    assert "due_at" not in validated
+    assert "evidence_object_ids" not in validated
+
+
+def test_validate_update_task_explicit_null_body():
+    from app.tools.registry import get_tool_spec, validate_tool_arguments
+
+    spec = get_tool_spec("update_task")
+    task_id = uuid4()
+    validated = validate_tool_arguments(
+        spec,
+        {"object_id": str(task_id), "body": None},
+    )
+    assert validated == {"object_id": str(task_id), "body": None}
+    assert "title" not in validated
+    assert "due_at" not in validated
+
+
+def test_validate_update_task_explicit_null_due_at():
+    from app.tools.registry import get_tool_spec, validate_tool_arguments
+
+    spec = get_tool_spec("update_task")
+    task_id = uuid4()
+    validated = validate_tool_arguments(
+        spec,
+        {"object_id": str(task_id), "due_at": None},
+    )
+    assert validated == {"object_id": str(task_id), "due_at": None}
+    assert "title" not in validated
+    assert "body" not in validated
+
+
+def test_gateway_rejects_null_title_before_approval():
+    tools = MagicMock()
+    gateway = ToolExecutionGateway()
+    task_id = uuid4()
+    result = gateway.execute(
+        tools,
+        "update_task",
+        {"object_id": str(task_id), "title": None},
+    )
+    assert result.success is False
+    assert result.status == ToolExecutionStatus.TOOL_ERROR
+    tools.update_task.assert_not_called()
+
+
+def test_gateway_rejects_empty_title_before_approval():
+    tools = MagicMock()
+    gateway = ToolExecutionGateway()
+    task_id = uuid4()
+    result = gateway.execute(
+        tools,
+        "update_task",
+        {"object_id": str(task_id), "title": ""},
+    )
+    assert result.success is False
+    assert result.status == ToolExecutionStatus.TOOL_ERROR
+    tools.update_task.assert_not_called()
+
+
+def test_gateway_staged_update_task_preserves_field_presence():
+    tools = MagicMock()
+    gateway = ToolExecutionGateway()
+    task_id = uuid4()
+    result = gateway.execute(
+        tools,
+        "update_task",
+        {"object_id": str(task_id), "title": "Renamed"},
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert result.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    args = result.staged_action["arguments"]
+    assert args == {"object_id": str(task_id), "title": "Renamed"}
+    assert "body" not in args
+    assert "due_at" not in args
+    tools.update_task.assert_not_called()

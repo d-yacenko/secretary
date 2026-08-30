@@ -148,10 +148,15 @@ class AssistantService:
         if context_object_id is not None:
             validated_context_ids.append(context_object_id)
 
+        seen_seed_ids = list(ui_context_result.exposed_object_ids)
+        for object_id in validated_context_ids:
+            if object_id not in seen_seed_ids:
+                seen_seed_ids.append(object_id)
+
         telemetry = AssistantTurnTelemetry()
         tool_budget = PerTurnToolBudget(
             telemetry=telemetry,
-            initial_seen_object_ids=ui_context_result.exposed_object_ids,
+            initial_seen_object_ids=seen_seed_ids,
         )
         tool_runner = BoundAssistantToolRunner(tool_budget, self._user_id)
 

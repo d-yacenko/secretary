@@ -28,7 +28,7 @@ Evidence: `docs/phase_23d_c_manual_e2e.md`
 
 PHASE 23D-D — MVP Interaction Closure: **accepted / closed** (`eb433a6`)
 
-PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **implemented, awaiting acceptance**
+PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **closure corrective implemented, awaiting acceptance**
 
 Next planned after acceptance: **PHASE 24 — Graph Workspace & Direct Task Management**
 
@@ -79,4 +79,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-PHASE 23E — not started.
+PHASE 24 — Graph Workspace & Direct Task Management (after PHASE 23E acceptance).

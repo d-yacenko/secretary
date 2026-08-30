@@ -535,6 +535,7 @@ class PendingAction {
   }
 
   String get displayLabel {
+    final objectId = _frozenObjectId(arguments);
     switch (toolName) {
       case 'create_task':
         final title = arguments['title'];
@@ -543,20 +544,36 @@ class PendingAction {
         }
         return 'Create task';
       case 'update_task':
+        if (objectId != null) {
+          return 'Update task: $objectId';
+        }
         return 'Update task';
       case 'set_task_status':
         final status = arguments['status'];
-        if (status is String && status.trim().isNotEmpty) {
-          return 'Set task status: $status';
+        final statusText =
+            status is String && status.trim().isNotEmpty ? status : 'status';
+        if (objectId != null) {
+          return 'Set task status: $objectId -> $statusText';
         }
-        return 'Set task status';
+        return 'Set task status: $statusText';
       case 'delete_task':
+        if (objectId != null) {
+          return 'Delete task: $objectId';
+        }
         return 'Delete task';
       case 'link_objects':
         return 'Link objects';
       default:
         return toolName.replaceAll('_', ' ');
     }
+  }
+
+  static String? _frozenObjectId(Map<String, dynamic> arguments) {
+    final raw = arguments['object_id'];
+    if (raw is String && raw.trim().isNotEmpty) {
+      return raw.trim();
+    }
+    return null;
   }
 }
 

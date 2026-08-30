@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.schemas import ContextItem, EdgeOut, NotificationOut, ObjectOut
 
@@ -115,10 +115,16 @@ class CreateTaskOutput(BaseModel):
 
 class UpdateTaskInput(BaseModel):
     object_id: UUID
-    title: str | None = None
+    title: str | None = Field(default=None, min_length=1)
     body: str | None = None
     due_at: datetime | None = None
     evidence_object_ids: list[UUID] = Field(default_factory=list, max_length=MAX_TASK_EVIDENCE_IDS)
+
+    @model_validator(mode="after")
+    def reject_invalid_title(self) -> Self:
+        if "title" in self.model_fields_set and self.title is None:
+            raise ValueError("title must be a non-empty string when provided")
+        return self
 
 
 class UpdateTaskOutput(BaseModel):

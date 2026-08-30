@@ -187,7 +187,7 @@ def validate_tool_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> dict[s
     if spec.input_model is None:
         return {}
     validated = spec.input_model.model_validate(arguments)
-    return validated.model_dump(mode="json")
+    return validated.model_dump(mode="json", exclude_unset=True)
 
 
 def execute_registered_tool(

@@ -108,16 +108,12 @@ def test_update_task_clear_due_at(db_session, fake_embedding_service) -> None:
 
 
 def test_update_task_rejects_null_title(db_session, fake_embedding_service) -> None:
+    from pydantic import ValidationError
+
     graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     task = _create_confirmed_task(graph, "Title")
-    tools = DomainToolService(
-        db_session,
-        BOOTSTRAP_USER_ID,
-        fake_embedding_service,
-        write_mode=DomainWriteMode.APPROVED_CONFIRMED,
-    )
-    with pytest.raises(ToolError, match="title cannot be null"):
-        tools.update_task(UpdateTaskInput(object_id=task.id, title=None))
+    with pytest.raises(ValidationError):
+        UpdateTaskInput(object_id=task.id, title=None)
 
 
 def test_update_task_deleted_task_rejected(db_session, fake_embedding_service) -> None:
