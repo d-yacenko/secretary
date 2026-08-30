@@ -46,8 +46,8 @@ Do not start PHASE 26 until architect/manual UI verification is recorded.
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: pending PHASE 25 deploy (accepted application `143f674`)
-- Deployed: pending PHASE 25 deploy (2026-08-30)
+- SHA: `d3f87e326cbd9c2d7098ceada608027cd4d818d8` (docs closure on `main`)
+- Deployed: 2026-08-30 (PHASE 25 Russian UI polish)
 - Accepted application: `143f674ad913c0499f9aa3f0c2a7ea3039f7f108`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
