@@ -72,7 +72,7 @@ class AssistantController extends ChangeNotifier {
   String? _pendingRetryMessage;
   String? _activeRecordingPath;
   Timer? _recordingLimitTimer;
-  bool _voiceStartCancelled = false;
+  int _voiceStartGeneration = 0;
 
   List<AssistantChatMessage> get messages => List.unmodifiable(_messages);
   AssistantContextRef? get objectContext => _objectContext;
@@ -181,7 +181,7 @@ class AssistantController extends ChangeNotifier {
     }
 
     voiceState = AssistantVoiceState.starting;
-    _voiceStartCancelled = false;
+    final startGeneration = ++_voiceStartGeneration;
     notifyListeners();
 
     try {
@@ -189,13 +189,17 @@ class AssistantController extends ChangeNotifier {
       if (!hasPermission) {
         final granted = await _voiceRecorder.requestPermission();
         if (!granted) {
+          if (!_isActiveVoiceStart(startGeneration)) {
+            await _abortInFlightRecording(startGeneration);
+            return;
+          }
           _setVoiceError('Microphone permission is required for voice input.');
           return;
         }
       }
 
-      if (_voiceStartCancelled) {
-        _resetVoiceToIdle();
+      if (!_isActiveVoiceStart(startGeneration)) {
+        await _abortInFlightRecording(startGeneration);
         return;
       }
 
@@ -203,9 +207,8 @@ class AssistantController extends ChangeNotifier {
       _activeRecordingPath = path;
       await _voiceRecorder.startRecording(path);
 
-      if (_voiceStartCancelled) {
-        await _cleanupActiveRecording();
-        _resetVoiceToIdle();
+      if (!_isActiveVoiceStart(startGeneration)) {
+        await _abortInFlightRecording(startGeneration);
         return;
       }
 
@@ -219,8 +222,12 @@ class AssistantController extends ChangeNotifier {
       }
       notifyListeners();
     } catch (_) {
-      await _cleanupActiveRecording();
-      _setVoiceError('Voice recording could not start.');
+      if (_isActiveVoiceStart(startGeneration)) {
+        await _cleanupActiveRecording();
+        _setVoiceError('Voice recording could not start.');
+      } else {
+        await _abortInFlightRecording(startGeneration);
+      }
     }
   }
 
@@ -297,7 +304,10 @@ class AssistantController extends ChangeNotifier {
 
   Future<void> cancelVoiceRecording() async {
     if (voiceState == AssistantVoiceState.starting) {
-      _voiceStartCancelled = true;
+      _invalidateVoiceStart();
+      voiceState = AssistantVoiceState.idle;
+      voiceErrorMessage = null;
+      notifyListeners();
       return;
     }
     if (voiceState != AssistantVoiceState.recording) {
@@ -307,11 +317,7 @@ class AssistantController extends ChangeNotifier {
     _recordingLimitTimer?.cancel();
     _recordingLimitTimer = null;
 
-    try {
-      await _voiceRecorder.cancelRecording();
-    } catch (_) {
-      // Best-effort cleanup only.
-    }
+    await _bestEffortCancelRecorder();
     await _cleanupActiveRecording();
     _resetVoiceToIdle();
     notifyListeners();
@@ -334,7 +340,33 @@ class AssistantController extends ChangeNotifier {
   void _resetVoiceToIdle() {
     voiceState = AssistantVoiceState.idle;
     voiceErrorMessage = null;
-    _voiceStartCancelled = false;
+  }
+
+  bool _isActiveVoiceStart(int generation) =>
+      generation == _voiceStartGeneration;
+
+  void _invalidateVoiceStart() {
+    _voiceStartGeneration++;
+  }
+
+  Future<void> _abortInFlightRecording(int generation) async {
+    if (generation != _voiceStartGeneration) {
+      await _bestEffortCancelRecorder();
+      await _cleanupActiveRecording();
+    }
+    if (voiceState == AssistantVoiceState.starting ||
+        voiceState == AssistantVoiceState.recording) {
+      _resetVoiceToIdle();
+      notifyListeners();
+    }
+  }
+
+  Future<void> _bestEffortCancelRecorder() async {
+    try {
+      await _voiceRecorder.cancelRecording();
+    } catch (_) {
+      // Best-effort cleanup only.
+    }
   }
 
   Future<void> _cleanupActiveRecording() async {
@@ -357,7 +389,16 @@ class AssistantController extends ChangeNotifier {
   }
 
   void resetSession() {
-    unawaited(cancelVoiceRecording());
+    if (voiceState == AssistantVoiceState.starting ||
+        voiceState == AssistantVoiceState.recording) {
+      _invalidateVoiceStart();
+      _recordingLimitTimer?.cancel();
+      _recordingLimitTimer = null;
+      if (voiceState == AssistantVoiceState.recording) {
+        unawaited(_bestEffortCancelRecorder());
+        unawaited(_cleanupActiveRecording());
+      }
+    }
     _messages.clear();
     _objectContext = null;
     _notificationContext = null;
@@ -366,7 +407,6 @@ class AssistantController extends ChangeNotifier {
     errorMessage = null;
     voiceErrorMessage = null;
     _pendingRetryMessage = null;
-    _voiceStartCancelled = false;
     notifyListeners();
   }
 
@@ -375,11 +415,11 @@ class AssistantController extends ChangeNotifier {
     _recordingLimitTimer?.cancel();
     if (voiceState == AssistantVoiceState.recording ||
         voiceState == AssistantVoiceState.starting) {
+      _invalidateVoiceStart();
       final path = _activeRecordingPath;
-      voiceState = AssistantVoiceState.idle;
       _activeRecordingPath = null;
-      _voiceStartCancelled = true;
-      unawaited(_voiceRecorder.cancelRecording());
+      voiceState = AssistantVoiceState.idle;
+      unawaited(_bestEffortCancelRecorder());
       unawaited(_voiceTempFiles.deleteIfExists(path));
     }
     unawaited(_voiceRecorder.dispose());

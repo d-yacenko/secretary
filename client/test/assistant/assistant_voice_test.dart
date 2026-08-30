@@ -662,6 +662,87 @@ void main() {
     assistant.dispose();
   });
 
+  test('cancel during in-flight start stops recorder and cleans temp file', () async {
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.startDelay = const Duration(milliseconds: 50);
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    final startFuture = assistant.startVoiceRecording();
+    expect(assistant.voiceState, AssistantVoiceState.starting);
+    while (voiceRecorder.startCallCount == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    await assistant.cancelVoiceRecording();
+    await startFuture;
+
+    expect(voiceRecorder.startCallCount, 1);
+    expect(voiceRecorder.cancelCallCount, greaterThanOrEqualTo(1));
+    expect(voiceRecorder.isRecording, isFalse);
+    expect(assistant.voiceState, AssistantVoiceState.idle);
+    expect(voiceRecorder.lastStartedPath, isNotNull);
+    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+    assistant.dispose();
+  });
+
+  test('reset during in-flight start invalidates startup without API calls', () async {
+    int transcribeCalls = 0;
+    int assistantCalls = 0;
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.startDelay = const Duration(milliseconds: 50);
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        transcribeCalls += 1;
+      }
+      if (request.url.path == '/assistant/message') {
+        assistantCalls += 1;
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    final startFuture = assistant.startVoiceRecording();
+    expect(assistant.voiceState, AssistantVoiceState.starting);
+    while (voiceRecorder.startCallCount == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    assistant.resetSession();
+    await startFuture;
+
+    expect(voiceRecorder.isRecording, isFalse);
+    expect(assistant.voiceState, AssistantVoiceState.idle);
+    expect(voiceRecorder.lastStartedPath, isNotNull);
+    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+    expect(transcribeCalls, 0);
+    expect(assistantCalls, 0);
+    assistant.dispose();
+  });
+
   testWidgets('permission denial shows safe message', (tester) async {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.permissionGranted = false;
