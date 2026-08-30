@@ -20,17 +20,23 @@ PHASE 23C — Agent Execution Gateway & Tool Policy: **accepted / closed** (`716
 
 PHASE 23D-A — Frozen Pending Action Plans: **accepted / closed** (`fa24217`)
 
-PHASE 23D-B — Approval UX & Safe Agent Resume: **final closure corrective, awaiting acceptance**
+PHASE 23D-B — Approval UX & Safe Agent Resume: **accepted / closed** (`b30b95e`)
+
+PHASE 23D-C — Deploy & Manual Agent E2E Checkpoint: **deployed / ready for manual testing**
+
+Evidence: `docs/phase_23d_c_manual_e2e.md` (manual scenarios A–H **not yet run**).
 
 ## VDS production
 
-- SHA: `4607a1800ab2058c62f69b111d00871a48a5d0fb`
-- Deployed: 2026-08-29
-- **Accepted backend/transcription work (`94f04ef` / `43de268`) deployment pending** — VDS SSH credentials unavailable from dev environment
-- **PHASE 23B client accepted on `main` (`e339e2e`) — not deployed**
-- **PHASE 23C accepted on `main` (`7165b7f`) — not deployed**
-- **PHASE 23D-A accepted on `main` (`fa24217`) — not deployed**
-- **PHASE 23D-B not deployed** — on `review/phase-23d-b`
+- Host: `185.233.107.66` (`web-itx.duckdns.org`)
+- Path: `/opt/secretary`
+- SHA: `b30b95e152656fbbec3e7a3028216ae05ad35659`
+- Deployed: 2026-08-30
+- Checkout: `main`, clean (no tracked modifications)
+- Alembic current/head: `0018` (`pending_action_plans`)
+- Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
+- API: `http://127.0.0.1:18080` on VDS host (localhost only; not on public interface)
+- Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ## PHASE 22.7 baseline note
 
