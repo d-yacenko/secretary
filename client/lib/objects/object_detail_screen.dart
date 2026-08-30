@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -11,6 +12,7 @@ import '../navigation/secretary_navigation.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
+import '../ui/object_visuals.dart';
 
 enum ObjectDetailLoadState { loading, ready, error }
 
@@ -110,12 +112,38 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     Navigator.of(context).pop();
   }
 
+  Future<void> _deleteTask() async {
+    final object = _object;
+    if (object == null) {
+      return;
+    }
+    await confirmAndDeleteTask(
+      context,
+      task: object,
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      onTaskUpdated: (updated) => setState(() => _object = updated),
+    );
+  }
+
+  bool get _showDeleteAction {
+    final object = _object;
+    return object != null && object.kind == 'task' && !object.isDeletedTask;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_object?.title ?? 'Объект'),
         actions: [
+          if (_showDeleteAction)
+            IconButton(
+              key: const Key('object_detail_delete'),
+              tooltip: 'Удалить задачу',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _deleteTask,
+            ),
           if (_object != null && widget.onShowInGraph != null)
             TextButton(
               onPressed: () {
@@ -157,76 +185,97 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         );
       case ObjectDetailLoadState.ready:
         final object = _object!;
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _FieldRow(label: 'Тип', value: objectKindLabel(object.kind)),
-            if (object.status != null)
-              _FieldRow(label: 'Статус', value: taskStatusLabel(object.status)),
-            _FieldRow(label: 'Состояние', value: provenanceStateLabel(object.state)),
-            _FieldRow(label: 'Источник', value: originLabel(object.origin)),
-            if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
-            if (object.startAt != null)
-              _FieldRow(label: 'Начало', value: formatUserDateTime(object.startAt)),
-            if (object.dueAt != null)
-              _FieldRow(label: 'Срок', value: formatUserDateTime(object.dueAt)),
-            if (object.provider != null)
-              _FieldRow(label: 'Провайдер', value: object.provider!),
-            if (object.canonicalUri != null)
-              _CanonicalUriRow(uri: object.canonicalUri!),
-            const SizedBox(height: 16),
-            Text('Связи', style: Theme.of(context).textTheme.titleMedium),
-            if (_neighbors.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text('Нет связей'),
-              )
-            else
-              ..._neighbors.map(
-                (neighbor) => ListTile(
-                  title: Text(neighbor.object.title),
-                  subtitle: Text(
-                    '${relationTypeLabel(neighbor.edge.type)} • '
-                    '${neighborDirectionLabel(neighbor.direction)} • '
-                    '${objectKindLabel(neighbor.object.kind)}',
-                  ),
-                  onTap: () => openObjectDetail(
-                    context,
-                    objectId: neighbor.object.id,
-                    apiClient: widget.apiClient,
-                    authController: widget.authController,
-                    captureController: widget.captureController,
-                    assistantController: widget.assistantController,
-                    onAskSecretary: widget.onAskSecretary,
-                    onShowInGraph: widget.onShowInGraph,
+        return SelectionArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _FieldRow(label: 'Тип', value: objectKindLabel(object.kind)),
+              if (object.status != null)
+                _FieldRow(label: 'Статус', value: taskStatusLabel(object.status)),
+              _FieldRow(label: 'Состояние', value: provenanceStateLabel(object.state)),
+              _FieldRow(label: 'Источник', value: originLabel(object.origin)),
+              _FieldRow(
+                label: 'Создано',
+                value: formatUserDateTime(object.createdAt),
+              ),
+              _FieldRow(
+                label: 'Обновлено',
+                value: formatUserDateTime(object.updatedAt),
+              ),
+              if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
+              if (object.startAt != null)
+                _FieldRow(label: 'Начало', value: formatUserDateTime(object.startAt)),
+              if (object.dueAt != null)
+                _FieldRow(label: 'Срок', value: formatUserDateTime(object.dueAt)),
+              if (object.provider != null)
+                _FieldRow(label: 'Провайдер', value: providerLabel(object.provider!)),
+              if (object.canonicalUri != null)
+                _CanonicalUriRow(uri: object.canonicalUri!),
+              if (object.metadata.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Метаданные', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                Text(_formatMetadata(object.metadata)),
+              ],
+              const SizedBox(height: 16),
+              Text('Связи', style: Theme.of(context).textTheme.titleMedium),
+              if (_neighbors.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('Нет связей'),
+                )
+              else
+                ..._neighbors.map(
+                  (neighbor) => ListTile(
+                    title: Text(neighbor.object.title),
+                    subtitle: Text(
+                      '${relationTypeLabel(neighbor.edge.type)} • '
+                      '${neighborDirectionLabel(neighbor.direction)} • '
+                      '${objectKindLabel(neighbor.object.kind)}',
+                    ),
+                    onTap: () => openObjectDetail(
+                      context,
+                      objectId: neighbor.object.id,
+                      apiClient: widget.apiClient,
+                      authController: widget.authController,
+                      captureController: widget.captureController,
+                      assistantController: widget.assistantController,
+                      onAskSecretary: widget.onAskSecretary,
+                      onShowInGraph: widget.onShowInGraph,
+                    ),
                   ),
                 ),
-              ),
-            const SizedBox(height: 16),
-            if (_object != null)
-              TaskManagementActions(
-                task: _object!,
-                apiClient: widget.apiClient,
-                authController: widget.authController,
-                onTaskUpdated: (updated) => setState(() => _object = updated),
-              ),
-            const SizedBox(height: 16),
-            Text('Контекст', style: Theme.of(context).textTheme.titleMedium),
-            if (_context == null || _context!.neighbors.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text('Нет соседнего контекста'),
-              )
-            else
-              ..._context!.neighbors.map(
-                (neighbor) => ListTile(
-                  title: Text(neighbor.title),
-                  subtitle: Text(objectKindLabel(neighbor.kind)),
+              const SizedBox(height: 16),
+              if (_object != null)
+                TaskManagementActions(
+                  task: _object!,
+                  apiClient: widget.apiClient,
+                  authController: widget.authController,
+                  onTaskUpdated: (updated) => setState(() => _object = updated),
                 ),
-              ),
-          ],
+              const SizedBox(height: 16),
+              Text('Контекст', style: Theme.of(context).textTheme.titleMedium),
+              if (_context == null || _context!.neighbors.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('Нет соседнего контекста'),
+                )
+              else
+                ..._context!.neighbors.map(
+                  (neighbor) => ListTile(
+                    title: Text(neighbor.title),
+                    subtitle: Text(objectKindLabel(neighbor.kind)),
+                  ),
+                ),
+            ],
+          ),
         );
     }
+  }
+
+  String _formatMetadata(Map<String, dynamic> metadata) {
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert(metadata);
   }
 }
 

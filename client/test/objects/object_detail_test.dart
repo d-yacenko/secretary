@@ -131,6 +131,7 @@ void main() {
     expect(find.text('Email body'), findsOneWidget);
     expect(find.text('Related task'), findsOneWidget);
     expect(find.textContaining('Ссылается на'), findsOneWidget);
+    expect(find.byType(SelectionArea), findsWidgets);
   });
 
   testWidgets('missing optional fields do not crash', (tester) async {

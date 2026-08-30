@@ -77,7 +77,75 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Alpha task'), findsOneWidget);
-    expect(find.text('Статус: pending'), findsOneWidget);
+    expect(find.text('pending'), findsOneWidget);
+  });
+
+  testWidgets('search provider filter sends canonical provider value', (tester) async {
+    await tester.pumpWidget(
+      buildSearch(MockClient((request) async {
+        if (request.url.path == '/search') {
+          expect(request.url.queryParameters['provider'], 'gmail');
+          return http.Response('[]', 200);
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'mail');
+    final providerDropdown = find.byType(DropdownButtonFormField<String?>).last;
+    await tester.tap(providerDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Gmail').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('search shows Russian provider label and date', (tester) async {
+    await tester.pumpWidget(
+      buildSearch(MockClient((request) async {
+        if (request.url.path == '/search') {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode([
+              {
+                'id': 'email-1',
+                'kind': 'email',
+                'title': 'Письмо от преподавателя',
+                'body': 'Короткий фрагмент',
+                'provider': 'gmail',
+                'external_id': null,
+                'canonical_uri': null,
+                'status': null,
+                'start_at': null,
+                'due_at': null,
+                'occurred_at': '2026-08-30T15:43:00Z',
+                'metadata': {},
+                'origin': 'source',
+                'state': 'observed',
+                'confidence': null,
+                'created_at': '2026-08-28T08:00:00Z',
+                'updated_at': '2026-08-28T08:00:00Z',
+              },
+            ])),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'письмо');
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Письмо от преподавателя'), findsOneWidget);
+    expect(find.textContaining('Gmail'), findsOneWidget);
+    expect(find.textContaining('30.08.2026'), findsOneWidget);
+    expect(find.text('По релевантности'), findsOneWidget);
+    expect(find.text('Показано: 1'), findsOneWidget);
   });
 
   testWidgets('search empty state', (tester) async {

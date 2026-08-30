@@ -265,10 +265,12 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.throwOnHasPermission = true;
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
-      voiceRecorder: FakeVoiceRecorder(),
+      voiceRecorder: voiceRecorder,
       voiceTempFiles: VoiceTempFiles(
         directory: Directory.systemTemp.createTempSync('compact_voice_err'),
       ),
@@ -289,9 +291,7 @@ void main() {
     );
     await pumpAssistantFrames(tester);
 
-    assistant.voiceState = AssistantVoiceState.error;
-    assistant.voiceErrorMessage = const VoiceRecorderStartFailure().message;
-    assistant.notifyListeners();
+    await assistant.startVoiceRecording();
     await pumpAssistantFrames(tester);
 
     expect(find.byKey(const Key('assistant_input')), findsOneWidget);

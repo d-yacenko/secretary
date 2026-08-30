@@ -1,27 +1,45 @@
-# Current task — PHASE 25 accepted; await manual UI verification
+# Current task — PHASE 25.1 implementation complete, awaiting architect review
 
 ## Status
 
+PHASE 25 manual UI verification: **PASS**
+
+PHASE 25.1 — UX Baseline: **implementation complete, awaiting architect review**
+
 PHASE 25 — Russian-first UI & Graph Mobile Polish: **accepted / closed** at `143f674ad913c0499f9aa3f0c2a7ea3039f7f108`.
 
-PHASE 24: **accepted / closed** at `e128f26414c1ffb33d6040c2d87e2b2054e35480`.
+## Next major product phase
 
-PHASE 24 post-deploy E2E corrective: **accepted / closed** at `684233bd816fa7947b7eade784ac7e42324c7252`.
+PHASE 26 — Personal Data Correlation
 
-## Verification (PHASE 25 acceptance)
+## Deferred (not PHASE 25.1)
 
-- `flutter analyze`: 23 info/warning, no new errors
-- `flutter test`: 187 passed
-- `flutter build apk --debug`: PASS
-- `flutter build linux`: PASS
-- Android `minSdk`: 23
+### PHASE 26 — Personal Data Correlation
 
-## Next planned product phase
+- semantic file summaries
+- folders as retrieval scope / graph source
+- local-file and email-attachment objects
+- «Открыть в источнике», «Открыть файл», «Показать в папке»
+- Gmail/Yandex browser deep-link behavior
+- desktop file/folder drag-and-drop
+- Android system file picker
+- email attachments
+- proper alternative search sorting
+- topology-aware Graph layout
+- optional curved/routed edges
 
-PHASE 26 — Personal Data Correlation (playbook).
+### PHASE 29 — Personal Workflow Intelligence
+
+Unified colored labels/tags (Работа, Учёба, Наука, Личное, Дом, Финансы, Здоровье, Отдых, Идеи) — one canonical label system for chips, strips, search/filter.
+
+### PHASE 30 — Release / advanced UX
+
+- manual Graph node drag
+- persistence of personal Graph layout across sessions/devices
+- final desktop/mobile polish
 
 ## STOP
 
-Do not start PHASE 26.
+Do not merge. Do not deploy. Do not start PHASE 26.
 
-Wait for architect/manual UI verification on deployed PHASE 25.
+Wait for architect review.

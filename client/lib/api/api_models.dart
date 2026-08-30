@@ -156,6 +156,7 @@ class SecretaryObject {
     this.status,
     this.startAt,
     this.dueAt,
+    this.occurredAt,
     required this.metadata,
     required this.origin,
     required this.state,
@@ -174,6 +175,7 @@ class SecretaryObject {
   final String? status;
   final String? startAt;
   final String? dueAt;
+  final String? occurredAt;
   final Map<String, dynamic> metadata;
   final String origin;
   final String state;
@@ -193,6 +195,7 @@ class SecretaryObject {
       status: json['status'] as String?,
       startAt: json['start_at'] as String?,
       dueAt: json['due_at'] as String?,
+      occurredAt: json['occurred_at'] as String?,
       metadata: Map<String, dynamic>.from(
         (json['metadata'] as Map?) ?? const <String, dynamic>{},
       ),

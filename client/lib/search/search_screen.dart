@@ -8,6 +8,8 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 import '../ui/domain_labels.dart';
+import '../ui/object_dates.dart';
+import '../ui/object_visuals.dart';
 
 enum SearchLoadState { idle, loading, ready, empty, error }
 
@@ -39,8 +41,16 @@ class _SearchScreenState extends State<SearchScreen> {
   List<SecretaryObject> _results = [];
   String? _errorMessage;
   String? _selectedKind;
+  String? _selectedProvider;
 
   static const _kindOptions = <String?>[null, 'task', 'project', 'email', 'event', 'note'];
+
+  static const _providerOptions = <(String?, String)>[
+    (null, 'Все источники'),
+    ('gmail', 'Gmail'),
+    ('yandex_mail', 'Яндекс'),
+    ('local_device', 'Компьютер'),
+  ];
 
   @override
   void dispose() {
@@ -65,6 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final results = await widget.apiClient.searchObjects(
         query: query,
         kind: _selectedKind,
+        provider: _selectedProvider,
       );
       if (!mounted) {
         return;
@@ -140,6 +151,34 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: _selectedProvider,
+                      decoration: const InputDecoration(
+                        labelText: 'Источник',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _providerOptions
+                          .map(
+                            (option) => DropdownMenuItem<String?>(
+                              value: option.$1,
+                              child: Text(option.$2),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) => setState(() => _selectedProvider = value),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'По релевантности',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const Spacer(),
                   FilledButton(
                     onPressed: _loadState == SearchLoadState.loading ? null : _search,
                     child: const Text('Поиск'),
@@ -174,31 +213,142 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         );
       case SearchLoadState.ready:
-        return ListView.separated(
-          itemCount: _results.length,
-          separatorBuilder: (_, __) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final object = _results[index];
-            final snippet = SearchResultSnippet.fromBody(object.body);
-            return ListTile(
-              title: Text(object.title),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${objectKindLabel(object.kind)}${object.provider != null ? ' • ${object.provider}' : ''}',
-                  ),
-                  if (object.status != null)
-                    Text('Статус: ${taskStatusLabel(object.status)}'),
-                  if (object.state.isNotEmpty)
-                    Text('Состояние: ${provenanceStateLabel(object.state)}'),
-                  if (snippet.isNotEmpty) Text(snippet),
-                ],
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                'Показано: ${_results.length}',
+                style: Theme.of(context).textTheme.labelMedium,
               ),
-              onTap: () => _openObject(object),
-            );
-          },
+            ),
+            Expanded(
+              child: ListView.separated(
+                itemCount: _results.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final object = _results[index];
+                  return _SearchResultTile(
+                    object: object,
+                    onTap: () => _openObject(object),
+                  );
+                },
+              ),
+            ),
+          ],
         );
     }
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({
+    required this.object,
+    required this.onTap,
+  });
+
+  final SecretaryObject object;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final snippet = SearchResultSnippet.fromBody(object.body);
+    final typeSource = _typeSourceLine(object);
+    final dateLabel = objectPrimaryDateLabel(object);
+    final statusLine = _statusLine(object, snippet);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  iconForKind(object.kind),
+                  size: 22,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      object.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (typeSource.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        typeSource,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    if (dateLabel.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        dateLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    if (statusLine.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        statusLine,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _typeSourceLine(SecretaryObject object) {
+    final kind = objectKindLabel(object.kind);
+    final provider = providerLabel(object.provider);
+    if (provider.isNotEmpty) {
+      return '$kind · $provider';
+    }
+    return kind;
+  }
+
+  String _statusLine(SecretaryObject object, String snippet) {
+    if (object.kind == 'task' && object.status != null) {
+      return taskStatusLabel(object.status);
+    }
+    if (snippet.isNotEmpty) {
+      return snippet;
+    }
+    if (object.state.isNotEmpty) {
+      return provenanceStateLabel(object.state);
+    }
+    return '';
   }
 }

@@ -292,41 +292,13 @@ class TaskManagementActions extends StatelessWidget {
   }
 
   Future<void> _deleteTask(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Удалить задачу?'),
-        content: Text(
-          '${task.title}\n\nЗадача будет скрыта из обычного поиска и активных представлений. '
-          'История в графе и связи сохранятся.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Удалить'),
-          ),
-        ],
-      ),
+    await confirmAndDeleteTask(
+      context,
+      task: task,
+      apiClient: apiClient,
+      authController: authController,
+      onTaskUpdated: onTaskUpdated,
     );
-    if (confirmed != true) {
-      return;
-    }
-    try {
-      final response = await apiClient.softDeleteTask(task.id);
-      onTaskUpdated(response.object);
-    } on AuthenticationException {
-      authController.handleAuthenticationFailure();
-    } on ApiException catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
-      }
-    }
   }
 
   List<String> _statusOptionsFor(String? status) {
@@ -343,6 +315,50 @@ class TaskManagementActions extends StatelessWidget {
         return ['open'];
       default:
         return ['open', 'in_progress', 'done', 'cancelled', 'archived'];
+    }
+  }
+}
+
+Future<void> confirmAndDeleteTask(
+  BuildContext context, {
+  required SecretaryObject task,
+  required SecretaryApiClient apiClient,
+  required AuthController authController,
+  required ValueChanged<SecretaryObject> onTaskUpdated,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Удалить задачу?'),
+      content: Text(
+        '${task.title}\n\nЗадача будет скрыта из обычного поиска и активных представлений. '
+        'История в графе и связи сохранятся.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Удалить'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) {
+    return;
+  }
+  try {
+    final response = await apiClient.softDeleteTask(task.id);
+    onTaskUpdated(response.object);
+  } on AuthenticationException {
+    authController.handleAuthenticationFailure();
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
     }
   }
 }

@@ -83,6 +83,7 @@ class ObjectOut(BaseModel):
     status: str | None
     start_at: datetime | None
     due_at: datetime | None
+    occurred_at: datetime | None
     metadata: dict[str, Any]
     origin: str
     state: str
@@ -103,6 +104,7 @@ class ObjectOut(BaseModel):
             status=obj.status,
             start_at=obj.start_at,
             due_at=obj.due_at,
+            occurred_at=obj.occurred_at,
             metadata=obj.metadata_,
             origin=obj.origin,
             state=obj.state,

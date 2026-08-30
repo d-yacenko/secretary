@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../api/api_models.dart';
 
-const double kGraphNodeWidth = 132;
-const double kGraphNodeHeight = 80;
+const double kGraphNodeWidth = 186;
+const double kGraphNodeHeight = 100;
 const double kGraphCanvasPadding = 80;
 const double kGraphMinScale = 0.05;
 const double kGraphMaxScale = 2.5;
@@ -132,24 +132,36 @@ class GraphLayout {
     final bottomRight = MatrixUtils.transformPoint(transform, canvasBounds.bottomRight);
     return Rect.fromPoints(topLeft, bottomRight);
   }
-}
 
-IconData iconForKind(String kind) {
-  switch (kind) {
-    case 'task':
-      return Icons.task_alt_outlined;
-    case 'email':
-      return Icons.email_outlined;
-    case 'event':
-      return Icons.event_outlined;
-    case 'file':
-      return Icons.insert_drive_file_outlined;
-    case 'note':
-      return Icons.sticky_note_2_outlined;
-    case 'chat':
-    case 'message':
-      return Icons.chat_bubble_outline;
-    default:
-      return Icons.category_outlined;
+  /// Border intersection points for a line between two node centers.
+  static ({Offset start, Offset end}) computeEdgeEndpoints({
+    required Offset sourceCenter,
+    required Offset targetCenter,
+    double nodeWidth = kGraphNodeWidth,
+    double nodeHeight = kGraphNodeHeight,
+  }) {
+    return (
+      start: _borderPoint(sourceCenter, targetCenter, nodeWidth, nodeHeight),
+      end: _borderPoint(targetCenter, sourceCenter, nodeWidth, nodeHeight),
+    );
+  }
+
+  static Offset _borderPoint(
+    Offset center,
+    Offset toward,
+    double width,
+    double height,
+  ) {
+    final dx = toward.dx - center.dx;
+    final dy = toward.dy - center.dy;
+    if (dx == 0 && dy == 0) {
+      return center;
+    }
+    final halfW = width / 2;
+    final halfH = height / 2;
+    final scaleX = dx.abs() > 0 ? halfW / dx.abs() : double.infinity;
+    final scaleY = dy.abs() > 0 ? halfH / dy.abs() : double.infinity;
+    final scale = math.min(scaleX, scaleY);
+    return Offset(center.dx + dx * scale, center.dy + dy * scale);
   }
 }

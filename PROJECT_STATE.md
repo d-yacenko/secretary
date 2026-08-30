@@ -38,9 +38,27 @@ PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-
 
 PHASE 25 — Russian-first UI & Graph Mobile Polish: **accepted / closed** (`143f674`).
 
+PHASE 25 manual UI verification: **PASS** (2026-08-30).
+
+PHASE 25.1 — UX Baseline: **implementation complete, awaiting architect review** (branch `review/phase-25-1-ux-baseline`).
+
 Next planned product phase: PHASE 26 — Personal Data Correlation.
 
-Do not start PHASE 26 until architect/manual UI verification is recorded.
+Do not start PHASE 26 until PHASE 25.1 architect review is recorded.
+
+## Deferred UX / data backlog (not PHASE 25.1)
+
+### PHASE 26 — Personal Data Correlation
+
+Semantic file summaries; folders as retrieval/graph source; local-file and email-attachment objects; open-in-source/file/folder actions; Gmail/Yandex deep links; desktop drag-and-drop; Android file picker; email attachments; proper search sorting; topology-aware Graph layout; curved/routed edges.
+
+### PHASE 29 — Personal Workflow Intelligence
+
+Unified colored labels/tags (Работа, Учёба, Наука, Личное, Дом, Финансы, Здоровье, Отдых, Идеи) — one canonical label system.
+
+### PHASE 30 — Release / advanced UX
+
+Manual Graph node drag; persisted personal Graph layout; final desktop/mobile polish.
 
 ## VDS production
 
@@ -105,4 +123,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-PHASE 26 — Personal Data Correlation (playbook). Do not start until PHASE 25 manual UI verification is recorded.
+PHASE 26 — Personal Data Correlation (playbook). Do not start until PHASE 25.1 architect review is recorded.

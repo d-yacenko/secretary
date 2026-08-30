@@ -35,7 +35,7 @@ void main() {
       ),
     );
 
-    final locale = Localizations.localeOf(tester.element(find.text('Дата')));
-    expect(locale.languageCode, 'ru');
+    final context = tester.element(find.text('Дата'));
+    expect(Localizations.localeOf(context).languageCode, 'ru');
   });
 }

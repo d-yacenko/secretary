@@ -169,4 +169,15 @@ void main() {
     expect(bounds.right, lessThanOrEqualTo(viewport.width));
     expect(bounds.bottom, lessThanOrEqualTo(viewport.height));
   });
+
+  test('computeEdgeEndpoints connects node borders not centers', () {
+    final endpoints = GraphLayout.computeEdgeEndpoints(
+      sourceCenter: const Offset(0, 0),
+      targetCenter: const Offset(200, 0),
+    );
+    expect(endpoints.start.dx, closeTo(kGraphNodeWidth / 2, 0.01));
+    expect(endpoints.start.dy, closeTo(0, 0.01));
+    expect(endpoints.end.dx, closeTo(200 - kGraphNodeWidth / 2, 0.01));
+    expect(endpoints.end.dy, closeTo(0, 0.01));
+  });
 }

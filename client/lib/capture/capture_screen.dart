@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../voice/voice_transcription_controller.dart';
 import 'capture_controller.dart';
 import 'capture_draft.dart';
 
@@ -25,15 +26,22 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
 
   void _onControllerChanged() {
-    if (widget.controller.submitState == CaptureSubmitState.success &&
-        widget.controller.draft.text.isEmpty) {
+    final controller = widget.controller;
+    if (controller.draft.text != _textController.text) {
+      _textController.text = controller.draft.text;
+      _textController.selection = TextSelection.collapsed(
+        offset: controller.draft.text.length,
+      );
+    }
+    if (controller.submitState == CaptureSubmitState.success &&
+        controller.draft.text.isEmpty) {
       _textController.clear();
       _titleController.clear();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Задача создана')),
         );
-        widget.controller.clearSuccess();
+        controller.clearSuccess();
       }
     }
     setState(() {});
@@ -47,11 +55,29 @@ class _CaptureScreenState extends State<CaptureScreen> {
     super.dispose();
   }
 
+  Future<void> _onVoicePressed() async {
+    final controller = widget.controller;
+    if (controller.voiceState == VoiceState.recording) {
+      await controller.stopVoiceRecordingAndTranscribe();
+      return;
+    }
+    if (controller.submitState == CaptureSubmitState.submitting ||
+        (controller.isVoiceBusy &&
+            controller.voiceState != VoiceState.recording)) {
+      return;
+    }
+    if (controller.voiceState == VoiceState.error) {
+      controller.clearVoiceError();
+    }
+    await controller.startVoiceRecording();
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final draft = controller.draft;
     final isSubmitting = controller.submitState == CaptureSubmitState.submitting;
+    final inputDisabled = isSubmitting || controller.isVoiceBusy;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Создание задачи')),
@@ -60,22 +86,74 @@ class _CaptureScreenState extends State<CaptureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
-              controller: _textController,
-              decoration: InputDecoration(
-                labelText: 'Текст задачи',
-                hintText: 'Что нужно сделать?',
-                errorText: draft.isTextTooLong
-                    ? 'Текст не должен превышать ${CaptureDraft.maxTextLength} символов'
-                    : controller.submitState == CaptureSubmitState.validationError &&
-                            draft.isBlank
-                        ? 'Текст задачи не может быть пустым'
-                        : null,
+            if (controller.voiceState == VoiceState.recording)
+              Material(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.mic, size: 18),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text('Запись… нажмите микрофон, чтобы остановить'),
+                      ),
+                      TextButton(
+                        key: const Key('capture_voice_stop'),
+                        onPressed: controller.stopVoiceRecordingAndTranscribe,
+                        child: const Text('Стоп'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              maxLines: 8,
-              maxLength: CaptureDraft.maxTextLength,
-              onChanged: controller.setText,
-              enabled: !isSubmitting,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: InputDecoration(
+                      labelText: 'Текст задачи',
+                      hintText: 'Что нужно сделать?',
+                      errorText: draft.isTextTooLong
+                          ? 'Текст не должен превышать ${CaptureDraft.maxTextLength} символов'
+                          : controller.submitState == CaptureSubmitState.validationError &&
+                                  draft.isBlank
+                              ? 'Текст задачи не может быть пустым'
+                              : null,
+                    ),
+                    maxLines: 8,
+                    maxLength: CaptureDraft.maxTextLength,
+                    onChanged: controller.setText,
+                    enabled: !inputDisabled,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  key: const Key('capture_voice_button'),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: controller.voiceState == VoiceState.recording
+                      ? 'Остановить запись'
+                      : 'Записать голосовую команду',
+                  onPressed: isSubmitting &&
+                          controller.voiceState != VoiceState.recording
+                      ? null
+                      : _onVoicePressed,
+                  icon: controller.voiceState == VoiceState.transcribing ||
+                          controller.voiceState == VoiceState.starting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          controller.voiceState == VoiceState.recording
+                              ? Icons.stop_circle_outlined
+                              : Icons.mic_none_outlined,
+                        ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             TextField(
@@ -88,7 +166,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ),
               maxLength: CaptureDraft.maxTitleLength,
               onChanged: controller.setTitle,
-              enabled: !isSubmitting,
+              enabled: !inputDisabled,
             ),
             if (controller.errorMessage != null &&
                 controller.submitState != CaptureSubmitState.success)
@@ -97,6 +175,25 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 child: Text(
                   controller.errorMessage!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            if (controller.voiceState == VoiceState.error &&
+                controller.voiceErrorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        controller.voiceErrorMessage!,
+                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: isSubmitting ? null : _onVoicePressed,
+                      child: const Text('Повторить'),
+                    ),
+                  ],
                 ),
               ),
             if (draft.contextRefs.isNotEmpty) ...[
@@ -112,7 +209,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ],
             const Spacer(),
             FilledButton(
-              onPressed: draft.canSubmit && !isSubmitting ? controller.submit : null,
+              onPressed: draft.canSubmit && !inputDisabled ? controller.submit : null,
               child: isSubmitting
                   ? const SizedBox(
                       width: 20,

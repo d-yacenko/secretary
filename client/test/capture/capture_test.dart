@@ -7,12 +7,15 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
+import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/capture/capture_draft.dart';
 import 'package:personal_secretary/objects/object_detail_screen.dart';
+import 'package:personal_secretary/voice/voice_transcription_controller.dart';
 
 void main() {
   const baseUrl = 'https://secretary.example';
@@ -26,7 +29,14 @@ void main() {
       tokenStore: FakeTokenStore(),
       serverUrlStore: FakeServerUrlStore(),
     );
-    return CaptureController(apiClient: apiClient, authController: auth);
+    return CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('capture_voice_test'),
+      ),
+    );
   }
 
   test('blank text cannot submit', () async {
@@ -374,5 +384,58 @@ void main() {
       expect(captureBody!.containsKey('body'), isFalse);
       expect(captureBody!.containsKey('context_body'), isFalse);
     });
+  });
+
+  test('capture voice sets empty task text from transcript', () async {
+    int transcribeCalls = 0;
+    int captureCalls = 0;
+    final controller = buildController(MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        transcribeCalls += 1;
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'text': 'Новая задача голосом'})),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      if (request.url.path.endsWith('/capture/task')) {
+        captureCalls += 1;
+        return http.Response('{}', 201);
+      }
+      return http.Response('{}', 404);
+    }));
+
+    await controller.startVoiceRecording();
+    expect(controller.voiceState, VoiceState.recording);
+    await controller.stopVoiceRecordingAndTranscribe();
+    while (controller.voiceState == VoiceState.transcribing) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect(transcribeCalls, 1);
+    expect(controller.draft.text, 'Новая задача голосом');
+    expect(captureCalls, 0);
+  });
+
+  test('capture voice appends transcript to existing text', () async {
+    final controller = buildController(MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'text': 'дополнение'})),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response('{}', 404);
+    }));
+
+    controller.setText('Уже есть текст');
+    await controller.startVoiceRecording();
+    await controller.stopVoiceRecordingAndTranscribe();
+    while (controller.voiceState == VoiceState.transcribing) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect(controller.draft.text, 'Уже есть текст дополнение');
   });
 }

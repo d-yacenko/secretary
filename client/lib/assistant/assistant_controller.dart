@@ -1,20 +1,14 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 
 import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
+import '../assistant/voice_recorder.dart';
+import '../assistant/voice_temp_files.dart';
 import '../auth/auth_controller.dart';
-import 'fake_voice_recorder.dart';
-import 'record_voice_recorder.dart';
-import 'voice_recorder.dart';
-import 'voice_recorder_exceptions.dart';
-import 'voice_temp_files.dart';
+import '../voice/voice_transcription_controller.dart';
 
 const int maxAssistantHistoryMessages = 12;
-const Duration maxVoiceRecordingDuration = Duration(seconds: 60);
 
 enum AssistantSendState {
   idle,
@@ -74,52 +68,52 @@ class AssistantChatMessage {
   final MessageActionPlan? actionPlan;
 }
 
+AssistantVoiceState _mapVoiceState(VoiceState state) =>
+    AssistantVoiceState.values[state.index];
+
 class AssistantController extends ChangeNotifier {
   AssistantController({
     required SecretaryApiClient apiClient,
     required AuthController authController,
     VoiceRecorder? voiceRecorder,
     VoiceTempFiles? voiceTempFiles,
+    VoiceTranscriptionController? voiceController,
   })  : _apiClient = apiClient,
         _authController = authController,
-        _voiceRecorder = voiceRecorder ??
-            (Platform.environment['FLUTTER_TEST'] == 'true'
-                ? FakeVoiceRecorder()
-                : RecordVoiceRecorder()),
-        _voiceTempFiles = voiceTempFiles ?? VoiceTempFiles();
+        _voice = voiceController ??
+            VoiceTranscriptionController(
+              apiClient: apiClient,
+              authController: authController,
+              voiceRecorder: voiceRecorder,
+              voiceTempFiles: voiceTempFiles,
+            ) {
+    _voice.addListener(_onVoiceChanged);
+  }
 
   final SecretaryApiClient _apiClient;
   final AuthController _authController;
-  final VoiceRecorder _voiceRecorder;
-  final VoiceTempFiles _voiceTempFiles;
+  final VoiceTranscriptionController _voice;
 
   final List<AssistantChatMessage> _messages = [];
   AssistantContextRef? _objectContext;
   AssistantContextRef? _notificationContext;
   AssistantSendState sendState = AssistantSendState.idle;
-  AssistantVoiceState voiceState = AssistantVoiceState.idle;
   AssistantActionPlanOperationState actionPlanOperationState =
       AssistantActionPlanOperationState.idle;
   String? errorMessage;
-  String? voiceErrorMessage;
   String? actionPlanErrorMessage;
   String? _pendingRetryMessage;
-  String? _activeRecordingPath;
-  Timer? _recordingLimitTimer;
-  int _voiceStartGeneration = 0;
-  bool _voiceStartInFlight = false;
   bool _approveInFlight = false;
+
+  AssistantVoiceState get voiceState => _mapVoiceState(_voice.voiceState);
+  String? get voiceErrorMessage => _voice.voiceErrorMessage;
 
   List<AssistantChatMessage> get messages => List.unmodifiable(_messages);
   AssistantContextRef? get objectContext => _objectContext;
   AssistantContextRef? get notificationContext => _notificationContext;
   String? get pendingRetryMessage => _pendingRetryMessage;
   bool get isSending => sendState == AssistantSendState.sending;
-  bool get isVoiceBusy =>
-      _voiceStartInFlight ||
-      voiceState == AssistantVoiceState.starting ||
-      voiceState == AssistantVoiceState.recording ||
-      voiceState == AssistantVoiceState.transcribing;
+  bool get isVoiceBusy => _voice.isVoiceBusy;
   bool get hasPendingActionPlan => _messages.any(
         (message) =>
             message.actionPlan != null &&
@@ -134,6 +128,10 @@ class AssistantController extends ChangeNotifier {
       isVoiceBusy ||
       hasPendingActionPlan ||
       isActionPlanOperationBusy;
+
+  void _onVoiceChanged() {
+    notifyListeners();
+  }
 
   void setObjectContext(SecretaryObject object) {
     _objectContext = AssistantContextRef(
@@ -380,246 +378,34 @@ class AssistantController extends ChangeNotifier {
   }
 
   Future<void> startVoiceRecording() async {
-    if (_voiceStartInFlight) {
-      return;
-    }
-    if (voiceState != AssistantVoiceState.idle &&
-        voiceState != AssistantVoiceState.error) {
-      return;
-    }
     if (isInputBlocked) {
       return;
     }
-
     if (voiceState == AssistantVoiceState.error) {
-      voiceErrorMessage = null;
+      clearVoiceError();
     }
-
-    _voiceStartInFlight = true;
-    voiceState = AssistantVoiceState.starting;
-    final startGeneration = ++_voiceStartGeneration;
-    String? operationPath;
-    notifyListeners();
-
-    try {
-      final hasPermission = await _voiceRecorder.hasPermission();
-      if (!hasPermission) {
-        final granted = await _voiceRecorder.requestPermission();
-        if (!granted) {
-          if (!_isActiveVoiceStart(startGeneration)) {
-            await _abortInFlightRecording(startGeneration, operationPath);
-            return;
-          }
-          _setVoiceError(const VoiceRecorderPermissionDenied().message);
-          return;
-        }
-      }
-
-      if (!_isActiveVoiceStart(startGeneration)) {
-        await _abortInFlightRecording(startGeneration, operationPath);
-        return;
-      }
-
-      operationPath = await _voiceTempFiles.createTempAudioPath(
-        _voiceRecorder.recordingFileExtension,
-      );
-      _activeRecordingPath = operationPath;
-      await _voiceRecorder.startRecording(operationPath);
-
-      if (!_isActiveVoiceStart(startGeneration)) {
-        await _abortInFlightRecording(startGeneration, operationPath);
-        return;
-      }
-
-      voiceState = AssistantVoiceState.recording;
-      voiceErrorMessage = null;
-      _recordingLimitTimer?.cancel();
-      if (Platform.environment['FLUTTER_TEST'] != 'true') {
-        _recordingLimitTimer = Timer(maxVoiceRecordingDuration, () {
-          unawaited(stopVoiceRecordingAndTranscribe());
-        });
-      }
-      notifyListeners();
-    } on VoiceRecorderException catch (e) {
-      if (_isActiveVoiceStart(startGeneration)) {
-        await _cleanupRecordingPath(operationPath);
-        _setVoiceError(e.message);
-      } else {
-        await _abortInFlightRecording(startGeneration, operationPath);
-      }
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('Voice recording startup failed: ${error.runtimeType}');
-      }
-      if (_isActiveVoiceStart(startGeneration)) {
-        await _cleanupRecordingPath(operationPath);
-        _setVoiceError(const VoiceRecorderStartFailure().message);
-      } else {
-        await _abortInFlightRecording(startGeneration, operationPath);
-      }
-    } finally {
-      _voiceStartInFlight = false;
-      notifyListeners();
-    }
+    await _voice.startRecording();
   }
 
   Future<void> stopVoiceRecordingAndTranscribe() async {
-    if (voiceState != AssistantVoiceState.recording) {
-      return;
-    }
-
-    voiceState = AssistantVoiceState.transcribing;
-    voiceErrorMessage = null;
-    _recordingLimitTimer?.cancel();
-    _recordingLimitTimer = null;
-    notifyListeners();
-
-    String? recordedPath;
-    try {
-      recordedPath = await _voiceRecorder.stopRecording();
-    } on VoiceRecorderException catch (e) {
-      await _cleanupActiveRecording();
-      _setVoiceError(e.message);
-      return;
-    } catch (_) {
-      await _cleanupActiveRecording();
-      _setVoiceError(const VoiceRecorderStopFailure().message);
-      return;
-    }
-    _activeRecordingPath = null;
-
-    final file = File(recordedPath);
-    try {
-      if (!await file.exists() || await file.length() == 0) {
-        await _voiceTempFiles.deleteIfExists(recordedPath);
-        _setVoiceError(const VoiceRecorderStopFailure().message);
-        return;
-      }
-    } catch (_) {
-      await _voiceTempFiles.deleteIfExists(recordedPath);
-      _setVoiceError(const VoiceRecorderStopFailure().message);
-      return;
-    }
-
-    List<int> audioBytes;
-    try {
-      audioBytes = await file.readAsBytes();
-    } catch (_) {
-      await _voiceTempFiles.deleteIfExists(recordedPath);
-      _setVoiceError(const VoiceRecorderStopFailure().message);
-      return;
-    } finally {
-      await _voiceTempFiles.deleteIfExists(recordedPath);
-    }
-
-    try {
-      final transcript = await _apiClient.transcribeAudio(
-        audioBytes: audioBytes,
-        filename: _voiceRecorder.recordingFilename,
-        contentType: _voiceRecorder.recordingContentType,
-      );
-      voiceState = AssistantVoiceState.idle;
-      notifyListeners();
-      if (isInputBlocked) {
-        _pendingRetryMessage = transcript;
-        notifyListeners();
-        return;
-      }
-      await sendMessage(transcript);
-    } on AuthenticationException catch (e) {
-      voiceState = AssistantVoiceState.error;
-      voiceErrorMessage = e.message;
-      _authController.handleAuthenticationFailure();
-      notifyListeners();
-    } on NetworkException catch (e) {
-      _setVoiceError(e.message);
-    } on ApiException catch (e) {
-      _setVoiceError(e.message);
-    }
+    await _voice.stopAndTranscribe(
+      onTranscript: (transcript) async {
+        if (isInputBlocked) {
+          _pendingRetryMessage = transcript;
+          notifyListeners();
+          return;
+        }
+        await sendMessage(transcript);
+      },
+    );
   }
 
   Future<void> cancelVoiceRecording() async {
-    if (voiceState == AssistantVoiceState.starting) {
-      _invalidateVoiceStart();
-      voiceState = AssistantVoiceState.idle;
-      voiceErrorMessage = null;
-      notifyListeners();
-      return;
-    }
-    if (voiceState != AssistantVoiceState.recording) {
-      return;
-    }
-
-    _recordingLimitTimer?.cancel();
-    _recordingLimitTimer = null;
-
-    await _bestEffortCancelRecorder();
-    await _cleanupActiveRecording();
-    _resetVoiceToIdle();
-    notifyListeners();
+    await _voice.cancel();
   }
 
   void clearVoiceError() {
-    if (voiceState == AssistantVoiceState.error) {
-      voiceState = AssistantVoiceState.idle;
-      voiceErrorMessage = null;
-      notifyListeners();
-    }
-  }
-
-  void _setVoiceError(String message) {
-    voiceState = AssistantVoiceState.error;
-    voiceErrorMessage = message;
-    notifyListeners();
-  }
-
-  void _resetVoiceToIdle() {
-    voiceState = AssistantVoiceState.idle;
-    voiceErrorMessage = null;
-  }
-
-  bool _isActiveVoiceStart(int generation) =>
-      generation == _voiceStartGeneration;
-
-  void _invalidateVoiceStart() {
-    _voiceStartGeneration++;
-  }
-
-  Future<void> _abortInFlightRecording(
-    int generation,
-    String? operationPath,
-  ) async {
-    if (generation != _voiceStartGeneration) {
-      await _bestEffortCancelRecorder();
-      await _cleanupRecordingPath(operationPath);
-    }
-    if (voiceState == AssistantVoiceState.starting ||
-        voiceState == AssistantVoiceState.recording) {
-      _resetVoiceToIdle();
-      notifyListeners();
-    }
-  }
-
-  Future<void> _bestEffortCancelRecorder() async {
-    try {
-      await _voiceRecorder.cancelRecording();
-    } catch (_) {
-      // Best-effort cleanup only.
-    }
-  }
-
-  Future<void> _cleanupRecordingPath(String? path) async {
-    if (path == null || path.isEmpty) {
-      return;
-    }
-    await _voiceTempFiles.deleteIfExists(path);
-    if (_activeRecordingPath == path) {
-      _activeRecordingPath = null;
-    }
-  }
-
-  Future<void> _cleanupActiveRecording() async {
-    await _cleanupRecordingPath(_activeRecordingPath);
+    _voice.clearError();
   }
 
   List<AssistantHistoryMessage> _boundedHistory() {
@@ -636,24 +422,13 @@ class AssistantController extends ChangeNotifier {
   }
 
   void resetSession() {
-    if (voiceState == AssistantVoiceState.starting ||
-        voiceState == AssistantVoiceState.recording) {
-      _invalidateVoiceStart();
-      _recordingLimitTimer?.cancel();
-      _recordingLimitTimer = null;
-      if (voiceState == AssistantVoiceState.recording) {
-        unawaited(_bestEffortCancelRecorder());
-        unawaited(_cleanupActiveRecording());
-      }
-    }
+    _voice.reset();
     _messages.clear();
     _objectContext = null;
     _notificationContext = null;
     sendState = AssistantSendState.idle;
-    voiceState = AssistantVoiceState.idle;
     actionPlanOperationState = AssistantActionPlanOperationState.idle;
     errorMessage = null;
-    voiceErrorMessage = null;
     actionPlanErrorMessage = null;
     _pendingRetryMessage = null;
     _approveInFlight = false;
@@ -662,17 +437,8 @@ class AssistantController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _recordingLimitTimer?.cancel();
-    if (voiceState == AssistantVoiceState.recording ||
-        voiceState == AssistantVoiceState.starting) {
-      _invalidateVoiceStart();
-      final path = _activeRecordingPath;
-      _activeRecordingPath = null;
-      voiceState = AssistantVoiceState.idle;
-      unawaited(_bestEffortCancelRecorder());
-      unawaited(_voiceTempFiles.deleteIfExists(path));
-    }
-    unawaited(_voiceRecorder.dispose());
+    _voice.removeListener(_onVoiceChanged);
+    _voice.dispose();
     super.dispose();
   }
 }

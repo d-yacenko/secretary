@@ -37,6 +37,29 @@ def test_create_and_get_object(client) -> None:
     assert body["id"] == created["id"]
     assert body["title"] == "Write spec"
     assert body["metadata"] == {}
+    assert "occurred_at" in body
+
+
+def test_object_out_serializes_occurred_at(client, db_session) -> None:
+    from datetime import UTC, datetime
+
+    from app.api.schemas import ObjectCreate
+    from app.services.graph_service import GraphService
+    from app.users.bootstrap import BOOTSTRAP_USER_ID
+
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, None)
+    obj = graph.create_object(
+        ObjectCreate(kind="email", title="Dated mail", origin="system"),
+    )
+    occurred = datetime(2026, 8, 30, 15, 43, tzinfo=UTC)
+    obj.occurred_at = occurred
+    db_session.commit()
+
+    response = client.get(f"/objects/{obj.id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["occurred_at"] is not None
+    assert "2026-08-30" in body["occurred_at"]
 
 
 def test_patch_object(client) -> None:

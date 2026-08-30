@@ -1,4 +1,8 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
@@ -92,6 +96,35 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }
   }
 
+  bool get _isDesktopPlatform {
+    if (kIsWeb) {
+      return false;
+    }
+    return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+  }
+
+  String get _sendTooltip =>
+      _isDesktopPlatform ? 'Отправить (Ctrl+Enter)' : 'Отправить';
+
+  KeyEventResult _handleInputKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (event.logicalKey != LogicalKeyboardKey.enter) {
+      return KeyEventResult.ignored;
+    }
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    final meta = HardwareKeyboard.instance.isMetaPressed;
+    if (!ctrl && !meta) {
+      return KeyEventResult.ignored;
+    }
+    if (widget.controller.isInputBlocked) {
+      return KeyEventResult.handled;
+    }
+    _send();
+    return KeyEventResult.handled;
+  }
+
   Future<void> _onVoicePressed() async {
     final controller = widget.controller;
     if (controller.voiceState == AssistantVoiceState.recording) {
@@ -183,78 +216,82 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
             ),
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: controller.messages.length,
-              itemBuilder: (context, index) {
-                final message = controller.messages[index];
-                final isUser = message.role == 'user';
-                final actionPlan = message.actionPlan;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Column(
-                    crossAxisAlignment:
-                        isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isUser
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(12),
+            child: SelectionArea(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                itemCount: controller.messages.length,
+                itemBuilder: (context, index) {
+                  final message = controller.messages[index];
+                  final isUser = message.role == 'user';
+                  final actionPlan = message.actionPlan;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment:
+                          isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isUser
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(message.content),
                         ),
-                        child: Text(message.content),
-                      ),
-                      if (!isUser && actionPlan != null)
-                        _ActionPlanCard(
-                          actionPlan: actionPlan,
-                          messageIndex: index,
-                          controller: controller,
-                          operationState: controller.actionPlanOperationState,
-                        ),
-                      if (!isUser && message.references.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: message.references
-                                .map(
-                                  (ref) => ActionChip(
-                                    label: Text(
-                                      '${objectKindLabel(ref.kind)}: ${ref.title}',
+                        if (!isUser && actionPlan != null)
+                          _ActionPlanCard(
+                            actionPlan: actionPlan,
+                            messageIndex: index,
+                            controller: controller,
+                            operationState: controller.actionPlanOperationState,
+                          ),
+                        if (!isUser && message.references.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: message.references
+                                  .map(
+                                    (ref) => ActionChip(
+                                      label: Text(
+                                        '${objectKindLabel(ref.kind)}: ${ref.title}',
+                                      ),
+                                      onPressed: () => _openReference(ref),
                                     ),
-                                    onPressed: () => _openReference(ref),
-                                  ),
-                                )
-                                .toList(),
+                                  )
+                                  .toList(),
+                            ),
                           ),
-                        ),
-                      if (!isUser && message.affectedObjects.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Затронутые объекты:',
-                                style: Theme.of(context).textTheme.labelLarge,
-                              ),
-                              ...message.affectedObjects.map(
-                                (affected) => ActionChip(
-                                  label: Text(affectedObjectDisplayLabel(affected)),
-                                  onPressed: () => _openAffectedObject(affected),
+                        if (!isUser && message.affectedObjects.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Затронутые объекты:',
+                                  style: Theme.of(context).textTheme.labelLarge,
                                 ),
-                              ),
-                            ],
+                                ...message.affectedObjects.map(
+                                  (affected) => ActionChip(
+                                    label: Text(affectedObjectDisplayLabel(affected)),
+                                    onPressed: () => _openAffectedObject(affected),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
-                );
-              },
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
           if (controller.sendState == AssistantSendState.error &&
@@ -296,17 +333,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
-                      child: TextField(
-                        key: const Key('assistant_input'),
-                        controller: _inputController,
-                        minLines: 1,
-                        maxLines: compact ? 3 : 4,
-                        decoration: const InputDecoration(
-                          hintText: 'Спросить секретаря…',
-                          border: OutlineInputBorder(),
-                          isDense: true,
+                      child: Focus(
+                        onKeyEvent: _handleInputKeyEvent,
+                        child: TextField(
+                          key: const Key('assistant_input'),
+                          controller: _inputController,
+                          minLines: 1,
+                          maxLines: compact ? 3 : 4,
+                          decoration: const InputDecoration(
+                            hintText: 'Спросить секретаря…',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
                         ),
-                        onSubmitted: inputDisabled ? null : (_) => _send(),
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -337,7 +376,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       IconButton(
                         key: const Key('assistant_send_button'),
                         visualDensity: VisualDensity.compact,
-                        tooltip: 'Отправить',
+                        tooltip: _sendTooltip,
                         onPressed: inputDisabled ? null : _send,
                         icon: controller.isSending
                             ? const SizedBox(
@@ -348,16 +387,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
                             : const Icon(Icons.send),
                       )
                     else
-                      FilledButton(
-                        key: const Key('assistant_send_button'),
-                        onPressed: inputDisabled ? null : _send,
-                        child: controller.isSending
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Отправить'),
+                      Tooltip(
+                        message: _sendTooltip,
+                        child: FilledButton(
+                          key: const Key('assistant_send_button'),
+                          onPressed: inputDisabled ? null : _send,
+                          child: controller.isSending
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Отправить'),
+                        ),
                       ),
                   ],
                 );

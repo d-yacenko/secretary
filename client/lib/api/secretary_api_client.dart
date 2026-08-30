@@ -184,6 +184,7 @@ class SecretaryApiClient {
   Future<List<SecretaryObject>> searchObjects({
     required String query,
     String? kind,
+    String? provider,
     int limit = 20,
   }) async {
     final queryParameters = <String, String>{
@@ -192,6 +193,9 @@ class SecretaryApiClient {
     };
     if (kind != null && kind.isNotEmpty) {
       queryParameters['kind'] = kind;
+    }
+    if (provider != null && provider.isNotEmpty) {
+      queryParameters['provider'] = provider;
     }
     final decoded = await _requestJson(
       'GET',

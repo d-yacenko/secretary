@@ -10,8 +10,9 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 import '../tasks/task_management_actions.dart';
-import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
+import '../ui/object_dates.dart';
+import '../ui/object_visuals.dart';
 import 'graph_layout.dart';
 import 'graph_workspace_controller.dart';
 
@@ -266,6 +267,9 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     final bounds = GraphLayout.computeBounds(positions);
     final canvasWidth = bounds.width + kGraphCanvasPadding * 2;
     final canvasHeight = bounds.height + kGraphCanvasPadding * 2;
+    final selectedObjectId = widget.controller.selectedObjectId;
+    final focusMode = selectedObjectId != null;
+    final focusNeighborIds = _focusNeighborIds(edges, selectedObjectId);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -305,18 +309,24 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     bounds: bounds,
                     padding: kGraphCanvasPadding,
                     selectedEdgeId: widget.controller.selectedEdgeId,
+                    selectedObjectId: selectedObjectId,
+                    focusMode: focusMode,
                     colorScheme: Theme.of(context).colorScheme,
                   ),
                 ),
                 ...nodes.map((node) {
                   final position = positions[node.id] ?? const Offset(0, 0);
-                  final selected = widget.controller.selectedObjectId == node.id;
+                  final selected = selectedObjectId == node.id;
+                  final emphasized = !focusMode ||
+                      selected ||
+                      focusNeighborIds.contains(node.id);
                   return Positioned(
                     left: position.dx - bounds.left + kGraphCanvasPadding,
                     top: position.dy - bounds.top + kGraphCanvasPadding,
                     child: _GraphNodeCard(
                       object: node,
                       selected: selected,
+                      focusDimmed: focusMode && !emphasized,
                       onTap: () => widget.controller.selectObject(node.id),
                     ),
                   );
@@ -345,6 +355,8 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
       (edge) => edge.sourceId == object.id || edge.targetId == object.id,
     );
 
+    final primaryDate = objectPrimaryDateLabel(object);
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -352,9 +364,22 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           children: [
             Icon(iconForKind(object.kind)),
             const SizedBox(width: 8),
+            if (object.provider != null) ...[
+              providerBadge(context, object.provider!),
+              const SizedBox(width: 8),
+            ],
             Expanded(
               child: Text(object.title, style: Theme.of(context).textTheme.titleMedium),
             ),
+            if (object.kind == 'task' && !object.isDeletedTask)
+              IconButton(
+                tooltip: 'Удалить задачу',
+                onPressed: () => _deleteTask(context, object),
+                icon: Icon(
+                  Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
             IconButton(
               tooltip: 'Закрыть',
               onPressed: () => widget.controller.selectObject(null),
@@ -362,16 +387,27 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             ),
           ],
         ),
-        Text(objectSummaryLabel(object)),
-        if (object.body != null) ...[
-          const SizedBox(height: 8),
-          Text(object.body!),
-        ],
-        if (object.dueAt != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text('Срок: ${formatUserDateTime(object.dueAt)}'),
+        SelectionArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(objectSummaryLabel(object)),
+              if (object.body != null) ...[
+                const SizedBox(height: 8),
+                Text(object.body!),
+              ],
+              if (primaryDate.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    object.kind == 'task'
+                        ? 'Срок: $primaryDate'
+                        : 'Дата: $primaryDate',
+                  ),
+                ),
+            ],
           ),
+        ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -462,7 +498,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           onTaskUpdated: widget.controller.applyTaskMutation,
         ),
         const SizedBox(height: 12),
-        Text('Связи', style: Theme.of(context).textTheme.titleSmall),
+        _DetailSectionHeader(title: 'Связи'),
         ...relatedEdges.map((edge) {
           final otherId = edge.sourceId == object.id ? edge.targetId : edge.sourceId;
           final other = widget.controller.nodeById(otherId);
@@ -579,6 +615,60 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     }
   }
 
+  Set<String> _focusNeighborIds(List<SecretaryEdge> edges, String? selectedId) {
+    if (selectedId == null) {
+      return {};
+    }
+    final neighbors = <String>{};
+    for (final edge in edges) {
+      if (edge.sourceId == selectedId) {
+        neighbors.add(edge.targetId);
+      }
+      if (edge.targetId == selectedId) {
+        neighbors.add(edge.sourceId);
+      }
+    }
+    return neighbors;
+  }
+
+  Future<void> _deleteTask(BuildContext context, SecretaryObject task) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить задачу?'),
+        content: Text(
+          '${task.title}\n\nЗадача будет скрыта из обычного поиска и активных представлений. '
+          'История в графе и связи сохранятся.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      final response = await widget.apiClient.softDeleteTask(task.id);
+      await widget.controller.applyTaskMutation(response.object);
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    }
+  }
+
   Future<void> _removeRelation(BuildContext context, SecretaryEdge edge) async {
     final source = widget.controller.nodeById(edge.sourceId);
     final target = widget.controller.nodeById(edge.targetId);
@@ -619,23 +709,75 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   }
 }
 
+String _graphNodeFooterLabel(SecretaryObject object) {
+  if (object.kind == 'task') {
+    final lifecycle = objectLifecycleDisplayLabel(object);
+    final due = objectPrimaryDateLabel(object);
+    if (due.isNotEmpty) {
+      return '$lifecycle • $due';
+    }
+    return lifecycle;
+  }
+  final primaryDate = objectPrimaryDateLabel(object);
+  if (primaryDate.isNotEmpty) {
+    return primaryDate;
+  }
+  return objectLifecycleDisplayLabel(object);
+}
+
+class _DetailSectionHeader extends StatelessWidget {
+  const _DetailSectionHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Divider(height: 1, color: theme.colorScheme.outlineVariant),
+        ],
+      ),
+    );
+  }
+}
+
 class _GraphNodeCard extends StatelessWidget {
   const _GraphNodeCard({
     required this.object,
     required this.selected,
+    required this.focusDimmed,
     required this.onTap,
   });
 
   final SecretaryObject object;
   final bool selected;
+  final bool focusDimmed;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
+    final baseColor = selected
+        ? scheme.primaryContainer
+        : object.kind == 'task'
+            ? scheme.surfaceContainerHigh
+            : scheme.surface;
+
+    final card = Material(
       elevation: selected ? 4 : 1,
-      color: selected ? scheme.primaryContainer : scheme.surface,
+      color: baseColor,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onTap,
@@ -648,41 +790,50 @@ class _GraphNodeCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: selected ? scheme.primary : scheme.outlineVariant,
+              width: selected ? 2 : 1,
             ),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(iconForKind(object.kind), size: 14),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      objectKindLabel(object.kind),
-                      style: Theme.of(context).textTheme.labelSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  Icon(iconForKind(object.kind), size: 16),
+                  const Spacer(),
+                  if (object.provider != null)
+                    providerBadge(context, object.provider!),
                 ],
               ),
-              Text(
-                object.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
+              const SizedBox(height: 4),
+              Expanded(
+                child: Text(
+                  object.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
               ),
               Text(
-                objectLifecycleDisplayLabel(object),
+                _graphNodeFooterLabel(object),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
               ),
             ],
           ),
         ),
+      ),
+    );
+
+    return Opacity(
+      opacity: focusDimmed ? 0.35 : 1,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: card,
       ),
     );
   }
@@ -695,6 +846,8 @@ class _GraphEdgePainter extends CustomPainter {
     required this.bounds,
     required this.padding,
     required this.selectedEdgeId,
+    required this.selectedObjectId,
+    required this.focusMode,
     required this.colorScheme,
   });
 
@@ -703,6 +856,8 @@ class _GraphEdgePainter extends CustomPainter {
   final Rect bounds;
   final double padding;
   final String? selectedEdgeId;
+  final String? selectedObjectId;
+  final bool focusMode;
   final ColorScheme colorScheme;
 
   Offset _nodeCenter(String objectId) {
@@ -713,6 +868,13 @@ class _GraphEdgePainter extends CustomPainter {
     );
   }
 
+  bool _isFocusEdge(SecretaryEdge edge) {
+    if (selectedObjectId == null) {
+      return false;
+    }
+    return edge.sourceId == selectedObjectId || edge.targetId == selectedObjectId;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     for (final edge in edges) {
@@ -720,15 +882,32 @@ class _GraphEdgePainter extends CustomPainter {
           !positions.containsKey(edge.targetId)) {
         continue;
       }
-      final paint = Paint()
-        ..strokeWidth = edge.id == selectedEdgeId ? 3 : 1.5
+
+      final focusEdge = focusMode && _isFocusEdge(edge);
+      final dimmed = focusMode && !focusEdge;
+      final emphasized = edge.id == selectedEdgeId || focusEdge;
+
+      var paint = Paint()
+        ..strokeWidth = emphasized ? 2.5 : 1.5
         ..color = edge.state == 'proposed'
             ? colorScheme.tertiary
-            : colorScheme.outline
+            : emphasized
+                ? colorScheme.primary
+                : colorScheme.outline
         ..style = PaintingStyle.stroke;
 
-      final start = _nodeCenter(edge.sourceId);
-      final end = _nodeCenter(edge.targetId);
+      if (dimmed) {
+        paint = paint..color = paint.color.withValues(alpha: 0.35);
+      }
+
+      final sourceCenter = _nodeCenter(edge.sourceId);
+      final targetCenter = _nodeCenter(edge.targetId);
+      final endpoints = GraphLayout.computeEdgeEndpoints(
+        sourceCenter: sourceCenter,
+        targetCenter: targetCenter,
+      );
+      final start = endpoints.start;
+      final end = endpoints.end;
       canvas.drawLine(start, end, paint);
 
       final angle = math.atan2(end.dy - start.dy, end.dx - start.dx);
