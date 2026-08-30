@@ -87,6 +87,7 @@ class AssistantController extends ChangeNotifier {
               voiceRecorder: voiceRecorder,
               voiceTempFiles: voiceTempFiles,
             ) {
+    _voice.bindTranscriptConsumer(_handleVoiceTranscript);
     _voice.addListener(_onVoiceChanged);
   }
 
@@ -388,16 +389,16 @@ class AssistantController extends ChangeNotifier {
   }
 
   Future<void> stopVoiceRecordingAndTranscribe() async {
-    await _voice.stopAndTranscribe(
-      onTranscript: (transcript) async {
-        if (isInputBlocked) {
-          _pendingRetryMessage = transcript;
-          notifyListeners();
-          return;
-        }
-        await sendMessage(transcript);
-      },
-    );
+    await _voice.stopAndTranscribe();
+  }
+
+  Future<void> _handleVoiceTranscript(String transcript) async {
+    if (isInputBlocked) {
+      _pendingRetryMessage = transcript;
+      notifyListeners();
+      return;
+    }
+    await sendMessage(transcript);
   }
 
   Future<void> cancelVoiceRecording() async {

@@ -37,6 +37,14 @@ void main() {
       ),
       contains('Срок:'),
     );
+    expect(objectPrimaryDateFieldLabel(_object(kind: 'task')), 'Срок');
+    expect(
+      objectPrimaryDateDisplayValue(
+        _object(kind: 'email', occurredAt: '2026-08-30T15:43:00Z'),
+      ),
+      contains('30.08.2026'),
+    );
+    expect(objectPrimaryDateFieldLabel(_object(kind: 'email')), 'Дата');
     expect(
       objectPrimaryDateIso(
         _object(kind: 'event', startAt: '2026-08-30T10:00:00Z'),

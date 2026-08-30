@@ -549,7 +549,7 @@ void main() {
     expect(harness.graph.rootId, isNull);
     expect(find.text('Task A'), findsNothing);
     expect(find.text('Task B'), findsOneWidget);
-    expect(rootedCalls, greaterThanOrEqualTo(2));
+    expect(rootedCalls, 1);
     expect(overviewCalls, greaterThanOrEqualTo(2));
   });
 

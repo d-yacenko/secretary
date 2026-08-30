@@ -22,6 +22,7 @@ Future<void> openObjectDetail(
   AssistantController? assistantController,
   AskSecretaryHandler? onAskSecretary,
   ShowInGraphHandler? onShowInGraph,
+  ValueChanged<SecretaryObject>? onTaskUpdated,
 }) async {
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
@@ -33,6 +34,7 @@ Future<void> openObjectDetail(
         assistantController: assistantController,
         onAskSecretary: onAskSecretary,
         onShowInGraph: onShowInGraph,
+        onTaskUpdated: onTaskUpdated,
       ),
     ),
   );

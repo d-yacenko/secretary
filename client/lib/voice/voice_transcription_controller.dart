@@ -29,6 +29,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
     VoiceRecorder? voiceRecorder,
     VoiceTempFiles? voiceTempFiles,
     Duration maxRecordingDuration = maxVoiceRecordingDuration,
+    bool enableAutoStopInTests = false,
   })  : _apiClient = apiClient,
         _authController = authController,
         _voiceRecorder = voiceRecorder ??
@@ -36,13 +37,17 @@ class VoiceTranscriptionController extends ChangeNotifier {
                 ? FakeVoiceRecorder()
                 : RecordVoiceRecorder()),
         _voiceTempFiles = voiceTempFiles ?? VoiceTempFiles(),
-        _maxRecordingDuration = maxRecordingDuration;
+        _maxRecordingDuration = maxRecordingDuration,
+        _enableAutoStopInTests = enableAutoStopInTests;
 
   final SecretaryApiClient _apiClient;
   final AuthController _authController;
   final VoiceRecorder _voiceRecorder;
   final VoiceTempFiles _voiceTempFiles;
   final Duration _maxRecordingDuration;
+  final bool _enableAutoStopInTests;
+
+  Future<void> Function(String transcript)? _transcriptConsumer;
 
   VoiceState voiceState = VoiceState.idle;
   String? voiceErrorMessage;
@@ -56,6 +61,12 @@ class VoiceTranscriptionController extends ChangeNotifier {
       voiceState == VoiceState.starting ||
       voiceState == VoiceState.recording ||
       voiceState == VoiceState.transcribing;
+
+  void bindTranscriptConsumer(
+    Future<void> Function(String transcript) consumer,
+  ) {
+    _transcriptConsumer = consumer;
+  }
 
   Future<void> startRecording() async {
     if (_voiceStartInFlight) {
@@ -108,9 +119,9 @@ class VoiceTranscriptionController extends ChangeNotifier {
       voiceState = VoiceState.recording;
       voiceErrorMessage = null;
       _recordingLimitTimer?.cancel();
-      if (Platform.environment['FLUTTER_TEST'] != 'true') {
+      if (Platform.environment['FLUTTER_TEST'] != 'true' || _enableAutoStopInTests) {
         _recordingLimitTimer = Timer(_maxRecordingDuration, () {
-          unawaited(stopAndTranscribe(onTranscript: (_) async {}));
+          unawaited(stopAndTranscribe());
         });
       }
       notifyListeners();
@@ -138,9 +149,14 @@ class VoiceTranscriptionController extends ChangeNotifier {
   }
 
   Future<void> stopAndTranscribe({
-    required Future<void> Function(String transcript) onTranscript,
+    Future<void> Function(String transcript)? onTranscript,
   }) async {
     if (voiceState != VoiceState.recording) {
+      return;
+    }
+
+    final handler = onTranscript ?? _transcriptConsumer;
+    if (handler == null) {
       return;
     }
 
@@ -196,7 +212,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
       );
       voiceState = VoiceState.idle;
       notifyListeners();
-      await onTranscript(transcript);
+      await handler(transcript);
     } on AuthenticationException catch (e) {
       voiceState = VoiceState.error;
       voiceErrorMessage = e.message;

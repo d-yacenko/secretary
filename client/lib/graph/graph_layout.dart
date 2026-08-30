@@ -7,11 +7,17 @@ import '../api/api_models.dart';
 
 const double kGraphNodeWidth = 186;
 const double kGraphNodeHeight = 100;
+const double kGraphNodeHorizontalGap = 24;
+const double kGraphNodeVerticalGap = 24;
+const int kGraphOverviewColumns = 4;
 const double kGraphCanvasPadding = 80;
 const double kGraphMinScale = 0.05;
 const double kGraphMaxScale = 2.5;
 
 class GraphLayout {
+  static double get overviewColumnStep => kGraphNodeWidth + kGraphNodeHorizontalGap;
+  static double get overviewRowStep => kGraphNodeHeight + kGraphNodeVerticalGap;
+
   static Map<String, Offset> computePositions({
     required List<SecretaryObject> nodes,
     required String? rootId,
@@ -34,8 +40,8 @@ class GraphLayout {
       final ringNodes = sorted.where((node) => node.id != rootId).toList();
       final newcomers = ringNodes.where((node) => !positions.containsKey(node.id)).toList();
       if (newcomers.isNotEmpty) {
+        final radius = _ringRadiusForCount(newcomers.length);
         final step = (2 * math.pi) / newcomers.length;
-        final radius = 180.0;
         for (var index = 0; index < newcomers.length; index++) {
           final angle = step * index - math.pi / 2;
           positions[newcomers[index].id] = Offset(
@@ -50,15 +56,42 @@ class GraphLayout {
     final newcomers = sorted.where((node) => !positions.containsKey(node.id)).toList();
     var column = 0;
     var row = 0;
+    final originX = -(overviewColumnStep * (kGraphOverviewColumns - 1)) / 2;
+    final originY = -overviewRowStep;
     for (final node in newcomers) {
-      positions[node.id] = Offset(column * 160 - 240, row * 110 - 120);
+      positions[node.id] = Offset(
+        originX + column * overviewColumnStep,
+        originY + row * overviewRowStep,
+      );
       column += 1;
-      if (column >= 4) {
+      if (column >= kGraphOverviewColumns) {
         column = 0;
         row += 1;
       }
     }
     return positions;
+  }
+
+  static double _ringRadiusForCount(int count) {
+    if (count <= 1) {
+      return kGraphNodeWidth + kGraphNodeHorizontalGap;
+    }
+    final minCenterDistance = kGraphNodeWidth + kGraphNodeHorizontalGap;
+    final halfAngle = math.pi / count;
+    return minCenterDistance / (2 * math.sin(halfAngle));
+  }
+
+  static Rect nodeRectAt(Offset position) {
+    return Rect.fromLTWH(
+      position.dx,
+      position.dy,
+      kGraphNodeWidth,
+      kGraphNodeHeight,
+    );
+  }
+
+  static bool nodeRectsOverlap(Offset left, Offset right) {
+    return nodeRectAt(left).overlaps(nodeRectAt(right));
   }
 
   /// Bounds of node rectangles in graph coordinates.

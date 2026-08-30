@@ -449,6 +449,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     assistantController: widget.assistantController,
                     onAskSecretary: widget.onAskSecretary,
                     onShowInGraph: (id) => controller.reRoot(id),
+                    onTaskUpdated: controller.applyTaskMutation,
                   );
                   if (!mounted) {
                     return;
@@ -799,7 +800,15 @@ class _GraphNodeCard extends StatelessWidget {
               Row(
                 children: [
                   Icon(iconForKind(object.kind), size: 16),
-                  const Spacer(),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      objectKindLabel(object.kind),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
                   if (object.provider != null)
                     providerBadge(context, object.provider!),
                 ],

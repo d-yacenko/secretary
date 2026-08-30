@@ -37,6 +37,7 @@ class CaptureController extends ChangeNotifier {
               voiceRecorder: voiceRecorder,
               voiceTempFiles: voiceTempFiles,
             ) {
+    _voice.bindTranscriptConsumer(_handleVoiceTranscript);
     _voice.addListener(_onVoiceChanged);
   }
 
@@ -139,11 +140,11 @@ class CaptureController extends ChangeNotifier {
   }
 
   Future<void> stopVoiceRecordingAndTranscribe() async {
-    await _voice.stopAndTranscribe(
-      onTranscript: (transcript) async {
-        appendTranscriptToText(transcript);
-      },
-    );
+    await _voice.stopAndTranscribe();
+  }
+
+  Future<void> _handleVoiceTranscript(String transcript) async {
+    appendTranscriptToText(transcript);
   }
 
   Future<void> cancelVoiceRecording() async {

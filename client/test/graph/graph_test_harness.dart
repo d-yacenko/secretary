@@ -30,13 +30,14 @@ Map<String, dynamic> graphObjectJson({
   required String title,
   String kind = 'task',
   String status = 'open',
+  String? provider,
 }) {
   return {
     'id': id,
     'kind': kind,
     'title': title,
     'body': null,
-    'provider': null,
+    'provider': provider,
     'external_id': null,
     'canonical_uri': null,
     'status': status,
@@ -130,7 +131,59 @@ MockClient overviewMock({
   String nodeId = 'task-1',
   String title = 'Graph task',
   String status = 'open',
+  String? provider,
 }) {
+  return MockClient((request) async {
+    if (request.url.path == '/notifications') {
+      return jsonUtf8Response({'notifications': []});
+    }
+    if (request.url.path == '/today') {
+      return jsonUtf8Response({
+        'date': '2026-08-28',
+        'timezone': 'Europe/Amsterdam',
+        'day_start': '2026-08-28T08:00:00+02:00',
+        'tasks': [],
+        'calendar_events': [],
+        'notifications': [],
+      });
+    }
+    if (request.url.path == '/graph/workspace') {
+      return jsonUtf8Response(
+        graphWorkspaceJson(
+          nodes: [
+            graphObjectJson(
+              id: nodeId,
+              title: title,
+              status: status,
+              provider: provider,
+            ),
+          ],
+          truncated: truncated,
+        ),
+      );
+    }
+    if (request.url.path == '/search') {
+      return jsonUtf8Response([
+        graphObjectJson(id: 'search-root', title: 'Search hit'),
+      ]);
+    }
+    return jsonUtf8Response({}, statusCode: 404);
+  });
+}
+
+Map<String, dynamic> graphObjectJsonWithProvider({
+  required String id,
+  required String title,
+  required String provider,
+  String kind = 'email',
+  String status = 'open',
+}) {
+  final json = graphObjectJson(id: id, title: title, kind: kind, status: status);
+  json['provider'] = provider;
+  return json;
+}
+
+MockClient multiNodeOverviewMock() {
   return MockClient((request) async {
     if (request.url.path == '/notifications') {
       return jsonUtf8Response({'notifications': []});
@@ -146,17 +199,81 @@ MockClient overviewMock({
       });
     }
     if (request.url.path == '/graph/workspace') {
-      return jsonUtf8Response(
-        graphWorkspaceJson(
-          nodes: [graphObjectJson(id: nodeId, title: title, status: status)],
-          truncated: truncated,
+      final root = request.url.queryParameters['root_id'];
+      if (root == 'task-center') {
+        return jsonUtf8Response(
+          graphWorkspaceJson(
+            rootId: 'task-center',
+            nodes: [
+              graphObjectJson(id: 'task-center', title: 'Центральная задача', kind: 'task'),
+              graphObjectJsonWithProvider(
+                id: 'email-gmail',
+                title: 'Gmail письмо',
+                provider: 'gmail',
+              ),
+              graphObjectJsonWithProvider(
+                id: 'email-yandex',
+                title: 'Яндекс письмо',
+                provider: 'yandex_mail',
+              ),
+              graphObjectJsonWithProvider(
+                id: 'file-local',
+                title: 'Локальный файл',
+                kind: 'file',
+                provider: 'local_device',
+              ),
+            ],
+            edges: [
+              {
+                'id': 'e1',
+                'source_id': 'task-center',
+                'target_id': 'email-gmail',
+                'type': 'references',
+                'origin': 'user',
+                'state': 'confirmed',
+                'metadata': {},
+                'created_at': '2026-01-01T00:00:00Z',
+                'updated_at': '2026-01-01T00:00:00Z',
+              },
+              {
+                'id': 'e2',
+                'source_id': 'task-center',
+                'target_id': 'email-yandex',
+                'type': 'references',
+                'origin': 'user',
+                'state': 'confirmed',
+                'metadata': {},
+                'created_at': '2026-01-01T00:00:00Z',
+                'updated_at': '2026-01-01T00:00:00Z',
+              },
+              {
+                'id': 'e3',
+                'source_id': 'task-center',
+                'target_id': 'file-local',
+                'type': 'references',
+                'origin': 'user',
+                'state': 'confirmed',
+                'metadata': {},
+                'created_at': '2026-01-01T00:00:00Z',
+                'updated_at': '2026-01-01T00:00:00Z',
+              },
+            ],
+          ),
+        );
+      }
+      final nodes = List.generate(
+        8,
+        (index) => graphObjectJson(
+          id: 'overview-$index',
+          title: 'Обзорная задача $index',
+          kind: index == 0 ? 'task' : 'email',
+          provider: index == 1 ? 'gmail' : index == 2 ? 'yandex_mail' : index == 3 ? 'local_device' : null,
         ),
       );
+      return jsonUtf8Response(graphWorkspaceJson(nodes: nodes, truncated: false));
     }
     if (request.url.path == '/search') {
-      return jsonUtf8Response([
-        graphObjectJson(id: 'search-root', title: 'Search hit'),
-      ]);
+      return jsonUtf8Response([]);
     }
     return jsonUtf8Response({}, statusCode: 404);
   });

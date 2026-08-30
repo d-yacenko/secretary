@@ -180,4 +180,78 @@ void main() {
     expect(endpoints.end.dx, closeTo(200 - kGraphNodeWidth / 2, 0.01));
     expect(endpoints.end.dy, closeTo(0, 0.01));
   });
+
+  test('overview layout does not overlap fixed-size node cards', () {
+    final nodes = List.generate(
+      16,
+      (index) => SecretaryObject(
+        id: 'node-$index',
+        kind: 'task',
+        title: 'Task $index',
+        metadata: {},
+        origin: 'user',
+        state: 'confirmed',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      ),
+    );
+    final positions = GraphLayout.computePositions(
+      nodes: nodes,
+      rootId: null,
+      existing: {},
+      freshRoot: true,
+    );
+    final ids = positions.keys.toList();
+    for (var i = 0; i < ids.length; i++) {
+      for (var j = i + 1; j < ids.length; j++) {
+        expect(
+          GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
+          isFalse,
+          reason: 'overlap between ${ids[i]} and ${ids[j]}',
+        );
+      }
+    }
+  });
+
+  test('rooted ring layout does not overlap fixed-size node cards', () {
+    final root = SecretaryObject(
+      id: 'root',
+      kind: 'task',
+      title: 'Root',
+      metadata: {},
+      origin: 'user',
+      state: 'confirmed',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    final ring = List.generate(
+      8,
+      (index) => SecretaryObject(
+        id: 'ring-$index',
+        kind: 'email',
+        title: 'Email $index',
+        metadata: {},
+        origin: 'source',
+        state: 'observed',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      ),
+    );
+    final positions = GraphLayout.computePositions(
+      nodes: [root, ...ring],
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final ids = positions.keys.toList();
+    for (var i = 0; i < ids.length; i++) {
+      for (var j = i + 1; j < ids.length; j++) {
+        expect(
+          GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
+          isFalse,
+          reason: 'overlap between ${ids[i]} and ${ids[j]}',
+        );
+      }
+    }
+  });
 }

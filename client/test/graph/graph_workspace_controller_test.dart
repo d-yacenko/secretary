@@ -386,6 +386,34 @@ void main() {
     expect(controller.nodeById('b'), isNotNull);
   });
 
+  test('refresh rooted deleted root from API falls back to overview', () async {
+    var rootedCalls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        if (rootId == 'a') {
+          rootedCalls += 1;
+          if (rootedCalls == 1) {
+            return _workspace(rootId: 'a', nodes: [_obj('a', 'A')]);
+          }
+          return _workspace(
+            rootId: 'a',
+            nodes: [_obj('a', 'A', status: 'deleted')],
+          );
+        }
+        return _workspace(nodes: [_obj('b', 'B')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.reRoot('a');
+    await controller.refreshCurrentWorkspace();
+
+    expect(controller.rootId, isNull);
+    expect(controller.nodeById('a'), isNull);
+    expect(controller.nodeById('b'), isNotNull);
+  });
+
   test('refresh rooted missing root falls back to overview', () async {
     var rootedCalls = 0;
     final auth = _FakeAuth();

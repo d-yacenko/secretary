@@ -187,8 +187,14 @@ class GraphWorkspaceController extends ChangeNotifier {
     notifyListeners();
     try {
       final workspace = await _apiClient.getGraphWorkspace(rootId: objectId);
-      final rootPresent = workspace.nodes.any((node) => node.id == objectId);
-      if (!rootPresent) {
+      SecretaryObject? rootNode;
+      for (final node in workspace.nodes) {
+        if (node.id == objectId) {
+          rootNode = node;
+          break;
+        }
+      }
+      if (rootNode == null || rootNode.isDeletedTask) {
         await _loadOverviewFromMissingRoot();
         return;
       }

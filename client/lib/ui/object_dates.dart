@@ -36,3 +36,31 @@ String objectPrimaryDateLabel(SecretaryObject object) {
   }
   return formatted;
 }
+
+String objectPrimaryDateFieldLabel(SecretaryObject object) {
+  switch (object.kind) {
+    case 'task':
+      return 'Срок';
+    case 'event':
+    case 'calendar_event':
+      return 'Начало';
+    case 'email':
+    case 'message':
+    case 'chat':
+      return 'Дата';
+    case 'file':
+    case 'document':
+    case 'dataset':
+      return 'Изменено';
+    default:
+      return 'Дата';
+  }
+}
+
+String objectPrimaryDateDisplayValue(SecretaryObject object) {
+  final iso = objectPrimaryDateIso(object);
+  if (iso == null || iso.trim().isEmpty) {
+    return '';
+  }
+  return formatUserDateTime(iso);
+}

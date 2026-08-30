@@ -4,6 +4,8 @@ import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/graph/graph_layout.dart';
 import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/graph/graph_workspace_screen.dart';
+import 'package:personal_secretary/ui/domain_labels.dart';
+import 'package:personal_secretary/ui/object_visuals.dart';
 
 import '../graph/graph_test_harness.dart';
 
@@ -52,6 +54,7 @@ void main() {
       expect(find.byType(GraphWorkspaceScreen), findsOneWidget);
       expect(harness.graph.loadState, GraphWorkspaceLoadState.ready);
       expect(find.textContaining('Подготовить'), findsWidgets);
+      expect(find.text(objectKindLabel('task')), findsWidgets);
       expect(find.text('В работе'), findsWidgets);
       expect(tester.takeException(), isNull);
     });
@@ -82,5 +85,71 @@ void main() {
     expect(harness.graph.loadState, GraphWorkspaceLoadState.ready);
     expect(find.text('В работе'), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('overview shows provider badges and human-readable types', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final harness = GraphTestHarness(multiNodeOverviewMock());
+    harness.configure();
+    await openGraph(tester, harness);
+
+    expect(find.text(objectKindLabel('task')), findsWidgets);
+    expect(find.text(objectKindLabel('email')), findsWidgets);
+    expect(find.text('G'), findsWidgets);
+    expect(find.text('Я'), findsWidgets);
+    expect(find.text('ПК'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('overview layout positions do not overlap', (tester) async {
+    final harness = GraphTestHarness(multiNodeOverviewMock());
+    harness.configure();
+    await openGraph(tester, harness);
+
+    final positions = harness.graph.positions;
+    final ids = positions.keys.toList();
+    for (var i = 0; i < ids.length; i++) {
+      for (var j = i + 1; j < ids.length; j++) {
+        expect(
+          GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
+          isFalse,
+        );
+      }
+    }
+  });
+
+  testWidgets('rooted focus mode keeps neighbors visible', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final harness = GraphTestHarness(multiNodeOverviewMock());
+    harness.configure();
+    await openGraph(tester, harness);
+
+    await harness.graph.reRoot('task-center');
+    await tester.pumpAndSettle();
+
+    harness.graph.selectObject('task-center');
+    await tester.pump();
+
+    expect(find.text('Gmail письмо'), findsWidgets);
+    expect(find.text('Яндекс письмо'), findsWidgets);
+    expect(find.text('Локальный файл'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('edge endpoints use card boundaries not centers', () {
+    final endpoints = GraphLayout.computeEdgeEndpoints(
+      sourceCenter: const Offset(50, 50),
+      targetCenter: const Offset(300, 50),
+    );
+    expect(endpoints.start.dx, greaterThan(50));
+    expect(endpoints.end.dx, lessThan(300));
   });
 }

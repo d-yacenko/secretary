@@ -12,6 +12,7 @@ import '../navigation/secretary_navigation.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
+import '../ui/object_dates.dart';
 import '../ui/object_visuals.dart';
 
 enum ObjectDetailLoadState { loading, ready, error }
@@ -26,6 +27,7 @@ class ObjectDetailScreen extends StatefulWidget {
     this.assistantController,
     this.onAskSecretary,
     this.onShowInGraph,
+    this.onTaskUpdated,
   });
 
   final String objectId;
@@ -35,6 +37,7 @@ class ObjectDetailScreen extends StatefulWidget {
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
   final ShowInGraphHandler? onShowInGraph;
+  final ValueChanged<SecretaryObject>? onTaskUpdated;
 
   @override
   State<ObjectDetailScreen> createState() => _ObjectDetailScreenState();
@@ -112,6 +115,11 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     Navigator.of(context).pop();
   }
 
+  void _notifyTaskUpdated(SecretaryObject updated) {
+    setState(() => _object = updated);
+    widget.onTaskUpdated?.call(updated);
+  }
+
   Future<void> _deleteTask() async {
     final object = _object;
     if (object == null) {
@@ -122,7 +130,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       task: object,
       apiClient: widget.apiClient,
       authController: widget.authController,
-      onTaskUpdated: (updated) => setState(() => _object = updated),
+      onTaskUpdated: _notifyTaskUpdated,
     );
   }
 
@@ -185,10 +193,16 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         );
       case ObjectDetailLoadState.ready:
         final object = _object!;
+        final primaryDateValue = objectPrimaryDateDisplayValue(object);
         return SelectionArea(
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (primaryDateValue.isNotEmpty)
+                _FieldRow(
+                  label: objectPrimaryDateFieldLabel(object),
+                  value: primaryDateValue,
+                ),
               _FieldRow(label: 'Тип', value: objectKindLabel(object.kind)),
               if (object.status != null)
                 _FieldRow(label: 'Статус', value: taskStatusLabel(object.status)),
@@ -203,10 +217,6 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                 value: formatUserDateTime(object.updatedAt),
               ),
               if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
-              if (object.startAt != null)
-                _FieldRow(label: 'Начало', value: formatUserDateTime(object.startAt)),
-              if (object.dueAt != null)
-                _FieldRow(label: 'Срок', value: formatUserDateTime(object.dueAt)),
               if (object.provider != null)
                 _FieldRow(label: 'Провайдер', value: providerLabel(object.provider!)),
               if (object.canonicalUri != null)
@@ -242,6 +252,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                       assistantController: widget.assistantController,
                       onAskSecretary: widget.onAskSecretary,
                       onShowInGraph: widget.onShowInGraph,
+                      onTaskUpdated: widget.onTaskUpdated,
                     ),
                   ),
                 ),
@@ -251,7 +262,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   task: _object!,
                   apiClient: widget.apiClient,
                   authController: widget.authController,
-                  onTaskUpdated: (updated) => setState(() => _object = updated),
+                  onTaskUpdated: _notifyTaskUpdated,
                 ),
               const SizedBox(height: 16),
               Text('Контекст', style: Theme.of(context).textTheme.titleMedium),
