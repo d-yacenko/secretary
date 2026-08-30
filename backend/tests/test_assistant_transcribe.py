@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 
 from app.api.assistant import get_transcription_provider
 from app.api.deps import get_db, get_embedding_service
-from app.assistant.transcription_constants import MAX_TRANSCRIPTION_AUDIO_BYTES
 from app.db.models import Edge, Job, Object
 from app.llm.fake_transcription_provider import FakeTranscriptionProvider
 from app.llm.openai_transcription_provider import (
@@ -230,40 +229,84 @@ def test_transcribe_does_not_create_db_state(transcribe_client, db_session) -> N
     assert db_session.scalar(select(func.count()).select_from(Job)) == before_jobs
 
 
-def test_read_bounded_transcription_audio_rejects_at_max_plus_one(monkeypatch) -> None:
+def test_read_bounded_transcription_audio_rejects_without_reading_beyond_max_plus_one(
+    monkeypatch,
+) -> None:
+    import asyncio
+
     from app.assistant.transcription_audio import read_bounded_transcription_audio
     from app.services.errors import ValidationError
+
+    limit = 64
+    monkeypatch.setattr(
+        "app.assistant.transcription_audio.MAX_TRANSCRIPTION_AUDIO_BYTES",
+        limit,
+    )
+    oversized = b"x" * (limit + 100_000)
 
     class FakeUpload:
         filename = "clip.wav"
         content_type = "audio/wav"
         _offset = 0
-        _data = b"x" * (MAX_TRANSCRIPTION_AUDIO_BYTES + 1)
+        bytes_read = 0
 
         async def read(self, size: int) -> bytes:
-            chunk = self._data[self._offset : self._offset + size]
+            chunk = oversized[self._offset : self._offset + size]
             self._offset += len(chunk)
+            self.bytes_read += len(chunk)
             return chunk
 
+    upload = FakeUpload()
     with pytest.raises(ValidationError, match="audio exceeds size limit"):
-        import asyncio
+        asyncio.run(read_bounded_transcription_audio(upload))
 
-        asyncio.run(read_bounded_transcription_audio(FakeUpload()))
+    assert upload.bytes_read <= limit + 1
 
 
-@pytest.mark.live
-def test_live_transcription_smoke() -> None:
-    import os
+def test_transcribe_audio_upload_runs_provider_in_threadpool(monkeypatch) -> None:
+    import asyncio
+    import threading
 
-    if os.environ.get("RUN_LIVE_OPENAI") != "1":
-        pytest.skip("set RUN_LIVE_OPENAI=1 to run live OpenAI smoke")
-    from app.core.config import settings
-    from app.services.transcription_service import create_transcription_provider
+    from starlette.concurrency import run_in_threadpool
 
-    if not settings.openai_api_key:
-        pytest.skip("OPENAI_API_KEY not configured")
+    from app.services.transcription_service import transcribe_audio_upload
 
-    provider = create_transcription_provider()
-    # Minimal valid-ish wav header is not required for live test if API accepts bytes
-    text = provider.transcribe(b"test", "clip.wav", "audio/wav")
-    assert isinstance(text, str)
+    caller_thread = threading.current_thread().ident
+    provider_thread: int | None = None
+    threadpool_used = False
+
+    class FakeUpload:
+        filename = "clip.wav"
+        content_type = "audio/wav"
+
+        async def read(self, size: int) -> bytes:
+            return b"audio-bytes"
+
+    provider = FakeTranscriptionProvider()
+    original_transcribe = provider.transcribe
+
+    def transcribe_in_thread(*args, **kwargs):
+        nonlocal provider_thread
+        provider_thread = threading.current_thread().ident
+        return original_transcribe(*args, **kwargs)
+
+    provider.transcribe = transcribe_in_thread
+
+    real_run_in_threadpool = run_in_threadpool
+
+    async def tracked_run_in_threadpool(func, *args, **kwargs):
+        nonlocal threadpool_used
+        threadpool_used = True
+        return await real_run_in_threadpool(func, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.transcription_service.run_in_threadpool",
+        tracked_run_in_threadpool,
+    )
+
+    asyncio.run(transcribe_audio_upload(FakeUpload(), provider))
+
+    assert threadpool_used
+    assert provider_thread is not None
+    assert provider_thread != caller_thread
+

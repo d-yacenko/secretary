@@ -1,6 +1,7 @@
 import time
 
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.assistant.transcription_audio import read_bounded_transcription_audio
 from app.assistant.transcription_telemetry import log_transcription_telemetry
@@ -36,7 +37,8 @@ async def transcribe_audio_upload(
     model = _provider_model(provider)
     started = time.perf_counter()
     try:
-        text = provider.transcribe(
+        text = await run_in_threadpool(
+            provider.transcribe,
             audio_bytes,
             filename,
             upload.content_type,
