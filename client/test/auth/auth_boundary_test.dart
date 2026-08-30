@@ -67,18 +67,18 @@ void main() {
 
     await pumpNarrowApp(tester, auth);
 
-    await tester.tap(find.text('Capture'));
+    await tester.tap(find.text('Добавить'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Capture task'), findsOneWidget);
+    expect(find.text('Создание задачи'), findsOneWidget);
     await tester.enterText(find.byType(TextField).first, 'do something');
     await tester.pump();
-    await tester.tap(find.text('Create task'));
+    await tester.tap(find.text('Создать задачу'));
     await tester.pump();
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect to Secretary'), findsOneWidget);
-    expect(find.text('Capture task'), findsNothing);
+    expect(find.text('Подключение к Secretary'), findsOneWidget);
+    expect(find.text('Создание задачи'), findsNothing);
     expect(auth.status, AuthStatus.needsAuth);
     expect(auth.user, isNull);
   });
@@ -106,13 +106,13 @@ void main() {
 
     await pumpNarrowApp(tester, auth);
 
-    await tester.tap(find.byTooltip('Account'));
+    await tester.tap(find.byTooltip('Аккаунт'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect to Secretary'), findsOneWidget);
-    expect(find.text('Account'), findsNothing);
+    expect(find.text('Подключение к Secretary'), findsOneWidget);
+    expect(find.text('Аккаунт'), findsNothing);
     expect(auth.status, AuthStatus.needsAuth);
   });
 }

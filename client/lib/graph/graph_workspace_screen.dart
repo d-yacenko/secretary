@@ -10,6 +10,8 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 import '../tasks/task_management_actions.dart';
+import '../ui/date_format.dart';
+import '../ui/domain_labels.dart';
 import 'graph_layout.dart';
 import 'graph_workspace_controller.dart';
 
@@ -123,7 +125,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Text(
-                'Some connected objects are hidden by the workspace limit.',
+                'Некоторые связанные объекты скрыты лимитом рабочей области.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -174,7 +176,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Search graph',
+                hintText: 'Поиск по графу',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searching
                     ? const Padding(
@@ -193,10 +195,10 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           ),
           DropdownButton<String?>(
             value: widget.controller.searchKindFilter,
-            hint: const Text('All objects'),
+            hint: const Text('Все объекты'),
             items: const [
-              DropdownMenuItem(value: null, child: Text('All objects')),
-              DropdownMenuItem(value: 'task', child: Text('Tasks')),
+              DropdownMenuItem(value: null, child: Text('Все объекты')),
+              DropdownMenuItem(value: 'task', child: Text('Задачи')),
             ],
             onChanged: (value) {
               widget.controller.searchKindFilter = value;
@@ -220,14 +222,14 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               ),
             ),
           Tooltip(
-            message: 'Return to overview',
+            message: 'К обзору',
             child: IconButton(
               onPressed: widget.controller.loadOverview,
               icon: const Icon(Icons.grid_view_outlined),
             ),
           ),
           Tooltip(
-            message: 'Fit graph',
+            message: 'Уместить граф',
             child: IconButton(
               onPressed: _fitView,
               icon: const Icon(Icons.fit_screen_outlined),
@@ -247,11 +249,11 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.controller.errorMessage ?? 'Failed to load graph'),
+            Text(widget.controller.errorMessage ?? 'Не удалось загрузить граф'),
             const SizedBox(height: 8),
             FilledButton(
               onPressed: widget.controller.loadOverview,
-              child: const Text('Retry'),
+              child: const Text('Повторить'),
             ),
           ],
         ),
@@ -333,7 +335,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
       return Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          'Select a node to inspect details.',
+          'Выберите объект для просмотра.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       );
@@ -354,13 +356,13 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               child: Text(object.title, style: Theme.of(context).textTheme.titleMedium),
             ),
             IconButton(
-              tooltip: 'Close',
+              tooltip: 'Закрыть',
               onPressed: () => widget.controller.selectObject(null),
               icon: const Icon(Icons.close),
             ),
           ],
         ),
-        Text('${object.kind} • ${object.lifecycleLabel} • ${object.state}'),
+        Text(objectSummaryLabel(object)),
         if (object.body != null) ...[
           const SizedBox(height: 8),
           Text(object.body!),
@@ -368,7 +370,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
         if (object.dueAt != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text('Due: ${object.dueAt!}'),
+            child: Text('Срок: ${formatUserDateTime(object.dueAt)}'),
           ),
         const SizedBox(height: 12),
         Wrap(
@@ -376,29 +378,29 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           runSpacing: 8,
           children: [
             Tooltip(
-              message: 'Ask Secretary',
+              message: 'Спросить секретаря',
               child: OutlinedButton.icon(
                 onPressed: () {
                   widget.assistantController.setObjectContext(object);
                   widget.onAskSecretary(object);
                 },
                 icon: const Icon(Icons.support_agent_outlined, size: 18),
-                label: const Text('Ask Secretary'),
+                label: const Text('Спросить секретаря'),
               ),
             ),
             Tooltip(
-              message: 'Use as task context',
+              message: 'Использовать как контекст',
               child: OutlinedButton.icon(
                 onPressed: () {
                   widget.captureController.attachObjectContext(object);
                   openCapture(context, captureController: widget.captureController);
                 },
                 icon: const Icon(Icons.add_task_outlined, size: 18),
-                label: Text(compact ? 'Context' : 'Use as task context'),
+                label: Text(compact ? 'Контекст' : 'Использовать как контекст'),
               ),
             ),
             Tooltip(
-              message: 'Open full details',
+              message: 'Открыть подробности',
               child: OutlinedButton.icon(
                 onPressed: () async {
                   final controller = widget.controller;
@@ -423,31 +425,31 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                   });
                 },
                 icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('Details'),
+                label: const Text('Подробнее'),
               ),
             ),
             Tooltip(
-              message: 'Expand neighbors',
+              message: 'Показать связи',
               child: OutlinedButton.icon(
                 onPressed: widget.controller.expandSelected,
                 icon: const Icon(Icons.hub_outlined, size: 18),
-                label: const Text('Expand'),
+                label: const Text('Показать связи'),
               ),
             ),
             Tooltip(
-              message: 'Center/re-root',
+              message: 'В центр',
               child: OutlinedButton.icon(
                 onPressed: () => widget.controller.reRoot(object.id),
                 icon: const Icon(Icons.center_focus_strong_outlined, size: 18),
-                label: const Text('Re-root'),
+                label: const Text('В центр'),
               ),
             ),
             Tooltip(
-              message: 'Add relation',
+              message: 'Добавить связь',
               child: OutlinedButton.icon(
                 onPressed: () => _addRelation(context, object),
                 icon: const Icon(Icons.link, size: 18),
-                label: const Text('Add relation'),
+                label: const Text('Добавить связь'),
               ),
             ),
           ],
@@ -460,7 +462,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           onTaskUpdated: widget.controller.applyTaskMutation,
         ),
         const SizedBox(height: 12),
-        Text('Relations', style: Theme.of(context).textTheme.titleSmall),
+        Text('Связи', style: Theme.of(context).textTheme.titleSmall),
         ...relatedEdges.map((edge) {
           final otherId = edge.sourceId == object.id ? edge.targetId : edge.sourceId;
           final other = widget.controller.nodeById(otherId);
@@ -473,11 +475,11 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                 widget.controller.selectObject(other.id);
               }
             },
-            title: Text(edge.type),
+            title: Text(relationTypeLabel(edge.type)),
             subtitle: Text(other?.title ?? otherId),
             trailing: edge.origin == 'user'
                 ? IconButton(
-                    tooltip: 'Remove relation',
+                    tooltip: 'Удалить связь',
                     icon: const Icon(Icons.link_off_outlined),
                     onPressed: () => _removeRelation(context, edge),
                   )
@@ -500,7 +502,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Add relation'),
+              title: const Text('Добавить связь'),
               content: SizedBox(
                 width: 360,
                 child: Column(
@@ -509,9 +511,9 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     DropdownButtonFormField<String>(
                       value: relationType,
                       items: const [
-                        DropdownMenuItem(value: 'related_to', child: Text('related_to')),
-                        DropdownMenuItem(value: 'references', child: Text('references')),
-                        DropdownMenuItem(value: 'depends_on', child: Text('depends_on')),
+                        DropdownMenuItem(value: 'related_to', child: Text('Связано с')),
+                        DropdownMenuItem(value: 'references', child: Text('Ссылается на')),
+                        DropdownMenuItem(value: 'depends_on', child: Text('Зависит от')),
                       ],
                       onChanged: (value) {
                         if (value != null) {
@@ -521,7 +523,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     ),
                     TextField(
                       controller: queryController,
-                      decoration: const InputDecoration(labelText: 'Search target'),
+                      decoration: const InputDecoration(labelText: 'Поиск объекта'),
                       onSubmitted: (value) async {
                         final results = await widget.apiClient.searchObjects(query: value);
                         setState(() => options = results);
@@ -530,7 +532,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     ...options.map(
                       (item) => ListTile(
                         title: Text(item.title),
-                        subtitle: Text(item.kind),
+                        subtitle: Text(objectKindLabel(item.kind)),
                         selected: target?.id == item.id,
                         onTap: () => setState(() => target = item),
                       ),
@@ -541,11 +543,11 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: const Text('Отмена'),
                 ),
                 FilledButton(
                   onPressed: target == null ? null : () => Navigator.pop(context),
-                  child: const Text('Create'),
+                  child: const Text('Создать'),
                 ),
               ],
             );
@@ -585,16 +587,18 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove relation?'),
-        content: Text('$sourceTitle --${edge.type}--> $targetTitle'),
+        title: const Text('Удалить связь?'),
+        content: Text(
+          '$sourceTitle —${relationTypeLabel(edge.type)}→ $targetTitle',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const Text('Отмена'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
+            child: const Text('Удалить'),
           ),
         ],
       ),
@@ -656,8 +660,9 @@ class _GraphNodeCard extends StatelessWidget {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      object.kind,
+                      objectKindLabel(object.kind),
                       style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -670,7 +675,7 @@ class _GraphNodeCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               Text(
-                object.lifecycleLabel,
+                objectLifecycleDisplayLabel(object),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall,

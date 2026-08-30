@@ -158,7 +158,7 @@ MockClient overviewMock({
 Future<void> openGraph(WidgetTester tester, GraphTestHarness harness) async {
   await tester.pumpWidget(harness.app());
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Graph'));
+  await tester.tap(find.text('Граф'));
   await tester.pumpAndSettle();
 }
 
@@ -183,22 +183,22 @@ void main() {
 
       expect(find.byType(GraphWorkspaceScreen), findsOneWidget);
       expect(find.text('Graph task'), findsOneWidget);
-      expect(find.byTooltip('Fit graph'), findsOneWidget);
+      expect(find.byTooltip('Уместить граф'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
 
       harness.graph.selectObject('task-1');
       await tester.pump();
 
       expect(harness.graph.selectedObjectId, 'task-1');
-      expect(find.text('Ask Secretary'), findsOneWidget);
-      expect(find.text('Expand'), findsOneWidget);
+      expect(find.text('Спросить секретаря'), findsOneWidget);
+      expect(find.text('Показать связи'), findsOneWidget);
 
       if (size.width < 900) {
         expect(find.byType(FloatingActionButton), findsNothing);
-        expect(find.byTooltip('Capture'), findsOneWidget);
+        expect(find.byTooltip('Добавить'), findsOneWidget);
       }
 
-      await tester.tap(find.byTooltip('Fit graph'));
+      await tester.tap(find.byTooltip('Уместить граф'));
       await tester.pumpAndSettle();
     });
   }
@@ -289,7 +289,7 @@ void main() {
     await openGraph(tester, harness);
 
     expect(
-      find.text('Some connected objects are hidden by the workspace limit.'),
+      find.text('Некоторые связанные объекты скрыты лимитом рабочей области.'),
       findsOneWidget,
     );
   });
@@ -357,7 +357,7 @@ void main() {
 
     expect(harness.graph.selectedObjectId, isNull);
 
-    await tester.tap(find.byTooltip('Fit graph'));
+    await tester.tap(find.byTooltip('Уместить граф'));
     await tester.pumpAndSettle();
 
     final distantNode = find.text('Wide graph 11');
@@ -465,13 +465,13 @@ void main() {
     harness.graph.selectObject('task-a');
     await tester.pump();
 
-    await tester.tap(find.text('Details'));
+    await tester.tap(find.text('Подробнее'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Renamed A');
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     await tester.pageBack();
@@ -559,15 +559,15 @@ void main() {
     harness.graph.selectObject('task-a');
     await tester.pump();
 
-    await tester.tap(find.text('Details'));
+    await tester.tap(find.text('Подробнее'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Delete'));
+    await tester.tap(find.text('Удалить'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(AlertDialog),
-        matching: find.widgetWithText(FilledButton, 'Delete'),
+        matching: find.widgetWithText(FilledButton, 'Удалить'),
       ),
     );
     await tester.pumpAndSettle();
@@ -674,15 +674,15 @@ void main() {
     harness.graph.selectObject('task-a');
     await tester.pump();
 
-    await tester.tap(find.text('Details'));
+    await tester.tap(find.text('Подробнее'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Delete'));
+    await tester.tap(find.text('Удалить'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(AlertDialog),
-        matching: find.widgetWithText(FilledButton, 'Delete'),
+        matching: find.widgetWithText(FilledButton, 'Удалить'),
       ),
     );
     await tester.pumpAndSettle();
@@ -765,15 +765,15 @@ void main() {
     harness.graph.selectObject('task-a');
     await tester.pump();
 
-    await tester.tap(find.text('Details'));
+    await tester.tap(find.text('Подробнее'));
     await tester.pumpAndSettle();
 
     final graphCallsBeforeAsk = graphCalls;
 
-    await tester.tap(find.text('Ask Secretary'));
+    await tester.tap(find.text('Спросить секретаря'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Assistant'), findsWidgets);
+    expect(find.text('Секретарь'), findsWidgets);
     expect(harness.assistant.objectContext?.id, 'task-a');
     expect(graphCalls, graphCallsBeforeAsk);
     expect(find.byType(GraphWorkspaceScreen), findsNothing);

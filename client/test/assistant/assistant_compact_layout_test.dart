@@ -180,11 +180,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Assistant'));
+    await tester.tap(find.text('Секретарь'));
     await tester.pumpAndSettle();
 
     expect(find.byType(FloatingActionButton), findsNothing);
-    expect(find.byTooltip('Capture'), findsOneWidget);
+    expect(find.byTooltip('Добавить'), findsOneWidget);
     expect(find.byKey(const Key('assistant_input')), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     assistant.dispose();
@@ -243,8 +243,8 @@ void main() {
     await assistant.sendMessage('create');
     await tester.pumpAndSettle();
 
-    expect(find.text('Approve'), findsOneWidget);
-    expect(find.text('Reject'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     assistant.dispose();
@@ -300,7 +300,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(Padding),
-        matching: find.widgetWithText(TextButton, 'Retry'),
+        matching: find.widgetWithText(TextButton, 'Повторить'),
       ),
       findsWidgets,
     );

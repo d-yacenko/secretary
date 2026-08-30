@@ -7,6 +7,7 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../ui/domain_labels.dart';
 
 enum SearchLoadState { idle, loading, ready, empty, error }
 
@@ -110,8 +111,8 @@ class _SearchScreenState extends State<SearchScreen> {
               TextField(
                 controller: _queryController,
                 decoration: const InputDecoration(
-                  labelText: 'Search',
-                  hintText: 'Find tasks, emails, projects…',
+                  labelText: 'Поиск',
+                  hintText: 'Найти задачи, письма, проекты…',
                   border: OutlineInputBorder(),
                 ),
                 textInputAction: TextInputAction.search,
@@ -124,14 +125,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     child: DropdownButtonFormField<String?>(
                       initialValue: _selectedKind,
                       decoration: const InputDecoration(
-                        labelText: 'Kind',
+                        labelText: 'Тип',
                         border: OutlineInputBorder(),
                       ),
                       items: _kindOptions
                           .map(
                             (kind) => DropdownMenuItem<String?>(
                               value: kind,
-                              child: Text(kind ?? 'All kinds'),
+                              child: Text(searchKindFilterLabel(kind)),
                             ),
                           )
                           .toList(),
@@ -141,7 +142,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   const SizedBox(width: 8),
                   FilledButton(
                     onPressed: _loadState == SearchLoadState.loading ? null : _search,
-                    child: const Text('Search'),
+                    child: const Text('Поиск'),
                   ),
                 ],
               ),
@@ -156,19 +157,19 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildBody() {
     switch (_loadState) {
       case SearchLoadState.idle:
-        return const Center(child: Text('Enter a query and press Search'));
+        return const Center(child: Text('Введите запрос и нажмите «Поиск»'));
       case SearchLoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case SearchLoadState.empty:
-        return const Center(child: Text('No results'));
+        return const Center(child: Text('Ничего не найдено'));
       case SearchLoadState.error:
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_errorMessage ?? 'Search failed'),
+              Text(_errorMessage ?? 'Ошибка поиска'),
               const SizedBox(height: 12),
-              FilledButton(onPressed: _search, child: const Text('Retry')),
+              FilledButton(onPressed: _search, child: const Text('Повторить')),
             ],
           ),
         );
@@ -185,10 +186,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${object.kind}${object.provider != null ? ' • ${object.provider}' : ''}',
+                    '${objectKindLabel(object.kind)}${object.provider != null ? ' • ${object.provider}' : ''}',
                   ),
-                  if (object.status != null) Text('Status: ${object.status}'),
-                  if (object.state.isNotEmpty) Text('State: ${object.state}'),
+                  if (object.status != null)
+                    Text('Статус: ${taskStatusLabel(object.status)}'),
+                  if (object.state.isNotEmpty)
+                    Text('Состояние: ${provenanceStateLabel(object.state)}'),
                   if (snippet.isNotEmpty) Text(snippet),
                 ],
               ),

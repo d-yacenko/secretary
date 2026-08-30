@@ -55,7 +55,7 @@ class _AuthSetupScreenState extends State<AuthSetupScreen> {
     final isLoading = controller.status == AuthStatus.loading || _submitting;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Connect to Secretary')),
+      appBar: AppBar(title: const Text('Подключение к Secretary')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -73,7 +73,7 @@ class _AuthSetupScreenState extends State<AuthSetupScreen> {
             TextField(
               controller: _urlController,
               decoration: const InputDecoration(
-                labelText: 'Server URL',
+                labelText: 'URL сервера',
                 hintText: 'https://your-secretary.example',
               ),
               keyboardType: TextInputType.url,
@@ -83,7 +83,7 @@ class _AuthSetupScreenState extends State<AuthSetupScreen> {
             TextField(
               controller: _tokenController,
               decoration: InputDecoration(
-                labelText: 'Bearer token',
+                labelText: 'Токен Bearer',
                 errorText: controller.errorMessage != null &&
                         controller.status == AuthStatus.needsAuth
                     ? controller.errorMessage
@@ -103,14 +103,14 @@ class _AuthSetupScreenState extends State<AuthSetupScreen> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Connect'),
+                  : const Text('Подключиться'),
             ),
             if (controller.status == AuthStatus.transientError)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: OutlinedButton(
                   onPressed: isLoading ? null : controller.initialize,
-                  child: const Text('Retry with stored credentials'),
+                  child: const Text('Повторить с сохранёнными учётными данными'),
                 ),
               ),
           ],

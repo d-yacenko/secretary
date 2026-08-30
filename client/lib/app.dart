@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'auth/auth_controller.dart';
 import 'auth/auth_gate.dart';
@@ -69,7 +70,14 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: _navigatorKey,
-      title: 'Personal Secretary',
+      title: 'Личный секретарь',
+      locale: const Locale('ru', 'RU'),
+      supportedLocales: const [Locale('ru', 'RU')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,

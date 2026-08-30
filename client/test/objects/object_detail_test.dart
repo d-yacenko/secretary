@@ -130,7 +130,7 @@ void main() {
     expect(find.text('Inbound email'), findsWidgets);
     expect(find.text('Email body'), findsOneWidget);
     expect(find.text('Related task'), findsOneWidget);
-    expect(find.textContaining('references'), findsOneWidget);
+    expect(find.textContaining('Ссылается на'), findsOneWidget);
   });
 
   testWidgets('missing optional fields do not crash', (tester) async {
@@ -161,7 +161,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Inbound email'), findsWidgets);
-    expect(find.text('Status'), findsNothing);
+    expect(find.text('Статус'), findsNothing);
   });
 
   testWidgets('canonical URI does not expose credentials', (tester) async {

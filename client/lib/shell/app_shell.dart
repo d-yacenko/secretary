@@ -16,11 +16,11 @@ import '../today/today_screen.dart';
 const double kShellWideBreakpoint = 600;
 
 enum ShellDestination {
-  inbox('Inbox'),
-  today('Today'),
-  graph('Graph'),
-  search('Search'),
-  assistant('Assistant');
+  inbox('Входящие'),
+  today('Сегодня'),
+  graph('Граф'),
+  search('Поиск'),
+  assistant('Секретарь');
 
   const ShellDestination(this.label);
   final String label;
@@ -148,14 +148,14 @@ class _AppShellState extends State<AppShell> {
             child: FilledButton.icon(
               onPressed: _openCapture,
               icon: const Icon(Icons.add),
-              label: const Text('Capture'),
+              label: const Text('Добавить'),
             ),
           )
         : null;
 
     final accountAction = IconButton(
       icon: const Icon(Icons.account_circle),
-      tooltip: 'Account',
+      tooltip: 'Аккаунт',
       onPressed: _openAccount,
     );
 
@@ -199,7 +199,7 @@ class _AppShellState extends State<AppShell> {
                   destination == ShellDestination.graph))
             IconButton(
               icon: const Icon(Icons.add),
-              tooltip: 'Capture',
+              tooltip: 'Добавить',
               onPressed: _openCapture,
             ),
           accountAction,
@@ -213,7 +213,7 @@ class _AppShellState extends State<AppShell> {
           : FloatingActionButton.extended(
               onPressed: _openCapture,
               icon: const Icon(Icons.add),
-              label: const Text('Capture'),
+              label: const Text('Добавить'),
             ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,

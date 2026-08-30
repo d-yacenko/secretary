@@ -123,14 +123,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Graph'));
+    await tester.tap(find.text('Граф'));
     await tester.pumpAndSettle();
 
     expect(find.byType(PlaceholderScreen), findsNothing);
     expect(find.byType(GraphWorkspaceScreen), findsOneWidget);
     expect(find.text('Graph task'), findsOneWidget);
     expect(
-      find.text('Some connected objects are hidden by the workspace limit.'),
+      find.text('Некоторые связанные объекты скрыты лимитом рабочей области.'),
       findsOneWidget,
     );
   });

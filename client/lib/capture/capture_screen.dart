@@ -31,7 +31,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _titleController.clear();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task created')),
+          const SnackBar(content: Text('Задача создана')),
         );
         widget.controller.clearSuccess();
       }
@@ -54,7 +54,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final isSubmitting = controller.submitState == CaptureSubmitState.submitting;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Capture task')),
+      appBar: AppBar(title: const Text('Создание задачи')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -63,13 +63,13 @@ class _CaptureScreenState extends State<CaptureScreen> {
             TextField(
               controller: _textController,
               decoration: InputDecoration(
-                labelText: 'Task text',
-                hintText: 'What needs to be done?',
+                labelText: 'Текст задачи',
+                hintText: 'Что нужно сделать?',
                 errorText: draft.isTextTooLong
-                    ? 'Text must be at most ${CaptureDraft.maxTextLength} characters'
+                    ? 'Текст не должен превышать ${CaptureDraft.maxTextLength} символов'
                     : controller.submitState == CaptureSubmitState.validationError &&
                             draft.isBlank
-                        ? 'Task text cannot be blank'
+                        ? 'Текст задачи не может быть пустым'
                         : null,
               ),
               maxLines: 8,
@@ -81,9 +81,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
             TextField(
               controller: _titleController,
               decoration: InputDecoration(
-                labelText: 'Title (optional)',
+                labelText: 'Название (необязательно)',
                 errorText: draft.isTitleTooLong
-                    ? 'Title must be at most ${CaptureDraft.maxTitleLength} characters'
+                    ? 'Название не должно превышать ${CaptureDraft.maxTitleLength} символов'
                     : null,
               ),
               maxLength: CaptureDraft.maxTitleLength,
@@ -101,12 +101,12 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ),
             if (draft.contextRefs.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text('Attached context', style: Theme.of(context).textTheme.labelLarge),
+              Text('Прикреплённый контекст', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 4),
               ...draft.contextRefs.map(
                 (ref) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('Context attached: ${ref.title}'),
+                  child: Text('Контекст: ${ref.title}'),
                 ),
               ),
             ],
@@ -119,7 +119,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Create task'),
+                  : const Text('Создать задачу'),
             ),
           ],
         ),

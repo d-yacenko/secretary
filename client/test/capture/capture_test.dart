@@ -338,10 +338,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Use as task context'));
+      await tester.tap(find.text('Использовать как контекст задачи'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Context attached: Course plan'), findsOneWidget);
+      expect(find.text('Контекст: Course plan'), findsOneWidget);
       expect(capture.draft.contextObjectIds, ['email-1']);
       expect(capture.draft.contextRefs.length, 1);
       expect(capture.draft.text, '  keep exact  ');

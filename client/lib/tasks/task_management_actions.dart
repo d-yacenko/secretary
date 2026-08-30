@@ -4,6 +4,8 @@ import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
+import '../ui/date_format.dart';
+import '../ui/domain_labels.dart';
 
 class TaskManagementActions extends StatelessWidget {
   const TaskManagementActions({
@@ -30,34 +32,34 @@ class TaskManagementActions extends StatelessWidget {
     final children = <Widget>[
       _actionButton(
         context,
-        tooltip: 'Edit task',
+        tooltip: 'Редактировать задачу',
         icon: Icons.edit_outlined,
-        label: 'Edit',
+        label: 'Редактировать',
         onPressed: () => _editTask(context),
       ),
       _actionButton(
         context,
-        tooltip: 'Change status',
+        tooltip: 'Изменить статус',
         icon: Icons.swap_horiz,
-        label: 'Status',
+        label: 'Статус',
         onPressed: () => _changeStatus(context),
       ),
       _actionButton(
         context,
-        tooltip: 'Delete task',
+        tooltip: 'Удалить задачу',
         icon: Icons.delete_outline,
-        label: 'Delete',
+        label: 'Удалить',
         onPressed: () => _deleteTask(context),
       ),
     ];
 
     if (compact) {
       return PopupMenuButton<String>(
-        tooltip: 'Task actions',
+        tooltip: 'Действия с задачей',
         itemBuilder: (context) => [
-          const PopupMenuItem(value: 'edit', child: Text('Edit')),
-          const PopupMenuItem(value: 'status', child: Text('Change status')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          const PopupMenuItem(value: 'edit', child: Text('Редактировать')),
+          const PopupMenuItem(value: 'status', child: Text('Изменить статус')),
+          const PopupMenuItem(value: 'delete', child: Text('Удалить')),
         ],
         onSelected: (value) {
           switch (value) {
@@ -107,25 +109,25 @@ class TaskManagementActions extends StatelessWidget {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Edit task'),
+              title: const Text('Редактировать задачу'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
                       controller: titleController,
-                      decoration: const InputDecoration(labelText: 'Title'),
+                      decoration: const InputDecoration(labelText: 'Название'),
                     ),
                     TextField(
                       controller: bodyController,
-                      decoration: const InputDecoration(labelText: 'Body'),
+                      decoration: const InputDecoration(labelText: 'Описание'),
                       minLines: 2,
                       maxLines: 4,
                       enabled: !clearBody,
                     ),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Clear body'),
+                      title: const Text('Очистить описание'),
                       value: clearBody,
                       onChanged: (value) => setState(() => clearBody = value ?? false),
                     ),
@@ -133,14 +135,14 @@ class TaskManagementActions extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       title: Text(
                         dueAt == null
-                            ? 'No due date'
-                            : dueAt!.toLocal().toString(),
+                            ? 'Без срока'
+                            : formatUserDateTimeFromDateTime(dueAt),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            tooltip: 'Set due date',
+                            tooltip: 'Установить срок',
                             onPressed: () async {
                               final pickedDate = await showDatePicker(
                                 context: context,
@@ -175,7 +177,7 @@ class TaskManagementActions extends StatelessWidget {
                             icon: const Icon(Icons.event_outlined),
                           ),
                           IconButton(
-                            tooltip: 'Clear due date',
+                            tooltip: 'Очистить срок',
                             onPressed: () => setState(() {
                               clearDue = true;
                               dueAt = null;
@@ -192,11 +194,11 @@ class TaskManagementActions extends StatelessWidget {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
+                  child: const Text('Отмена'),
                 ),
                 FilledButton(
                   onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Save'),
+                  child: const Text('Сохранить'),
                 ),
               ],
             );
@@ -242,7 +244,7 @@ class TaskManagementActions extends StatelessWidget {
       onTaskUpdated(response.object);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task updated')),
+          const SnackBar(content: Text('Задача обновлена')),
         );
       }
     } on AuthenticationException {
@@ -261,12 +263,12 @@ class TaskManagementActions extends StatelessWidget {
     final selected = await showDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Change status'),
+        title: const Text('Изменить статус'),
         children: options
             .map(
               (status) => SimpleDialogOption(
                 onPressed: () => Navigator.pop(context, status),
-                child: Text(status),
+                child: Text(taskStatusLabel(status)),
               ),
             )
             .toList(),
@@ -293,19 +295,19 @@ class TaskManagementActions extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete task?'),
+        title: const Text('Удалить задачу?'),
         content: Text(
-          '${task.title}\n\nThis will hide the task from normal search and active views. '
-          'Its graph history and relationships will be preserved.',
+          '${task.title}\n\nЗадача будет скрыта из обычного поиска и активных представлений. '
+          'История в графе и связи сохранятся.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const Text('Отмена'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
+            child: const Text('Удалить'),
           ),
         ],
       ),

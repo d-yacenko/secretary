@@ -4,6 +4,7 @@ import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
+import '../ui/domain_labels.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
@@ -60,14 +61,14 @@ class _AccountScreenState extends State<AccountScreen> {
     final user = widget.authController.user;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Account')),
+      appBar: AppBar(title: const Text('Аккаунт')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Display name', style: Theme.of(context).textTheme.titleSmall),
+          Text('Отображаемое имя', style: Theme.of(context).textTheme.titleSmall),
           Text(user?.displayName ?? '—'),
           const SizedBox(height: 16),
-          Text('Connections', style: Theme.of(context).textTheme.titleSmall),
+          Text('Подключения', style: Theme.of(context).textTheme.titleSmall),
           if (_loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -84,7 +85,7 @@ class _AccountScreenState extends State<AccountScreen> {
               await widget.authController.forgetToken();
               navigator.pop();
             },
-            child: const Text('Forget token / disconnect this client'),
+            child: const Text('Забыть токен / отключить клиент'),
           ),
         ],
       ),
@@ -108,20 +109,20 @@ class _ConnectionsList extends StatelessWidget {
           detail: connections.google.email,
         ),
         _ConnectionRow(
-          label: 'Gmail available',
+          label: 'Gmail доступен',
           connected: connections.google.gmailAvailable,
         ),
         _ConnectionRow(
-          label: 'Google Calendar available',
+          label: 'Google Календарь доступен',
           connected: connections.google.calendarAvailable,
         ),
         _ConnectionRow(
-          label: 'Yandex Mail',
+          label: 'Яндекс Почта',
           connected: connections.yandexMail.connected,
           detail: connections.yandexMail.email,
         ),
         _ConnectionRow(
-          label: 'Yandex Calendar',
+          label: 'Яндекс Календарь',
           connected: connections.yandexCalendar.connected,
           detail: connections.yandexCalendar.email,
         ),
@@ -143,7 +144,7 @@ class _ConnectionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = connected ? 'connected' : 'disconnected';
+    final status = connectionStatusLabel(connected);
     final suffix = detail != null && detail!.isNotEmpty ? ' ($detail)' : '';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),

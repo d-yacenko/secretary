@@ -8,6 +8,7 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/notification_labels.dart';
 import '../navigation/secretary_navigation.dart';
+import '../ui/date_format.dart';
 
 enum TodayLoadState { loading, ready, error }
 
@@ -82,7 +83,7 @@ class _TodayScreenState extends State<TodayScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Обновить',
             onPressed: _loadToday,
             icon: const Icon(Icons.refresh),
           ),
@@ -101,11 +102,11 @@ class _TodayScreenState extends State<TodayScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_errorMessage ?? 'Failed to load today'),
+              Text(_errorMessage ?? 'Не удалось загрузить «Сегодня»'),
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: _loadToday,
-                child: const Text('Retry'),
+                child: const Text('Повторить'),
               ),
             ],
           ),
@@ -117,9 +118,9 @@ class _TodayScreenState extends State<TodayScreen> {
           children: [
             Text('${today.date} (${today.timezone})'),
             const SizedBox(height: 16),
-            _SectionHeader(title: 'Tasks'),
+            _SectionHeader(title: 'Задачи'),
             if (today.tasks.isEmpty)
-              const _EmptySection(message: 'No tasks for today')
+              const _EmptySection(message: 'Нет задач на сегодня')
             else
               ...today.tasks.map((task) => _TaskRow(
                     task: task,
@@ -136,9 +137,9 @@ class _TodayScreenState extends State<TodayScreen> {
                     ),
                   )),
             const SizedBox(height: 16),
-            _SectionHeader(title: 'Calendar'),
+            _SectionHeader(title: 'Календарь'),
             if (today.calendarEvents.isEmpty)
-              const _EmptySection(message: 'No calendar events today')
+              const _EmptySection(message: 'Нет событий в календаре')
             else
               ...today.calendarEvents.map((event) => _EventRow(
                     event: event,
@@ -154,9 +155,9 @@ class _TodayScreenState extends State<TodayScreen> {
                     ),
                   )),
             const SizedBox(height: 16),
-            _SectionHeader(title: 'Important notifications'),
+            _SectionHeader(title: 'Важные уведомления'),
             if (today.notifications.isEmpty)
-              const _EmptySection(message: 'No important notifications')
+              const _EmptySection(message: 'Нет важных уведомлений')
             else
               ...today.notifications.map((notification) => _NotificationRow(
                     notification: notification,
@@ -219,26 +220,13 @@ class _TaskRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final overdue = today.isTaskOverdue(task);
+    final dueAt = formatUserDateTime(task.dueAt);
+    final when = dueAt.isEmpty ? 'Нет срока' : dueAt;
     return ListTile(
       title: Text(task.title),
-      subtitle: Text(
-        overdue ? 'Overdue • ${_formatWhen(task.dueAt)}' : _formatWhen(task.dueAt),
-      ),
+      subtitle: Text(overdue ? 'Просрочено • $when' : when),
       onTap: onTap,
     );
-  }
-
-  String _formatWhen(String? value) {
-    if (value == null) {
-      return 'No due time';
-    }
-    final parsed = DateTime.tryParse(value);
-    if (parsed == null) {
-      return value;
-    }
-    final local = parsed.toLocal();
-    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} '
-        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -250,26 +238,15 @@ class _EventRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final time = formatUserTime(event.startAt);
     return ListTile(
       title: Text(event.title),
       subtitle: Text(
-        '${_formatWhen(event.startAt)}'
+        '${time.isEmpty ? 'Нет времени начала' : time}'
         '${event.provider != null ? ' • ${event.provider}' : ''}',
       ),
       onTap: onTap,
     );
-  }
-
-  String _formatWhen(String? value) {
-    if (value == null) {
-      return 'No start time';
-    }
-    final parsed = DateTime.tryParse(value);
-    if (parsed == null) {
-      return value;
-    }
-    final local = parsed.toLocal();
-    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 }
 

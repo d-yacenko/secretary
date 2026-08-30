@@ -1,4 +1,4 @@
-# Current task — PHASE 24 corrective deployed
+# Current task — PHASE 25 complete (awaiting review)
 
 ## Status
 
@@ -6,12 +6,16 @@ PHASE 24: **accepted / closed** at `e128f26414c1ffb33d6040c2d87e2b2054e35480`.
 
 PHASE 24 post-deploy E2E corrective: **accepted / closed** at `684233bd816fa7947b7eade784ac7e42324c7252`.
 
-VDS corrective deployed: 2026-08-30 at `1bc9982f85d6a7f4080fcbc52fd1f3a59fe9da7c`.
+PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
 
-Final matched-version manual Graph E2E: **pending** (user-run).
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **implemented** on branch `review/phase-25-russian-ui-graph-polish`.
 
-Do not claim final Graph manual E2E PASS yet.
+Deliverables: Graph node height fix (`kGraphNodeHeight = 80`), `ru_RU` locale, Russian UI sweep, `domain_labels.dart`, `date_format.dart`, updated tests (182 passed).
 
 ## STOP
 
-Do not start the next product phase.
+Do not merge.
+
+Do not deploy.
+
+Wait for architect review.

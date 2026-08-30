@@ -147,7 +147,7 @@ class _InboxScreenState extends State<InboxScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Обновить',
             onPressed: _loadNotifications,
             icon: const Icon(Icons.refresh),
           ),
@@ -162,17 +162,17 @@ class _InboxScreenState extends State<InboxScreen> {
       case InboxLoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case InboxLoadState.empty:
-        return const Center(child: Text('Inbox is empty'));
+        return const Center(child: Text('Входящие пусты'));
       case InboxLoadState.error:
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_errorMessage ?? 'Failed to load inbox'),
+              Text(_errorMessage ?? 'Не удалось загрузить входящие'),
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: _loadNotifications,
-                child: const Text('Retry'),
+                child: const Text('Повторить'),
               ),
             ],
           ),
@@ -245,29 +245,29 @@ class _NotificationCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
-            Text('Priority: ${notification.priority}'),
+            Text('Приоритет: ${notification.priority}'),
             if (notification.proposalType != null)
-              Text('Type: ${notification.proposalType}'),
-            Text('Source: ${notificationEvidenceLabel(notification)}'),
+              Text('Тип: ${notification.proposalType}'),
+            Text('Источник: ${notificationEvidenceLabel(notification)}'),
             if (notification.proposalDescription != null)
               Text(notification.proposalDescription!),
             if (notification.proposedAction != null)
-              Text('Action: ${notification.proposedAction}'),
+              Text('Действие: ${notification.proposedAction}'),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               children: [
                 FilledButton(
                   onPressed: isMutating ? null : onAccept,
-                  child: const Text('Accept'),
+                  child: const Text('Принять'),
                 ),
                 OutlinedButton(
                   onPressed: isMutating ? null : onIgnore,
-                  child: const Text('Ignore'),
+                  child: const Text('Пропустить'),
                 ),
                 TextButton(
                   onPressed: isMutating ? null : onOpenContext,
-                  child: const Text('Open context'),
+                  child: const Text('Открыть контекст'),
                 ),
               ],
             ),

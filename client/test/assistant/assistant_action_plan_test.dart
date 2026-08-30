@@ -104,9 +104,9 @@ void main() {
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
 
-    expect(find.text('Requires confirmation'), findsOneWidget);
-    expect(find.text('Approve'), findsOneWidget);
-    expect(find.text('Reject'), findsOneWidget);
+    expect(find.text('Требует подтверждения'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
     expect(find.text('Create task: Review the letter'), findsOneWidget);
   });
 
@@ -245,7 +245,7 @@ void main() {
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pump();
     await tester.pumpAndSettle();
 
@@ -310,14 +310,14 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pump();
     await tester.pumpAndSettle();
 
     expect(resumeCalls, 1);
     expect(find.text('Done. I created the task.'), findsOneWidget);
-    expect(find.text('Affected objects:'), findsOneWidget);
-    expect(find.text('task: Review the letter — confirmed'), findsOneWidget);
+    expect(find.text('Затронутые объекты:'), findsOneWidget);
+    expect(find.text('Задача: Review the letter — Подтверждено'), findsOneWidget);
   });
 
   testWidgets('reject changes card to Rejected without resume', (tester) async {
@@ -362,10 +362,10 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Reject'));
+    await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Rejected'), findsOneWidget);
+    expect(find.text('Отклонено'), findsOneWidget);
     expect(resumeCalls, 0);
     expect(assistant.hasPendingActionPlan, isFalse);
   });
@@ -409,11 +409,11 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Failed'), findsOneWidget);
-    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Ошибка'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsNothing);
   });
 
   testWidgets('resetSession clears plan operation state', (tester) async {
@@ -502,13 +502,13 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
     expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
     expect(assistant.actionPlanErrorMessage, isNotNull);
-    expect(find.text('Approve'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsOneWidget);
   });
 
   testWidgets('reject network failure leaves card pending and retryable',
@@ -542,13 +542,13 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Reject'));
+    await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
     expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
     expect(assistant.actionPlanErrorMessage, isNotNull);
-    expect(find.text('Reject'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
   });
 
   testWidgets('generic 409 detail on approve does not crash controller',
@@ -585,12 +585,12 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
     expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
-    expect(find.text('Approve'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsOneWidget);
   });
 
   testWidgets('retry approve after transient failure makes second request',
@@ -646,9 +646,9 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
     expect(approveCalls, 2);
@@ -685,13 +685,13 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
     expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
     expect(assistant.actionPlanErrorMessage, isNotNull);
-    expect(find.text('Approve'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsOneWidget);
   });
 
   testWidgets('reject malformed 200 body leaves card pending and retryable',
@@ -725,13 +725,13 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Reject'));
+    await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
     expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
     expect(assistant.actionPlanErrorMessage, isNotNull);
-    expect(find.text('Reject'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
   });
 
   testWidgets('generic 409 detail on reject does not crash controller',
@@ -768,11 +768,11 @@ void main() {
     await pumpAssistant(tester, assistant, auth, capture, apiClient);
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Reject'));
+    await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
     expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
-    expect(find.text('Reject'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
   });
 }

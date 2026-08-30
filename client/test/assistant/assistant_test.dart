@@ -135,17 +135,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Assistant'));
+    await tester.tap(find.text('Секретарь'));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const Key('assistant_input')), 'Hello Secretary');
-    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Отправить'));
     await tester.pump();
     await tester.pumpAndSettle();
 
     expect(assistantCalls, 1);
     expect(find.text('Hello back'), findsOneWidget);
-    expect(find.text('task: Referenced task'), findsOneWidget);
+    expect(find.text('Задача: Referenced task'), findsOneWidget);
   });
 
   testWidgets('assistant sends context_object_id without copying body', (tester) async {
@@ -224,7 +224,7 @@ void main() {
 
     expect(find.textContaining('Intro Course'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('assistant_input')), 'What is this?');
-    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Отправить'));
     await tester.pumpAndSettle();
 
     expect(lastBody?['context_object_id'], 'obj-1');
@@ -299,11 +299,11 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const Key('assistant_input')), 'Create task');
-    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Отправить'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Affected objects:'), findsOneWidget);
-    expect(find.text('task: Prepare course outline — proposed'), findsOneWidget);
+    expect(find.text('Затронутые объекты:'), findsOneWidget);
+    expect(find.text('Задача: Prepare course outline — Предложено'), findsOneWidget);
   });
 
   testWidgets('logout clears assistant conversation and context', (tester) async {

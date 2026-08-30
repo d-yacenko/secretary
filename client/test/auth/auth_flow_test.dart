@@ -52,8 +52,8 @@ void main() {
     await tester.pumpWidget(PersonalSecretaryApp(authController: auth));
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect to Secretary'), findsOneWidget);
-    expect(find.text('Bearer token'), findsOneWidget);
+    expect(find.text('Подключение к Secretary'), findsOneWidget);
+    expect(find.text('Токен Bearer'), findsOneWidget);
   });
 
   testWidgets('valid token and successful /me reaches app shell', (tester) async {
@@ -90,8 +90,8 @@ void main() {
     await tester.pumpWidget(PersonalSecretaryApp(authController: auth));
     await tester.pumpAndSettle();
 
-    expect(find.text('Inbox'), findsWidgets);
-    expect(find.text('Capture'), findsOneWidget);
+    expect(find.text('Входящие'), findsWidgets);
+    expect(find.text('Добавить'), findsOneWidget);
   });
 
   testWidgets('invalid token / 401 returns to auth setup', (tester) async {
@@ -112,7 +112,7 @@ void main() {
     await tester.pumpWidget(PersonalSecretaryApp(authController: auth));
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect to Secretary'), findsOneWidget);
+    expect(find.text('Подключение к Secretary'), findsOneWidget);
     expect(auth.status, AuthStatus.needsAuth);
   });
 

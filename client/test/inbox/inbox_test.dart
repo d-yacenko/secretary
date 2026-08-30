@@ -124,7 +124,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Accept'));
+    await tester.tap(find.text('Принять'));
     await tester.pumpAndSettle();
 
     expect(acceptedPath, '/notifications/n1/accept');
@@ -157,7 +157,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Ignore'));
+    await tester.tap(find.text('Пропустить'));
     await tester.pumpAndSettle();
 
     expect(ignoredPath, '/notifications/n1/ignore');
@@ -182,7 +182,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Accept'));
+    await tester.tap(find.text('Принять'));
     await tester.pumpAndSettle();
 
     expect(find.text('Follow up email'), findsOneWidget);
@@ -235,7 +235,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Inbox is empty'), findsOneWidget);
+    expect(find.text('Входящие пусты'), findsOneWidget);
   });
 }
 

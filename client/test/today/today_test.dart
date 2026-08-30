@@ -144,9 +144,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No tasks for today'), findsOneWidget);
-    expect(find.text('No calendar events today'), findsOneWidget);
-    expect(find.text('No important notifications'), findsOneWidget);
+    expect(find.text('Нет задач на сегодня'), findsOneWidget);
+    expect(find.text('Нет событий в календаре'), findsOneWidget);
+    expect(find.text('Нет важных уведомлений'), findsOneWidget);
   });
 
   testWidgets('refresh works', (tester) async {
@@ -163,7 +163,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, 1);
 
-    await tester.tap(find.byTooltip('Refresh'));
+    await tester.tap(find.byTooltip('Обновить'));
     await tester.pumpAndSettle();
     expect(calls, 2);
   });
@@ -239,7 +239,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ObjectDetailScreen), findsOneWidget);
-    expect(find.text('Use as task context'), findsOneWidget);
+    expect(find.text('Использовать как контекст задачи'), findsOneWidget);
   });
 
   test('isTaskOverdue compares due_at against day_start instant', () {
@@ -333,6 +333,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Overdue'), findsOneWidget);
+    expect(find.textContaining('Просрочено'), findsOneWidget);
   });
 }

@@ -6,6 +6,7 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../ui/domain_labels.dart';
 
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({
@@ -121,10 +122,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 
-  String _affectedObjectsLabel(AssistantChatMessage message) {
-    return 'Affected objects:';
-  }
-
   void _openAffectedObject(AssistantAffectedObject affected) {
     openObjectDetail(
       context,
@@ -139,6 +136,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 
+  String _objectContextLabel(AssistantContextRef contextRef) {
+    return 'Контекст: ${objectKindLabel(contextRef.kind)} — ${contextRef.title}';
+  }
+
+  String _notificationContextLabel(AssistantContextRef contextRef) {
+    return 'Контекст: Уведомление — ${contextRef.title}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -148,12 +153,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
         children: [
           if (controller.objectContext != null)
             _ContextBanner(
-              label: 'Context: ${controller.objectContext!.displayLabel}',
+              label: _objectContextLabel(controller.objectContext!),
               onClear: controller.clearObjectContext,
             ),
           if (controller.notificationContext != null)
             _ContextBanner(
-              label: 'Context: ${controller.notificationContext!.displayLabel}',
+              label: _notificationContextLabel(controller.notificationContext!),
               onClear: controller.clearNotificationContext,
             ),
           if (controller.voiceState == AssistantVoiceState.recording)
@@ -165,11 +170,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   children: [
                     const Icon(Icons.mic, size: 18),
                     const SizedBox(width: 8),
-                    const Expanded(child: Text('Recording… tap microphone to stop')),
+                    const Expanded(
+                      child: Text('Запись… нажмите микрофон, чтобы остановить'),
+                    ),
                     TextButton(
                       key: const Key('assistant_voice_stop'),
                       onPressed: controller.stopVoiceRecordingAndTranscribe,
-                      child: const Text('Stop'),
+                      child: const Text('Стоп'),
                     ),
                   ],
                 ),
@@ -216,7 +223,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                             children: message.references
                                 .map(
                                   (ref) => ActionChip(
-                                    label: Text(ref.displayLabel),
+                                    label: Text(
+                                      '${objectKindLabel(ref.kind)}: ${ref.title}',
+                                    ),
                                     onPressed: () => _openReference(ref),
                                   ),
                                 )
@@ -230,12 +239,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _affectedObjectsLabel(message),
+                                'Затронутые объекты:',
                                 style: Theme.of(context).textTheme.labelLarge,
                               ),
                               ...message.affectedObjects.map(
                                 (affected) => ActionChip(
-                                  label: Text(affected.displayLabel),
+                                  label: Text(affectedObjectDisplayLabel(affected)),
                                   onPressed: () => _openAffectedObject(affected),
                                 ),
                               ),
@@ -255,7 +264,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
               child: Row(
                 children: [
                   Expanded(child: Text(controller.errorMessage!)),
-                  TextButton(onPressed: _send, child: const Text('Retry')),
+                  TextButton(onPressed: _send, child: const Text('Повторить')),
                 ],
               ),
             ),
@@ -268,7 +277,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   Expanded(child: Text(controller.voiceErrorMessage!)),
                   TextButton(
                     onPressed: inputDisabled ? null : _onVoicePressed,
-                    child: const Text('Retry'),
+                    child: const Text('Повторить'),
                   ),
                 ],
               ),
@@ -293,7 +302,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         minLines: 1,
                         maxLines: compact ? 3 : 4,
                         decoration: const InputDecoration(
-                          hintText: 'Ask Secretary…',
+                          hintText: 'Спросить секретаря…',
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -305,8 +314,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       key: const Key('assistant_voice_button'),
                       visualDensity: VisualDensity.compact,
                       tooltip: controller.voiceState == AssistantVoiceState.recording
-                          ? 'Stop recording'
-                          : 'Record voice command',
+                          ? 'Остановить запись'
+                          : 'Записать голосовую команду',
                       onPressed: inputDisabled &&
                               controller.voiceState != AssistantVoiceState.recording
                           ? null
@@ -328,7 +337,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       IconButton(
                         key: const Key('assistant_send_button'),
                         visualDensity: VisualDensity.compact,
-                        tooltip: 'Send',
+                        tooltip: 'Отправить',
                         onPressed: inputDisabled ? null : _send,
                         icon: controller.isSending
                             ? const SizedBox(
@@ -348,7 +357,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                 height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Text('Send'),
+                            : const Text('Отправить'),
                       ),
                   ],
                 );
@@ -377,7 +386,7 @@ class _ContextBanner extends StatelessWidget {
           children: [
             Expanded(child: Text(label)),
             IconButton(
-              tooltip: 'Remove context',
+              tooltip: 'Убрать контекст',
               onPressed: onClear,
               icon: const Icon(Icons.close),
             ),
@@ -410,15 +419,15 @@ class _ActionPlanCard extends StatelessWidget {
     String statusLabel;
     switch (cardState) {
       case ActionPlanCardState.pending:
-        statusLabel = 'Requires confirmation';
+        statusLabel = 'Требует подтверждения';
       case ActionPlanCardState.completed:
-        statusLabel = 'Completed';
+        statusLabel = 'Выполнено';
       case ActionPlanCardState.rejected:
-        statusLabel = 'Rejected';
+        statusLabel = 'Отклонено';
       case ActionPlanCardState.failed:
-        statusLabel = 'Failed';
+        statusLabel = 'Ошибка';
       case ActionPlanCardState.expired:
-        statusLabel = 'Expired';
+        statusLabel = 'Истекло';
     }
 
     return Padding(
@@ -464,14 +473,14 @@ class _ActionPlanCard extends StatelessWidget {
                       onPressed: buttonsDisabled
                           ? null
                           : () => controller.approveActionPlanAt(messageIndex),
-                      child: Text(compact ? 'Approve' : 'Approve'),
+                      child: Text(compact ? 'Подтвердить' : 'Подтвердить'),
                     ),
                     OutlinedButton(
                       key: Key('assistant_action_plan_reject_$messageIndex'),
                       onPressed: buttonsDisabled
                           ? null
                           : () => controller.rejectActionPlanAt(messageIndex),
-                      child: Text(compact ? 'Reject' : 'Reject'),
+                      child: Text(compact ? 'Отклонить' : 'Отклонить'),
                     ),
                   ],
                 ),
@@ -481,15 +490,15 @@ class _ActionPlanCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 8),
-                    const Text('Action completed.'),
-                    const Text('Could not load Secretary\'s summary.'),
+                    const Text('Действие выполнено.'),
+                    const Text('Не удалось загрузить ответ секретаря.'),
                     TextButton(
                       key: Key('assistant_action_plan_retry_$messageIndex'),
                       onPressed: buttonsDisabled
                           ? null
                           : () =>
                               controller.retryResumeSummary(actionPlan.plan.id),
-                      child: const Text('Retry summary'),
+                      child: const Text('Повторить загрузку ответа'),
                     ),
                   ],
                 ),

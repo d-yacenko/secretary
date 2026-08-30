@@ -92,13 +92,13 @@ Future<void> openNotificationContext(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Priority: ${notification.priority}'),
+            Text('Приоритет: ${notification.priority}'),
             if (notification.proposalType != null)
-              Text('Proposal: ${notification.proposalType}'),
+              Text('Предложение: ${notification.proposalType}'),
             if (notification.proposalDescription != null)
               Text(notification.proposalDescription!),
             if (notification.proposedAction != null)
-              Text('Action: ${notification.proposedAction}'),
+              Text('Действие: ${notification.proposedAction}'),
           ],
         ),
       ),
@@ -109,11 +109,11 @@ Future<void> openNotificationContext(
               Navigator.of(context).pop();
               onAskSecretaryAboutNotification(notification);
             },
-            child: const Text('Ask Secretary'),
+            child: const Text('Спросить секретаря'),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: const Text('Закрыть'),
         ),
       ],
     ),

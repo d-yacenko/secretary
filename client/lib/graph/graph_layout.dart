@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../api/api_models.dart';
 
 const double kGraphNodeWidth = 132;
-const double kGraphNodeHeight = 68;
+const double kGraphNodeHeight = 80;
 const double kGraphCanvasPadding = 80;
 const double kGraphMinScale = 0.05;
 const double kGraphMaxScale = 2.5;

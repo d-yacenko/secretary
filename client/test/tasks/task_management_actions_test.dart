@@ -105,10 +105,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Renamed');
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     expect(patchBody, isNotNull);
@@ -135,11 +135,11 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear body'));
+    await tester.tap(find.text('Очистить описание'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
@@ -164,11 +164,11 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Clear due date'));
+    await tester.tap(find.byTooltip('Очистить срок'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
@@ -193,9 +193,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     expect(patchCalls, 0);
@@ -224,9 +224,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Status'));
+    await tester.tap(find.text('Статус'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('in_progress'));
+    await tester.tap(find.text('В работе'));
     await tester.pumpAndSettle();
 
     expect(path, '/tasks/task-1/status');
@@ -246,9 +246,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Delete'));
+    await tester.tap(find.text('Удалить'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.text('Отмена'));
     await tester.pumpAndSettle();
 
     expect(deleteCalls, 0);
@@ -277,12 +277,12 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Delete'));
+    await tester.tap(find.text('Удалить'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(AlertDialog),
-        matching: find.widgetWithText(FilledButton, 'Delete'),
+        matching: find.widgetWithText(FilledButton, 'Удалить'),
       ),
     );
     await tester.pumpAndSettle();
@@ -305,10 +305,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Broken');
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     expect(updated, isNull);
@@ -338,9 +338,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Set due date'));
+    await tester.tap(find.byTooltip('Установить срок'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('15'));
     await tester.pumpAndSettle();
@@ -348,7 +348,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
@@ -380,9 +380,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Редактировать'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Set due date'));
+    await tester.tap(find.byTooltip('Установить срок'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('15'));
     await tester.pumpAndSettle();
@@ -390,7 +390,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     final payload = jsonDecode(patchBody!) as Map<String, dynamic>;

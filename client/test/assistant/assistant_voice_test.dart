@@ -264,7 +264,7 @@ void main() {
     await pumpAssistantFrames(tester);
 
     expect(find.text('Retry me'), findsOneWidget);
-    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Повторить'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     assistant.dispose();
   });
@@ -443,7 +443,7 @@ void main() {
     await pumpAssistantFrames(tester);
 
     await tester.enterText(find.byKey(const Key('assistant_input')), 'typed text');
-    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Отправить'));
     while (assistant.isSending) {
       await tester.pump(const Duration(milliseconds: 20));
     }

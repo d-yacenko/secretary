@@ -73,11 +73,11 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'alpha task');
-    await tester.tap(find.widgetWithText(FilledButton, 'Search'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
     await tester.pumpAndSettle();
 
     expect(find.text('Alpha task'), findsOneWidget);
-    expect(find.text('Status: pending'), findsOneWidget);
+    expect(find.text('Статус: pending'), findsOneWidget);
   });
 
   testWidgets('search empty state', (tester) async {
@@ -91,9 +91,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'nothing');
-    await tester.tap(find.widgetWithText(FilledButton, 'Search'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
     await tester.pumpAndSettle();
-    expect(find.text('No results'), findsOneWidget);
+    expect(find.text('Ничего не найдено'), findsOneWidget);
   });
 
   testWidgets('search 401 exits authenticated UI', (tester) async {
@@ -125,7 +125,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'x');
-    await tester.tap(find.widgetWithText(FilledButton, 'Search'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(auth.status, AuthStatus.needsAuth);

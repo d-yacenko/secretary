@@ -113,10 +113,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    for (final label in ['Inbox', 'Today', 'Graph', 'Search', 'Assistant']) {
+    for (final label in ['Входящие', 'Сегодня', 'Граф', 'Поиск', 'Секретарь']) {
       expect(find.text(label), findsWidgets);
     }
-    expect(find.text('Capture'), findsOneWidget);
+    expect(find.text('Добавить'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byType(PlaceholderScreen), findsNothing);
   });
@@ -155,7 +155,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.text('Capture'), findsOneWidget);
+    expect(find.text('Добавить'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsNothing);
   });
 
@@ -297,16 +297,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Graph'));
+    await tester.tap(find.text('Граф'));
     await tester.pumpAndSettle();
     expect(find.text('Task A'), findsOneWidget);
     expect(find.text('Task B'), findsNothing);
     expect(graphCalls, 1);
 
-    await tester.tap(find.text('Assistant'));
+    await tester.tap(find.text('Секретарь'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Graph'));
+    await tester.tap(find.text('Граф'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
 

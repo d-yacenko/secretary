@@ -34,7 +34,11 @@ PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e
 
 PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
 
-Next planned after acceptance: follow playbook after PHASE 24 corrective deployment and final manual Graph E2E.
+PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30). Non-functional findings moved to PHASE 25: Android Graph node vertical overflow; Russian-first UI cleanup/localization. Not backend/Graph correctness defects.
+
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **implemented** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
+
+Next planned after acceptance: follow playbook PHASE 25 (Secretary correlation pipeline) or architect review of UI polish branch.
 
 ## VDS production
 
@@ -43,7 +47,7 @@ Next planned after acceptance: follow playbook after PHASE 24 corrective deploym
 - SHA: `1bc9982f85d6a7f4080fcbc52fd1f3a59fe9da7c`
 - Deployed: 2026-08-30 (PHASE 24 post-deploy E2E corrective)
 - Corrective accepted application: `684233bd816fa7947b7eade784ac7e42324c7252`
-- Final matched-version manual Graph E2E: **pending**
+- Final matched-version manual Graph E2E: **functionally PASS** (2026-08-30)
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -97,6 +101,8 @@ PHASE 24 post-deploy E2E corrective: **accepted / closed** (`684233b`).
 
 VDS corrective deployed: 2026-08-30 at `1bc9982`.
 
-Final matched-version manual Graph E2E: **pending**.
+PHASE 24 final matched-version manual Graph E2E: **functionally PASS** (2026-08-30).
 
-Do not start the next product phase until final manual Graph E2E is recorded.
+PHASE 25 — Russian-first UI & Graph Mobile Polish: **implemented** on `review/phase-25-russian-ui-graph-polish` (awaiting architect review; not merged/deployed).
+
+Do not merge or deploy until review.

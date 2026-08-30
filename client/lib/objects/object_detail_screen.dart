@@ -9,6 +9,8 @@ import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 import '../tasks/task_management_actions.dart';
+import '../ui/date_format.dart';
+import '../ui/domain_labels.dart';
 
 enum ObjectDetailLoadState { loading, ready, error }
 
@@ -112,7 +114,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_object?.title ?? 'Object'),
+        title: Text(_object?.title ?? 'Объект'),
         actions: [
           if (_object != null && widget.onShowInGraph != null)
             TextButton(
@@ -120,17 +122,17 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                 widget.onShowInGraph!(_object!.id);
                 Navigator.of(context).pop();
               },
-              child: const Text('Show in Graph'),
+              child: const Text('Показать в графе'),
             ),
           if (_object != null && widget.onAskSecretary != null)
             TextButton(
               onPressed: _askSecretary,
-              child: const Text('Ask Secretary'),
+              child: const Text('Спросить секретаря'),
             ),
           if (_object != null)
             TextButton(
               onPressed: _useAsTaskContext,
-              child: const Text('Use as task context'),
+              child: const Text('Использовать как контекст задачи'),
             ),
         ],
       ),
@@ -147,9 +149,9 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_errorMessage ?? 'Failed to load object'),
+              Text(_errorMessage ?? 'Не удалось загрузить объект'),
               const SizedBox(height: 12),
-              FilledButton(onPressed: _load, child: const Text('Retry')),
+              FilledButton(onPressed: _load, child: const Text('Повторить')),
             ],
           ),
         );
@@ -158,31 +160,35 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _FieldRow(label: 'Kind', value: object.kind),
-            if (object.status != null) _FieldRow(label: 'Status', value: object.status!),
-            _FieldRow(label: 'State', value: object.state),
-            _FieldRow(label: 'Origin', value: object.origin),
-            if (object.body != null) _FieldRow(label: 'Body', value: object.body!),
+            _FieldRow(label: 'Тип', value: objectKindLabel(object.kind)),
+            if (object.status != null)
+              _FieldRow(label: 'Статус', value: taskStatusLabel(object.status)),
+            _FieldRow(label: 'Состояние', value: provenanceStateLabel(object.state)),
+            _FieldRow(label: 'Источник', value: originLabel(object.origin)),
+            if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
             if (object.startAt != null)
-              _FieldRow(label: 'Start', value: object.startAt!),
-            if (object.dueAt != null) _FieldRow(label: 'Due', value: object.dueAt!),
+              _FieldRow(label: 'Начало', value: formatUserDateTime(object.startAt)),
+            if (object.dueAt != null)
+              _FieldRow(label: 'Срок', value: formatUserDateTime(object.dueAt)),
             if (object.provider != null)
-              _FieldRow(label: 'Provider', value: object.provider!),
+              _FieldRow(label: 'Провайдер', value: object.provider!),
             if (object.canonicalUri != null)
               _CanonicalUriRow(uri: object.canonicalUri!),
             const SizedBox(height: 16),
-            Text('Relations', style: Theme.of(context).textTheme.titleMedium),
+            Text('Связи', style: Theme.of(context).textTheme.titleMedium),
             if (_neighbors.isEmpty)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
-                child: Text('No relations'),
+                child: Text('Нет связей'),
               )
             else
               ..._neighbors.map(
                 (neighbor) => ListTile(
                   title: Text(neighbor.object.title),
                   subtitle: Text(
-                    '${neighbor.edge.type} • ${neighbor.direction} • ${neighbor.object.kind}',
+                    '${relationTypeLabel(neighbor.edge.type)} • '
+                    '${neighborDirectionLabel(neighbor.direction)} • '
+                    '${objectKindLabel(neighbor.object.kind)}',
                   ),
                   onTap: () => openObjectDetail(
                     context,
@@ -205,17 +211,17 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                 onTaskUpdated: (updated) => setState(() => _object = updated),
               ),
             const SizedBox(height: 16),
-            Text('Context', style: Theme.of(context).textTheme.titleMedium),
+            Text('Контекст', style: Theme.of(context).textTheme.titleMedium),
             if (_context == null || _context!.neighbors.isEmpty)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
-                child: Text('No context neighbors'),
+                child: Text('Нет соседнего контекста'),
               )
             else
               ..._context!.neighbors.map(
                 (neighbor) => ListTile(
                   title: Text(neighbor.title),
-                  subtitle: Text(neighbor.kind),
+                  subtitle: Text(objectKindLabel(neighbor.kind)),
                 ),
               ),
           ],
@@ -258,7 +264,7 @@ class _CanonicalUriRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Canonical URI', style: Theme.of(context).textTheme.labelLarge),
+          Text('Канонический URI', style: Theme.of(context).textTheme.labelLarge),
           SelectableText(
             sanitized,
             onTap: () => Clipboard.setData(ClipboardData(text: sanitized)),
