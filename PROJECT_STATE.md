@@ -40,11 +40,11 @@ PHASE 25 — Russian-first UI & Graph Mobile Polish: **accepted / closed** (`143
 
 PHASE 25 manual UI verification: **PASS** (2026-08-30).
 
-PHASE 25.1 — UX Baseline: **implementation complete, awaiting architect review** (branch `review/phase-25-1-ux-baseline`).
+PHASE 25.1 — UX Baseline: **accepted / closed** (`4c40b93`).
 
 Next planned product phase: PHASE 26 — Personal Data Correlation.
 
-Do not start PHASE 26 until PHASE 25.1 architect review is recorded.
+Do not start PHASE 26 until architect context refresh / next phase task.
 
 ## Deferred UX / data backlog (not PHASE 25.1)
 
@@ -64,9 +64,9 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `d3f87e326cbd9c2d7098ceada608027cd4d818d8` (docs closure on `main`)
-- Deployed: 2026-08-30 (PHASE 25 Russian UI polish)
-- Accepted application: `143f674ad913c0499f9aa3f0c2a7ea3039f7f108`
+- SHA: (updated after PHASE 25.1 deploy)
+- Deployed: 2026-08-30 (PHASE 25.1 UX Baseline)
+- Accepted application: `4c40b93a59e33b62ec13a2770b31b322eac2cc94`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -77,6 +77,15 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 ### PHASE 24 deployment note
 
 The first manual Graph/Delete failures (`{"detail":"Not Found"}`) occurred because the PHASE 24 Flutter client called routes that did not exist on the PHASE 23D-B VDS backend (`b30b95e`). After deploying `e128f26`, `GET /graph/workspace`, rooted graph, and `DELETE /tasks/{id}` return typed domain responses (not generic FastAPI route 404).
+
+## PHASE 25.1 verification (accepted)
+
+- `flutter analyze`: 21 info/warning, 0 errors
+- `flutter test`: 213 passed
+- `flutter build apk --debug`: PASS
+- `flutter build linux`: PASS
+- backend focused tests: 1 passed
+- Android `minSdk`: 23
 
 ## PHASE 25 verification (accepted)
 
@@ -123,4 +132,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-PHASE 26 — Personal Data Correlation (playbook). Do not start until PHASE 25.1 architect review is recorded.
+PHASE 26 — Personal Data Correlation (playbook). Do not start until architect context refresh / next phase task.

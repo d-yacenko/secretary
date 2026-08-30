@@ -1,12 +1,21 @@
-# Current task — PHASE 25.1 implementation complete, awaiting architect review
+# Current task — PHASE 25.1 accepted / closed
 
 ## Status
 
-PHASE 25 manual UI verification: **PASS**
-
-PHASE 25.1 — UX Baseline: **implementation complete, awaiting architect review**
+PHASE 25.1 — UX Baseline: **accepted / closed** at `4c40b93a59e33b62ec13a2770b31b322eac2cc94`.
 
 PHASE 25 — Russian-first UI & Graph Mobile Polish: **accepted / closed** at `143f674ad913c0499f9aa3f0c2a7ea3039f7f108`.
+
+PHASE 25 manual UI verification: **PASS** (2026-08-30).
+
+## Verification (PHASE 25.1 accepted)
+
+- `flutter analyze`: 21 info/warning, 0 errors
+- `flutter test`: 213 passed
+- `flutter build apk --debug`: PASS
+- `flutter build linux`: PASS
+- backend focused tests: 1 passed
+- Android `minSdk`: 23
 
 ## Next major product phase
 
@@ -40,6 +49,6 @@ Unified colored labels/tags (Работа, Учёба, Наука, Личное,
 
 ## STOP
 
-Do not merge. Do not deploy. Do not start PHASE 26.
+Do not start PHASE 26.
 
-Wait for architect review.
+Wait for architect context refresh / next phase task.
