@@ -63,7 +63,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _showInGraph(String objectId) {
-    widget.graphController.loadRoot(objectId, clearPositions: true);
+    widget.graphController.reRoot(objectId);
     setState(() => _selectedIndex = ShellDestination.graph.index);
   }
 
@@ -87,6 +87,7 @@ class _AppShellState extends State<AppShell> {
           assistantController: widget.assistantController,
           onAskSecretary: _askSecretaryAbout,
           onAskSecretaryAboutNotification: _askSecretaryAboutNotification,
+          onShowInGraph: _showInGraph,
         );
       case ShellDestination.today:
         return TodayScreen(
@@ -182,7 +183,9 @@ class _AppShellState extends State<AppShell> {
       appBar: AppBar(
         title: Text(destination.label),
         actions: [
-          if (!isWide && destination == ShellDestination.assistant)
+          if (!isWide &&
+              (destination == ShellDestination.assistant ||
+                  destination == ShellDestination.graph))
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: 'Capture',
@@ -192,7 +195,9 @@ class _AppShellState extends State<AppShell> {
         ],
       ),
       body: _destinationScreen(destination),
-      floatingActionButton: isWide || destination == ShellDestination.assistant
+      floatingActionButton: isWide ||
+              destination == ShellDestination.assistant ||
+              destination == ShellDestination.graph
           ? null
           : FloatingActionButton.extended(
               onPressed: _openCapture,

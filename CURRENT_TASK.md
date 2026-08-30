@@ -4,7 +4,9 @@
 
 PHASE 23E: accepted / closed at `402c234a915c0f1bf6a839de27b62565c449dfc8`.
 
-PHASE 24: **implemented, awaiting acceptance**.
+PHASE 24: **closure corrective implemented, awaiting acceptance**.
+
+Closure corrective on `review/phase-24`: graph caps/N+1, compact layout, fit viewport, re-root/expand semantics, relation safety, direct REST contracts, expanded tests.
 
 Review branch: `review/phase-24`.
 

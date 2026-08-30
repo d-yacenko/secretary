@@ -272,6 +272,8 @@ class ResourceRegisterOut(BaseModel):
 
 
 class TaskPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = Field(default=None, min_length=1)
     body: str | None = None
     due_at: datetime | None = None
@@ -291,6 +293,8 @@ class TaskMutationResponse(BaseModel):
 
 
 class TaskStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: str
 
 
@@ -310,6 +314,8 @@ class GraphWorkspaceOut(BaseModel):
 
 
 class RelationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_id: UUID
     target_id: UUID
     type: str

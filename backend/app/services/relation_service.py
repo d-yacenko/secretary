@@ -75,10 +75,16 @@ class RelationService:
         return RelationCreateResult(edge=edge, created=True)
 
     def delete_relation(self, edge_id: UUID) -> None:
-        try:
-            self._graph.delete_edge(edge_id)
-        except NotFoundError:
-            raise
+        edge = self._session.scalar(
+            select(Edge).where(Edge.id == edge_id, Edge.user_id == self._user_id)
+        )
+        if edge is None:
+            raise NotFoundError("edge", edge_id)
+        if edge.origin != USER_ORIGIN:
+            raise ValidationError(
+                "only user-created relations can be deleted through this endpoint"
+            )
+        self._graph.delete_edge(edge_id)
 
     def _get_endpoint(self, object_id: UUID) -> Object:
         try:

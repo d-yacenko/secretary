@@ -96,8 +96,10 @@ class TaskManagementActions extends StatelessWidget {
     final titleController = TextEditingController(text: task.title);
     final bodyController = TextEditingController(text: task.body ?? '');
     DateTime? dueAt = task.dueAt == null ? null : DateTime.tryParse(task.dueAt!);
+    final originalDueAt = dueAt;
     bool clearBody = false;
     bool clearDue = false;
+    bool dueAtChanged = false;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -130,15 +132,58 @@ class TaskManagementActions extends StatelessWidget {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
-                        dueAt == null ? 'No due date' : dueAt!.toLocal().toString(),
+                        dueAt == null
+                            ? 'No due date'
+                            : dueAt!.toLocal().toString(),
                       ),
-                      trailing: IconButton(
-                        tooltip: 'Clear due date',
-                        onPressed: () => setState(() {
-                          clearDue = true;
-                          dueAt = null;
-                        }),
-                        icon: const Icon(Icons.event_busy_outlined),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Set due date',
+                            onPressed: () async {
+                              final pickedDate = await showDatePicker(
+                                context: context,
+                                initialDate: dueAt?.toLocal() ?? DateTime.now(),
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime(2100),
+                              );
+                              if (pickedDate == null) {
+                                return;
+                              }
+                              final pickedTime = await showTimePicker(
+                                context: context,
+                                initialTime: dueAt != null
+                                    ? TimeOfDay.fromDateTime(dueAt!.toLocal())
+                                    : TimeOfDay.now(),
+                              );
+                              if (pickedTime == null) {
+                                return;
+                              }
+                              setState(() {
+                                dueAt = DateTime(
+                                  pickedDate.year,
+                                  pickedDate.month,
+                                  pickedDate.day,
+                                  pickedTime.hour,
+                                  pickedTime.minute,
+                                );
+                                clearDue = false;
+                                dueAtChanged = true;
+                              });
+                            },
+                            icon: const Icon(Icons.event_outlined),
+                          ),
+                          IconButton(
+                            tooltip: 'Clear due date',
+                            onPressed: () => setState(() {
+                              clearDue = true;
+                              dueAt = null;
+                              dueAtChanged = true;
+                            }),
+                            icon: const Icon(Icons.event_busy_outlined),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -179,9 +224,13 @@ class TaskManagementActions extends StatelessWidget {
     if (clearDue) {
       request.dueAt = null;
       request.dueAtSet = true;
-    } else if (dueAt != null && task.dueAt != dueAt!.toUtc().toIso8601String()) {
-      request.dueAt = dueAt!.toUtc().toIso8601String();
-      request.dueAtSet = true;
+    } else if (dueAtChanged && dueAt != null) {
+      final newDueIso = dueAt!.toUtc().toIso8601String();
+      final oldDueIso = originalDueAt?.toUtc().toIso8601String();
+      if (newDueIso != oldDueIso) {
+        request.dueAt = newDueIso;
+        request.dueAtSet = true;
+      }
     }
 
     if (request.isEmpty) {

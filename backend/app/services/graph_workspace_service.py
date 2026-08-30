@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, func, literal, or_, select, union_all
+from sqlalchemy import func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeOut, ObjectOut
@@ -23,8 +23,6 @@ DEFAULT_NEIGHBOR_LIMIT = 12
 MAX_NEIGHBOR_LIMIT = 24
 DEFAULT_NODE_LIMIT = 80
 MAX_NODE_LIMIT = 120
-
-ACTIVE_WORK_TASK_STATUSES = frozenset({None, TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS})
 
 
 @dataclass(frozen=True)
@@ -64,35 +62,25 @@ class GraphWorkspaceService:
         node_limit: int,
     ) -> GraphWorkspaceResult:
         root = self._graph.get_object(root_id)
-        truncated = False
         node_map: dict[UUID, Object] = {root.id: root}
         edge_map: dict[UUID, Edge] = {}
+        truncated = False
 
-        neighbors, neighbor_truncated = self._bounded_neighbors(
-            [root_id],
-            neighbor_limit=neighbor_limit,
-            node_limit=node_limit - 1,
-            exclude_deleted_neighbors=True,
-        )
-        truncated = truncated or neighbor_truncated
-        for neighbor, edge in neighbors:
-            node_map[neighbor.id] = neighbor
-            edge_map[edge.id] = edge
+        new_node_budget = max(0, node_limit - len(node_map))
+        if new_node_budget > 0:
+            pairs, neighbor_truncated = self._expand_neighbors_batch(
+                center_ids=[root_id],
+                known_node_ids=set(node_map.keys()),
+                neighbor_limit=neighbor_limit,
+                new_node_budget=new_node_budget,
+                exclude_deleted_neighbors=True,
+            )
+            truncated = truncated or neighbor_truncated
+            for neighbor, edge in pairs:
+                node_map[neighbor.id] = neighbor
+                edge_map[edge.id] = edge
 
-        if len(node_map) > node_limit:
-            truncated = True
-            keep_ids = {root_id}
-            for neighbor, _ in neighbors:
-                if len(keep_ids) >= node_limit:
-                    break
-                keep_ids.add(neighbor.id)
-            node_map = {oid: node_map[oid] for oid in keep_ids if oid in node_map}
-            edge_map = {
-                eid: edge
-                for eid, edge in edge_map.items()
-                if edge.source_id in node_map and edge.target_id in node_map
-            }
-
+        edge_map = self._filter_edges_for_nodes(edge_map, node_map)
         return GraphWorkspaceResult(
             root_id=root_id,
             seed_ids=[],
@@ -107,38 +95,34 @@ class GraphWorkspaceService:
         neighbor_limit: int,
         node_limit: int,
     ) -> GraphWorkspaceResult:
-        truncated = False
+        actual_seed_limit = min(seed_limit, node_limit)
         total_seeds = self._count_active_seed_tasks()
-        seeds = self._fetch_active_seed_tasks(seed_limit)
-        if total_seeds > len(seeds):
-            truncated = True
+        seeds = self._fetch_active_seed_tasks(actual_seed_limit)
+        truncated = total_seeds > actual_seed_limit
 
         node_map: dict[UUID, Object] = {seed.id: seed for seed in seeds}
         edge_map: dict[UUID, Edge] = {}
         seed_ids = [seed.id for seed in seeds]
 
-        if seeds and len(node_map) < node_limit:
-            remaining = node_limit - len(node_map)
-            neighbors, neighbor_truncated = self._bounded_neighbors(
-                seed_ids,
+        new_node_budget = node_limit - len(node_map)
+        if new_node_budget > 0 and seed_ids:
+            pairs, neighbor_truncated = self._expand_neighbors_batch(
+                center_ids=seed_ids,
+                known_node_ids=set(node_map.keys()),
                 neighbor_limit=neighbor_limit,
-                node_limit=remaining,
+                new_node_budget=new_node_budget,
                 exclude_deleted_neighbors=True,
             )
             truncated = truncated or neighbor_truncated
-            for neighbor, edge in neighbors:
-                if neighbor.id not in node_map and len(node_map) >= node_limit:
-                    truncated = True
-                    break
+            for neighbor, edge in pairs:
                 node_map[neighbor.id] = neighbor
                 edge_map[edge.id] = edge
 
-        edge_map = {
-            eid: edge
-            for eid, edge in edge_map.items()
-            if edge.source_id in node_map and edge.target_id in node_map
-        }
+        if len(node_map) > node_limit:
+            truncated = True
+            node_map = self._trim_nodes_deterministically(node_map, node_limit, seed_ids)
 
+        edge_map = self._filter_edges_for_nodes(edge_map, node_map)
         return GraphWorkspaceResult(
             root_id=None,
             seed_ids=seed_ids,
@@ -146,6 +130,37 @@ class GraphWorkspaceService:
             edges=list(edge_map.values()),
             truncated=truncated,
         )
+
+    def _trim_nodes_deterministically(
+        self,
+        node_map: dict[UUID, Object],
+        node_limit: int,
+        priority_ids: list[UUID],
+    ) -> dict[UUID, Object]:
+        keep: set[UUID] = set()
+        for object_id in priority_ids:
+            if object_id in node_map and len(keep) < node_limit:
+                keep.add(object_id)
+        remaining = sorted(
+            [obj for obj in node_map.values() if obj.id not in keep],
+            key=lambda obj: (obj.kind, obj.title, str(obj.id)),
+        )
+        for obj in remaining:
+            if len(keep) >= node_limit:
+                break
+            keep.add(obj.id)
+        return {object_id: node_map[object_id] for object_id in keep}
+
+    def _filter_edges_for_nodes(
+        self,
+        edge_map: dict[UUID, Edge],
+        node_map: dict[UUID, Object],
+    ) -> dict[UUID, Edge]:
+        return {
+            edge_id: edge
+            for edge_id, edge in edge_map.items()
+            if edge.source_id in node_map and edge.target_id in node_map
+        }
 
     def _count_active_seed_tasks(self) -> int:
         return self._session.scalar(
@@ -178,132 +193,127 @@ class GraphWorkspaceService:
             ),
         ]
 
-    def _bounded_neighbors(
+    def _expand_neighbors_batch(
         self,
         center_ids: list[UUID],
+        known_node_ids: set[UUID],
         neighbor_limit: int,
-        node_limit: int,
+        new_node_budget: int,
         exclude_deleted_neighbors: bool,
     ) -> tuple[list[tuple[Object, Edge]], bool]:
-        if not center_ids or node_limit <= 0:
+        if not center_ids or new_node_budget <= 0:
             return [], False
 
-        truncated = False
-        results: list[tuple[Object, Edge]] = []
-        seen_neighbor_ids: set[UUID] = set(center_ids)
-        seen_edge_ids: set[UUID] = set()
+        center_set = set(center_ids)
+        max_edge_candidates = neighbor_limit * len(center_ids)
 
-        for center_id in center_ids:
-            if len(results) >= node_limit:
-                truncated = True
-                break
-
-            per_center_limit = min(neighbor_limit, node_limit - len(results))
-            neighbor_rows, center_truncated = self._neighbors_for_center(
-                center_id,
-                limit=per_center_limit,
-                exclude_deleted_neighbors=exclude_deleted_neighbors,
-            )
-            truncated = truncated or center_truncated
-            for neighbor, edge in neighbor_rows:
-                if edge.id in seen_edge_ids:
-                    continue
-                if neighbor.id in seen_neighbor_ids:
-                    seen_edge_ids.add(edge.id)
-                    results.append((neighbor, edge))
-                    continue
-                if len(results) >= node_limit:
-                    truncated = True
-                    break
-                seen_neighbor_ids.add(neighbor.id)
-                seen_edge_ids.add(edge.id)
-                results.append((neighbor, edge))
-
-        return results, truncated
-
-    def _neighbors_for_center(
-        self,
-        center_id: UUID,
-        limit: int,
-        exclude_deleted_neighbors: bool,
-    ) -> tuple[list[tuple[Object, Edge]], bool]:
-        outgoing_filters = [
-            Edge.user_id == self._user_id,
-            Edge.source_id == center_id,
+        object_filters = [
             Object.user_id == self._user_id,
-            Edge.state != REJECTED_STATE,
-            Object.state != REJECTED_STATE,
-        ]
-        incoming_filters = [
-            Edge.user_id == self._user_id,
-            Edge.target_id == center_id,
-            Object.user_id == self._user_id,
-            Edge.state != REJECTED_STATE,
             Object.state != REJECTED_STATE,
         ]
         if exclude_deleted_neighbors:
-            outgoing_filters.append(
-                or_(Object.status.is_(None), Object.status != TASK_STATUS_DELETED)
-            )
-            incoming_filters.append(
+            object_filters.append(
                 or_(Object.status.is_(None), Object.status != TASK_STATUS_DELETED)
             )
 
         outgoing = (
-            select(Edge.id, literal("outgoing").label("direction"))
+            select(Edge.id)
             .select_from(Edge)
             .join(Object, Edge.target_id == Object.id)
-            .where(*outgoing_filters)
+            .where(
+                Edge.user_id == self._user_id,
+                Edge.source_id.in_(center_ids),
+                Edge.state != REJECTED_STATE,
+                *object_filters,
+            )
         )
         incoming = (
-            select(Edge.id, literal("incoming").label("direction"))
+            select(Edge.id)
             .select_from(Edge)
             .join(Object, Edge.source_id == Object.id)
-            .where(*incoming_filters)
+            .where(
+                Edge.user_id == self._user_id,
+                Edge.target_id.in_(center_ids),
+                Edge.state != REJECTED_STATE,
+                *object_filters,
+            )
         )
 
+        union_subq = union_all(outgoing, incoming).subquery("neighbor_edge_ids")
         total_available = self._session.scalar(
-            select(func.count()).select_from(
-                union_all(outgoing, incoming).subquery("neighbor_count")
-            )
+            select(func.count()).select_from(union_subq)
         ) or 0
 
-        neighbor_edges = union_all(outgoing, incoming).subquery("neighbor_edges")
-        edge_rows = self._session.execute(
-            select(neighbor_edges.c.id)
-            .order_by(neighbor_edges.c.id)
-            .limit(limit)
+        edge_id_rows = self._session.execute(
+            select(union_subq.c.id).order_by(union_subq.c.id).limit(max_edge_candidates)
         ).all()
+        truncated = total_available > len(edge_id_rows)
+        edge_ids = [row[0] for row in edge_id_rows]
+        if not edge_ids:
+            return [], truncated
 
-        truncated = total_available > len(edge_rows)
+        edges = list(
+            self._session.scalars(
+                select(Edge)
+                .where(Edge.id.in_(edge_ids), Edge.user_id == self._user_id)
+                .order_by(Edge.id)
+            )
+        )
+
+        neighbor_ids: set[UUID] = set()
+        for edge in edges:
+            if edge.source_id in center_set:
+                neighbor_ids.add(edge.target_id)
+            if edge.target_id in center_set:
+                neighbor_ids.add(edge.source_id)
+        neighbor_ids -= center_set
+
+        object_rows = self._session.scalars(
+            select(Object).where(
+                Object.user_id == self._user_id,
+                Object.id.in_(neighbor_ids | center_set),
+            )
+        ).all()
+        objects_by_id = {obj.id: obj for obj in object_rows}
+
         results: list[tuple[Object, Edge]] = []
-        for (edge_id,) in edge_rows:
-            edge = self._session.get(Edge, edge_id)
-            if edge is None:
+        seen_edge_ids: set[UUID] = set()
+        new_nodes_added = 0
+        known_ids = set(known_node_ids)
+
+        for edge in edges:
+            if edge.id in seen_edge_ids:
                 continue
-            if edge.state == REJECTED_STATE:
+            neighbor_id: UUID | None = None
+            if edge.source_id in center_set:
+                neighbor_id = edge.target_id
+            elif edge.target_id in center_set:
+                neighbor_id = edge.source_id
+            if neighbor_id is None:
                 continue
-            if edge.source_id == center_id:
-                neighbor = self._session.scalar(
-                    select(Object).where(
-                        Object.id == edge.target_id,
-                        Object.user_id == self._user_id,
-                    )
-                )
-            else:
-                neighbor = self._session.scalar(
-                    select(Object).where(
-                        Object.id == edge.source_id,
-                        Object.user_id == self._user_id,
-                    )
-                )
+
+            neighbor = objects_by_id.get(neighbor_id)
             if neighbor is None:
                 continue
             if neighbor.state == REJECTED_STATE:
                 continue
             if exclude_deleted_neighbors and neighbor.status == TASK_STATUS_DELETED:
                 continue
+
+            if neighbor.id in known_ids:
+                seen_edge_ids.add(edge.id)
+                results.append((neighbor, edge))
+                continue
+
+            if new_nodes_added >= new_node_budget:
+                truncated = True
+                break
+
+            known_ids.add(neighbor.id)
+            new_nodes_added += 1
+            seen_edge_ids.add(edge.id)
             results.append((neighbor, edge))
+
         return results, truncated
 
     def to_response(self, result: GraphWorkspaceResult) -> dict:

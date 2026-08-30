@@ -109,3 +109,43 @@ def test_delete_relation_keeps_objects(db_session, relation_client):
     assert response.status_code == 204
     assert db_session.get(Object, source.id) is not None
     assert db_session.get(Object, target.id) is not None
+
+
+def test_delete_agent_origin_relation_rejected(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Agent source")
+    target = _object(graph, "Agent target")
+    edge = graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type="references",
+            origin="agent",
+            state=CONFIRMED_STATE,
+            confidence=0.8,
+        )
+    )
+    db_session.flush()
+
+    response = relation_client.delete(f"/relations/{edge.id}")
+    assert response.status_code == 422
+    assert db_session.get(Object, source.id) is not None
+    assert db_session.get(Object, target.id) is not None
+
+
+def test_create_related_to_references_depends_on(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    a = _object(graph, "A")
+    b = _object(graph, "B")
+    db_session.flush()
+    for relation_type in ("related_to", "references", "depends_on"):
+        response = relation_client.post(
+            "/relations",
+            json={
+                "source_id": str(a.id),
+                "target_id": str(b.id),
+                "type": relation_type,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["edge"]["type"] == relation_type

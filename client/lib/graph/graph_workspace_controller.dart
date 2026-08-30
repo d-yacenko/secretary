@@ -26,6 +26,7 @@ class GraphWorkspaceController extends ChangeNotifier {
   String? selectedEdgeId;
   String? searchQuery;
   String? searchKindFilter;
+  bool shouldFitAfterLayout = false;
 
   final Map<String, SecretaryObject> _nodes = {};
   final List<SecretaryEdge> _edges = [];
@@ -60,6 +61,7 @@ class GraphWorkspaceController extends ChangeNotifier {
     selectedEdgeId = null;
     searchQuery = null;
     searchKindFilter = null;
+    shouldFitAfterLayout = false;
     _nodes.clear();
     _edges.clear();
     _positions.clear();
@@ -67,16 +69,56 @@ class GraphWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> loadOverview() async {
-    await _loadWorkspace(rootId: null, clearPositions: true, clearGraph: true);
+    loadState = GraphWorkspaceLoadState.loading;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final workspace = await _apiClient.getGraphWorkspace();
+      _nodes.clear();
+      _edges.clear();
+      _positions.clear();
+      _applyWorkspace(workspace, layoutRoot: null, freshRoot: true);
+      rootId = null;
+      selectedObjectId = null;
+      loadState = GraphWorkspaceLoadState.ready;
+      shouldFitAfterLayout = true;
+    } on AuthenticationException {
+      _authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      loadState = GraphWorkspaceLoadState.error;
+      errorMessage = error.message;
+    } catch (_) {
+      loadState = GraphWorkspaceLoadState.error;
+      errorMessage = 'Failed to load graph workspace';
+    }
+    notifyListeners();
   }
 
-  Future<void> loadRoot(String objectId, {bool clearPositions = false}) async {
-    await _loadWorkspace(
-      rootId: objectId,
-      clearPositions: clearPositions,
-      clearGraph: clearPositions,
-    );
-    selectedObjectId = objectId;
+  Future<void> reRoot(String objectId) async {
+    loadState = GraphWorkspaceLoadState.loading;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final workspace = await _apiClient.getGraphWorkspace(rootId: objectId);
+      _nodes.clear();
+      _edges.clear();
+      _positions.clear();
+      _applyWorkspace(workspace, layoutRoot: objectId, freshRoot: true);
+      rootId = objectId;
+      selectedObjectId = objectId;
+      selectedEdgeId = null;
+      loadState = GraphWorkspaceLoadState.ready;
+      shouldFitAfterLayout = true;
+    } on AuthenticationException {
+      _authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = error.message;
+    } catch (_) {
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = 'Failed to load graph workspace';
+    }
+    notifyListeners();
   }
 
   Future<void> expandSelected() async {
@@ -84,10 +126,38 @@ class GraphWorkspaceController extends ChangeNotifier {
     if (selected == null) {
       return;
     }
-    await _mergeWorkspace(
-      await _apiClient.getGraphWorkspace(rootId: selected.id),
-      expandAround: selected.id,
-    );
+    try {
+      final workspace = await _apiClient.getGraphWorkspace(rootId: selected.id);
+      _mergeWorkspace(workspace, expandAround: selected.id);
+      errorMessage = null;
+    } on AuthenticationException {
+      _authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      errorMessage = error.message;
+      notifyListeners();
+    } catch (_) {
+      errorMessage = 'Failed to expand neighbors';
+      notifyListeners();
+    }
+  }
+
+  Future<void> mergeRelationContext(String sourceId, SecretaryObject? target) async {
+    if (target != null) {
+      _nodes[target.id] = target;
+    }
+    try {
+      final workspace = await _apiClient.getGraphWorkspace(rootId: sourceId);
+      _mergeWorkspace(workspace, expandAround: sourceId);
+      errorMessage = null;
+    } on AuthenticationException {
+      _authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      errorMessage = error.message;
+      notifyListeners();
+    } catch (_) {
+      errorMessage = 'Failed to refresh graph after relation change';
+      notifyListeners();
+    }
   }
 
   void selectObject(String? objectId) {
@@ -122,48 +192,11 @@ class GraphWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _loadWorkspace({
-    required String? rootId,
-    required bool clearPositions,
-    required bool clearGraph,
-  }) async {
-    loadState = GraphWorkspaceLoadState.loading;
-    errorMessage = null;
-    notifyListeners();
-    try {
-      final workspace = await _apiClient.getGraphWorkspace(rootId: rootId);
-      if (clearPositions) {
-        _positions.clear();
-      }
-      if (clearGraph) {
-        _nodes.clear();
-        _edges.clear();
-      }
-      _applyWorkspace(workspace, expandAround: rootId);
-      loadState = GraphWorkspaceLoadState.ready;
-    } on AuthenticationException {
-      _authController.handleAuthenticationFailure();
-    } on ApiException catch (error) {
-      loadState = GraphWorkspaceLoadState.error;
-      errorMessage = error.message;
-    } catch (_) {
-      loadState = GraphWorkspaceLoadState.error;
-      errorMessage = 'Failed to load graph workspace';
-    }
-    notifyListeners();
+  void clearFitRequest() {
+    shouldFitAfterLayout = false;
   }
 
-  Future<void> _mergeWorkspace(
-    GraphWorkspaceOut workspace, {
-    String? expandAround,
-  }) async {
-    _applyWorkspace(workspace, expandAround: expandAround);
-    loadState = GraphWorkspaceLoadState.ready;
-    notifyListeners();
-  }
-
-  void _applyWorkspace(GraphWorkspaceOut workspace, {String? expandAround}) {
-    rootId = workspace.rootId;
+  void _mergeWorkspace(GraphWorkspaceOut workspace, {required String expandAround}) {
     truncated = workspace.truncated;
     for (final node in workspace.nodes) {
       _nodes[node.id] = node;
@@ -174,11 +207,37 @@ class GraphWorkspaceController extends ChangeNotifier {
         _edges.add(edge);
       }
     }
-    final layoutRoot = expandAround ?? workspace.rootId;
+    final computed = GraphLayout.computePositions(
+      nodes: workspace.nodes,
+      rootId: expandAround,
+      existing: _positions,
+      freshRoot: false,
+    );
+    _positions.addAll(computed);
+    loadState = GraphWorkspaceLoadState.ready;
+    notifyListeners();
+  }
+
+  void _applyWorkspace(
+    GraphWorkspaceOut workspace, {
+    required String? layoutRoot,
+    required bool freshRoot,
+  }) {
+    truncated = workspace.truncated;
+    for (final node in workspace.nodes) {
+      _nodes[node.id] = node;
+    }
+    for (final edge in workspace.edges) {
+      final exists = _edges.any((item) => item.id == edge.id);
+      if (!exists) {
+        _edges.add(edge);
+      }
+    }
     final computed = GraphLayout.computePositions(
       nodes: workspace.nodes,
       rootId: layoutRoot,
       existing: _positions,
+      freshRoot: freshRoot,
     );
     _positions.addAll(computed);
   }

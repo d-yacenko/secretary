@@ -91,18 +91,33 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   }
 
   void _fitView() {
-    _transform.value = Matrix4.identity();
+    final renderObject = context.findRenderObject();
+    if (renderObject is RenderBox && renderObject.hasSize) {
+      _transform.value = GraphLayout.fitTransform(
+        positions: widget.controller.positions,
+        viewportSize: renderObject.size,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.sizeOf(context).width >= 900;
-    final canvas = Expanded(child: _buildCanvas(context));
+    final canvas = _buildCanvas(context);
     final details = _buildDetailPanel(context, compact: !isWide);
 
     return Column(
       children: [
         _buildToolbar(context),
+        if (widget.controller.errorMessage != null &&
+            widget.controller.loadState == GraphWorkspaceLoadState.ready)
+          Material(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(widget.controller.errorMessage!),
+            ),
+          ),
         if (widget.controller.truncated)
           Material(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -118,7 +133,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
           child: isWide
               ? Row(
                   children: [
-                    canvas,
+                    Expanded(child: canvas),
                     SizedBox(width: 360, child: details),
                   ],
                 )
@@ -200,7 +215,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                   final object = _searchResults[index];
                   return ActionChip(
                     label: Text(object.title, overflow: TextOverflow.ellipsis),
-                    onPressed: () => widget.controller.loadRoot(object.id),
+                    onPressed: () => widget.controller.reRoot(object.id),
                   );
                 },
               ),
@@ -247,42 +262,64 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     final nodes = widget.controller.nodes;
     final edges = widget.controller.edges;
     final positions = widget.controller.positions;
+    final bounds = GraphLayout.computeBounds(positions);
+    final canvasWidth = bounds.width + kGraphCanvasPadding * 2;
+    final canvasHeight = bounds.height + kGraphCanvasPadding * 2;
 
-    return InteractiveViewer(
-      transformationController: _transform,
-      minScale: 0.4,
-      maxScale: 2.5,
-      boundaryMargin: const EdgeInsets.all(500),
-      child: SizedBox(
-        width: 1200,
-        height: 900,
-        child: Stack(
-          children: [
-            CustomPaint(
-              size: const Size(1200, 900),
-              painter: _GraphEdgePainter(
-                edges: edges,
-                positions: positions,
-                selectedEdgeId: widget.controller.selectedEdgeId,
-                colorScheme: Theme.of(context).colorScheme,
-              ),
-            ),
-            ...nodes.map((node) {
-              final position = positions[node.id] ?? const Offset(0, 0);
-              final selected = widget.controller.selectedObjectId == node.id;
-              return Positioned(
-                left: 600 + position.dx - kGraphNodeWidth / 2,
-                top: 450 + position.dy - kGraphNodeHeight / 2,
-                child: _GraphNodeCard(
-                  object: node,
-                  selected: selected,
-                  onTap: () => widget.controller.selectObject(node.id),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (widget.controller.shouldFitAfterLayout) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            _transform.value = GraphLayout.fitTransform(
+              positions: positions,
+              viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
+            );
+            widget.controller.clearFitRequest();
+          });
+        }
+        return InteractiveViewer(
+          transformationController: _transform,
+          minScale: 0.2,
+          maxScale: 2.5,
+          boundaryMargin: const EdgeInsets.all(200),
+          child: SizedBox(
+            width: canvasWidth,
+            height: canvasHeight,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                CustomPaint(
+                  size: Size(canvasWidth, canvasHeight),
+                  painter: _GraphEdgePainter(
+                    edges: edges,
+                    positions: positions,
+                    bounds: bounds,
+                    padding: kGraphCanvasPadding,
+                    selectedEdgeId: widget.controller.selectedEdgeId,
+                    colorScheme: Theme.of(context).colorScheme,
+                  ),
                 ),
-              );
-            }),
-          ],
-        ),
-      ),
+                ...nodes.map((node) {
+                  final position = positions[node.id] ?? const Offset(0, 0);
+                  final selected = widget.controller.selectedObjectId == node.id;
+                  return Positioned(
+                    left: position.dx - bounds.left + kGraphCanvasPadding,
+                    top: position.dy - bounds.top + kGraphCanvasPadding,
+                    child: _GraphNodeCard(
+                      object: node,
+                      selected: selected,
+                      onTap: () => widget.controller.selectObject(node.id),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -367,7 +404,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                   captureController: widget.captureController,
                   assistantController: widget.assistantController,
                   onAskSecretary: widget.onAskSecretary,
-                  onShowInGraph: (id) => widget.controller.loadRoot(id),
+                  onShowInGraph: (id) => widget.controller.reRoot(id),
                 ),
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: const Text('Details'),
@@ -384,7 +421,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             Tooltip(
               message: 'Center/re-root',
               child: OutlinedButton.icon(
-                onPressed: () => widget.controller.loadRoot(object.id),
+                onPressed: () => widget.controller.reRoot(object.id),
                 icon: const Icon(Icons.center_focus_strong_outlined, size: 18),
                 label: const Text('Re-root'),
               ),
@@ -511,7 +548,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
         type: relationType,
       );
       widget.controller.addEdge(response.edge);
-      widget.controller.upsertObject(target!);
+      await widget.controller.mergeRelationContext(source.id, target);
     } on ApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -522,11 +559,15 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   }
 
   Future<void> _removeRelation(BuildContext context, SecretaryEdge edge) async {
+    final source = widget.controller.nodeById(edge.sourceId);
+    final target = widget.controller.nodeById(edge.targetId);
+    final sourceTitle = source?.title ?? edge.sourceId;
+    final targetTitle = target?.title ?? edge.targetId;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove relation?'),
-        content: Text('${edge.type}'),
+        content: Text('$sourceTitle --${edge.type}--> $targetTitle'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -627,22 +668,32 @@ class _GraphEdgePainter extends CustomPainter {
   _GraphEdgePainter({
     required this.edges,
     required this.positions,
+    required this.bounds,
+    required this.padding,
     required this.selectedEdgeId,
     required this.colorScheme,
   });
 
   final List<SecretaryEdge> edges;
   final Map<String, Offset> positions;
+  final Rect bounds;
+  final double padding;
   final String? selectedEdgeId;
   final ColorScheme colorScheme;
 
+  Offset _nodeCenter(String objectId) {
+    final position = positions[objectId] ?? const Offset(0, 0);
+    return Offset(
+      position.dx - bounds.left + padding + kGraphNodeWidth / 2,
+      position.dy - bounds.top + padding + kGraphNodeHeight / 2,
+    );
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
     for (final edge in edges) {
-      final source = positions[edge.sourceId];
-      final target = positions[edge.targetId];
-      if (source == null || target == null) {
+      if (!positions.containsKey(edge.sourceId) ||
+          !positions.containsKey(edge.targetId)) {
         continue;
       }
       final paint = Paint()
@@ -652,8 +703,8 @@ class _GraphEdgePainter extends CustomPainter {
             : colorScheme.outline
         ..style = PaintingStyle.stroke;
 
-      final start = center + source;
-      final end = center + target;
+      final start = _nodeCenter(edge.sourceId);
+      final end = _nodeCenter(edge.targetId);
       canvas.drawLine(start, end, paint);
 
       final angle = math.atan2(end.dy - start.dy, end.dx - start.dx);

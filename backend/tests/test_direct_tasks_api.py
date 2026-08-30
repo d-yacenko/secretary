@@ -142,3 +142,65 @@ def test_deleted_task_cannot_be_edited(db_session, task_client):
     db_session.flush()
     response = task_client.patch(f"/tasks/{task.id}", json={"title": "Nope"})
     assert response.status_code == 422
+
+
+def test_patch_set_due_date(db_session, task_client):
+    task = _create_task(db_session)
+    db_session.flush()
+    new_due = "2026-10-01T12:00:00+00:00"
+    response = task_client.patch(f"/tasks/{task.id}", json={"due_at": new_due})
+    assert response.status_code == 200
+    returned = response.json()["object"]["due_at"]
+    from datetime import datetime
+
+    assert datetime.fromisoformat(returned) == datetime.fromisoformat(new_due)
+
+
+def test_patch_empty_title_rejected(db_session, task_client):
+    task = _create_task(db_session)
+    db_session.flush()
+    response = task_client.patch(f"/tasks/{task.id}", json={"title": ""})
+    assert response.status_code == 422
+
+
+def test_patch_extra_fields_rejected(db_session, task_client):
+    task = _create_task(db_session)
+    db_session.flush()
+    response = task_client.patch(
+        f"/tasks/{task.id}",
+        json={"title": "X", "status": "done"},
+    )
+    assert response.status_code == 422
+
+
+def test_status_extra_fields_rejected(db_session, task_client):
+    task = _create_task(db_session)
+    db_session.flush()
+    response = task_client.post(
+        f"/tasks/{task.id}/status",
+        json={"status": "done", "origin": "agent"},
+    )
+    assert response.status_code == 422
+
+
+def test_status_open_to_in_progress(db_session, task_client):
+    task = _create_task(db_session, status="open")
+    db_session.flush()
+    response = task_client.post(f"/tasks/{task.id}/status", json={"status": "in_progress"})
+    assert response.status_code == 200
+    assert response.json()["object"]["status"] == "in_progress"
+
+
+def test_status_done_to_open(db_session, task_client):
+    task = _create_task(db_session, status="done")
+    db_session.flush()
+    response = task_client.post(f"/tasks/{task.id}/status", json={"status": "open"})
+    assert response.status_code == 200
+    assert response.json()["object"]["status"] == "open"
+
+
+def test_deleted_task_cannot_change_status(db_session, task_client):
+    task = _create_task(db_session, status="deleted")
+    db_session.flush()
+    response = task_client.post(f"/tasks/{task.id}/status", json={"status": "open"})
+    assert response.status_code == 422

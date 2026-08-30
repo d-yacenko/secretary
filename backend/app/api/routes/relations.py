@@ -54,4 +54,9 @@ def delete_relation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{exc.resource} not found",
         ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        ) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -20,6 +20,7 @@ class InboxScreen extends StatefulWidget {
     this.assistantController,
     this.onAskSecretary,
     this.onAskSecretaryAboutNotification,
+    this.onShowInGraph,
   });
 
   final SecretaryApiClient apiClient;
@@ -28,6 +29,7 @@ class InboxScreen extends StatefulWidget {
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
   final void Function(NotificationOut notification)? onAskSecretaryAboutNotification;
+  final ShowInGraphHandler? onShowInGraph;
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
@@ -197,6 +199,7 @@ class _InboxScreenState extends State<InboxScreen> {
                 onAskSecretary: widget.onAskSecretary,
                 onAskSecretaryAboutNotification:
                     widget.onAskSecretaryAboutNotification,
+                onShowInGraph: widget.onShowInGraph,
               ),
             );
           },
