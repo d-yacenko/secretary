@@ -400,16 +400,19 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             Tooltip(
               message: 'Open full details',
               child: OutlinedButton.icon(
-                onPressed: () => openObjectDetail(
-                  context,
-                  objectId: object.id,
-                  apiClient: widget.apiClient,
-                  authController: widget.authController,
-                  captureController: widget.captureController,
-                  assistantController: widget.assistantController,
-                  onAskSecretary: widget.onAskSecretary,
-                  onShowInGraph: (id) => widget.controller.reRoot(id),
-                ),
+                onPressed: () async {
+                  await openObjectDetail(
+                    context,
+                    objectId: object.id,
+                    apiClient: widget.apiClient,
+                    authController: widget.authController,
+                    captureController: widget.captureController,
+                    assistantController: widget.assistantController,
+                    onAskSecretary: widget.onAskSecretary,
+                    onShowInGraph: (id) => widget.controller.reRoot(id),
+                  );
+                  await widget.controller.refreshCurrentWorkspace();
+                },
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: const Text('Details'),
               ),

@@ -18,6 +18,8 @@ Post-deploy corrective implemented on branch `review/phase-24-e2e-corrective`:
 - Canonical active-task seed semantics (non-rejected, non-terminal status).
 - Lifecycle-aware `applyTaskMutation` removes deleted/terminal tasks from active overview immediately.
 - Rooted delete falls back to refreshed overview.
+- Missing-root 404 on rooted refresh falls back to overview.
+- Object Detail opened from Graph reconciles workspace on return.
 
 **Awaiting architect acceptance.** Do not deploy until accepted.
 

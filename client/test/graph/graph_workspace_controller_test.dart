@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_secretary/api/api_error.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
@@ -383,5 +384,62 @@ void main() {
 
     expect(controller.nodeById('a'), isNull);
     expect(controller.nodeById('b'), isNotNull);
+  });
+
+  test('refresh rooted missing root falls back to overview', () async {
+    var rootedCalls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        if (rootId == 'a') {
+          rootedCalls += 1;
+          if (rootedCalls == 1) {
+            return _workspace(rootId: 'a', nodes: [_obj('a', 'A')]);
+          }
+          throw NotFoundException();
+        }
+        return _workspace(nodes: [_obj('b', 'B')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.reRoot('a');
+    expect(controller.rootId, 'a');
+
+    await controller.refreshCurrentWorkspace();
+
+    expect(controller.rootId, isNull);
+    expect(controller.nodeById('a'), isNull);
+    expect(controller.nodeById('b'), isNotNull);
+    expect(controller.loadState, GraphWorkspaceLoadState.ready);
+  });
+
+  test('refresh rooted network error preserves graph', () async {
+    var rootedCalls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        if (rootId == 'root') {
+          rootedCalls += 1;
+          if (rootedCalls == 1) {
+            return _workspace(rootId: 'root', nodes: [_obj('root', 'Root')]);
+          }
+          throw NetworkException('offline');
+        }
+        return _workspace();
+      }),
+      authController: auth,
+    );
+
+    await controller.reRoot('root');
+    expect(controller.nodes.length, 1);
+
+    await controller.refreshCurrentWorkspace();
+
+    expect(controller.rootId, 'root');
+    expect(controller.nodes.length, 1);
+    expect(controller.nodeById('root'), isNotNull);
+    expect(controller.errorMessage, 'offline');
+    expect(controller.loadState, GraphWorkspaceLoadState.ready);
   });
 }

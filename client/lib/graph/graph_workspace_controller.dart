@@ -91,9 +91,40 @@ class GraphWorkspaceController extends ChangeNotifier {
     if (loadState == GraphWorkspaceLoadState.loading) {
       return;
     }
-    loadState = GraphWorkspaceLoadState.loading;
-    errorMessage = null;
+    await _loadOverviewInternal(setLoading: true);
+  }
+
+  Future<void> _loadOverviewFromMissingRoot() async {
+    try {
+      final workspace = await _apiClient.getGraphWorkspace();
+      _replaceWorkspaceState(
+        workspace: workspace,
+        layoutRoot: null,
+        freshRoot: true,
+        rootIdAfter: null,
+        selectObjectId: null,
+        fitAfterLayout: true,
+      );
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = 'Root object is no longer available in graph workspace';
+    } on AuthenticationException {
+      _authController.handleAuthenticationFailure();
+    } on ApiException catch (error) {
+      loadState = GraphWorkspaceLoadState.error;
+      errorMessage = error.message;
+    } catch (_) {
+      loadState = GraphWorkspaceLoadState.error;
+      errorMessage = 'Failed to load graph workspace';
+    }
     notifyListeners();
+  }
+
+  Future<void> _loadOverviewInternal({required bool setLoading}) async {
+    if (setLoading) {
+      loadState = GraphWorkspaceLoadState.loading;
+      errorMessage = null;
+      notifyListeners();
+    }
     try {
       final workspace = await _apiClient.getGraphWorkspace();
       _replaceWorkspaceState(
@@ -158,8 +189,7 @@ class GraphWorkspaceController extends ChangeNotifier {
       final workspace = await _apiClient.getGraphWorkspace(rootId: objectId);
       final rootPresent = workspace.nodes.any((node) => node.id == objectId);
       if (!rootPresent) {
-        await loadOverview();
-        errorMessage = 'Root object is no longer available in graph workspace';
+        await _loadOverviewFromMissingRoot();
         return;
       }
       final preservedSelection = selectedObjectId;
@@ -177,6 +207,14 @@ class GraphWorkspaceController extends ChangeNotifier {
       loadState = GraphWorkspaceLoadState.ready;
     } on AuthenticationException {
       _authController.handleAuthenticationFailure();
+    } on NotFoundException {
+      await _loadOverviewFromMissingRoot();
+    } on NetworkException catch (error) {
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = error.message;
+    } on ServerException catch (error) {
+      loadState = GraphWorkspaceLoadState.ready;
+      errorMessage = error.message;
     } on ApiException catch (error) {
       loadState = GraphWorkspaceLoadState.ready;
       errorMessage = error.message;

@@ -367,4 +367,334 @@ void main() {
 
     expect(harness.graph.selectedObjectId, 'wide-11');
   });
+
+  testWidgets('Details edit refreshes rooted workspace', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var graphCalls = 0;
+    var rootedRefreshed = false;
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          graphCalls += 1;
+          final root = request.url.queryParameters['root_id'];
+          if (root == 'task-a') {
+            return http.Response(
+              jsonEncode(
+                _workspaceJson(
+                  rootId: 'task-a',
+                  nodes: [
+                    _objectJson(
+                      id: 'task-a',
+                      title: rootedRefreshed ? 'Renamed A' : 'Task A',
+                    ),
+                  ],
+                ),
+              ),
+              200,
+            );
+          }
+          return http.Response(
+            jsonEncode(
+              _workspaceJson(
+                nodes: [_objectJson(id: 'task-a', title: 'Task A')],
+              ),
+            ),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a') {
+          return http.Response(
+            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/neighbors') {
+          return http.Response(
+            jsonEncode({'object_id': 'task-a', 'neighbors': []}),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/context') {
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'edges': [],
+              'neighbors': [],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'PATCH' && request.url.path == '/tasks/task-a') {
+          rootedRefreshed = true;
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Renamed A'),
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    await harness.graph.reRoot('task-a');
+    await tester.pumpAndSettle();
+
+    harness.graph.selectObject('task-a');
+    await tester.pump();
+
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Renamed A');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(harness.graph.rootId, 'task-a');
+    expect(find.text('Renamed A'), findsWidgets);
+    expect(graphCalls, greaterThanOrEqualTo(3));
+  });
+
+  testWidgets('Details delete refreshes overview without deleted task', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var overviewCalls = 0;
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace' &&
+            request.url.queryParameters['root_id'] == null) {
+          overviewCalls += 1;
+          final nodes = overviewCalls == 1
+              ? [
+                  _objectJson(id: 'task-a', title: 'Task A'),
+                  _objectJson(id: 'task-b', title: 'Task B'),
+                ]
+              : [_objectJson(id: 'task-b', title: 'Task B')];
+          return http.Response(jsonEncode(_workspaceJson(nodes: nodes)), 200);
+        }
+        if (request.url.path == '/objects/task-a') {
+          return http.Response(
+            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/neighbors') {
+          return http.Response(
+            jsonEncode({'object_id': 'task-a', 'neighbors': []}),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/context') {
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'edges': [],
+              'neighbors': [],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'DELETE' && request.url.path == '/tasks/task-a') {
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Task A', status: 'deleted'),
+              'new_status': 'deleted',
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    harness.graph.selectObject('task-a');
+    await tester.pump();
+
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(harness.graph.rootId, isNull);
+    expect(find.text('Task A'), findsNothing);
+    expect(find.text('Task B'), findsOneWidget);
+    expect(overviewCalls, greaterThanOrEqualTo(2));
+  });
+
+  testWidgets('Details delete current root falls back to overview', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var rootedCalls = 0;
+    var overviewCalls = 0;
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          final root = request.url.queryParameters['root_id'];
+          if (root == 'task-a') {
+            rootedCalls += 1;
+            if (rootedCalls == 1) {
+              return http.Response(
+                jsonEncode(
+                  _workspaceJson(
+                    rootId: 'task-a',
+                    nodes: [_objectJson(id: 'task-a', title: 'Task A')],
+                  ),
+                ),
+                200,
+              );
+            }
+            return http.Response('{"detail":"not found"}', 404);
+          }
+          overviewCalls += 1;
+          final nodes = overviewCalls == 1
+              ? [_objectJson(id: 'task-a', title: 'Task A')]
+              : [_objectJson(id: 'task-b', title: 'Task B')];
+          return http.Response(jsonEncode(_workspaceJson(nodes: nodes)), 200);
+        }
+        if (request.url.path == '/objects/task-a') {
+          return http.Response(
+            jsonEncode(_objectJson(id: 'task-a', title: 'Task A')),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/neighbors') {
+          return http.Response(
+            jsonEncode({'object_id': 'task-a', 'neighbors': []}),
+            200,
+          );
+        }
+        if (request.url.path == '/objects/task-a/context') {
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Task A'),
+              'edges': [],
+              'neighbors': [],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'DELETE' && request.url.path == '/tasks/task-a') {
+          return http.Response(
+            jsonEncode({
+              'object': _objectJson(id: 'task-a', title: 'Task A', status: 'deleted'),
+              'new_status': 'deleted',
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    await harness.graph.reRoot('task-a');
+    await tester.pumpAndSettle();
+
+    harness.graph.selectObject('task-a');
+    await tester.pump();
+
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(harness.graph.rootId, isNull);
+    expect(find.text('Task A'), findsNothing);
+    expect(find.text('Task B'), findsOneWidget);
+    expect(rootedCalls, greaterThanOrEqualTo(2));
+    expect(overviewCalls, greaterThanOrEqualTo(2));
+  });
 }
