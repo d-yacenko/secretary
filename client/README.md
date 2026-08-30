@@ -26,15 +26,9 @@ Linux builds require the desktop toolchain (`clang++`, `cmake`, `ninja`, GTK 3 d
 
 ### Linux voice recording runtime
 
-Assistant voice input on Linux uses the `record` package, which depends on external audio tooling when available:
+Assistant voice input on Linux uses the `record` package (5.2.1), which requires `fmedia` at runtime for microphone capture.
 
-```text
-parecord
-pactl
-ffmpeg
-```
-
-If the local recording stack is unavailable, voice input shows a normal user-visible error instead of crashing.
+If `fmedia` is unavailable, voice input shows a normal user-visible error instead of crashing.
 
 ## Run (Android)
 

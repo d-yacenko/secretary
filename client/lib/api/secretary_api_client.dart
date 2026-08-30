@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'api_error.dart';
 import 'api_models.dart';
@@ -162,6 +163,7 @@ class SecretaryApiClient {
         'audio',
         audioBytes,
         filename: filename,
+        contentType: contentType != null ? MediaType.parse(contentType) : null,
       ),
     );
 

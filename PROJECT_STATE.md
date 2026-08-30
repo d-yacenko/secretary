@@ -14,14 +14,14 @@ PHASE 22.7 — Assistant Cost & Latency Optimization: **accepted / closed** (`94
 
 PHASE 23A — Voice Transcription Foundation: **accepted / closed** (`43de268`)
 
-PHASE 23B — Flutter push-to-talk: **implemented, awaiting review**
+PHASE 23B — Flutter push-to-talk: **closure corrective implemented, awaiting acceptance**
 
 ## VDS production
 
 - SHA: `4607a1800ab2058c62f69b111d00871a48a5d0fb`
 - Deployed: 2026-08-29
 - **Accepted backend/transcription work (`94f04ef` / `43de268`) deployment pending** — VDS SSH credentials unavailable from dev environment
-- **PHASE 23B not deployed** — awaiting review
+- **PHASE 23B not deployed** — closure corrective on `review/phase-23b`
 
 ## PHASE 22.7 baseline note
 
@@ -36,10 +36,10 @@ VDS `assistant_turn` logs were not available from the local development environm
   - `OPENAI_TRANSCRIPTION_MODEL` (default `gpt-4o-mini-transcribe`)
   - OpenAI + fake transcription providers; no audio persistence
   - `assistant_transcription` telemetry (no transcript/audio logging)
-- PHASE 23B (awaiting review):
+- PHASE 23B (closure corrective on review branch):
   - Flutter Assistant microphone → temp WAV → `/assistant/transcribe` → `sendMessage(transcript)`
-  - Preserves object/notification context through existing `AssistantController`
-  - Ephemeral temp audio lifecycle; `record` + `path_provider`
+  - Race-safe voice lifecycle (`starting` / `recording` / `transcribing`)
+  - Preserves object/notification context; ephemeral temp audio; `record 5.2.1` + `minSdk 23`
 
 ## Next phase
 

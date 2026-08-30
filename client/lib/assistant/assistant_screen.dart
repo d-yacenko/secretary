@@ -28,12 +28,15 @@ class AssistantScreen extends StatefulWidget {
 class _AssistantScreenState extends State<AssistantScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  AssistantSendState? _lastSendState;
 
   @override
   void initState() {
     super.initState();
+    _lastSendState = widget.controller.sendState;
     widget.controller.addListener(_onControllerChanged);
-    if (widget.controller.pendingRetryMessage != null) {
+    if (widget.controller.pendingRetryMessage != null &&
+        widget.controller.sendState == AssistantSendState.error) {
       _inputController.text = widget.controller.pendingRetryMessage!;
     }
   }
@@ -48,11 +51,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   void _onControllerChanged() {
     if (mounted) {
-      final pending = widget.controller.pendingRetryMessage;
-      if (pending != null && _inputController.text != pending) {
+      final controller = widget.controller;
+      final pending = controller.pendingRetryMessage;
+      if (pending != null &&
+          controller.sendState == AssistantSendState.error &&
+          _inputController.text != pending) {
         _inputController.text = pending;
         _inputController.selection = TextSelection.collapsed(offset: pending.length);
       }
+      if (_lastSendState == AssistantSendState.sending &&
+          controller.sendState == AssistantSendState.idle &&
+          pending == null) {
+        _inputController.clear();
+      }
+      _lastSendState = controller.sendState;
       setState(() {});
       _scrollToEnd();
     }
@@ -81,10 +93,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _onVoicePressed() async {
     final controller = widget.controller;
+    if (controller.voiceState == AssistantVoiceState.recording) {
+      await controller.stopVoiceRecordingAndTranscribe();
+      return;
+    }
     if (controller.isSending || controller.isVoiceBusy) {
-      if (controller.voiceState == AssistantVoiceState.recording) {
-        await controller.stopVoiceRecordingAndTranscribe();
-      }
       return;
     }
     if (controller.voiceState == AssistantVoiceState.error) {
@@ -124,8 +137,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    final voiceDisabled =
-        controller.isSending || controller.voiceState == AssistantVoiceState.transcribing;
+    final inputDisabled = controller.isSending || controller.isVoiceBusy;
     return Scaffold(
       body: Column(
         children: [
@@ -244,7 +256,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 children: [
                   Expanded(child: Text(controller.voiceErrorMessage!)),
                   TextButton(
-                    onPressed: voiceDisabled ? null : _onVoicePressed,
+                    onPressed: inputDisabled ? null : _onVoicePressed,
                     child: const Text('Retry'),
                   ),
                 ],
@@ -264,7 +276,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       hintText: 'Ask Secretary…',
                       border: OutlineInputBorder(),
                     ),
-                    onSubmitted: controller.isSending ? null : (_) => _send(),
+                    onSubmitted: inputDisabled ? null : (_) => _send(),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -273,10 +285,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   tooltip: controller.voiceState == AssistantVoiceState.recording
                       ? 'Stop recording'
                       : 'Record voice command',
-                  onPressed: voiceDisabled && controller.voiceState != AssistantVoiceState.recording
+                  onPressed: inputDisabled &&
+                          controller.voiceState != AssistantVoiceState.recording
                       ? null
                       : _onVoicePressed,
-                  icon: controller.voiceState == AssistantVoiceState.transcribing
+                  icon: controller.voiceState == AssistantVoiceState.transcribing ||
+                          controller.voiceState == AssistantVoiceState.starting
                       ? const SizedBox(
                           width: 20,
                           height: 20,
@@ -289,7 +303,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         ),
                 ),
                 FilledButton(
-                  onPressed: controller.isSending ? null : _send,
+                  key: const Key('assistant_send_button'),
+                  onPressed: inputDisabled ? null : _send,
                   child: controller.isSending
                       ? const SizedBox(
                           width: 18,

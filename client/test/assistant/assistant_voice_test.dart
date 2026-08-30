@@ -127,6 +127,7 @@ void main() {
     expect(assistantBody?['message'], 'Создай задачу разобраться с этим');
     expect(voiceRecorder.lastStartedPath, isNotNull);
     expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+    expect(assistant.pendingRetryMessage, isNull);
     assistant.dispose();
   });
 
@@ -338,8 +339,9 @@ void main() {
     assistant.dispose();
   });
 
-  test('concurrent recording start is ignored', () async {
+  test('concurrent recording start invokes recorder start once', () async {
     final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.startDelay = const Duration(milliseconds: 50);
     final apiClient = SecretaryApiClient(
       httpClient: MockClient((request) async => http.Response('{}', 404)),
     );
@@ -356,10 +358,55 @@ void main() {
       voiceRecorder: voiceRecorder,
     );
 
-    await assistant.startVoiceRecording();
-    await assistant.startVoiceRecording();
+    final first = assistant.startVoiceRecording();
+    expect(assistant.voiceState, AssistantVoiceState.starting);
+    final second = assistant.startVoiceRecording();
+    await first;
+    await second;
     expect(voiceRecorder.startCallCount, 1);
     await assistant.cancelVoiceRecording();
+    assistant.dispose();
+  });
+
+  test('concurrent stop invokes recorder stop and transcription once', () async {
+    int transcribeCalls = 0;
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.stopDelay = const Duration(milliseconds: 50);
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        transcribeCalls += 1;
+        return http.Response(jsonEncode({'text': 'once'}), 200);
+      }
+      if (request.url.path == '/assistant/message') {
+        return http.Response(
+          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    await assistant.startVoiceRecording();
+    final first = assistant.stopVoiceRecordingAndTranscribe();
+    expect(assistant.voiceState, AssistantVoiceState.transcribing);
+    final second = assistant.stopVoiceRecordingAndTranscribe();
+    await first;
+    await second;
+    expect(voiceRecorder.stopCallCount, 1);
+    expect(transcribeCalls, 1);
     assistant.dispose();
   });
 
@@ -458,6 +505,160 @@ void main() {
     expect(assistant.voiceState, AssistantVoiceState.transcribing);
     await stopFuture;
     expect(assistant.voiceState, AssistantVoiceState.idle);
+    assistant.dispose();
+  });
+
+  test('sendMessage is blocked while recording', () async {
+    int assistantCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        assistantCalls += 1;
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(apiClient: apiClient, auth: auth);
+
+    await assistant.startVoiceRecording();
+    expect(assistant.isVoiceBusy, isTrue);
+    await assistant.sendMessage('blocked text');
+
+    expect(assistantCalls, 0);
+    await assistant.cancelVoiceRecording();
+    assistant.dispose();
+  });
+
+  test('sendMessage is blocked while transcribing', () async {
+    int assistantCalls = 0;
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.stopDelay = const Duration(milliseconds: 50);
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        return http.Response(jsonEncode({'text': 'voice text'}), 200);
+      }
+      if (request.url.path == '/assistant/message') {
+        assistantCalls += 1;
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    await assistant.startVoiceRecording();
+    final stopFuture = assistant.stopVoiceRecordingAndTranscribe();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(assistant.voiceState, AssistantVoiceState.transcribing);
+    await assistant.sendMessage('blocked text');
+
+    await stopFuture;
+    expect(assistantCalls, 1);
+    assistant.dispose();
+  });
+
+  test('permission check exception becomes safe voice error', () async {
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.throwOnHasPermission = true;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    await assistant.startVoiceRecording();
+
+    expect(assistant.voiceState, AssistantVoiceState.error);
+    expect(assistant.voiceErrorMessage, 'Voice recording could not start.');
+    expect(voiceRecorder.startCallCount, 0);
+    assistant.dispose();
+  });
+
+  test('start failure cleans up partially created temp file', () async {
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.failStartAfterWrite = true;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    await assistant.startVoiceRecording();
+
+    expect(assistant.voiceState, AssistantVoiceState.error);
+    expect(voiceRecorder.lastStartedPath, isNotNull);
+    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+    assistant.dispose();
+  });
+
+  test('transcript preserved when Assistant send is already active', () async {
+    int assistantCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        return http.Response(jsonEncode({'text': 'overlap transcript'}), 200);
+      }
+      if (request.url.path == '/assistant/message') {
+        assistantCalls += 1;
+        return http.Response(
+          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(apiClient: apiClient, auth: auth);
+
+    await assistant.startVoiceRecording();
+    assistant.sendState = AssistantSendState.sending;
+    await assistant.stopVoiceRecordingAndTranscribe();
+
+    expect(assistant.pendingRetryMessage, 'overlap transcript');
+    expect(assistantCalls, 0);
     assistant.dispose();
   });
 

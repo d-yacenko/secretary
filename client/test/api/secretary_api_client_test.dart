@@ -207,6 +207,7 @@ void main() {
       expect(authorization, 'Bearer $token');
       expect(bodyText, contains('name="audio"'));
       expect(bodyText, contains('secretary_voice.wav'));
+      expect(bodyText.toLowerCase(), contains('content-type: audio/wav'));
     });
 
     group('safe URL composition', () {

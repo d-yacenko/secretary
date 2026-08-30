@@ -23,6 +23,7 @@ enum AssistantSendState {
 
 enum AssistantVoiceState {
   idle,
+  starting,
   recording,
   transcribing,
   error,
@@ -71,6 +72,7 @@ class AssistantController extends ChangeNotifier {
   String? _pendingRetryMessage;
   String? _activeRecordingPath;
   Timer? _recordingLimitTimer;
+  bool _voiceStartCancelled = false;
 
   List<AssistantChatMessage> get messages => List.unmodifiable(_messages);
   AssistantContextRef? get objectContext => _objectContext;
@@ -78,6 +80,7 @@ class AssistantController extends ChangeNotifier {
   String? get pendingRetryMessage => _pendingRetryMessage;
   bool get isSending => sendState == AssistantSendState.sending;
   bool get isVoiceBusy =>
+      voiceState == AssistantVoiceState.starting ||
       voiceState == AssistantVoiceState.recording ||
       voiceState == AssistantVoiceState.transcribing;
 
@@ -113,11 +116,12 @@ class AssistantController extends ChangeNotifier {
 
   Future<void> sendMessage(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || sendState == AssistantSendState.sending) {
+    if (trimmed.isEmpty ||
+        sendState == AssistantSendState.sending ||
+        isVoiceBusy) {
       return;
     }
 
-    _pendingRetryMessage = trimmed;
     sendState = AssistantSendState.sending;
     errorMessage = null;
     notifyListeners();
@@ -145,15 +149,18 @@ class AssistantController extends ChangeNotifier {
       sendState = AssistantSendState.idle;
       notifyListeners();
     } on AuthenticationException catch (e) {
+      _pendingRetryMessage = trimmed;
       sendState = AssistantSendState.error;
       errorMessage = e.message;
       _authController.handleAuthenticationFailure();
       notifyListeners();
     } on NetworkException catch (e) {
+      _pendingRetryMessage = trimmed;
       sendState = AssistantSendState.error;
       errorMessage = e.message;
       notifyListeners();
     } on ApiException catch (e) {
+      _pendingRetryMessage = trimmed;
       sendState = AssistantSendState.error;
       errorMessage = e.message;
       notifyListeners();
@@ -161,27 +168,47 @@ class AssistantController extends ChangeNotifier {
   }
 
   Future<void> startVoiceRecording() async {
-    if (voiceState != AssistantVoiceState.idle) {
+    if (voiceState != AssistantVoiceState.idle &&
+        voiceState != AssistantVoiceState.error) {
       return;
     }
     if (sendState == AssistantSendState.sending) {
       return;
     }
 
-    if (!await _voiceRecorder.hasPermission()) {
-      final granted = await _voiceRecorder.requestPermission();
-      if (!granted) {
-        voiceState = AssistantVoiceState.error;
-        voiceErrorMessage = 'Microphone permission is required for voice input.';
-        notifyListeners();
-        return;
-      }
+    if (voiceState == AssistantVoiceState.error) {
+      voiceErrorMessage = null;
     }
 
+    voiceState = AssistantVoiceState.starting;
+    _voiceStartCancelled = false;
+    notifyListeners();
+
     try {
+      final hasPermission = await _voiceRecorder.hasPermission();
+      if (!hasPermission) {
+        final granted = await _voiceRecorder.requestPermission();
+        if (!granted) {
+          _setVoiceError('Microphone permission is required for voice input.');
+          return;
+        }
+      }
+
+      if (_voiceStartCancelled) {
+        _resetVoiceToIdle();
+        return;
+      }
+
       final path = await _voiceTempFiles.createTempWavPath();
-      await _voiceRecorder.startRecording(path);
       _activeRecordingPath = path;
+      await _voiceRecorder.startRecording(path);
+
+      if (_voiceStartCancelled) {
+        await _cleanupActiveRecording();
+        _resetVoiceToIdle();
+        return;
+      }
+
       voiceState = AssistantVoiceState.recording;
       voiceErrorMessage = null;
       _recordingLimitTimer?.cancel();
@@ -192,11 +219,8 @@ class AssistantController extends ChangeNotifier {
       }
       notifyListeners();
     } catch (_) {
-      await _voiceTempFiles.deleteIfExists(_activeRecordingPath);
-      _activeRecordingPath = null;
-      voiceState = AssistantVoiceState.error;
-      voiceErrorMessage = 'Voice recording could not start.';
-      notifyListeners();
+      await _cleanupActiveRecording();
+      _setVoiceError('Voice recording could not start.');
     }
   }
 
@@ -205,38 +229,42 @@ class AssistantController extends ChangeNotifier {
       return;
     }
 
+    voiceState = AssistantVoiceState.transcribing;
+    voiceErrorMessage = null;
     _recordingLimitTimer?.cancel();
     _recordingLimitTimer = null;
+    notifyListeners();
 
     String? recordedPath;
     try {
       recordedPath = await _voiceRecorder.stopRecording();
     } catch (_) {
-      await _voiceTempFiles.deleteIfExists(_activeRecordingPath);
-      _activeRecordingPath = null;
-      voiceState = AssistantVoiceState.error;
-      voiceErrorMessage = 'Voice recording failed.';
-      notifyListeners();
+      await _cleanupActiveRecording();
+      _setVoiceError('Voice recording failed.');
       return;
     }
     _activeRecordingPath = null;
 
     final file = File(recordedPath);
-    if (!await file.exists() || await file.length() == 0) {
+    try {
+      if (!await file.exists() || await file.length() == 0) {
+        await _voiceTempFiles.deleteIfExists(recordedPath);
+        _setVoiceError('Voice recording failed.');
+        return;
+      }
+    } catch (_) {
       await _voiceTempFiles.deleteIfExists(recordedPath);
-      voiceState = AssistantVoiceState.error;
-      voiceErrorMessage = 'Voice recording failed.';
-      notifyListeners();
+      _setVoiceError('Voice recording failed.');
       return;
     }
-
-    voiceState = AssistantVoiceState.transcribing;
-    voiceErrorMessage = null;
-    notifyListeners();
 
     List<int> audioBytes;
     try {
       audioBytes = await file.readAsBytes();
+    } catch (_) {
+      await _voiceTempFiles.deleteIfExists(recordedPath);
+      _setVoiceError('Voice recording failed.');
+      return;
     } finally {
       await _voiceTempFiles.deleteIfExists(recordedPath);
     }
@@ -249,6 +277,11 @@ class AssistantController extends ChangeNotifier {
       );
       voiceState = AssistantVoiceState.idle;
       notifyListeners();
+      if (sendState == AssistantSendState.sending) {
+        _pendingRetryMessage = transcript;
+        notifyListeners();
+        return;
+      }
       await sendMessage(transcript);
     } on AuthenticationException catch (e) {
       voiceState = AssistantVoiceState.error;
@@ -256,17 +289,17 @@ class AssistantController extends ChangeNotifier {
       _authController.handleAuthenticationFailure();
       notifyListeners();
     } on NetworkException catch (e) {
-      voiceState = AssistantVoiceState.error;
-      voiceErrorMessage = e.message;
-      notifyListeners();
+      _setVoiceError(e.message);
     } on ApiException catch (e) {
-      voiceState = AssistantVoiceState.error;
-      voiceErrorMessage = e.message;
-      notifyListeners();
+      _setVoiceError(e.message);
     }
   }
 
   Future<void> cancelVoiceRecording() async {
+    if (voiceState == AssistantVoiceState.starting) {
+      _voiceStartCancelled = true;
+      return;
+    }
     if (voiceState != AssistantVoiceState.recording) {
       return;
     }
@@ -279,10 +312,8 @@ class AssistantController extends ChangeNotifier {
     } catch (_) {
       // Best-effort cleanup only.
     }
-    await _voiceTempFiles.deleteIfExists(_activeRecordingPath);
-    _activeRecordingPath = null;
-    voiceState = AssistantVoiceState.idle;
-    voiceErrorMessage = null;
+    await _cleanupActiveRecording();
+    _resetVoiceToIdle();
     notifyListeners();
   }
 
@@ -292,6 +323,24 @@ class AssistantController extends ChangeNotifier {
       voiceErrorMessage = null;
       notifyListeners();
     }
+  }
+
+  void _setVoiceError(String message) {
+    voiceState = AssistantVoiceState.error;
+    voiceErrorMessage = message;
+    notifyListeners();
+  }
+
+  void _resetVoiceToIdle() {
+    voiceState = AssistantVoiceState.idle;
+    voiceErrorMessage = null;
+    _voiceStartCancelled = false;
+  }
+
+  Future<void> _cleanupActiveRecording() async {
+    final path = _activeRecordingPath;
+    _activeRecordingPath = null;
+    await _voiceTempFiles.deleteIfExists(path);
   }
 
   List<AssistantHistoryMessage> _boundedHistory() {
@@ -317,16 +366,19 @@ class AssistantController extends ChangeNotifier {
     errorMessage = null;
     voiceErrorMessage = null;
     _pendingRetryMessage = null;
+    _voiceStartCancelled = false;
     notifyListeners();
   }
 
   @override
   void dispose() {
     _recordingLimitTimer?.cancel();
-    if (voiceState == AssistantVoiceState.recording) {
+    if (voiceState == AssistantVoiceState.recording ||
+        voiceState == AssistantVoiceState.starting) {
       final path = _activeRecordingPath;
       voiceState = AssistantVoiceState.idle;
       _activeRecordingPath = null;
+      _voiceStartCancelled = true;
       unawaited(_voiceRecorder.cancelRecording());
       unawaited(_voiceTempFiles.deleteIfExists(path));
     }
