@@ -141,8 +141,14 @@ class GraphWorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<void> mergeRelationContext(String sourceId, SecretaryObject? target) async {
-    if (target != null) {
+  Future<void> mergeRelationContext(
+    String sourceId, {
+    SecretaryObject? target,
+    SecretaryEdge? edge,
+  }) async {
+    if (edge != null) {
+      _stageCreatedRelation(sourceId, target, edge);
+    } else if (target != null) {
       _nodes[target.id] = target;
     }
     try {
@@ -158,6 +164,40 @@ class GraphWorkspaceController extends ChangeNotifier {
       errorMessage = 'Failed to refresh graph after relation change';
       notifyListeners();
     }
+  }
+
+  void _stageCreatedRelation(
+    String sourceId,
+    SecretaryObject? target,
+    SecretaryEdge edge,
+  ) {
+    if (target != null) {
+      _nodes[target.id] = target;
+    }
+    if (!_positions.containsKey(sourceId)) {
+      _positions[sourceId] = const Offset(0, 0);
+    }
+    if (target != null) {
+      final layoutNodes = <SecretaryObject>[];
+      final source = _nodes[sourceId];
+      if (source != null) {
+        layoutNodes.add(source);
+      }
+      layoutNodes.add(target);
+      final computed = GraphLayout.computePositions(
+        nodes: layoutNodes,
+        rootId: sourceId,
+        existing: _positions,
+        freshRoot: false,
+      );
+      _positions.addAll(computed);
+    }
+    addEdge(edge);
+  }
+
+  bool edgeEndpointsPositioned(SecretaryEdge edge) {
+    return _positions.containsKey(edge.sourceId) &&
+        _positions.containsKey(edge.targetId);
   }
 
   void selectObject(String? objectId) {

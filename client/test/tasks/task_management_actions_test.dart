@@ -314,4 +314,87 @@ void main() {
     expect(updated, isNull);
     expect(find.textContaining('500'), findsOneWidget);
   });
+
+  testWidgets('set due date sends UTC ISO due_at', (tester) async {
+    tester.binding.platformDispatcher.localeTestValue = const Locale('en', 'US');
+    addTearDown(() {
+      tester.binding.platformDispatcher.clearLocaleTestValue();
+    });
+
+    String? patchBody;
+    await tester.pumpWidget(
+      buildActions(
+        task: taskObject(),
+        mock: MockClient((request) async {
+          if (request.method == 'PATCH') {
+            patchBody = request.body;
+            return http.Response(
+              jsonEncode({'object': taskJson(taskObject(dueAt: '2026-10-15T14:30:00Z'))}),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      ),
+    );
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Set due date'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
+    expect(payload['due_at'], isNotNull);
+    expect(payload['due_at'], isA<String>());
+    expect(payload['due_at'].toString().contains('T'), isTrue);
+  });
+
+  testWidgets('change existing due date sends updated UTC due_at', (tester) async {
+    tester.binding.platformDispatcher.localeTestValue = const Locale('en', 'US');
+    addTearDown(() {
+      tester.binding.platformDispatcher.clearLocaleTestValue();
+    });
+
+    String? patchBody;
+    await tester.pumpWidget(
+      buildActions(
+        task: taskObject(dueAt: '2026-09-01T10:00:00Z'),
+        mock: MockClient((request) async {
+          if (request.method == 'PATCH') {
+            patchBody = request.body;
+            return http.Response(
+              jsonEncode({'object': taskJson(taskObject(dueAt: '2026-09-01T11:00:00Z'))}),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      ),
+    );
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Set due date'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
+    expect(payload['due_at'], isNotNull);
+    expect(payload['due_at'], isNot('2026-09-01T10:00:00Z'));
+  });
 }

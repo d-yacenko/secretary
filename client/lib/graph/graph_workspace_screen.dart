@@ -40,6 +40,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<SecretaryObject> _searchResults = [];
   bool _searching = false;
+  Size? _canvasViewportSize;
 
   @override
   void initState() {
@@ -91,13 +92,14 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   }
 
   void _fitView() {
-    final renderObject = context.findRenderObject();
-    if (renderObject is RenderBox && renderObject.hasSize) {
-      _transform.value = GraphLayout.fitTransform(
-        positions: widget.controller.positions,
-        viewportSize: renderObject.size,
-      );
+    final viewportSize = _canvasViewportSize;
+    if (viewportSize == null || viewportSize.isEmpty) {
+      return;
     }
+    _transform.value = GraphLayout.fitTransform(
+      positions: widget.controller.positions,
+      viewportSize: viewportSize,
+    );
   }
 
   @override
@@ -268,6 +270,10 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
+        if (_canvasViewportSize != viewportSize) {
+          _canvasViewportSize = viewportSize;
+        }
         if (widget.controller.shouldFitAfterLayout) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) {
@@ -275,7 +281,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             }
             _transform.value = GraphLayout.fitTransform(
               positions: positions,
-              viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
+              viewportSize: viewportSize,
             );
             widget.controller.clearFitRequest();
           });
@@ -547,8 +553,11 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
         targetId: target!.id,
         type: relationType,
       );
-      widget.controller.addEdge(response.edge);
-      await widget.controller.mergeRelationContext(source.id, target);
+      await widget.controller.mergeRelationContext(
+        source.id,
+        target: target,
+        edge: response.edge,
+      );
     } on ApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

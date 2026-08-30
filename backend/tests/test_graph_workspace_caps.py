@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.services.graph_service import GraphService
 from app.services.graph_workspace_service import GraphWorkspaceService
-from app.services.provenance import CONFIRMED_STATE
+from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
 from tests.conftest import BOOTSTRAP_USER_ID
 
 
@@ -141,4 +141,134 @@ def test_duplicate_neighbor_edges_do_not_exceed_node_cap(db_session, fake_embedd
     service = GraphWorkspaceService(db_session, BOOTSTRAP_USER_ID)
     result = service.get_workspace(seed_limit=6, neighbor_limit=6, node_limit=4)
     assert len(result.nodes) <= 4
+    assert result.truncated is True
+
+
+def test_rooted_zero_node_budget_with_hidden_neighbors_truncated(
+    db_session, fake_embedding_service,
+):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    root = _task(graph, "ROOT")
+    for index in range(3):
+        neighbor = graph.create_object(
+            ObjectCreate(kind="note", title=f"N-{index}", origin="user", state=CONFIRMED_STATE)
+        )
+        graph.create_edge(
+            EdgeCreate(
+                source_id=root.id,
+                target_id=neighbor.id,
+                type="references",
+                origin="user",
+                state=CONFIRMED_STATE,
+            )
+        )
+    db_session.flush()
+
+    service = GraphWorkspaceService(db_session, BOOTSTRAP_USER_ID)
+    result = service.get_workspace(root_id=root.id, neighbor_limit=12, node_limit=1)
+    assert len(result.nodes) == 1
+    assert result.truncated is True
+
+
+def test_overview_zero_node_budget_with_hidden_neighbor_truncated(
+    db_session, fake_embedding_service,
+):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    seed = _task(graph, "ONLY-SEED")
+    neighbor = graph.create_object(
+        ObjectCreate(kind="note", title="NEIGHBOR", origin="user", state=CONFIRMED_STATE)
+    )
+    graph.create_edge(
+        EdgeCreate(
+            source_id=seed.id,
+            target_id=neighbor.id,
+            type="references",
+            origin="user",
+            state=CONFIRMED_STATE,
+        )
+    )
+    db_session.flush()
+
+    service = GraphWorkspaceService(db_session, BOOTSTRAP_USER_ID)
+    result = service.get_workspace(seed_limit=1, neighbor_limit=12, node_limit=1)
+    assert len(result.nodes) == 1
+    assert result.truncated is True
+
+
+def test_rooted_no_eligible_neighbors_not_truncated(
+    db_session, fake_embedding_service,
+):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    root = _task(graph, "ALONE")
+    db_session.flush()
+
+    service = GraphWorkspaceService(db_session, BOOTSTRAP_USER_ID)
+    result = service.get_workspace(root_id=root.id, neighbor_limit=12, node_limit=1)
+    assert len(result.nodes) == 1
+    assert result.truncated is False
+
+
+def test_rejected_neighbor_does_not_force_truncated_at_zero_budget(
+    db_session, fake_embedding_service,
+):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    root = _task(graph, "ROOT")
+    rejected = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Rejected",
+            origin="user",
+            state=REJECTED_STATE,
+        )
+    )
+    graph.create_edge(
+        EdgeCreate(
+            source_id=root.id,
+            target_id=rejected.id,
+            type="references",
+            origin="user",
+            state=CONFIRMED_STATE,
+        )
+    )
+    db_session.flush()
+
+    service = GraphWorkspaceService(db_session, BOOTSTRAP_USER_ID)
+    result = service.get_workspace(root_id=root.id, neighbor_limit=12, node_limit=1)
+    assert len(result.nodes) == 1
+    assert result.truncated is False
+
+
+def test_overview_per_seed_neighbor_limit_with_high_degree_seed(
+    db_session, fake_embedding_service,
+):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
+    hub = _task(graph, "HUB")
+    other_seeds = [_task(graph, f"SEED-{index}") for index in range(2)]
+    for index in range(8):
+        neighbor = graph.create_object(
+            ObjectCreate(kind="note", title=f"HUB-N-{index}", origin="user", state=CONFIRMED_STATE)
+        )
+        graph.create_edge(
+            EdgeCreate(
+                source_id=hub.id,
+                target_id=neighbor.id,
+                type="references",
+                origin="user",
+                state=CONFIRMED_STATE,
+            )
+        )
+    db_session.flush()
+
+    service = GraphWorkspaceService(db_session, BOOTSTRAP_USER_ID)
+    result = service.get_workspace(
+        seed_limit=3,
+        neighbor_limit=2,
+        node_limit=80,
+    )
+    hub_neighbors = [
+        node
+        for node in result.nodes
+        if node.id != hub.id and node.title.startswith("HUB-N-")
+    ]
+    assert len(hub_neighbors) <= 2
     assert result.truncated is True

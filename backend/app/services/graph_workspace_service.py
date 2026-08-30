@@ -79,6 +79,12 @@ class GraphWorkspaceService:
             for neighbor, edge in pairs:
                 node_map[neighbor.id] = neighbor
                 edge_map[edge.id] = edge
+        elif self._has_hidden_eligible_neighbors(
+            [root_id],
+            set(node_map.keys()),
+            exclude_deleted_neighbors=True,
+        ):
+            truncated = True
 
         edge_map = self._filter_edges_for_nodes(edge_map, node_map)
         return GraphWorkspaceResult(
@@ -117,6 +123,12 @@ class GraphWorkspaceService:
             for neighbor, edge in pairs:
                 node_map[neighbor.id] = neighbor
                 edge_map[edge.id] = edge
+        elif seed_ids and self._has_hidden_eligible_neighbors(
+            seed_ids,
+            set(node_map.keys()),
+            exclude_deleted_neighbors=True,
+        ):
+            truncated = True
 
         if len(node_map) > node_limit:
             truncated = True
@@ -193,6 +205,60 @@ class GraphWorkspaceService:
             ),
         ]
 
+    def _eligible_neighbor_object_filters(self, exclude_deleted_neighbors: bool) -> list:
+        object_filters = [
+            Object.user_id == self._user_id,
+            Object.state != REJECTED_STATE,
+        ]
+        if exclude_deleted_neighbors:
+            object_filters.append(
+                or_(Object.status.is_(None), Object.status != TASK_STATUS_DELETED)
+            )
+        return object_filters
+
+    def _has_hidden_eligible_neighbors(
+        self,
+        center_ids: list[UUID],
+        known_node_ids: set[UUID],
+        exclude_deleted_neighbors: bool,
+    ) -> bool:
+        if not center_ids or not known_node_ids:
+            return False
+
+        object_filters = self._eligible_neighbor_object_filters(exclude_deleted_neighbors)
+        known_list = list(known_node_ids)
+
+        outgoing_exists = self._session.scalar(
+            select(literal(1))
+            .select_from(Edge)
+            .join(Object, Edge.target_id == Object.id)
+            .where(
+                Edge.user_id == self._user_id,
+                Edge.source_id.in_(center_ids),
+                Edge.target_id.not_in(known_list),
+                Edge.state != REJECTED_STATE,
+                *object_filters,
+            )
+            .limit(1)
+        )
+        if outgoing_exists is not None:
+            return True
+
+        incoming_exists = self._session.scalar(
+            select(literal(1))
+            .select_from(Edge)
+            .join(Object, Edge.source_id == Object.id)
+            .where(
+                Edge.user_id == self._user_id,
+                Edge.target_id.in_(center_ids),
+                Edge.source_id.not_in(known_list),
+                Edge.state != REJECTED_STATE,
+                *object_filters,
+            )
+            .limit(1)
+        )
+        return incoming_exists is not None
+
     def _expand_neighbors_batch(
         self,
         center_ids: list[UUID],
@@ -205,19 +271,14 @@ class GraphWorkspaceService:
             return [], False
 
         center_set = set(center_ids)
-        max_edge_candidates = neighbor_limit * len(center_ids)
 
-        object_filters = [
-            Object.user_id == self._user_id,
-            Object.state != REJECTED_STATE,
-        ]
-        if exclude_deleted_neighbors:
-            object_filters.append(
-                or_(Object.status.is_(None), Object.status != TASK_STATUS_DELETED)
-            )
+        object_filters = self._eligible_neighbor_object_filters(exclude_deleted_neighbors)
 
         outgoing = (
-            select(Edge.id)
+            select(
+                Edge.id.label("edge_id"),
+                Edge.source_id.label("center_id"),
+            )
             .select_from(Edge)
             .join(Object, Edge.target_id == Object.id)
             .where(
@@ -228,7 +289,10 @@ class GraphWorkspaceService:
             )
         )
         incoming = (
-            select(Edge.id)
+            select(
+                Edge.id.label("edge_id"),
+                Edge.target_id.label("center_id"),
+            )
             .select_from(Edge)
             .join(Object, Edge.source_id == Object.id)
             .where(
@@ -239,15 +303,32 @@ class GraphWorkspaceService:
             )
         )
 
-        union_subq = union_all(outgoing, incoming).subquery("neighbor_edge_ids")
-        total_available = self._session.scalar(
-            select(func.count()).select_from(union_subq)
-        ) or 0
+        candidates = union_all(outgoing, incoming).subquery("neighbor_candidates")
+        counts_per_center = dict(
+            self._session.execute(
+                select(candidates.c.center_id, func.count())
+                .group_by(candidates.c.center_id)
+            ).all()
+        )
+        truncated = any(
+            counts_per_center.get(center_id, 0) > neighbor_limit for center_id in center_ids
+        )
+
+        row_number = func.row_number().over(
+            partition_by=candidates.c.center_id,
+            order_by=candidates.c.edge_id,
+        )
+        ranked = (
+            select(candidates.c.edge_id, row_number.label("row_number"))
+            .select_from(candidates)
+            .subquery("ranked_neighbor_edges")
+        )
 
         edge_id_rows = self._session.execute(
-            select(union_subq.c.id).order_by(union_subq.c.id).limit(max_edge_candidates)
+            select(ranked.c.edge_id)
+            .where(ranked.c.row_number <= neighbor_limit)
+            .order_by(ranked.c.edge_id)
         ).all()
-        truncated = total_available > len(edge_id_rows)
         edge_ids = [row[0] for row in edge_id_rows]
         if not edge_ids:
             return [], truncated

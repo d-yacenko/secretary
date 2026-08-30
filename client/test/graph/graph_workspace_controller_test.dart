@@ -152,25 +152,24 @@ void main() {
 
   test('mergeRelationContext positions absent target', () async {
     final auth = _FakeAuth();
+    final edge = SecretaryEdge(
+      id: 'e1',
+      sourceId: 'source',
+      targetId: 'target',
+      type: 'related_to',
+      origin: 'user',
+      state: 'confirmed',
+      metadata: {},
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
     final controller = GraphWorkspaceController(
       apiClient: _FakeApiClient((rootId) async {
         return GraphWorkspaceOut(
           rootId: 'source',
           seedIds: ['source'],
           nodes: [_obj('source', 'Source'), _obj('target', 'Target')],
-          edges: [
-            SecretaryEdge(
-              id: 'e1',
-              sourceId: 'source',
-              targetId: 'target',
-              type: 'related_to',
-              origin: 'user',
-              state: 'confirmed',
-              metadata: {},
-              createdAt: '2026-01-01T00:00:00Z',
-              updatedAt: '2026-01-01T00:00:00Z',
-            ),
-          ],
+          edges: [edge],
           truncated: false,
         );
       }),
@@ -183,12 +182,54 @@ void main() {
 
     await controller.mergeRelationContext(
       'source',
-      _obj('target', 'Target'),
+      target: _obj('target', 'Target'),
+      edge: edge,
     );
 
     expect(controller.edges.length, 1);
     expect(controller.positions.containsKey('source'), isTrue);
     expect(controller.positions.containsKey('target'), isTrue);
+    expect(controller.edgeEndpointsPositioned(edge), isTrue);
+  });
+
+  test('mergeRelationContext keeps staged relation when refresh fails', () async {
+    final auth = _FakeAuth();
+    final edge = SecretaryEdge(
+      id: 'e-new',
+      sourceId: 'source',
+      targetId: 'target',
+      type: 'related_to',
+      origin: 'user',
+      state: 'confirmed',
+      metadata: {},
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    var calls = 0;
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        calls += 1;
+        if (calls > 1) {
+          throw Exception('network');
+        }
+        return _workspace(rootId: 'source', nodes: [_obj('source', 'Source')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.reRoot('source');
+    await controller.mergeRelationContext(
+      'source',
+      target: _obj('target', 'Target'),
+      edge: edge,
+    );
+
+    expect(controller.edges.length, 1);
+    expect(controller.edges.first.id, 'e-new');
+    expect(controller.positions.containsKey('source'), isTrue);
+    expect(controller.positions.containsKey('target'), isTrue);
+    expect(controller.edgeEndpointsPositioned(edge), isTrue);
+    expect(controller.errorMessage, isNotNull);
   });
 
   test('selectObject updates selection', () {

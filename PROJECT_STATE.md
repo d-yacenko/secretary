@@ -81,4 +81,8 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-PHASE 24 — Graph Workspace & Direct Task Management (after PHASE 23E acceptance).
+PHASE 23E — accepted / closed (`402c234`).
+
+PHASE 24 — closure corrective implemented, awaiting acceptance on `review/phase-24`.
+
+Do not start the next product phase until PHASE 24 is accepted.

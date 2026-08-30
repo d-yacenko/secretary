@@ -59,6 +59,7 @@ class GraphLayout {
     return positions;
   }
 
+  /// Bounds of node rectangles in graph coordinates.
   static Rect computeBounds(Map<String, Offset> positions) {
     if (positions.isEmpty) {
       return const Rect.fromLTWH(-100, -100, 200, 200);
@@ -76,6 +77,17 @@ class GraphLayout {
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
+  /// Graph bounds mapped into canvas-local coordinates (matches node placement).
+  static Rect canvasBoundsFromPositions(Map<String, Offset> positions) {
+    final graphBounds = computeBounds(positions);
+    return Rect.fromLTWH(
+      kGraphCanvasPadding,
+      kGraphCanvasPadding,
+      graphBounds.width,
+      graphBounds.height,
+    );
+  }
+
   static Matrix4 fitTransform({
     required Map<String, Offset> positions,
     required Size viewportSize,
@@ -84,22 +96,39 @@ class GraphLayout {
     if (positions.isEmpty || viewportSize.isEmpty) {
       return Matrix4.identity();
     }
-    final bounds = computeBounds(positions);
-    final graphWidth = bounds.width;
-    final graphHeight = bounds.height;
+    final canvasBounds = canvasBoundsFromPositions(positions);
+    final graphWidth = canvasBounds.width;
+    final graphHeight = canvasBounds.height;
     if (graphWidth <= 0 || graphHeight <= 0) {
       return Matrix4.identity();
     }
     final scaleX = (viewportSize.width - padding * 2) / graphWidth;
     final scaleY = (viewportSize.height - padding * 2) / graphHeight;
     final scale = math.min(math.min(scaleX, scaleY), 1.5);
-    final centerX = bounds.left + graphWidth / 2;
-    final centerY = bounds.top + graphHeight / 2;
+    final centerX = canvasBounds.left + graphWidth / 2;
+    final centerY = canvasBounds.top + graphHeight / 2;
 
     return Matrix4.identity()
       ..translate(viewportSize.width / 2, viewportSize.height / 2)
       ..scale(scale)
       ..translate(-centerX, -centerY);
+  }
+
+  /// Transforms canvas-local bounds into viewport coordinates after fit.
+  static Rect viewportBoundsAfterFit({
+    required Map<String, Offset> positions,
+    required Size viewportSize,
+    double padding = kGraphCanvasPadding,
+  }) {
+    final transform = fitTransform(
+      positions: positions,
+      viewportSize: viewportSize,
+      padding: padding,
+    );
+    final canvasBounds = canvasBoundsFromPositions(positions);
+    final topLeft = MatrixUtils.transformPoint(transform, canvasBounds.topLeft);
+    final bottomRight = MatrixUtils.transformPoint(transform, canvasBounds.bottomRight);
+    return Rect.fromPoints(topLeft, bottomRight);
   }
 }
 
