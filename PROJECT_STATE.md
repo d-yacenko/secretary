@@ -30,7 +30,7 @@ PHASE 23D-D — MVP Interaction Closure: **accepted / closed** (`eb433a6`)
 
 PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **accepted / closed** (`402c234`)
 
-PHASE 24 — Graph Workspace & Direct Task Management: **implemented, awaiting acceptance**
+PHASE 24 — Graph Workspace & Direct Task Management: **accepted / closed** (`e128f26`)
 
 Next planned after acceptance: follow playbook after PHASE 24 acceptance.
 
@@ -38,14 +38,18 @@ Next planned after acceptance: follow playbook after PHASE 24 acceptance.
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `b30b95e152656fbbec3e7a3028216ae05ad35659`
-- Deployed: 2026-08-30
+- SHA: `e128f26414c1ffb33d6040c2d87e2b2054e35480`
+- Deployed: 2026-08-30 (PHASE 24 deployment checkpoint)
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
 - Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
+
+### PHASE 24 deployment note
+
+The first manual Graph/Delete failures (`{"detail":"Not Found"}`) occurred because the PHASE 24 Flutter client called routes that did not exist on the PHASE 23D-B VDS backend (`b30b95e`). After deploying `e128f26`, `GET /graph/workspace`, rooted graph, and `DELETE /tasks/{id}` return typed domain responses (not generic FastAPI route 404).
 
 ## PHASE 22.7 baseline note
 
@@ -83,6 +87,6 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 PHASE 23E — accepted / closed (`402c234`).
 
-PHASE 24 — closure corrective implemented, awaiting acceptance on `review/phase-24`.
+PHASE 24 — accepted / closed (`e128f26`). VDS deployed at same SHA (2026-08-30).
 
-Do not start the next product phase until PHASE 24 is accepted.
+Do not start the next product phase until manual PHASE 24 Graph E2E is recorded.
