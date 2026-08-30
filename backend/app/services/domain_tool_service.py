@@ -22,6 +22,11 @@ from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
+from app.domain.task_lifecycle import (
+    SET_TASK_STATUS_VALUES,
+    TASK_STATUS_DELETED,
+    TASK_STATUS_OPEN,
+)
 from app.services.domain_write_mode import DomainWriteMode
 from app.services.provenance import (
     AGENT_ORIGIN,
@@ -36,6 +41,8 @@ from app.tools.schemas import (
     MAX_TASK_EVIDENCE_IDS,
     CreateTaskInput,
     CreateTaskOutput,
+    DeleteTaskInput,
+    DeleteTaskOutput,
     GetContextInput,
     GetContextOutput,
     GetObjectInput,
@@ -53,6 +60,8 @@ from app.tools.schemas import (
     RetrieveOutput,
     SearchObjectsInput,
     SearchObjectsOutput,
+    SetTaskStatusInput,
+    SetTaskStatusOutput,
     ToolError,
     UpdateTaskInput,
     UpdateTaskOutput,
@@ -262,11 +271,20 @@ class DomainToolService:
             effective["title"] = update_data["title"]
         if "body" in update_data and update_data["body"] != obj.body:
             effective["body"] = update_data["body"]
-        if "status" in update_data and update_data["status"] != obj.status:
-            effective["status"] = update_data["status"]
         if "due_at" in update_data and update_data["due_at"] != obj.due_at:
             effective["due_at"] = update_data["due_at"]
         return effective
+
+    def _get_task_for_mutation(self, object_id: UUID, *, allow_deleted: bool = False) -> Object:
+        try:
+            obj = self._graph.get_object(object_id)
+        except NotFoundError as exc:
+            raise ToolError(f"object not found: {exc.entity_id}") from exc
+        if obj.kind != "task":
+            raise ToolError("operation only supports task objects")
+        if not allow_deleted and obj.status == TASK_STATUS_DELETED:
+            raise ToolError("deleted task cannot be modified")
+        return obj
 
     def create_task(self, input: CreateTaskInput) -> CreateTaskOutput:
         evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
@@ -281,7 +299,7 @@ class DomainToolService:
                     origin=AGENT_ORIGIN,
                     state=self._new_artifact_state(),
                     body=input.body,
-                    status=input.status,
+                    status=TASK_STATUS_OPEN,
                     due_at=due_at,
                     confidence=input.confidence,
                 )
@@ -296,23 +314,24 @@ class DomainToolService:
         return CreateTaskOutput(object=ObjectOut.from_model(obj))
 
     def update_task(self, input: UpdateTaskInput) -> UpdateTaskOutput:
-        try:
-            obj = self._graph.get_object(input.object_id)
-        except NotFoundError as exc:
-            raise ToolError(f"object not found: {exc.entity_id}") from exc
-        if obj.kind != "task":
-            raise ToolError("update_task only supports task objects")
+        obj = self._get_task_for_mutation(input.object_id)
         evidence_ids = self._dedupe_evidence_ids(input.evidence_object_ids)
         if evidence_ids:
             if input.object_id in evidence_ids:
                 raise ToolError("task cannot reference itself as evidence")
             self._validate_evidence_objects(evidence_ids)
-        update_data = input.model_dump(
-            exclude={"object_id", "evidence_object_ids"},
-            exclude_none=True,
-        )
-        if "due_at" in update_data:
-            update_data["due_at"] = normalize_tool_datetime(update_data["due_at"])
+
+        fields_set = input.model_fields_set
+        update_data: dict = {}
+        if "title" in fields_set:
+            if input.title is None:
+                raise ToolError("title cannot be null")
+            update_data["title"] = input.title
+        if "body" in fields_set:
+            update_data["body"] = input.body
+        if "due_at" in fields_set:
+            update_data["due_at"] = normalize_tool_datetime(input.due_at)
+
         effective_updates = self._effective_task_field_updates(obj, update_data)
         updated = obj
         fields_changed = False
@@ -326,7 +345,10 @@ class DomainToolService:
                 raise ToolError(exc.message) from exc
             fields_changed = True
         elif not evidence_ids:
-            if not update_data:
+            has_field_updates = any(
+                field in fields_set for field in ("title", "body", "due_at")
+            )
+            if not has_field_updates:
                 raise ToolError("update_task requires at least one field to update")
         evidence_edges_created = 0
         if evidence_ids:
@@ -341,6 +363,68 @@ class DomainToolService:
             object=ObjectOut.from_model(updated),
             changed=changed,
             evidence_edges_created=evidence_edges_created,
+        )
+
+    def set_task_status(self, input: SetTaskStatusInput) -> SetTaskStatusOutput:
+        if input.status not in SET_TASK_STATUS_VALUES:
+            raise ToolError(f"invalid task status: {input.status}")
+        obj = self._get_task_for_mutation(input.object_id)
+        previous_status = obj.status
+        new_status = input.status
+        if obj.status == new_status:
+            return SetTaskStatusOutput(
+                object=ObjectOut.from_model(obj),
+                changed=False,
+                previous_status=previous_status,
+                new_status=new_status,
+            )
+        try:
+            updated = self._write_graph.update_object(
+                input.object_id,
+                ObjectUpdate(status=new_status),
+            )
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        except ConflictError as exc:
+            raise ToolError(exc.message) from exc
+        self._enqueue_object_embedding(updated.id)
+        return SetTaskStatusOutput(
+            object=ObjectOut.from_model(updated),
+            changed=True,
+            previous_status=previous_status,
+            new_status=new_status,
+        )
+
+    def delete_task(self, input: DeleteTaskInput) -> DeleteTaskOutput:
+        try:
+            obj = self._graph.get_object(input.object_id)
+        except NotFoundError as exc:
+            raise ToolError(f"object not found: {exc.entity_id}") from exc
+        if obj.kind != "task":
+            raise ToolError("delete_task only supports task objects")
+        previous_status = obj.status
+        if obj.status == TASK_STATUS_DELETED:
+            return DeleteTaskOutput(
+                object=ObjectOut.from_model(obj),
+                changed=False,
+                previous_status=previous_status,
+                new_status=TASK_STATUS_DELETED,
+            )
+        try:
+            updated = self._write_graph.update_object(
+                input.object_id,
+                ObjectUpdate(status=TASK_STATUS_DELETED),
+            )
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        except ConflictError as exc:
+            raise ToolError(exc.message) from exc
+        self._enqueue_object_embedding(updated.id)
+        return DeleteTaskOutput(
+            object=ObjectOut.from_model(updated),
+            changed=True,
+            previous_status=previous_status,
+            new_status=TASK_STATUS_DELETED,
         )
 
     def link_objects(self, input: LinkObjectsInput) -> LinkObjectsOutput:

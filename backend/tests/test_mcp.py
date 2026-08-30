@@ -8,11 +8,13 @@ from httpx import ASGITransport
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.transport_security import TransportSecuritySettings
+from sqlalchemy import func, select
 
 from app.api.schemas import ObjectCreate
+from app.db.models import Object
 from app.mcp.server import MCP_TOOL_NAMES, create_mcp_server
 from app.services.graph_service import GraphService
-from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
+from app.tools.registry import MCP_TOOL_NAMES
 from app.tools.executor import ToolExecutor
 from app.tools.schemas import MAX_CONTEXT_CHARS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -106,19 +108,18 @@ async def test_mcp_get_context_rejects_above_cap(db_session, mcp_server) -> None
 
 
 @pytest.mark.asyncio
-async def test_mcp_create_task_agent_proposed(db_session, mcp_server) -> None:
+async def test_mcp_create_task_requires_approval(db_session, mcp_server) -> None:
+    before = db_session.scalar(select(func.count()).select_from(Object))
     async with Client(mcp_server) as client:
         result = await client.call_tool(
             "create_task",
             {"title": "MCP agent task", "confidence": 0.81},
         )
 
-    assert not result.is_error
-    obj = result.structured_content["object"]
-    assert obj["kind"] == "task"
-    assert obj["origin"] == AGENT_ORIGIN
-    assert obj["state"] == PROPOSED_STATE
-    assert obj["confidence"] == 0.81
+    assert result.is_error
+    assert "approval" in result.content[0].text.lower()
+    after = db_session.scalar(select(func.count()).select_from(Object))
+    assert after == before
 
 
 @pytest.mark.asyncio
@@ -157,7 +158,7 @@ async def test_mcp_invalid_due_at_returns_tool_error(mcp_server) -> None:
 
 
 @pytest.mark.asyncio
-async def test_mcp_link_objects_agent_proposed(db_session, mcp_server) -> None:
+async def test_mcp_link_objects_requires_approval(db_session, mcp_server) -> None:
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     source = _create_task(graph, "MCP link source")
     target = _create_task(graph, "MCP link target")
@@ -173,11 +174,8 @@ async def test_mcp_link_objects_agent_proposed(db_session, mcp_server) -> None:
             },
         )
 
-    assert not result.is_error
-    edge = result.structured_content["edge"]
-    assert edge["origin"] == AGENT_ORIGIN
-    assert edge["state"] == PROPOSED_STATE
-    assert edge["confidence"] == 0.62
+    assert result.is_error
+    assert "approval" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio

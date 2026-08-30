@@ -26,11 +26,15 @@ def collect_object_ids_from_bounded_tool(
             obj = neighbor.get("object")
             if obj:
                 _append_uuid(candidate_ids, obj.get("id"))
-    elif tool_name in ("create_task", "update_task"):
+    elif tool_name in ("create_task", "update_task", "set_task_status", "delete_task"):
         obj = bounded.get("object")
         if obj:
             _append_uuid(candidate_ids, obj.get("id"))
-            if tool_name == "create_task" or bounded.get("changed"):
+            if tool_name == "create_task":
+                _append_uuid(affected_ids, obj.get("id"))
+            elif tool_name == "update_task" and bounded.get("changed"):
+                _append_uuid(affected_ids, obj.get("id"))
+            elif tool_name in ("set_task_status", "delete_task") and bounded.get("changed"):
                 _append_uuid(affected_ids, obj.get("id"))
 
 
@@ -61,7 +65,7 @@ def collect_seen_object_ids_from_bounded_tool(
         for row in bounded.get("notifications", []):
             _append_uuid(seen_ids, row.get("source_object_id"))
             _append_uuid(seen_ids, row.get("related_object_id"))
-    elif tool_name in ("create_task", "update_task"):
+    elif tool_name in ("create_task", "update_task", "set_task_status", "delete_task"):
         obj = bounded.get("object")
         if obj:
             _append_uuid(seen_ids, obj.get("id"))

@@ -29,6 +29,8 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "list_notifications",
         "create_task",
         "update_task",
+        "set_task_status",
+        "delete_task",
         "link_objects",
         "get_today",
     }
@@ -59,6 +61,8 @@ def test_registry_covers_executor_dispatch_tools():
         "list_notifications",
         "create_task",
         "update_task",
+        "set_task_status",
+        "delete_task",
         "link_objects",
         "get_today",
     }

@@ -11,6 +11,7 @@ from app.tools.assistant_contracts import ASSISTANT_FUNCTION_SCHEMAS
 from app.tools.policy import ToolPermission
 from app.tools.schemas import (
     CreateTaskInput,
+    DeleteTaskInput,
     GetContextInput,
     GetObjectInput,
     LinkObjectsInput,
@@ -18,6 +19,7 @@ from app.tools.schemas import (
     ListNotificationsInput,
     RetrieveInput,
     SearchObjectsInput,
+    SetTaskStatusInput,
     ToolError,
     UpdateTaskInput,
 )
@@ -118,6 +120,24 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         assistant_exposed=True,
         mcp_exposed=True,
         assistant_definition=_assistant_definition("update_task"),
+    ),
+    ToolSpec(
+        name="set_task_status",
+        permission=ToolPermission.INTERNAL_WRITE,
+        input_model=SetTaskStatusInput,
+        service_method="set_task_status",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("set_task_status"),
+    ),
+    ToolSpec(
+        name="delete_task",
+        permission=ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
+        input_model=DeleteTaskInput,
+        service_method="delete_task",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("delete_task"),
     ),
     ToolSpec(
         name="link_objects",

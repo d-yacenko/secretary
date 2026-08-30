@@ -544,6 +544,14 @@ class PendingAction {
         return 'Create task';
       case 'update_task':
         return 'Update task';
+      case 'set_task_status':
+        final status = arguments['status'];
+        if (status is String && status.trim().isNotEmpty) {
+          return 'Set task status: $status';
+        }
+        return 'Set task status';
+      case 'delete_task':
+        return 'Delete task';
       case 'link_objects':
         return 'Link objects';
       default:
@@ -655,12 +663,14 @@ class AssistantAffectedObject {
     required this.title,
     required this.kind,
     required this.state,
+    this.status,
   });
 
   final String objectId;
   final String title;
   final String kind;
   final String state;
+  final String? status;
 
   factory AssistantAffectedObject.fromJson(Map<String, dynamic> json) {
     return AssistantAffectedObject(
@@ -668,8 +678,18 @@ class AssistantAffectedObject {
       title: json['title'] as String,
       kind: json['kind'] as String,
       state: json['state'] as String,
+      status: json['status'] as String?,
     );
   }
+
+  String get lifecycleLabel {
+    if (status != null && status!.trim().isNotEmpty) {
+      return status!;
+    }
+    return state;
+  }
+
+  String get displayLabel => '$kind: $title — $lifecycleLabel';
 }
 
 class AssistantContextRef {

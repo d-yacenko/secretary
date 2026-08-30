@@ -5,35 +5,29 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError as McpToolError
 from pydantic import ValidationError as PydanticValidationError
 
-from app.mcp.session import tool_session
+from app.mcp.gateway_runner import execute_mcp_tool
 from app.tools.registry import MCP_TOOL_NAMES  # noqa: F401 — re-exported for tests
 from app.tools.schemas import (
-    CreateTaskInput,
     CreateTaskOutput,
-    GetContextInput,
+    DeleteTaskOutput,
     GetContextOutput,
-    GetObjectInput,
     GetObjectOutput,
     GetTodayOutput,
-    LinkObjectsInput,
     LinkObjectsOutput,
-    ListNeighborsInput,
     ListNeighborsOutput,
-    ListNotificationsInput,
     ListNotificationsOutput,
-    SearchObjectsInput,
     SearchObjectsOutput,
+    SetTaskStatusOutput,
     ToolError,
-    UpdateTaskInput,
     UpdateTaskOutput,
 )
 
 logger = logging.getLogger(__name__)
 
-def _run_tool(operation: str, fn) -> object:
+
+def _run_tool(operation: str, tool_name: str, arguments: dict) -> object:
     try:
-        with tool_session() as tools:
-            return fn(tools)
+        return execute_mcp_tool(tool_name, arguments)
     except ToolError as exc:
         logger.warning("mcp tool %s failed: %s", operation, exc.message)
         raise McpToolError(exc.message) from exc
@@ -63,9 +57,8 @@ def create_mcp_server() -> MCPServer:
         """Search objects by semantic and lexical match."""
         return _run_tool(
             "search_objects",
-            lambda tools: tools.search_objects(
-                SearchObjectsInput(query=query, kind=kind, limit=limit)
-            ),
+            "search_objects",
+            {"query": query, "kind": kind, "limit": limit},
         )
 
     @mcp.tool()
@@ -73,7 +66,8 @@ def create_mcp_server() -> MCPServer:
         """Fetch one object by id."""
         return _run_tool(
             "get_object",
-            lambda tools: tools.get_object(GetObjectInput(object_id=object_id)),
+            "get_object",
+            {"object_id": object_id},
         )
 
     @mcp.tool()
@@ -85,13 +79,12 @@ def create_mcp_server() -> MCPServer:
         """Build bounded context using the Context Resolver."""
         return _run_tool(
             "get_context",
-            lambda tools: tools.get_context(
-                GetContextInput(
-                    object_id=object_id,
-                    query=query,
-                    max_chars=max_chars,
-                )
-            ),
+            "get_context",
+            {
+                "object_id": object_id,
+                "query": query,
+                "max_chars": max_chars,
+            },
         )
 
     @mcp.tool()
@@ -99,7 +92,8 @@ def create_mcp_server() -> MCPServer:
         """List direct graph neighbors for an object."""
         return _run_tool(
             "list_neighbors",
-            lambda tools: tools.list_neighbors(ListNeighborsInput(object_id=object_id)),
+            "list_neighbors",
+            {"object_id": object_id},
         )
 
     @mcp.tool()
@@ -108,22 +102,19 @@ def create_mcp_server() -> MCPServer:
         confidence: float,
         body: str | None = None,
         due_at: datetime | None = None,
-        status: str | None = None,
         evidence_object_ids: list[str] | None = None,
     ) -> CreateTaskOutput:
         """Create an agent-proposed task with required confidence."""
         return _run_tool(
             "create_task",
-            lambda tools: tools.create_task(
-                CreateTaskInput(
-                    title=title,
-                    confidence=confidence,
-                    body=body,
-                    due_at=due_at,
-                    status=status,
-                    evidence_object_ids=evidence_object_ids or [],
-                )
-            ),
+            "create_task",
+            {
+                "title": title,
+                "confidence": confidence,
+                "body": body,
+                "due_at": due_at,
+                "evidence_object_ids": evidence_object_ids or [],
+            },
         )
 
     @mcp.tool()
@@ -131,23 +122,37 @@ def create_mcp_server() -> MCPServer:
         object_id: str,
         title: str | None = None,
         body: str | None = None,
-        status: str | None = None,
         due_at: datetime | None = None,
         evidence_object_ids: list[str] | None = None,
     ) -> UpdateTaskOutput:
-        """Update a task without changing provenance origin."""
+        """Update task fields or attach evidence without changing lifecycle status."""
+        arguments: dict = {"object_id": object_id}
+        if title is not None:
+            arguments["title"] = title
+        if body is not None:
+            arguments["body"] = body
+        if due_at is not None:
+            arguments["due_at"] = due_at
+        if evidence_object_ids is not None:
+            arguments["evidence_object_ids"] = evidence_object_ids
+        return _run_tool("update_task", "update_task", arguments)
+
+    @mcp.tool()
+    def set_task_status(object_id: str, status: str) -> SetTaskStatusOutput:
+        """Set canonical task lifecycle status."""
         return _run_tool(
-            "update_task",
-            lambda tools: tools.update_task(
-                UpdateTaskInput(
-                    object_id=object_id,
-                    title=title,
-                    body=body,
-                    status=status,
-                    due_at=due_at,
-                    evidence_object_ids=evidence_object_ids or [],
-                )
-            ),
+            "set_task_status",
+            "set_task_status",
+            {"object_id": object_id, "status": status},
+        )
+
+    @mcp.tool()
+    def delete_task(object_id: str) -> DeleteTaskOutput:
+        """Soft-delete a task (status=deleted)."""
+        return _run_tool(
+            "delete_task",
+            "delete_task",
+            {"object_id": object_id},
         )
 
     @mcp.tool()
@@ -160,14 +165,13 @@ def create_mcp_server() -> MCPServer:
         """Create an agent-proposed relation between two objects."""
         return _run_tool(
             "link_objects",
-            lambda tools: tools.link_objects(
-                LinkObjectsInput(
-                    source_id=source_id,
-                    target_id=target_id,
-                    relation_type=relation_type,
-                    confidence=confidence,
-                )
-            ),
+            "link_objects",
+            {
+                "source_id": source_id,
+                "target_id": target_id,
+                "relation_type": relation_type,
+                "confidence": confidence,
+            },
         )
 
     @mcp.tool()
@@ -178,15 +182,13 @@ def create_mcp_server() -> MCPServer:
         """List inbox notifications with optional status filter."""
         return _run_tool(
             "list_notifications",
-            lambda tools: tools.list_notifications(
-                ListNotificationsInput(status=status, limit=limit)
-            ),
+            "list_notifications",
+            {"status": status, "limit": limit},
         )
 
     @mcp.tool()
     def get_today() -> GetTodayOutput:
         """Return the current datetime in SECRETARY_TIMEZONE."""
-        return _run_tool("get_today", lambda tools: tools.get_today())
+        return _run_tool("get_today", "get_today", {})
 
     return mcp
-

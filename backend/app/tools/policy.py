@@ -8,6 +8,7 @@ from app.tools.execution_context import ExecutionContext
 class ToolPermission(str, Enum):
     READ = "READ"
     INTERNAL_WRITE = "INTERNAL_WRITE"
+    DESTRUCTIVE_INTERNAL_WRITE = "DESTRUCTIVE_INTERNAL_WRITE"
     EXTERNAL_PROPOSE = "EXTERNAL_PROPOSE"
     EXTERNAL_WRITE = "EXTERNAL_WRITE"
     COMMUNICATE = "COMMUNICATE"
@@ -27,6 +28,7 @@ def evaluate_policy(
         if permission in (
             ToolPermission.READ,
             ToolPermission.INTERNAL_WRITE,
+            ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
             ToolPermission.EXTERNAL_PROPOSE,
         ):
             return PolicyDecision.ALLOW
@@ -40,11 +42,28 @@ def evaluate_policy(
     if context == ExecutionContext.INTERACTIVE_ASSISTANT:
         if permission == ToolPermission.READ:
             return PolicyDecision.ALLOW
-        if permission == ToolPermission.INTERNAL_WRITE:
+        if permission in (
+            ToolPermission.INTERNAL_WRITE,
+            ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
+        ):
             return PolicyDecision.REQUIRE_APPROVAL
         if permission == ToolPermission.EXTERNAL_PROPOSE:
             return PolicyDecision.ALLOW
         if permission in (
+            ToolPermission.EXTERNAL_WRITE,
+            ToolPermission.COMMUNICATE,
+        ):
+            return PolicyDecision.REQUIRE_APPROVAL
+        return PolicyDecision.DENY
+
+    if context == ExecutionContext.MCP:
+        if permission == ToolPermission.READ:
+            return PolicyDecision.ALLOW
+        if permission == ToolPermission.EXTERNAL_PROPOSE:
+            return PolicyDecision.ALLOW
+        if permission in (
+            ToolPermission.INTERNAL_WRITE,
+            ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
             ToolPermission.EXTERNAL_WRITE,
             ToolPermission.COMMUNICATE,
         ):
@@ -59,6 +78,7 @@ def evaluate_policy(
     ):
         return PolicyDecision.ALLOW
     if permission in (
+        ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
         ToolPermission.EXTERNAL_WRITE,
         ToolPermission.COMMUNICATE,
     ):

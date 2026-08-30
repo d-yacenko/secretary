@@ -68,6 +68,7 @@ class AssistantAffectedObjectOut(BaseModel):
     title: str
     kind: str
     state: str
+    status: str | None = None
 
 
 class PendingActionOut(BaseModel):
@@ -236,6 +237,7 @@ def assistant_message(
                 title=item.title,
                 kind=item.kind,
                 state=item.state,
+                status=item.status,
             )
             for item in result.affected_objects
         ],
@@ -354,6 +356,7 @@ def resume_action_plan(
                 title=item.title,
                 kind=item.kind,
                 state=item.state,
+                status=item.status,
             )
             for item in result.affected_objects
         ],

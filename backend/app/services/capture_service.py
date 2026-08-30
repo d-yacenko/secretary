@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.db.models import Object
+from app.domain.task_lifecycle import TASK_STATUS_OPEN
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.services.errors import NotFoundError, ValidationError
 from app.services.graph_service import GraphService
@@ -73,6 +74,7 @@ class CaptureService:
                 body=text,
                 origin="user",
                 state="confirmed",
+                status=TASK_STATUS_OPEN,
             )
         )
 

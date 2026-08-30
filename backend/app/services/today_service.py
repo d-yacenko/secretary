@@ -11,11 +11,13 @@ from app.notifications.constants import (
     NOTIFICATION_STATUS_READ,
 )
 
+from app.domain.task_lifecycle import TERMINAL_TASK_STATUSES_FOR_TODAY
+
 TODAY_MAX_TASKS = 100
 TODAY_MAX_EVENTS = 100
 TODAY_MAX_NOTIFICATIONS = 50
 
-TERMINAL_TASK_STATUSES = frozenset({"deleted", "done", "completed", "cancelled"})
+TERMINAL_TASK_STATUSES = TERMINAL_TASK_STATUSES_FOR_TODAY
 IMPORTANT_PRIORITIES = frozenset({"high", "urgent"})
 
 

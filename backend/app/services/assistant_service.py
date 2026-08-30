@@ -58,6 +58,7 @@ class AssistantAffectedObject:
     title: str
     kind: str
     state: str
+    status: str | None = None
 
 
 @dataclass
@@ -425,6 +426,7 @@ class AssistantService:
                     title=obj["title"],
                     kind=obj["kind"],
                     state=obj["state"],
+                    status=obj.get("status"),
                 )
             )
         return affected
@@ -437,7 +439,9 @@ class AssistantService:
         for action_result in result.get("actions", []):
             tool_name = action_result.get("tool_name")
             output = action_result.get("output") or {}
-            if tool_name == "update_task" and not output.get("changed"):
+            if tool_name in ("update_task", "set_task_status", "delete_task") and not output.get(
+                "changed"
+            ):
                 continue
             obj = output.get("object")
             if not obj:
@@ -455,6 +459,7 @@ class AssistantService:
                     title=str(obj.get("title", "")),
                     kind=str(obj.get("kind", "")),
                     state=str(obj.get("state", "")),
+                    status=obj.get("status"),
                 )
             )
         return affected
@@ -519,6 +524,11 @@ def _affected_object_ids_from_execution_result(result: dict) -> list[UUID]:
             if obj:
                 _append_uuid(affected_ids, seen, obj.get("id"))
         elif tool_name == "update_task":
+            if output.get("changed"):
+                obj = output.get("object")
+                if obj:
+                    _append_uuid(affected_ids, seen, obj.get("id"))
+        elif tool_name in ("set_task_status", "delete_task"):
             if output.get("changed"):
                 obj = output.get("object")
                 if obj:

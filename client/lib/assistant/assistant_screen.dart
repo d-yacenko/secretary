@@ -235,9 +235,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                               ),
                               ...message.affectedObjects.map(
                                 (affected) => ActionChip(
-                                  label: Text(
-                                    '${affected.kind}: ${affected.title} — ${affected.state}',
-                                  ),
+                                  label: Text(affected.displayLabel),
                                   onPressed: () => _openAffectedObject(affected),
                                 ),
                               ),

@@ -136,4 +136,5 @@ def patched_mcp_tool_session(db_session, fake_embedding_service, monkeypatch):
     def test_tool_session():
         yield DomainToolService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
 
-    monkeypatch.setattr("app.mcp.server.tool_session", test_tool_session)
+    monkeypatch.setattr("app.mcp.session.tool_session", test_tool_session)
+    monkeypatch.setattr("app.mcp.gateway_runner.tool_session", test_tool_session)

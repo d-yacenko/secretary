@@ -26,7 +26,11 @@ PHASE 23D-C — Deploy & Manual Agent E2E Checkpoint: **manual core Agent E2E co
 
 Evidence: `docs/phase_23d_c_manual_e2e.md`
 
-PHASE 23D-D — MVP Interaction Closure: **implemented, awaiting acceptance**
+PHASE 23D-D — MVP Interaction Closure: **accepted / closed** (`eb433a6`)
+
+PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **implemented, awaiting acceptance**
+
+Next planned after acceptance: **PHASE 24 — Graph Workspace & Direct Task Management**
 
 ## VDS production
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -105,7 +106,6 @@ class CreateTaskInput(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     body: str | None = None
     due_at: datetime | None = None
-    status: str | None = None
     evidence_object_ids: list[UUID] = Field(default_factory=list, max_length=MAX_TASK_EVIDENCE_IDS)
 
 
@@ -117,7 +117,6 @@ class UpdateTaskInput(BaseModel):
     object_id: UUID
     title: str | None = None
     body: str | None = None
-    status: str | None = None
     due_at: datetime | None = None
     evidence_object_ids: list[UUID] = Field(default_factory=list, max_length=MAX_TASK_EVIDENCE_IDS)
 
@@ -126,6 +125,32 @@ class UpdateTaskOutput(BaseModel):
     object: ObjectOut
     changed: bool = False
     evidence_edges_created: int = 0
+
+
+SetTaskStatusValue = Literal["open", "in_progress", "done", "cancelled", "archived"]
+
+
+class SetTaskStatusInput(BaseModel):
+    object_id: UUID
+    status: SetTaskStatusValue
+
+
+class SetTaskStatusOutput(BaseModel):
+    object: ObjectOut
+    changed: bool = False
+    previous_status: str | None = None
+    new_status: str
+
+
+class DeleteTaskInput(BaseModel):
+    object_id: UUID
+
+
+class DeleteTaskOutput(BaseModel):
+    object: ObjectOut
+    changed: bool = False
+    previous_status: str | None = None
+    new_status: str
 
 
 class LinkObjectsInput(BaseModel):

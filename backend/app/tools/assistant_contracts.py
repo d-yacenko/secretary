@@ -90,6 +90,7 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "name": "create_task",
         "description": (
             "Create a proposed agent-origin task for the authenticated user. "
+            "New tasks always start with status=open. "
             "Pass evidence_object_ids from source objects discovered this turn."
         ),
         "parameters": {
@@ -99,7 +100,6 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                 "body": {"type": "string"},
                 "due_at": {"type": "string"},
-                "status": {"type": "string"},
                 "evidence_object_ids": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -115,22 +115,58 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "update_task",
         "description": (
-            "Update an existing task object or attach evidence references to it."
+            "Update task title, body, due date, or attach evidence references. "
+            "Does not change lifecycle status — use set_task_status for that."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "object_id": {"type": "string"},
                 "title": {"type": "string"},
-                "body": {"type": "string"},
-                "status": {"type": "string"},
-                "due_at": {"type": "string"},
+                "body": {"type": ["string", "null"]},
+                "due_at": {"type": ["string", "null"]},
                 "evidence_object_ids": {
                     "type": "array",
                     "items": {"type": "string"},
                     "maxItems": 8,
                 },
             },
+            "required": ["object_id"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "set_task_status": {
+        "type": "function",
+        "name": "set_task_status",
+        "description": (
+            "Change task lifecycle status: open, in_progress, done, cancelled, or archived. "
+            "Use for complete, cancel, archive, or reopen — not for field edits."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "object_id": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "in_progress", "done", "cancelled", "archived"],
+                },
+            },
+            "required": ["object_id", "status"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "delete_task": {
+        "type": "function",
+        "name": "delete_task",
+        "description": (
+            "Soft-delete a task (status=deleted). Preserves graph history and evidence. "
+            "Requires user approval. Do not use update_task or physical graph deletion."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"object_id": {"type": "string"}},
             "required": ["object_id"],
             "additionalProperties": False,
         },
