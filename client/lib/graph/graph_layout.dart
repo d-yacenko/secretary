@@ -44,18 +44,27 @@ class GraphLayout {
           rootTopLeft.dx + kGraphNodeWidth / 2,
           rootTopLeft.dy + kGraphNodeHeight / 2,
         );
-        final radius = _ringRadiusForCount(newcomers.length);
-        final step = (2 * math.pi) / newcomers.length;
-        for (var index = 0; index < newcomers.length; index++) {
-          final angle = step * index - math.pi / 2;
-          final ringCenter = Offset(
-            rootCenter.dx + math.cos(angle) * radius,
-            rootCenter.dy + math.sin(angle) * radius,
-          );
-          positions[newcomers[index].id] = Offset(
-            ringCenter.dx - kGraphNodeWidth / 2,
-            ringCenter.dy - kGraphNodeHeight / 2,
-          );
+        if (freshRoot) {
+          final radius = _ringRadiusForCount(newcomers.length);
+          final step = (2 * math.pi) / newcomers.length;
+          for (var index = 0; index < newcomers.length; index++) {
+            final angle = step * index - math.pi / 2;
+            final ringCenter = Offset(
+              rootCenter.dx + math.cos(angle) * radius,
+              rootCenter.dy + math.sin(angle) * radius,
+            );
+            positions[newcomers[index].id] = Offset(
+              ringCenter.dx - kGraphNodeWidth / 2,
+              ringCenter.dy - kGraphNodeHeight / 2,
+            );
+          }
+        } else {
+          for (final newcomer in newcomers) {
+            positions[newcomer.id] = _findIncrementalRingPosition(
+              rootCenter: rootCenter,
+              occupied: positions,
+            );
+          }
         }
       }
       return positions;
@@ -97,6 +106,50 @@ class GraphLayout {
     }
     final neighborClearance = minCenter / (2 * math.sin(math.pi / count));
     return math.max(rootClearance, neighborClearance);
+  }
+
+  static const int _incrementalAngularSlots = 24;
+  static const int _incrementalMaxRings = 48;
+
+  static Offset _findIncrementalRingPosition({
+    required Offset rootCenter,
+    required Map<String, Offset> occupied,
+  }) {
+    final minCenter = _minCenterSeparation();
+    final radiusStep = minCenter;
+    final startRadius = _ringRadiusForCount(1);
+    final angleStep = (2 * math.pi) / _incrementalAngularSlots;
+
+    for (var ring = 0; ring < _incrementalMaxRings; ring++) {
+      final radius = startRadius + ring * radiusStep;
+      for (var slot = 0; slot < _incrementalAngularSlots; slot++) {
+        final angle = angleStep * slot - math.pi / 2;
+        final ringCenter = Offset(
+          rootCenter.dx + math.cos(angle) * radius,
+          rootCenter.dy + math.sin(angle) * radius,
+        );
+        final candidate = Offset(
+          ringCenter.dx - kGraphNodeWidth / 2,
+          ringCenter.dy - kGraphNodeHeight / 2,
+        );
+        if (!_positionOverlapsAny(candidate, occupied)) {
+          return candidate;
+        }
+      }
+    }
+    throw StateError('no free incremental graph slot around root');
+  }
+
+  static bool _positionOverlapsAny(
+    Offset position,
+    Map<String, Offset> occupied,
+  ) {
+    for (final other in occupied.values) {
+      if (nodeRectsOverlap(position, other)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static Rect nodeRectAt(Offset position) {

@@ -5,6 +5,7 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
+import 'package:personal_secretary/graph/graph_layout.dart';
 import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 
 class _FakeApiClient extends SecretaryApiClient {
@@ -155,6 +156,93 @@ void main() {
     expect(controller.edges.length, 1);
     expect(controller.positions['root'], rootPos);
     expect(controller.positions.containsKey('n1'), isTrue);
+  });
+
+  test('repeated expand preserves neighbor positions without overlap', () async {
+    var expandCalls = 0;
+    final auth = _FakeAuth();
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((rootId) async {
+        if (rootId == 'root') {
+          expandCalls += 1;
+          if (expandCalls == 1) {
+            return _workspace(rootId: 'root', nodes: [_obj('root', 'Root')]);
+          }
+          if (expandCalls == 2) {
+            return GraphWorkspaceOut(
+              rootId: 'root',
+              seedIds: ['root'],
+              nodes: [_obj('root', 'Root'), _obj('n1', 'Neighbor 1')],
+              edges: [
+                SecretaryEdge(
+                  id: 'e1',
+                  sourceId: 'root',
+                  targetId: 'n1',
+                  type: 'references',
+                  origin: 'user',
+                  state: 'confirmed',
+                  metadata: {},
+                  createdAt: '2026-01-01T00:00:00Z',
+                  updatedAt: '2026-01-01T00:00:00Z',
+                ),
+              ],
+              truncated: false,
+            );
+          }
+          return GraphWorkspaceOut(
+            rootId: 'root',
+            seedIds: ['root'],
+            nodes: [
+              _obj('root', 'Root'),
+              _obj('n1', 'Neighbor 1'),
+              _obj('n2', 'Neighbor 2'),
+            ],
+            edges: [
+              SecretaryEdge(
+                id: 'e1',
+                sourceId: 'root',
+                targetId: 'n1',
+                type: 'references',
+                origin: 'user',
+                state: 'confirmed',
+                metadata: {},
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+              ),
+              SecretaryEdge(
+                id: 'e2',
+                sourceId: 'root',
+                targetId: 'n2',
+                type: 'references',
+                origin: 'user',
+                state: 'confirmed',
+                metadata: {},
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+              ),
+            ],
+            truncated: false,
+          );
+        }
+        return _workspace(nodes: [_obj('root', 'Root')]);
+      }),
+      authController: auth,
+    );
+
+    await controller.reRoot('root');
+    await controller.expandSelected();
+
+    final rootPos = controller.positions['root']!;
+    final n1Pos = controller.positions['n1']!;
+    expect(controller.nodes.length, 2);
+
+    await controller.expandSelected();
+
+    expect(controller.nodes.length, 3);
+    expect(controller.positions['root'], rootPos);
+    expect(controller.positions['n1'], n1Pos);
+    expect(controller.positions.containsKey('n2'), isTrue);
+    _expectNoOverlaps(controller.positions);
   });
 
   test('mergeRelationContext positions absent target', () async {
@@ -470,4 +558,17 @@ void main() {
     expect(controller.errorMessage, 'offline');
     expect(controller.loadState, GraphWorkspaceLoadState.ready);
   });
+}
+
+void _expectNoOverlaps(Map<String, Offset> positions) {
+  final ids = positions.keys.toList();
+  for (var i = 0; i < ids.length; i++) {
+    for (var j = i + 1; j < ids.length; j++) {
+      expect(
+        GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
+        isFalse,
+        reason: 'overlap between ${ids[i]} and ${ids[j]}',
+      );
+    }
+  }
 }

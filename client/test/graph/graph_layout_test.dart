@@ -5,6 +5,45 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/graph/graph_layout.dart';
 
+SecretaryObject _ringObject(String id, String title) {
+  return SecretaryObject(
+    id: id,
+    kind: 'email',
+    title: title,
+    metadata: {},
+    origin: 'source',
+    state: 'observed',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  );
+}
+
+SecretaryObject _rootObject() {
+  return SecretaryObject(
+    id: 'root',
+    kind: 'task',
+    title: 'Root',
+    metadata: {},
+    origin: 'user',
+    state: 'confirmed',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  );
+}
+
+void _expectNoOverlaps(Map<String, Offset> positions, {String? reason}) {
+  final ids = positions.keys.toList();
+  for (var i = 0; i < ids.length; i++) {
+    for (var j = i + 1; j < ids.length; j++) {
+      expect(
+        GraphLayout.nodeRectsOverlap(positions[ids[i]]!, positions[ids[j]]!),
+        isFalse,
+        reason: '${reason ?? ''} overlap between ${ids[i]} and ${ids[j]}',
+      );
+    }
+  }
+}
+
 void main() {
   test('fresh root centers even when existing is empty', () {
     final root = SecretaryObject(
@@ -255,6 +294,71 @@ void main() {
           );
         }
       }
+    }
+  });
+
+  test('incremental placement keeps existing neighbors and avoids overlap', () {
+    final root = _rootObject();
+    final a = _ringObject('a', 'A');
+    final b = _ringObject('b', 'B');
+
+    final initial = GraphLayout.computePositions(
+      nodes: [root, a],
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final rootPos = initial['root']!;
+    final aPos = initial['a']!;
+
+    final expanded = GraphLayout.computePositions(
+      nodes: [root, a, b],
+      rootId: 'root',
+      existing: initial,
+      freshRoot: false,
+    );
+
+    expect(expanded['root'], rootPos);
+    expect(expanded['a'], aPos);
+    expect(expanded.containsKey('b'), isTrue);
+    expect(
+      GraphLayout.nodeRectsOverlap(expanded['root']!, expanded['b']!),
+      isFalse,
+    );
+    expect(
+      GraphLayout.nodeRectsOverlap(expanded['a']!, expanded['b']!),
+      isFalse,
+    );
+  });
+
+  test('incremental neighbor addition up to 24 preserves positions and avoids overlap', () {
+    final root = _rootObject();
+    var positions = GraphLayout.computePositions(
+      nodes: [root],
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final neighbors = <SecretaryObject>[];
+
+    for (var index = 0; index < 24; index++) {
+      final neighbor = _ringObject('n-$index', 'Neighbor $index');
+      neighbors.add(neighbor);
+      final before = Map<String, Offset>.from(positions);
+      positions = GraphLayout.computePositions(
+        nodes: [root, ...neighbors],
+        rootId: 'root',
+        existing: positions,
+        freshRoot: false,
+      );
+      for (final entry in before.entries) {
+        expect(
+          positions[entry.key],
+          entry.value,
+          reason: 'position changed for ${entry.key} at index $index',
+        );
+      }
+      _expectNoOverlaps(positions, reason: 'index=$index');
     }
   });
 }
