@@ -13,17 +13,13 @@ dependencies:
   http_parser: ^4.0.2
   flutter_secure_storage: ^9.2.4
   shared_preferences: ^2.3.3
-  record: ^5.2.1
+  record: ^6.0.0
   path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-
-dependency_overrides:
-  # record 5.2.1 + record_linux 0.7.2 require platform_interface <1.4 (no startStream ABI break).
-  record_platform_interface: 1.2.0
 
 flutter:
   uses-material-design: true

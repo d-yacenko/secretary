@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
@@ -94,7 +96,7 @@ class RecordVoiceRecorder implements VoiceRecorder {
       await _recorder.start(format.config, path: filePath);
     } catch (error, stackTrace) {
       _logStartupFailure('start', error, stackTrace);
-      throw const VoiceRecorderStartFailure();
+      throw _mapStartupError(error);
     }
   }
 
@@ -145,5 +147,23 @@ class RecordVoiceRecorder implements VoiceRecorder {
       'Voice recorder $stage failed: ${error.runtimeType}: $error',
     );
     debugPrintStack(stackTrace: stackTrace);
+  }
+
+  VoiceRecorderException _mapStartupError(Object error) {
+    if (error is ProcessException) {
+      final command = error.executable ?? error.message;
+      if (command.contains('fmedia') ||
+          command.contains('parecord') ||
+          command.contains('ffmpeg')) {
+        return const VoiceRecorderDeviceUnavailable();
+      }
+    }
+    final text = error.toString();
+    if (text.contains('fmedia') ||
+        text.contains('parecord') ||
+        text.contains('ffmpeg')) {
+      return const VoiceRecorderDeviceUnavailable();
+    }
+    return const VoiceRecorderStartFailure();
   }
 }

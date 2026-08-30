@@ -26,17 +26,23 @@ Linux builds require the desktop toolchain (`clang++`, `cmake`, `ninja`, GTK 3 d
 
 ### Linux voice recording runtime
 
-Assistant voice input on Linux uses the `record` package (5.2.1). The recorder prefers WAV 16 kHz mono when supported; otherwise it falls back to AAC (`m4a`) or Opus (`ogg`) with matching upload MIME types.
+Assistant voice input on Linux uses the `record` package (6.x). The recorder prefers WAV 16 kHz mono when supported; otherwise it falls back to AAC (`m4a`) or Opus (`ogg`) with matching upload MIME types.
 
-On Linux desktop, the `record` plugin typically requires **`fmedia`** installed and available on `PATH` for microphone capture. Without it, recording may fail with a recoverable startup error in the UI.
+`record_linux` 1.x uses PulseAudio tools (not the deprecated `fmedia` binary):
 
-Install example (when available for your distribution):
+- `parecord` — microphone capture (from `pulseaudio-utils`)
+- `pactl` — device queries
+- `ffmpeg` — encoding for non-WAV formats (AAC/Opus fallback)
+
+On openSUSE / Fedora-style hosts:
 
 ```bash
-# fmedia must be on PATH for record_linux
+sudo zypper install pulseaudio-utils ffmpeg
 ```
 
-If `fmedia` is unavailable, voice input shows a categorized user-visible error instead of crashing.
+WAV recording needs only `parecord`; install `ffmpeg` if AAC/Opus fallback is required.
+
+If runtime tools are missing, voice input shows a recoverable categorized error instead of crashing.
 
 ## Run (Android)
 
