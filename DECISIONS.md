@@ -81,3 +81,11 @@ Explicit OpenAI prompt-cache breakpoints are deferred; measure `cached_tokens` /
 
 Stateless `reasoning.encrypted_content` replay is deferred until telemetry shows reasoning tokens or repeated rounds dominating cost after Luna/low.
 
+## PHASE 23A — Voice transcription foundation
+
+Voice audio is ephemeral input only: `/assistant/transcribe` does not persist uploads or create Secretary objects.
+
+Transcription uses a dedicated configurable model (`OPENAI_TRANSCRIPTION_MODEL`, default `gpt-4o-mini-transcribe`), not `OPENAI_ASSISTANT_MODEL` or `OPENAI_MODEL`.
+
+Transcripts are routed through existing flows (`/assistant/message`, capture) in later phases rather than introducing a voice domain model (`kind=voice`, audio graph objects, transcription history tables).
+

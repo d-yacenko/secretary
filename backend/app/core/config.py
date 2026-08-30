@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     openai_assistant_reasoning_effort: str = "low"
     openai_assistant_verbosity: str = "low"
     openai_assistant_max_output_tokens: int = 1600
+    openai_transcription_model: str = "gpt-4o-mini-transcribe"
     secretary_timezone: str = "Europe/Amsterdam"
     mcp_enabled: bool = False
     google_oauth_client_file: str = "/run/secrets/google-oauth-client.json"
