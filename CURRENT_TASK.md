@@ -1,10 +1,10 @@
-# Current task — PHASE 23D-B closure corrective
+# Current task — PHASE 23D-B final closure corrective
 
 ## Status
 
 PHASE 23D-A accepted / closed at `fa2421763a7167bc4825792531e2f058867954e9`.
 
-PHASE 23D-B closure corrective: **implemented, awaiting acceptance**.
+PHASE 23D-B final closure corrective: **implemented, awaiting acceptance**.
 
 Review branch: `review/phase-23d-b`.
 

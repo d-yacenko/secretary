@@ -122,10 +122,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   String _affectedObjectsLabel(AssistantChatMessage message) {
-    if (message.affectedObjects.every((item) => item.state == 'confirmed')) {
-      return 'Completed changes:';
-    }
-    return 'Proposed changes:';
+    return 'Affected objects:';
   }
 
   void _openAffectedObject(AssistantAffectedObject affected) {

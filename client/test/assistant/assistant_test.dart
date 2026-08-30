@@ -259,7 +259,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Send'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Proposed changes:'), findsOneWidget);
+    expect(find.text('Affected objects:'), findsOneWidget);
     expect(find.text('task: Prepare course outline — proposed'), findsOneWidget);
   });
 

@@ -1207,6 +1207,48 @@ def test_finalization_context_is_bounded():
     assert len(context) <= MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS
 
 
+def test_finalization_context_preserves_execution_results_under_truncation():
+    from app.assistant.constants import MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS
+    from app.services.action_plan_service import PendingActionPlanView
+    from app.services.assistant_service import _build_action_plan_finalization_context
+
+    task_id = str(uuid.uuid4())
+    huge_title = "z" * (MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS + 500)
+    plan = PendingActionPlanView(
+        id=uuid.uuid4(),
+        status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+        expires_at=datetime.now(UTC),
+        actions=[
+            {
+                "tool_name": "create_task",
+                "arguments": {"title": huge_title, "body": huge_title, "confidence": 0.5},
+            }
+        ],
+        result={
+            "actions": [
+                {
+                    "tool_name": "create_task",
+                    "success": True,
+                    "output": {
+                        "object": {
+                            "id": task_id,
+                            "title": "Surviving task",
+                            "kind": "task",
+                            "state": CONFIRMED_STATE,
+                        }
+                    },
+                }
+            ]
+        },
+    )
+    context = _build_action_plan_finalization_context(plan)
+    assert len(context) <= MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS
+    assert "Execution results" in context
+    assert task_id in context
+    assert "Surviving task" in context
+    assert CONFIRMED_STATE in context
+
+
 def test_finalization_instructions_mark_context_as_untrusted_data():
     from app.llm.openai_assistant_provider import FINALIZATION_INSTRUCTIONS
 

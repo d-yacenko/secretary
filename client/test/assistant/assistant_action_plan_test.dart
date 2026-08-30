@@ -316,7 +316,7 @@ void main() {
 
     expect(resumeCalls, 1);
     expect(find.text('Done. I created the task.'), findsOneWidget);
-    expect(find.text('Completed changes:'), findsOneWidget);
+    expect(find.text('Affected objects:'), findsOneWidget);
     expect(find.text('task: Review the letter — confirmed'), findsOneWidget);
   });
 
@@ -652,5 +652,127 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(approveCalls, 2);
+  });
+
+  testWidgets('approve malformed 409 body leaves card pending and retryable',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/approve')) {
+        return http.Response('not-json{{{', 409);
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
+    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(assistant.actionPlanErrorMessage, isNotNull);
+    expect(find.text('Approve'), findsOneWidget);
+  });
+
+  testWidgets('reject malformed 200 body leaves card pending and retryable',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/reject')) {
+        return http.Response('not-json{{{', 200);
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reject'));
+    await tester.pumpAndSettle();
+
+    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
+    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(assistant.actionPlanErrorMessage, isNotNull);
+    expect(find.text('Reject'), findsOneWidget);
+  });
+
+  testWidgets('generic 409 detail on reject does not crash controller',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/reject')) {
+        return http.Response(
+          jsonEncode({'detail': 'action plan already executed'}),
+          409,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reject'));
+    await tester.pumpAndSettle();
+
+    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
+    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(find.text('Reject'), findsOneWidget);
   });
 }

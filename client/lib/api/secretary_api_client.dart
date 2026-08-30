@@ -173,8 +173,16 @@ class SecretaryApiClient {
         if (response.body.isEmpty) {
           throw ServerException('Unexpected response format');
         }
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) {
+        Map<String, dynamic>? decoded;
+        try {
+          final raw = jsonDecode(response.body);
+          if (raw is Map<String, dynamic>) {
+            decoded = raw;
+          }
+        } on FormatException {
+          throw ServerException('Unexpected response format');
+        }
+        if (decoded != null) {
           final parsed = ActionPlanResponse.tryParse(decoded);
           if (parsed != null) {
             return parsed;
