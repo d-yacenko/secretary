@@ -735,3 +735,125 @@ class SearchResultSnippet {
     return '${normalized.substring(0, maxChars)}…';
   }
 }
+
+extension SecretaryObjectLifecycle on SecretaryObject {
+  String get lifecycleLabel {
+    if (status != null && status!.trim().isNotEmpty) {
+      if (status == 'completed') {
+        return 'completed';
+      }
+      return status!;
+    }
+    return state;
+  }
+
+  bool get isDeletedTask => kind == 'task' && status == 'deleted';
+}
+
+class GraphWorkspaceOut {
+  GraphWorkspaceOut({
+    this.rootId,
+    required this.seedIds,
+    required this.nodes,
+    required this.edges,
+    required this.truncated,
+  });
+
+  final String? rootId;
+  final List<String> seedIds;
+  final List<SecretaryObject> nodes;
+  final List<SecretaryEdge> edges;
+  final bool truncated;
+
+  factory GraphWorkspaceOut.fromJson(Map<String, dynamic> json) {
+    return GraphWorkspaceOut(
+      rootId: json['root_id'] as String?,
+      seedIds: (json['seed_ids'] as List<dynamic>)
+          .map((e) => e as String)
+          .toList(),
+      nodes: (json['nodes'] as List<dynamic>)
+          .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      edges: (json['edges'] as List<dynamic>)
+          .map((e) => SecretaryEdge.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      truncated: json['truncated'] as bool? ?? false,
+    );
+  }
+}
+
+class TaskPatchRequest {
+  String? title;
+  bool titleSet = false;
+  String? body;
+  bool bodySet = false;
+  String? dueAt;
+  bool dueAtSet = false;
+
+  bool get isEmpty => !titleSet && !bodySet && !dueAtSet;
+
+  Map<String, dynamic> toJson() {
+    final result = <String, dynamic>{};
+    if (titleSet) {
+      result['title'] = title;
+    }
+    if (bodySet) {
+      result['body'] = body;
+    }
+    if (dueAtSet) {
+      result['due_at'] = dueAt;
+    }
+    return result;
+  }
+}
+
+class TaskMutationResponse {
+  TaskMutationResponse({required this.object, required this.changed});
+
+  final SecretaryObject object;
+  final bool changed;
+
+  factory TaskMutationResponse.fromJson(Map<String, dynamic> json) {
+    return TaskMutationResponse(
+      object: SecretaryObject.fromJson(json['object'] as Map<String, dynamic>),
+      changed: json['changed'] as bool? ?? false,
+    );
+  }
+}
+
+class TaskStatusResponse {
+  TaskStatusResponse({
+    required this.object,
+    required this.changed,
+    this.previousStatus,
+    required this.newStatus,
+  });
+
+  final SecretaryObject object;
+  final bool changed;
+  final String? previousStatus;
+  final String newStatus;
+
+  factory TaskStatusResponse.fromJson(Map<String, dynamic> json) {
+    return TaskStatusResponse(
+      object: SecretaryObject.fromJson(json['object'] as Map<String, dynamic>),
+      changed: json['changed'] as bool? ?? false,
+      previousStatus: json['previous_status'] as String?,
+      newStatus: json['new_status'] as String,
+    );
+  }
+}
+
+class RelationCreateResponse {
+  RelationCreateResponse({required this.edge, required this.created});
+
+  final SecretaryEdge edge;
+  final bool created;
+
+  factory RelationCreateResponse.fromJson(Map<String, dynamic> json) {
+    return RelationCreateResponse(
+      edge: SecretaryEdge.fromJson(json['edge'] as Map<String, dynamic>),
+      created: json['created'] as bool? ?? false,
+    );
+  }
+}

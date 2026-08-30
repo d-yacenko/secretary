@@ -1,15 +1,15 @@
-# Current task — PHASE 23E closure corrective
+# Current task — PHASE 24
 
 ## Status
 
-PHASE 23D-D: accepted / closed at `eb433a6`.
+PHASE 23E: accepted / closed at `402c234a915c0f1bf6a839de27b62565c449dfc8`.
 
-PHASE 23E: **closure corrective implemented, awaiting acceptance**.
+PHASE 24: **implemented, awaiting acceptance**.
 
-Review branch: `review/phase-23e`.
+Review branch: `review/phase-24`.
 
-No deploy.
+VDS unchanged. No deploy.
 
 ## STOP
 
-Await architect acceptance. Do not start PHASE 24.
+Await architect acceptance. Do not start the next phase.

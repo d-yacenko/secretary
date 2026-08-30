@@ -8,6 +8,7 @@ import '../auth/auth_controller.dart';
 import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../tasks/task_management_actions.dart';
 
 enum ObjectDetailLoadState { loading, ready, error }
 
@@ -20,6 +21,7 @@ class ObjectDetailScreen extends StatefulWidget {
     required this.captureController,
     this.assistantController,
     this.onAskSecretary,
+    this.onShowInGraph,
   });
 
   final String objectId;
@@ -28,6 +30,7 @@ class ObjectDetailScreen extends StatefulWidget {
   final CaptureController captureController;
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
+  final ShowInGraphHandler? onShowInGraph;
 
   @override
   State<ObjectDetailScreen> createState() => _ObjectDetailScreenState();
@@ -111,6 +114,14 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       appBar: AppBar(
         title: Text(_object?.title ?? 'Object'),
         actions: [
+          if (_object != null && widget.onShowInGraph != null)
+            TextButton(
+              onPressed: () {
+                widget.onShowInGraph!(_object!.id);
+                Navigator.of(context).pop();
+              },
+              child: const Text('Show in Graph'),
+            ),
           if (_object != null && widget.onAskSecretary != null)
             TextButton(
               onPressed: _askSecretary,
@@ -173,7 +184,25 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   subtitle: Text(
                     '${neighbor.edge.type} • ${neighbor.direction} • ${neighbor.object.kind}',
                   ),
+                  onTap: () => openObjectDetail(
+                    context,
+                    objectId: neighbor.object.id,
+                    apiClient: widget.apiClient,
+                    authController: widget.authController,
+                    captureController: widget.captureController,
+                    assistantController: widget.assistantController,
+                    onAskSecretary: widget.onAskSecretary,
+                    onShowInGraph: widget.onShowInGraph,
+                  ),
                 ),
+              ),
+            const SizedBox(height: 16),
+            if (_object != null)
+              TaskManagementActions(
+                task: _object!,
+                apiClient: widget.apiClient,
+                authController: widget.authController,
+                onTaskUpdated: (updated) => setState(() => _object = updated),
               ),
             const SizedBox(height: 16),
             Text('Context', style: Theme.of(context).textTheme.titleMedium),

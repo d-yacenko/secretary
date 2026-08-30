@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
+import '../graph/graph_workspace_controller.dart';
 import '../shell/app_shell.dart';
 import 'auth_controller.dart';
 import 'auth_setup_screen.dart';
@@ -13,11 +14,13 @@ class AuthGate extends StatelessWidget {
     required this.authController,
     required this.captureController,
     required this.assistantController,
+    required this.graphController,
   });
 
   final AuthController authController;
   final CaptureController captureController;
   final AssistantController assistantController;
+  final GraphWorkspaceController graphController;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +35,7 @@ class AuthGate extends StatelessWidget {
           authController: authController,
           captureController: captureController,
           assistantController: assistantController,
+          graphController: graphController,
         );
       case AuthStatus.needsAuth:
       case AuthStatus.transientError:

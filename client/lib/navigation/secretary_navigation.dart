@@ -10,6 +10,7 @@ import '../capture/capture_screen.dart';
 import '../objects/object_detail_screen.dart';
 
 typedef AskSecretaryHandler = void Function(SecretaryObject object);
+typedef ShowInGraphHandler = void Function(String objectId);
 
 Future<void> openObjectDetail(
   BuildContext context, {
@@ -19,6 +20,7 @@ Future<void> openObjectDetail(
   required CaptureController captureController,
   AssistantController? assistantController,
   AskSecretaryHandler? onAskSecretary,
+  ShowInGraphHandler? onShowInGraph,
 }) async {
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
@@ -29,6 +31,7 @@ Future<void> openObjectDetail(
         captureController: captureController,
         assistantController: assistantController,
         onAskSecretary: onAskSecretary,
+        onShowInGraph: onShowInGraph,
       ),
     ),
   );
@@ -43,6 +46,7 @@ Future<void> openNotificationContext(
   AssistantController? assistantController,
   AskSecretaryHandler? onAskSecretary,
   void Function(NotificationOut notification)? onAskSecretaryAboutNotification,
+  ShowInGraphHandler? onShowInGraph,
 }) async {
   try {
     if (notification.status == 'new') {
@@ -71,6 +75,7 @@ Future<void> openNotificationContext(
       captureController: captureController,
       assistantController: assistantController,
       onAskSecretary: onAskSecretary,
+      onShowInGraph: onShowInGraph,
     );
     return;
   }

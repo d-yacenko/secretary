@@ -28,9 +28,11 @@ Evidence: `docs/phase_23d_c_manual_e2e.md`
 
 PHASE 23D-D — MVP Interaction Closure: **accepted / closed** (`eb433a6`)
 
-PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **closure corrective implemented, awaiting acceptance**
+PHASE 23E — Unified Permission Gateway & Agent Task Lifecycle: **accepted / closed** (`402c234`)
 
-Next planned after acceptance: **PHASE 24 — Graph Workspace & Direct Task Management**
+PHASE 24 — Graph Workspace & Direct Task Management: **implemented, awaiting acceptance**
+
+Next planned after acceptance: follow playbook after PHASE 24 acceptance.
 
 ## VDS production
 

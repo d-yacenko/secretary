@@ -8,7 +8,8 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/inbox_screen.dart';
 import '../navigation/secretary_navigation.dart';
-import '../screens/placeholder_screen.dart';
+import '../graph/graph_workspace_controller.dart';
+import '../graph/graph_workspace_screen.dart';
 import '../search/search_screen.dart';
 import '../today/today_screen.dart';
 
@@ -31,11 +32,13 @@ class AppShell extends StatefulWidget {
     required this.authController,
     required this.captureController,
     required this.assistantController,
+    required this.graphController,
   });
 
   final AuthController authController;
   final CaptureController captureController;
   final AssistantController assistantController;
+  final GraphWorkspaceController graphController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -57,6 +60,11 @@ class _AppShellState extends State<AppShell> {
         ),
       ),
     );
+  }
+
+  void _showInGraph(String objectId) {
+    widget.graphController.loadRoot(objectId, clearPositions: true);
+    setState(() => _selectedIndex = ShellDestination.graph.index);
   }
 
   void _askSecretaryAbout(SecretaryObject object) {
@@ -87,6 +95,7 @@ class _AppShellState extends State<AppShell> {
           captureController: widget.captureController,
           assistantController: widget.assistantController,
           onAskSecretary: _askSecretaryAbout,
+          onShowInGraph: _showInGraph,
         );
       case ShellDestination.search:
         return SearchScreen(
@@ -95,6 +104,7 @@ class _AppShellState extends State<AppShell> {
           captureController: widget.captureController,
           assistantController: widget.assistantController,
           onAskSecretary: _askSecretaryAbout,
+          onShowInGraph: _showInGraph,
         );
       case ShellDestination.assistant:
         return AssistantScreen(
@@ -104,7 +114,14 @@ class _AppShellState extends State<AppShell> {
           captureController: widget.captureController,
         );
       case ShellDestination.graph:
-        return PlaceholderScreen(title: destination.label);
+        return GraphWorkspaceScreen(
+          controller: widget.graphController,
+          apiClient: widget.authController.apiClient,
+          authController: widget.authController,
+          captureController: widget.captureController,
+          assistantController: widget.assistantController,
+          onAskSecretary: _askSecretaryAbout,
+        );
     }
   }
 

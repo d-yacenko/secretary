@@ -14,6 +14,8 @@ import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
+import 'package:personal_secretary/graph/graph_workspace_controller.dart';
+import 'package:personal_secretary/screens/placeholder_screen.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
 const _baseUrl = 'https://secretary.example';
@@ -33,6 +35,18 @@ MockClient shellMockClient() {
           'tasks': [],
           'calendar_events': [],
           'notifications': [],
+        }),
+        200,
+      );
+    }
+    if (request.url.path == '/graph/workspace') {
+      return http.Response(
+        jsonEncode({
+          'root_id': null,
+          'seed_ids': [],
+          'nodes': [],
+          'edges': [],
+          'truncated': false,
         }),
         200,
       );
@@ -58,6 +72,13 @@ AuthController buildAuth() {
   return auth;
 }
 
+GraphWorkspaceController buildGraph(AuthController auth) {
+  return GraphWorkspaceController(
+    apiClient: auth.apiClient,
+    authController: auth,
+  );
+}
+
 void main() {
   testWidgets('narrow layout exposes five destinations and Capture FAB', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
@@ -78,12 +99,15 @@ void main() {
       ),
     );
 
+    final graph = buildGraph(auth);
+
     await tester.pumpWidget(
       MaterialApp(
         home: AppShell(
           authController: auth,
           captureController: capture,
           assistantController: assistant,
+          graphController: graph,
         ),
       ),
     );
@@ -94,6 +118,7 @@ void main() {
     }
     expect(find.text('Capture'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(PlaceholderScreen), findsNothing);
   });
 
   testWidgets('wide layout exposes NavigationRail and prominent Capture action', (tester) async {
@@ -115,12 +140,15 @@ void main() {
       ),
     );
 
+    final graph = buildGraph(auth);
+
     await tester.pumpWidget(
       MaterialApp(
         home: AppShell(
           authController: auth,
           captureController: capture,
           assistantController: assistant,
+          graphController: graph,
         ),
       ),
     );

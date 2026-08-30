@@ -106,6 +106,81 @@ class SecretaryApiClient {
     return ContextResponse.fromJson(body);
   }
 
+  Future<GraphWorkspaceOut> getGraphWorkspace({
+    String? rootId,
+    int? seedLimit,
+    int? neighborLimit,
+    int? nodeLimit,
+  }) async {
+    final queryParameters = <String, String>{};
+    if (rootId != null) {
+      queryParameters['root_id'] = rootId;
+    }
+    if (seedLimit != null) {
+      queryParameters['seed_limit'] = '$seedLimit';
+    }
+    if (neighborLimit != null) {
+      queryParameters['neighbor_limit'] = '$neighborLimit';
+    }
+    if (nodeLimit != null) {
+      queryParameters['node_limit'] = '$nodeLimit';
+    }
+    final body = await _request('GET', '/graph/workspace', queryParameters: queryParameters);
+    return GraphWorkspaceOut.fromJson(body);
+  }
+
+  Future<TaskMutationResponse> patchTask(
+    String taskId,
+    TaskPatchRequest request,
+  ) async {
+    final body = await _request(
+      'PATCH',
+      '/tasks/$taskId',
+      jsonBody: request.toJson(),
+    );
+    return TaskMutationResponse.fromJson(body);
+  }
+
+  Future<TaskStatusResponse> setTaskStatus(String taskId, String status) async {
+    final body = await _request(
+      'POST',
+      '/tasks/$taskId/status',
+      jsonBody: {'status': status},
+    );
+    return TaskStatusResponse.fromJson(body);
+  }
+
+  Future<TaskStatusResponse> softDeleteTask(String taskId) async {
+    final body = await _request('DELETE', '/tasks/$taskId');
+    return TaskStatusResponse.fromJson(body);
+  }
+
+  Future<RelationCreateResponse> createRelation({
+    required String sourceId,
+    required String targetId,
+    required String type,
+  }) async {
+    final body = await _request(
+      'POST',
+      '/relations',
+      jsonBody: {
+        'source_id': sourceId,
+        'target_id': targetId,
+        'type': type,
+      },
+      successStatuses: {200, 201},
+    );
+    return RelationCreateResponse.fromJson(body);
+  }
+
+  Future<void> deleteRelation(String edgeId) async {
+    await _requestJson(
+      'DELETE',
+      '/relations/$edgeId',
+      successStatuses: {204},
+    );
+  }
+
   Future<List<SecretaryObject>> searchObjects({
     required String query,
     String? kind,

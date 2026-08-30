@@ -15,6 +15,7 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
+import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
 void main() {
@@ -84,6 +85,18 @@ void main() {
           200,
         );
       }
+      if (request.url.path == '/graph/workspace') {
+        return http.Response(
+          jsonEncode({
+            'root_id': null,
+            'seed_ids': [],
+            'nodes': [],
+            'edges': [],
+            'truncated': false,
+          }),
+          200,
+        );
+      }
       return http.Response('{}', 404);
     });
 
@@ -105,12 +118,18 @@ void main() {
       ),
     );
 
+    final graph = GraphWorkspaceController(
+      apiClient: apiClient,
+      authController: auth,
+    );
+
     await tester.pumpWidget(
       MaterialApp(
         home: AppShell(
           authController: auth,
           captureController: capture,
           assistantController: assistant,
+          graphController: graph,
         ),
       ),
     );
@@ -139,6 +158,18 @@ void main() {
             'answer': 'Course context used',
             'references': [],
             'affected_objects': [],
+          }),
+          200,
+        );
+      }
+      if (request.url.path == '/graph/workspace') {
+        return http.Response(
+          jsonEncode({
+            'root_id': null,
+            'seed_ids': [],
+            'nodes': [],
+            'edges': [],
+            'truncated': false,
           }),
           200,
         );
@@ -216,6 +247,18 @@ void main() {
                 'state': 'proposed',
               },
             ],
+          }),
+          200,
+        );
+      }
+      if (request.url.path == '/graph/workspace') {
+        return http.Response(
+          jsonEncode({
+            'root_id': null,
+            'seed_ids': [],
+            'nodes': [],
+            'edges': [],
+            'truncated': false,
           }),
           200,
         );

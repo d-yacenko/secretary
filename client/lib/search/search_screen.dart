@@ -18,6 +18,7 @@ class SearchScreen extends StatefulWidget {
     required this.captureController,
     this.assistantController,
     this.onAskSecretary,
+    this.onShowInGraph,
   });
 
   final SecretaryApiClient apiClient;
@@ -25,6 +26,7 @@ class SearchScreen extends StatefulWidget {
   final CaptureController captureController;
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
+  final ShowInGraphHandler? onShowInGraph;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -92,6 +94,7 @@ class _SearchScreenState extends State<SearchScreen> {
       captureController: widget.captureController,
       assistantController: widget.assistantController,
       onAskSecretary: widget.onAskSecretary,
+      onShowInGraph: widget.onShowInGraph,
     );
   }
 

@@ -269,3 +269,52 @@ class ResourceRegisterOut(BaseModel):
     external_id: str | None
     jobs_enqueued: int
     representations_created: int
+
+
+class TaskPatchRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+    body: str | None = None
+    due_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_at_least_one_field(self) -> Self:
+        if not self.model_fields_set:
+            raise ValueError("at least one editable field must be supplied")
+        if "title" in self.model_fields_set and self.title is None:
+            raise ValueError("title cannot be null or empty")
+        return self
+
+
+class TaskMutationResponse(BaseModel):
+    object: ObjectOut
+    changed: bool
+
+
+class TaskStatusRequest(BaseModel):
+    status: str
+
+
+class TaskStatusResponse(BaseModel):
+    object: ObjectOut
+    changed: bool
+    previous_status: str | None
+    new_status: str
+
+
+class GraphWorkspaceOut(BaseModel):
+    root_id: UUID | None
+    seed_ids: list[UUID]
+    nodes: list[ObjectOut]
+    edges: list[EdgeOut]
+    truncated: bool
+
+
+class RelationCreateRequest(BaseModel):
+    source_id: UUID
+    target_id: UUID
+    type: str
+
+
+class RelationCreateResponse(BaseModel):
+    edge: EdgeOut
+    created: bool

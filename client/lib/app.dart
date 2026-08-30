@@ -4,6 +4,7 @@ import 'auth/auth_controller.dart';
 import 'auth/auth_gate.dart';
 import 'assistant/assistant_controller.dart';
 import 'capture/capture_controller.dart';
+import 'graph/graph_workspace_controller.dart';
 
 class PersonalSecretaryApp extends StatefulWidget {
   const PersonalSecretaryApp({super.key, required this.authController});
@@ -20,6 +21,8 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   late final CaptureController _captureController;
   late final AssistantController _assistantController;
 
+  late final GraphWorkspaceController _graphController;
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +35,10 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
     );
+    _graphController = GraphWorkspaceController(
+      apiClient: widget.authController.apiClient,
+      authController: widget.authController,
+    );
     widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
     widget.authController.initialize();
@@ -40,6 +47,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   void _onSessionTerminated() {
     _captureController.resetSession();
     _assistantController.resetSession();
+    _graphController.resetSession();
     _authSessionNavigator.resetNavigationStack();
   }
 
@@ -53,6 +61,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     widget.authController.removeListener(_onAuthChanged);
     _captureController.dispose();
     _assistantController.dispose();
+    _graphController.dispose();
     super.dispose();
   }
 
@@ -69,6 +78,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
         authController: widget.authController,
         captureController: _captureController,
         assistantController: _assistantController,
+        graphController: _graphController,
       ),
     );
   }

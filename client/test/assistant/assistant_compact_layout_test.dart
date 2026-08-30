@@ -15,6 +15,7 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
+import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
 const baseUrl = 'https://secretary.example';
@@ -135,6 +136,18 @@ void main() {
           200,
         );
       }
+      if (request.url.path == '/graph/workspace') {
+        return http.Response(
+          jsonEncode({
+            'root_id': null,
+            'seed_ids': [],
+            'nodes': [],
+            'edges': [],
+            'truncated': false,
+          }),
+          200,
+        );
+      }
       return http.Response('{}', 404);
     });
     final apiClient = SecretaryApiClient(httpClient: mock);
@@ -147,6 +160,11 @@ void main() {
     auth.status = AuthStatus.authenticated;
     final assistant = buildAssistant(apiClient, auth);
 
+    final graph = GraphWorkspaceController(
+      apiClient: apiClient,
+      authController: auth,
+    );
+
     await tester.pumpWidget(
       MaterialApp(
         home: AppShell(
@@ -156,6 +174,7 @@ void main() {
             authController: auth,
           ),
           assistantController: assistant,
+          graphController: graph,
         ),
       ),
     );
@@ -181,6 +200,18 @@ void main() {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody(title: longTitle)), 200);
+      }
+      if (request.url.path == '/graph/workspace') {
+        return http.Response(
+          jsonEncode({
+            'root_id': null,
+            'seed_ids': [],
+            'nodes': [],
+            'edges': [],
+            'truncated': false,
+          }),
+          200,
+        );
       }
       return http.Response('{}', 404);
     });

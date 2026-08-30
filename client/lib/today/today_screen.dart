@@ -19,6 +19,7 @@ class TodayScreen extends StatefulWidget {
     required this.captureController,
     this.assistantController,
     this.onAskSecretary,
+    this.onShowInGraph,
   });
 
   final SecretaryApiClient apiClient;
@@ -26,6 +27,7 @@ class TodayScreen extends StatefulWidget {
   final CaptureController captureController;
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
+  final ShowInGraphHandler? onShowInGraph;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -130,6 +132,7 @@ class _TodayScreenState extends State<TodayScreen> {
                       captureController: widget.captureController,
                       assistantController: widget.assistantController,
                       onAskSecretary: widget.onAskSecretary,
+                      onShowInGraph: widget.onShowInGraph,
                     ),
                   )),
             const SizedBox(height: 16),
@@ -147,6 +150,7 @@ class _TodayScreenState extends State<TodayScreen> {
                       captureController: widget.captureController,
                       assistantController: widget.assistantController,
                       onAskSecretary: widget.onAskSecretary,
+                      onShowInGraph: widget.onShowInGraph,
                     ),
                   )),
             const SizedBox(height: 16),
@@ -164,6 +168,7 @@ class _TodayScreenState extends State<TodayScreen> {
                       captureController: widget.captureController,
                       assistantController: widget.assistantController,
                       onAskSecretary: widget.onAskSecretary,
+                      onShowInGraph: widget.onShowInGraph,
                     ),
                   )),
           ],
