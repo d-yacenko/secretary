@@ -164,14 +164,24 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       appBar: AppBar(
         title: Text(destination.label),
-        actions: [accountAction],
+        actions: [
+          if (!isWide && destination == ShellDestination.assistant)
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'Capture',
+              onPressed: _openCapture,
+            ),
+          accountAction,
+        ],
       ),
       body: _destinationScreen(destination),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openCapture,
-        icon: const Icon(Icons.add),
-        label: const Text('Capture'),
-      ),
+      floatingActionButton: isWide || destination == ShellDestination.assistant
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _openCapture,
+              icon: const Icon(Icons.add),
+              label: const Text('Capture'),
+            ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) => setState(() => _selectedIndex = index),

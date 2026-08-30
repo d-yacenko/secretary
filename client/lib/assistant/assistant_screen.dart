@@ -276,57 +276,85 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
             ),
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('assistant_input'),
-                    controller: _inputController,
-                    minLines: 1,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: 'Ask Secretary…',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: inputDisabled ? null : (_) => _send(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  key: const Key('assistant_voice_button'),
-                  tooltip: controller.voiceState == AssistantVoiceState.recording
-                      ? 'Stop recording'
-                      : 'Record voice command',
-                  onPressed: inputDisabled &&
-                          controller.voiceState != AssistantVoiceState.recording
-                      ? null
-                      : _onVoicePressed,
-                  icon: controller.voiceState == AssistantVoiceState.transcribing ||
-                          controller.voiceState == AssistantVoiceState.starting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          controller.voiceState == AssistantVoiceState.recording
-                              ? Icons.stop_circle_outlined
-                              : Icons.mic_none_outlined,
+            padding: EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              16 + MediaQuery.paddingOf(context).bottom,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = MediaQuery.sizeOf(context).width < 600;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        key: const Key('assistant_input'),
+                        controller: _inputController,
+                        minLines: 1,
+                        maxLines: compact ? 3 : 4,
+                        decoration: const InputDecoration(
+                          hintText: 'Ask Secretary…',
+                          border: OutlineInputBorder(),
+                          isDense: true,
                         ),
-                ),
-                FilledButton(
-                  key: const Key('assistant_send_button'),
-                  onPressed: inputDisabled ? null : _send,
-                  child: controller.isSending
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Send'),
-                ),
-              ],
+                        onSubmitted: inputDisabled ? null : (_) => _send(),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      key: const Key('assistant_voice_button'),
+                      visualDensity: VisualDensity.compact,
+                      tooltip: controller.voiceState == AssistantVoiceState.recording
+                          ? 'Stop recording'
+                          : 'Record voice command',
+                      onPressed: inputDisabled &&
+                              controller.voiceState != AssistantVoiceState.recording
+                          ? null
+                          : _onVoicePressed,
+                      icon: controller.voiceState == AssistantVoiceState.transcribing ||
+                              controller.voiceState == AssistantVoiceState.starting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              controller.voiceState == AssistantVoiceState.recording
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.mic_none_outlined,
+                            ),
+                    ),
+                    if (compact)
+                      IconButton(
+                        key: const Key('assistant_send_button'),
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Send',
+                        onPressed: inputDisabled ? null : _send,
+                        icon: controller.isSending
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.send),
+                      )
+                    else
+                      FilledButton(
+                        key: const Key('assistant_send_button'),
+                        onPressed: inputDisabled ? null : _send,
+                        child: controller.isSending
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Send'),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -379,6 +407,7 @@ class _ActionPlanCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cardState = actionPlan.cardState;
     final buttonsDisabled = controller.isActionPlanOperationBusy;
+    final compact = MediaQuery.sizeOf(context).width < 600;
 
     String statusLabel;
     switch (cardState) {
@@ -410,7 +439,10 @@ class _ActionPlanCard extends StatelessWidget {
               ...actionPlan.plan.actions.map(
                 (action) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(action.displayLabel),
+                  child: Text(
+                    action.displayLabel,
+                    softWrap: true,
+                  ),
                 ),
               ),
               if (cardState == ActionPlanCardState.pending &&
@@ -425,22 +457,23 @@ class _ActionPlanCard extends StatelessWidget {
                   ),
                 ),
               if (cardState == ActionPlanCardState.pending)
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     FilledButton(
                       key: Key('assistant_action_plan_approve_$messageIndex'),
                       onPressed: buttonsDisabled
                           ? null
                           : () => controller.approveActionPlanAt(messageIndex),
-                      child: const Text('Approve'),
+                      child: Text(compact ? 'Approve' : 'Approve'),
                     ),
-                    const SizedBox(width: 8),
                     OutlinedButton(
                       key: Key('assistant_action_plan_reject_$messageIndex'),
                       onPressed: buttonsDisabled
                           ? null
                           : () => controller.rejectActionPlanAt(messageIndex),
-                      child: const Text('Reject'),
+                      child: Text(compact ? 'Reject' : 'Reject'),
                     ),
                   ],
                 ),

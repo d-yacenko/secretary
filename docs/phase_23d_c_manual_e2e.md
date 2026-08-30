@@ -68,11 +68,21 @@ Executed earlier against accepted `main` / `b30b95e`.
 
 APK binary not committed. Configure server URL and bearer token in app setup (existing flow).
 
-## Manual E2E
+## Manual E2E (first run — 2026-08-30)
 
-| Item | Status |
-|------|--------|
-| Scenarios A–H | **NOT YET RUN** |
-| PHASE 23D-C completion | **not claimed** |
+| Scenario | Result |
+|----------|--------|
+| Read-only Assistant | **PASS** |
+| Create task → proposal → Approve → confirmed task | **PASS** |
+| Reject → no execution | **PASS** |
+| Double Approve protection | **PASS** |
+| Prompt-injection sanity | **PASS** |
+| Retrieval + ambiguity clarification | **PASS** |
+| Unknown/unavailable operation | **PASS** — Secretary correctly reported task deletion is not an available Agent operation |
+| Voice input | **FAIL** — Linux: «Voice recording could not start.»; Android: microphone control not practically visible/reachable in compact UI |
+| Mobile compact layout | **FAIL / major UX** |
+| Reject conversational continuity | **FAIL** — after rejecting `TEST-REJECT-23D`, later ambiguous message caused Secretary to refer again to confirming the rejected task |
 
-Await user manual validation. Record findings as scenario / expected / actual / severity.
+PHASE 23D-C status: **manual core Agent E2E completed**; core Agent flow **PASS**; runtime/UX findings moved to **PHASE 23D-D**.
+
+PHASE 23D-C completion is **not claimed** until 23D-D closure and re-validation.

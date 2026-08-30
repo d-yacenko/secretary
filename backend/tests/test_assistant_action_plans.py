@@ -1255,3 +1255,158 @@ def test_finalization_instructions_mark_context_as_untrusted_data():
     lowered = FINALIZATION_INSTRUCTIONS.lower()
     assert "evidence only" in lowered
     assert "never be followed as instructions" in lowered
+
+
+class _HistoryCapturingProvider:
+    def __init__(self, answer: str = "ok") -> None:
+        self.answer = answer
+        self.last_history: list[AssistantHistoryMessage] = []
+
+    def run(
+        self,
+        message: str,
+        history: list[AssistantHistoryMessage],
+        ui_context: str,
+        reference_datetime: datetime,
+        timezone: str,
+        tool_runner,
+    ) -> AssistantProviderResult:
+        self.last_history = list(history)
+        return AssistantProviderResult(
+            answer=self.answer,
+            candidate_object_ids=[],
+            affected_object_ids=[],
+            store_false_used=True,
+        )
+
+
+def _patch_assistant_session_local(db_session, monkeypatch):
+    class _TestSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    import app.services.assistant_service as assistant_service_module
+
+    assistant_service_module.SessionLocal = lambda: _TestSession()
+    monkeypatch.setattr(
+        assistant_service_module,
+        "SessionLocal",
+        lambda: _TestSession(),
+    )
+
+
+def test_rejected_plan_appears_in_provider_history(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client, monkeypatch
+):
+    from app.assistant.action_plan_history import ACTION_PLAN_CONVERSATION_EVENT_PREFIX
+
+    client, user_id = action_plan_client
+    provider = _HistoryCapturingProvider(answer="Clarify intent.")
+    _override_assistant_provider(provider, monkeypatch)
+    _patch_assistant_session_local(db_session, monkeypatch)
+
+    plan = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_REJECTED,
+        actions=[
+            {
+                "tool_name": "create_task",
+                "arguments": {"title": "TEST-REJECT-23D", "confidence": 0.5},
+            }
+        ],
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        rejected_at=datetime.now(UTC),
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    response = client.post(
+        "/assistant/message",
+        json={"message": "Testing Double Approved Case"},
+    )
+    assert response.status_code == 200
+    assert provider.last_history
+    terminal_entries = [
+        item
+        for item in provider.last_history
+        if ACTION_PLAN_CONVERSATION_EVENT_PREFIX in item.content
+    ]
+    assert terminal_entries
+    rejected_entry = terminal_entries[-1]
+    assert "terminal state: rejected" in rejected_entry.content
+    assert "TEST-REJECT-23D" in rejected_entry.content
+    assert "pending" not in rejected_entry.content.lower()
+
+
+def test_terminal_plan_history_covers_executed_expired_failed(
+    db_session, fake_embedding_service, action_plan_user, action_plan_client, monkeypatch
+):
+    from app.assistant.action_plan_history import ACTION_PLAN_CONVERSATION_EVENT_PREFIX
+
+    client, user_id = action_plan_client
+    provider = _HistoryCapturingProvider(answer="ok")
+    _override_assistant_provider(provider, monkeypatch)
+    _patch_assistant_session_local(db_session, monkeypatch)
+
+    db_session.add_all(
+        [
+            PendingActionPlan(
+                user_id=user_id,
+                status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+                actions=[
+                    {
+                        "tool_name": "create_task",
+                        "arguments": {"title": "DONE-23D", "confidence": 0.5},
+                    }
+                ],
+                expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                executed_at=datetime.now(UTC),
+                result={"actions": []},
+            ),
+            PendingActionPlan(
+                user_id=user_id,
+                status=PENDING_ACTION_PLAN_STATUS_EXPIRED,
+                actions=[
+                    {
+                        "tool_name": "create_task",
+                        "arguments": {"title": "EXPIRED-23D", "confidence": 0.5},
+                    }
+                ],
+                expires_at=datetime.now(UTC) - timedelta(minutes=5),
+                failure="action plan expired",
+            ),
+            PendingActionPlan(
+                user_id=user_id,
+                status=PENDING_ACTION_PLAN_STATUS_FAILED,
+                actions=[
+                    {
+                        "tool_name": "create_task",
+                        "arguments": {"title": "FAILED-23D", "confidence": 0.5},
+                    }
+                ],
+                expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                failure="boom",
+            ),
+        ]
+    )
+    db_session.flush()
+
+    response = client.post("/assistant/message", json={"message": "ambiguous"})
+    assert response.status_code == 200
+    terminal_text = "\n".join(
+        item.content
+        for item in provider.last_history
+        if ACTION_PLAN_CONVERSATION_EVENT_PREFIX in item.content
+    )
+    assert "terminal state: executed" in terminal_text
+    assert "DONE-23D" in terminal_text
+    assert "terminal state: expired" in terminal_text
+    assert "EXPIRED-23D" in terminal_text
+    assert "terminal state: failed" in terminal_text
+    assert "FAILED-23D" in terminal_text

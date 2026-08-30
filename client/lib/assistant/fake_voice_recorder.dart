@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'voice_recorder.dart';
+import 'voice_recorder_exceptions.dart';
 
 /// Deterministic recorder for tests without microphone access.
 class FakeVoiceRecorder implements VoiceRecorder {
@@ -15,6 +16,7 @@ class FakeVoiceRecorder implements VoiceRecorder {
   bool failStop = false;
   bool throwOnHasPermission = false;
   bool throwOnRequestPermission = false;
+  bool throwEncoderUnsupported = false;
   bool isRecording = false;
   String? lastStartedPath;
   int startCallCount = 0;
@@ -24,6 +26,21 @@ class FakeVoiceRecorder implements VoiceRecorder {
   Duration stopDelay = Duration.zero;
 
   late List<int> _audioBytes;
+  String _extension = 'wav';
+  String _contentType = 'audio/wav';
+
+  @override
+  String get recordingFileExtension => _extension;
+
+  @override
+  String get recordingContentType => _contentType;
+
+  @override
+  String get recordingFilename => 'secretary_voice.$_extension';
+
+  set recordingFileExtension(String value) => _extension = value;
+
+  set recordingContentType(String value) => _contentType = value;
 
   @override
   Future<bool> hasPermission() async {
@@ -44,6 +61,9 @@ class FakeVoiceRecorder implements VoiceRecorder {
 
   @override
   Future<void> startRecording(String filePath) async {
+    if (throwEncoderUnsupported) {
+      throw const VoiceRecorderEncoderUnsupported();
+    }
     startCallCount += 1;
     lastStartedPath = filePath;
     if (startDelay > Duration.zero) {

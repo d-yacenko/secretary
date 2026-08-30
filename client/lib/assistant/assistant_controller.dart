@@ -10,6 +10,7 @@ import '../auth/auth_controller.dart';
 import 'fake_voice_recorder.dart';
 import 'record_voice_recorder.dart';
 import 'voice_recorder.dart';
+import 'voice_recorder_exceptions.dart';
 import 'voice_temp_files.dart';
 
 const int maxAssistantHistoryMessages = 12;
@@ -409,7 +410,7 @@ class AssistantController extends ChangeNotifier {
             await _abortInFlightRecording(startGeneration, operationPath);
             return;
           }
-          _setVoiceError('Microphone permission is required for voice input.');
+          _setVoiceError(const VoiceRecorderPermissionDenied().message);
           return;
         }
       }
@@ -419,7 +420,9 @@ class AssistantController extends ChangeNotifier {
         return;
       }
 
-      operationPath = await _voiceTempFiles.createTempWavPath();
+      operationPath = await _voiceTempFiles.createTempAudioPath(
+        _voiceRecorder.recordingFileExtension,
+      );
       _activeRecordingPath = operationPath;
       await _voiceRecorder.startRecording(operationPath);
 
@@ -437,10 +440,20 @@ class AssistantController extends ChangeNotifier {
         });
       }
       notifyListeners();
-    } catch (_) {
+    } on VoiceRecorderException catch (e) {
       if (_isActiveVoiceStart(startGeneration)) {
         await _cleanupRecordingPath(operationPath);
-        _setVoiceError('Voice recording could not start.');
+        _setVoiceError(e.message);
+      } else {
+        await _abortInFlightRecording(startGeneration, operationPath);
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Voice recording startup failed: ${error.runtimeType}');
+      }
+      if (_isActiveVoiceStart(startGeneration)) {
+        await _cleanupRecordingPath(operationPath);
+        _setVoiceError(const VoiceRecorderStartFailure().message);
       } else {
         await _abortInFlightRecording(startGeneration, operationPath);
       }
@@ -464,9 +477,13 @@ class AssistantController extends ChangeNotifier {
     String? recordedPath;
     try {
       recordedPath = await _voiceRecorder.stopRecording();
+    } on VoiceRecorderException catch (e) {
+      await _cleanupActiveRecording();
+      _setVoiceError(e.message);
+      return;
     } catch (_) {
       await _cleanupActiveRecording();
-      _setVoiceError('Voice recording failed.');
+      _setVoiceError(const VoiceRecorderStopFailure().message);
       return;
     }
     _activeRecordingPath = null;
@@ -475,12 +492,12 @@ class AssistantController extends ChangeNotifier {
     try {
       if (!await file.exists() || await file.length() == 0) {
         await _voiceTempFiles.deleteIfExists(recordedPath);
-        _setVoiceError('Voice recording failed.');
+        _setVoiceError(const VoiceRecorderStopFailure().message);
         return;
       }
     } catch (_) {
       await _voiceTempFiles.deleteIfExists(recordedPath);
-      _setVoiceError('Voice recording failed.');
+      _setVoiceError(const VoiceRecorderStopFailure().message);
       return;
     }
 
@@ -489,7 +506,7 @@ class AssistantController extends ChangeNotifier {
       audioBytes = await file.readAsBytes();
     } catch (_) {
       await _voiceTempFiles.deleteIfExists(recordedPath);
-      _setVoiceError('Voice recording failed.');
+      _setVoiceError(const VoiceRecorderStopFailure().message);
       return;
     } finally {
       await _voiceTempFiles.deleteIfExists(recordedPath);
@@ -498,8 +515,8 @@ class AssistantController extends ChangeNotifier {
     try {
       final transcript = await _apiClient.transcribeAudio(
         audioBytes: audioBytes,
-        filename: 'secretary_voice.wav',
-        contentType: 'audio/wav',
+        filename: _voiceRecorder.recordingFilename,
+        contentType: _voiceRecorder.recordingContentType,
       );
       voiceState = AssistantVoiceState.idle;
       notifyListeners();

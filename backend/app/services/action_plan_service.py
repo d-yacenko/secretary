@@ -132,6 +132,24 @@ class ActionPlanService:
         plan.rejected_at = now
         return _to_view(plan)
 
+    def list_recent_terminal_plans(self, limit: int = 8) -> list[PendingActionPlanView]:
+        terminal_statuses = (
+            PENDING_ACTION_PLAN_STATUS_EXECUTED,
+            PENDING_ACTION_PLAN_STATUS_REJECTED,
+            PENDING_ACTION_PLAN_STATUS_EXPIRED,
+            PENDING_ACTION_PLAN_STATUS_FAILED,
+        )
+        plans = self._session.scalars(
+            select(PendingActionPlan)
+            .where(
+                PendingActionPlan.user_id == self._user_id,
+                PendingActionPlan.status.in_(terminal_statuses),
+            )
+            .order_by(PendingActionPlan.created_at.desc())
+            .limit(limit)
+        ).all()
+        return [_to_view(plan) for plan in plans]
+
     def _get_owned_plan(self, plan_id: UUID) -> PendingActionPlan:
         plan = self._session.scalar(
             select(PendingActionPlan).where(

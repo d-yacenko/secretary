@@ -10,6 +10,7 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/assistant_screen.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_recorder_exceptions.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
@@ -868,6 +869,77 @@ void main() {
 
     expect(find.textContaining('Microphone permission'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
+    assistant.dispose();
+  });
+
+  test('unsupported encoder shows recoverable error', () async {
+    final voiceRecorder = FakeVoiceRecorder();
+    voiceRecorder.throwEncoderUnsupported = true;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    await assistant.startVoiceRecording();
+
+    expect(assistant.voiceState, AssistantVoiceState.error);
+    expect(
+      assistant.voiceErrorMessage,
+      const VoiceRecorderEncoderUnsupported().message,
+    );
+    assistant.dispose();
+  });
+
+  test('successful recording uploads matching filename', () async {
+    String? transcribeBody;
+    Map<String, dynamic>? assistantBody;
+    final voiceRecorder = FakeVoiceRecorder(audioBytes: [1, 2, 3, 4]);
+    voiceRecorder.recordingFileExtension = 'm4a';
+    voiceRecorder.recordingContentType = 'audio/mp4';
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        transcribeBody = utf8.decode(request.bodyBytes, allowMalformed: true);
+        return http.Response(jsonEncode({'text': 'voice transcript'}), 200);
+      }
+      if (request.url.path == '/assistant/message') {
+        assistantBody = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceRecorder: voiceRecorder,
+    );
+
+    await assistant.startVoiceRecording();
+    await assistant.stopVoiceRecordingAndTranscribe();
+
+    expect(transcribeBody, contains('secretary_voice.m4a'));
+    expect(assistantBody?['message'], 'voice transcript');
     assistant.dispose();
   });
 }

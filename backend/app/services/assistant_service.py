@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 
 from app.api.schemas import NotificationOut
+from app.assistant.action_plan_history import build_terminal_action_plan_history_events
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
     MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS,
@@ -133,6 +134,10 @@ class AssistantService:
     ) -> AssistantMessageResult:
         normalized_message = _validate_message(message)
         normalized_history = _normalize_history(history)
+        provider_history = _history_with_terminal_action_plan_events(
+            normalized_history,
+            self._user_id,
+        )
         self._validate_context_ids(context_object_id, context_notification_id)
         ui_context_result = self._build_ui_context(context_object_id, context_notification_id)
         tz_name = settings.secretary_timezone
@@ -151,7 +156,7 @@ class AssistantService:
 
         provider_result = self._provider.run(
             message=normalized_message,
-            history=normalized_history,
+            history=provider_history,
             ui_context=ui_context_result.text,
             reference_datetime=reference,
             timezone=tz_name,
@@ -537,6 +542,37 @@ def _append_uuid(target: list[UUID], seen: set[UUID], value: object) -> None:
         return
     seen.add(parsed)
     target.append(parsed)
+
+
+def _history_with_terminal_action_plan_events(
+    history: list[AssistantHistoryMessage],
+    user_id: UUID,
+) -> list[AssistantHistoryMessage]:
+    session = SessionLocal()
+    try:
+        terminal_plans = ActionPlanService(session, user_id).list_recent_terminal_plans()
+        terminal_events = build_terminal_action_plan_history_events(terminal_plans)
+    finally:
+        session.close()
+    if not terminal_events:
+        return history
+    combined = list(history) + terminal_events
+    total_chars = sum(len(item.content) for item in combined)
+    if (
+        len(combined) <= MAX_ASSISTANT_HISTORY_MESSAGES
+        and total_chars <= MAX_ASSISTANT_HISTORY_TOTAL_CHARS
+    ):
+        return combined
+    # Prefer terminal events over oldest client history when bounded.
+    trimmed_history = history
+    while trimmed_history and (
+        len(trimmed_history) + len(terminal_events) > MAX_ASSISTANT_HISTORY_MESSAGES
+        or sum(len(item.content) for item in trimmed_history)
+        + sum(len(item.content) for item in terminal_events)
+        > MAX_ASSISTANT_HISTORY_TOTAL_CHARS
+    ):
+        trimmed_history = trimmed_history[1:]
+    return trimmed_history + terminal_events
 
 
 def _validate_message(message: str) -> str:

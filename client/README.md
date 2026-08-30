@@ -26,9 +26,17 @@ Linux builds require the desktop toolchain (`clang++`, `cmake`, `ninja`, GTK 3 d
 
 ### Linux voice recording runtime
 
-Assistant voice input on Linux uses the `record` package (5.2.1), which requires `fmedia` at runtime for microphone capture.
+Assistant voice input on Linux uses the `record` package (5.2.1). The recorder prefers WAV 16 kHz mono when supported; otherwise it falls back to AAC (`m4a`) or Opus (`ogg`) with matching upload MIME types.
 
-If `fmedia` is unavailable, voice input shows a normal user-visible error instead of crashing.
+On Linux desktop, the `record` plugin typically requires **`fmedia`** installed and available on `PATH` for microphone capture. Without it, recording may fail with a recoverable startup error in the UI.
+
+Install example (when available for your distribution):
+
+```bash
+# fmedia must be on PATH for record_linux
+```
+
+If `fmedia` is unavailable, voice input shows a categorized user-visible error instead of crashing.
 
 ## Run (Android)
 

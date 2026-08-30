@@ -22,9 +22,11 @@ PHASE 23D-A — Frozen Pending Action Plans: **accepted / closed** (`fa24217`)
 
 PHASE 23D-B — Approval UX & Safe Agent Resume: **accepted / closed** (`b30b95e`)
 
-PHASE 23D-C — Deploy & Manual Agent E2E Checkpoint: **deployed / ready for manual testing**
+PHASE 23D-C — Deploy & Manual Agent E2E Checkpoint: **manual core Agent E2E completed**; core Agent flow PASS; findings in PHASE 23D-D
 
-Evidence: `docs/phase_23d_c_manual_e2e.md` (manual scenarios A–H **not yet run**).
+Evidence: `docs/phase_23d_c_manual_e2e.md`
+
+PHASE 23D-D — MVP Interaction Closure: **implemented, awaiting acceptance**
 
 ## VDS production
 
@@ -35,7 +37,8 @@ Evidence: `docs/phase_23d_c_manual_e2e.md` (manual scenarios A–H **not yet run
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
-- API: `http://127.0.0.1:18080` on VDS host (localhost only; not on public interface)
+- API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
+- API public HTTPS: `https://web-itx.duckdns.org/secretary`
 - Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ## PHASE 22.7 baseline note
@@ -58,12 +61,18 @@ VDS `assistant_turn` logs were not available from the local development environm
   - Canonical tool registry with permission classes
   - `ToolExecutionGateway` between Assistant tool calls and `DomainToolService`
   - Baseline policy: READ/INTERNAL_WRITE/EXTERNAL_PROPOSE allow; EXTERNAL_WRITE/COMMUNICATE require approval (no persistence yet)
-- PHASE 23D-A (awaiting review on `review/phase-23d-a`):
+- PHASE 23D-A (closed at `fa24217`):
   - Interactive Assistant `INTERNAL_WRITE` requires approval (`ExecutionContext.INTERACTIVE_ASSISTANT`)
   - `pending_action_plans` table with frozen validated actions
   - `POST /assistant/action-plans/{id}/approve` and `/reject` execute exact stored arguments
   - Assistant `/assistant/message` returns optional `pending_action_plan`
+- PHASE 23D-B (closed at `b30b95e`):
+  - Approval UX, safe resume, recoverable approve/reject errors
+  - Terminal action plan history events for LLM continuity (23D-D)
+- PHASE 23D-C (manual E2E completed):
+  - Deployed backend at `b30b95e`; HTTPS proxy `https://web-itx.duckdns.org/secretary`
+  - Core Agent loop PASS; voice/mobile UX findings addressed in 23D-D
 
 ## Next phase
 
-PHASE 23D-B — approval UX and conversational post-approval resume (not started).
+PHASE 23E — not started.

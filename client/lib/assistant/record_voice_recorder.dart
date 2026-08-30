@@ -1,40 +1,117 @@
+import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
 import 'voice_recorder.dart';
+import 'voice_recorder_exceptions.dart';
+
+class _RecordingFormat {
+  const _RecordingFormat({
+    required this.config,
+    required this.extension,
+    required this.contentType,
+  });
+
+  final RecordConfig config;
+  final String extension;
+  final String contentType;
+}
 
 /// Production voice recorder backed by the `record` Flutter package.
 class RecordVoiceRecorder implements VoiceRecorder {
   RecordVoiceRecorder() : _recorder = AudioRecorder();
 
   final AudioRecorder _recorder;
+  _RecordingFormat? _activeFormat;
 
-  static const RecordConfig _config = RecordConfig(
-    encoder: AudioEncoder.wav,
-    sampleRate: 16000,
-    numChannels: 1,
-  );
+  static const List<_RecordingFormat> _candidateFormats = [
+    _RecordingFormat(
+      config: RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000,
+        numChannels: 1,
+      ),
+      extension: 'wav',
+      contentType: 'audio/wav',
+    ),
+    _RecordingFormat(
+      config: const RecordConfig(
+        encoder: AudioEncoder.aacLc,
+        sampleRate: 16000,
+        numChannels: 1,
+        bitRate: 128000,
+      ),
+      extension: 'm4a',
+      contentType: 'audio/mp4',
+    ),
+    _RecordingFormat(
+      config: const RecordConfig(
+        encoder: AudioEncoder.opus,
+        sampleRate: 16000,
+        numChannels: 1,
+      ),
+      extension: 'ogg',
+      contentType: 'audio/ogg',
+    ),
+  ];
 
   @override
-  Future<bool> hasPermission() => _recorder.hasPermission();
+  String get recordingFileExtension =>
+      _activeFormat?.extension ?? _candidateFormats.first.extension;
 
   @override
-  Future<bool> requestPermission() => _recorder.hasPermission();
+  String get recordingContentType =>
+      _activeFormat?.contentType ?? _candidateFormats.first.contentType;
+
+  @override
+  String get recordingFilename =>
+      'secretary_voice.$recordingFileExtension';
+
+  @override
+  Future<bool> hasPermission() async {
+    try {
+      return await _recorder.hasPermission();
+    } catch (error, stackTrace) {
+      _logStartupFailure('hasPermission', error, stackTrace);
+      throw const VoiceRecorderDeviceUnavailable();
+    }
+  }
+
+  @override
+  Future<bool> requestPermission() async {
+    try {
+      return await _recorder.hasPermission();
+    } catch (error, stackTrace) {
+      _logStartupFailure('requestPermission', error, stackTrace);
+      throw const VoiceRecorderDeviceUnavailable();
+    }
+  }
 
   @override
   Future<void> startRecording(String filePath) async {
-    if (!await _recorder.isEncoderSupported(_config.encoder)) {
-      throw StateError('WAV encoder is not supported on this platform');
+    final format = await _selectSupportedFormat();
+    _activeFormat = format;
+    try {
+      await _recorder.start(format.config, path: filePath);
+    } catch (error, stackTrace) {
+      _logStartupFailure('start', error, stackTrace);
+      throw const VoiceRecorderStartFailure();
     }
-    await _recorder.start(_config, path: filePath);
   }
 
   @override
   Future<String> stopRecording() async {
-    final path = await _recorder.stop();
-    if (path == null || path.isEmpty) {
-      throw StateError('Recording stopped without a file path');
+    try {
+      final path = await _recorder.stop();
+      if (path == null || path.isEmpty) {
+        throw const VoiceRecorderStopFailure();
+      }
+      return path;
+    } on VoiceRecorderStopFailure {
+      rethrow;
+    } catch (error, stackTrace) {
+      _logStartupFailure('stop', error, stackTrace);
+      throw const VoiceRecorderStopFailure();
     }
-    return path;
   }
 
   @override
@@ -45,5 +122,28 @@ class RecordVoiceRecorder implements VoiceRecorder {
   @override
   Future<void> dispose() async {
     await _recorder.dispose();
+  }
+
+  Future<_RecordingFormat> _selectSupportedFormat() async {
+    for (final candidate in _candidateFormats) {
+      try {
+        if (await _recorder.isEncoderSupported(candidate.config.encoder)) {
+          return candidate;
+        }
+      } catch (error, stackTrace) {
+        _logStartupFailure('isEncoderSupported', error, stackTrace);
+      }
+    }
+    throw const VoiceRecorderEncoderUnsupported();
+  }
+
+  void _logStartupFailure(String stage, Object error, StackTrace stackTrace) {
+    if (!kDebugMode) {
+      return;
+    }
+    debugPrint(
+      'Voice recorder $stage failed: ${error.runtimeType}: $error',
+    );
+    debugPrintStack(stackTrace: stackTrace);
   }
 }

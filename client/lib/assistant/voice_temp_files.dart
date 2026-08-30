@@ -8,10 +8,15 @@ class VoiceTempFiles {
 
   final Directory? _directory;
 
-  Future<String> createTempWavPath() async {
+  Future<String> createTempAudioPath(String extension) async {
     final directory = _directory ?? await getTemporaryDirectory();
     final unique = DateTime.now().microsecondsSinceEpoch;
-    return '${directory.path}/secretary_voice_$unique.wav';
+    final safeExtension = extension.replaceAll('.', '');
+    return '${directory.path}/secretary_voice_$unique.$safeExtension';
+  }
+
+  Future<String> createTempWavPath() async {
+    return createTempAudioPath('wav');
   }
 
   Future<void> deleteIfExists(String? path) async {
