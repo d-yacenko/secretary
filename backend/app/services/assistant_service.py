@@ -7,6 +7,7 @@ from uuid import UUID
 from app.api.schemas import NotificationOut
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
+    MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS,
     MAX_ASSISTANT_HISTORY_MESSAGE_CHARS,
     MAX_ASSISTANT_HISTORY_MESSAGES,
     MAX_ASSISTANT_HISTORY_TOTAL_CHARS,
@@ -470,7 +471,21 @@ def _build_action_plan_finalization_context(plan: PendingActionPlanView) -> str:
     if plan.result is not None:
         parts.append("Execution results:")
         parts.append(json.dumps(plan.result, ensure_ascii=False))
-    return "\n".join(parts)
+
+    bounded_parts: list[str] = []
+    current_len = 0
+    for part in parts:
+        separator = 1 if bounded_parts else 0
+        available = MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS - current_len - separator
+        if available <= 0:
+            break
+        if len(part) <= available:
+            bounded_parts.append(part)
+            current_len += separator + len(part)
+        else:
+            bounded_parts.append(part[:available])
+            break
+    return "\n".join(bounded_parts).strip()
 
 
 def _affected_object_ids_from_execution_result(result: dict) -> list[UUID]:

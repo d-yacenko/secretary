@@ -316,6 +316,7 @@ void main() {
 
     expect(resumeCalls, 1);
     expect(find.text('Done. I created the task.'), findsOneWidget);
+    expect(find.text('Completed changes:'), findsOneWidget);
     expect(find.text('task: Review the letter — confirmed'), findsOneWidget);
   });
 
@@ -450,5 +451,206 @@ void main() {
       assistant.actionPlanOperationState,
       AssistantActionPlanOperationState.idle,
     );
+  });
+
+  test('ActionPlanResponse.tryParse rejects generic conflict detail', () {
+    final parsed = ActionPlanResponse.tryParse({
+      'detail': 'action plan was rejected',
+    });
+    expect(parsed, isNull);
+  });
+
+  test('ActionPlanResponse.tryParse accepts structured failed response', () {
+    final parsed = ActionPlanResponse.tryParse({
+      'id': 'plan-1',
+      'status': 'failed',
+      'expires_at': '2026-08-30T12:00:00Z',
+      'actions': [],
+      'failure': 'execution failed',
+    });
+    expect(parsed?.status, 'failed');
+  });
+
+  testWidgets('approve network failure leaves card pending and retryable',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/approve')) {
+        throw http.ClientException('Connection failed');
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
+    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(assistant.actionPlanErrorMessage, isNotNull);
+    expect(find.text('Approve'), findsOneWidget);
+  });
+
+  testWidgets('reject network failure leaves card pending and retryable',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/reject')) {
+        throw http.ClientException('Connection failed');
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reject'));
+    await tester.pumpAndSettle();
+
+    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
+    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(assistant.actionPlanErrorMessage, isNotNull);
+    expect(find.text('Reject'), findsOneWidget);
+  });
+
+  testWidgets('generic 409 detail on approve does not crash controller',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/approve')) {
+        return http.Response(
+          jsonEncode({'detail': 'action plan was rejected'}),
+          409,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
+    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(find.text('Approve'), findsOneWidget);
+  });
+
+  testWidgets('retry approve after transient failure makes second request',
+      (tester) async {
+    int approveCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response(jsonEncode(pendingPlanBody()), 200);
+      }
+      if (request.url.path.contains('/approve')) {
+        approveCalls += 1;
+        if (approveCalls == 1) {
+          throw http.ClientException('Connection failed');
+        }
+        return http.Response(
+          jsonEncode({
+            'id': 'plan-1',
+            'status': 'executed',
+            'expires_at': '2026-08-30T12:00:00Z',
+            'actions': [],
+          }),
+          200,
+        );
+      }
+      if (request.url.path.contains('/resume')) {
+        return http.Response(
+          jsonEncode({
+            'answer': 'Done.',
+            'affected_objects': [],
+          }),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Create a task');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(approveCalls, 2);
   });
 }

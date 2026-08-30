@@ -121,6 +121,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 
+  String _affectedObjectsLabel(AssistantChatMessage message) {
+    if (message.affectedObjects.every((item) => item.state == 'confirmed')) {
+      return 'Completed changes:';
+    }
+    return 'Proposed changes:';
+  }
+
   void _openAffectedObject(AssistantAffectedObject affected) {
     openObjectDetail(
       context,
@@ -226,7 +233,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Proposed changes:',
+                                _affectedObjectsLabel(message),
                                 style: Theme.of(context).textTheme.labelLarge,
                               ),
                               ...message.affectedObjects.map(
@@ -374,8 +381,7 @@ class _ActionPlanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cardState = actionPlan.cardState;
-    final buttonsDisabled =
-        operationState != AssistantActionPlanOperationState.idle;
+    final buttonsDisabled = controller.isActionPlanOperationBusy;
 
     String statusLabel;
     switch (cardState) {
@@ -410,6 +416,17 @@ class _ActionPlanCard extends StatelessWidget {
                   child: Text(action.displayLabel),
                 ),
               ),
+              if (cardState == ActionPlanCardState.pending &&
+                  controller.actionPlanErrorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    controller.actionPlanErrorMessage!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
               if (cardState == ActionPlanCardState.pending)
                 Row(
                   children: [

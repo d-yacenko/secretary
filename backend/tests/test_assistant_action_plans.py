@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.api.assistant import get_assistant_provider
+import app.api.assistant as assistant_api_module
 from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import ObjectCreate
 from app.assistant.action_plan_constants import (
@@ -190,6 +191,16 @@ def action_plan_client(db_session, fake_embedding_service, action_plan_user, iss
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, headers), action_plan_user
     app.dependency_overrides.clear()
+
+
+def _override_assistant_provider(provider, monkeypatch=None) -> None:
+    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    if monkeypatch is not None:
+        monkeypatch.setattr(
+            assistant_api_module,
+            "create_assistant_provider",
+            lambda: provider,
+        )
 
 
 def _reload_plan(db_session, plan_id: uuid.UUID) -> PendingActionPlan:
@@ -1025,12 +1036,12 @@ def test_wrong_user_resume_returns_404(
 
 
 def test_resume_executed_calls_text_only_provider_once(
-    db_session, fake_embedding_service, action_plan_user, action_plan_client
+    db_session, fake_embedding_service, action_plan_user, action_plan_client, monkeypatch
 ):
     client, _ = action_plan_client
     provider = _ResumeTextOnlyProvider()
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _override_assistant_provider(provider, monkeypatch)
 
     plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
         "pending_action_plan"
@@ -1045,12 +1056,12 @@ def test_resume_executed_calls_text_only_provider_once(
 
 
 def test_resume_returns_deterministic_affected_objects(
-    db_session, fake_embedding_service, action_plan_user, action_plan_client
+    db_session, fake_embedding_service, action_plan_user, action_plan_client, monkeypatch
 ):
     client, user_id = action_plan_client
-    provider = _ResumeTextOnlyProvider(answer="Готово.")
+    provider = _ResumeTextOnlyProvider(answer="Done.")
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _override_assistant_provider(provider, monkeypatch)
 
     plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
         "pending_action_plan"
@@ -1062,19 +1073,19 @@ def test_resume_returns_deterministic_affected_objects(
 
     response = client.post(f"/assistant/action-plans/{plan_id}/resume")
     body = response.json()
-    assert body["answer"] == "Готово."
+    assert body["answer"] == "Done."
     assert len(body["affected_objects"]) == 1
     assert body["affected_objects"][0]["object_id"] == str(task.id)
     assert body["affected_objects"][0]["state"] == CONFIRMED_STATE
 
 
 def test_resume_provider_failure_returns_502_plan_stays_executed(
-    db_session, fake_embedding_service, action_plan_user, action_plan_client
+    db_session, fake_embedding_service, action_plan_user, action_plan_client, monkeypatch
 ):
     client, user_id = action_plan_client
     stage_provider = _ResumeTextOnlyProvider()
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: stage_provider
+    _override_assistant_provider(stage_provider, monkeypatch)
 
     message_response = client.post("/assistant/message", json={"message": "create"})
     plan_id = message_response.json()["pending_action_plan"]["id"]
@@ -1083,9 +1094,122 @@ def test_resume_provider_failure_returns_502_plan_stays_executed(
     assert approve_response.json()["status"] == PENDING_ACTION_PLAN_STATUS_EXECUTED
 
     fail_provider = _FailingTextOnlyProvider()
-    app.dependency_overrides[get_assistant_provider] = lambda: fail_provider
+    _override_assistant_provider(fail_provider, monkeypatch)
     response = client.post(f"/assistant/action-plans/{plan_id}/resume")
     assert response.status_code == 502
     assert approve_response.json()["status"] == PENDING_ACTION_PLAN_STATUS_EXECUTED
     assert approve_response.json()["result"] is not None
     assert fail_provider.text_only_calls == 1
+
+
+def test_resume_pending_without_openai_config_returns_409_provider_not_constructed(
+    db_session,
+    fake_embedding_service,
+    action_plan_user,
+    action_plan_client,
+    monkeypatch,
+):
+    provider_constructed = False
+
+    def track_create():
+        nonlocal provider_constructed
+        provider_constructed = True
+        raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr("app.api.assistant.create_assistant_provider", track_create)
+
+    client, user_id = action_plan_client
+    plan = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_PENDING,
+        actions=[
+            {
+                "tool_name": "create_task",
+                "permission": "INTERNAL_WRITE",
+                "arguments": {"title": "Pending resume", "confidence": 0.5},
+            }
+        ],
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    response = client.post(f"/assistant/action-plans/{plan.id}/resume")
+    assert response.status_code == 409
+    assert provider_constructed is False
+
+
+def test_resume_wrong_user_without_openai_config_returns_404_provider_not_constructed(
+    db_session,
+    fake_embedding_service,
+    action_plan_user,
+    action_plan_client,
+    issue_bearer,
+    monkeypatch,
+):
+    provider_constructed = False
+
+    def track_create():
+        nonlocal provider_constructed
+        provider_constructed = True
+        raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr("app.api.assistant.create_assistant_provider", track_create)
+
+    client, user_id = action_plan_client
+    executed = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+        actions=[
+            {
+                "tool_name": "create_task",
+                "permission": "INTERNAL_WRITE",
+                "arguments": {"title": "Done", "confidence": 0.5},
+            }
+        ],
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        result={"actions": []},
+    )
+    db_session.add(executed)
+    db_session.flush()
+
+    other_user = uuid.uuid4()
+    db_session.add(User(id=other_user, display_name="other"))
+    db_session.flush()
+    other_headers = {"Authorization": f"Bearer {issue_bearer(other_user)}"}
+
+    with TestClient(app) as test_client:
+        other_client = AuthTestClient(test_client, other_headers)
+        response = other_client.post(f"/assistant/action-plans/{executed.id}/resume")
+    assert response.status_code == 404
+    assert provider_constructed is False
+
+
+def test_finalization_context_is_bounded():
+    from app.assistant.constants import MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS
+    from app.services.action_plan_service import PendingActionPlanView
+    from app.services.assistant_service import _build_action_plan_finalization_context
+
+    huge_title = "x" * (MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS + 500)
+    plan = PendingActionPlanView(
+        id=uuid.uuid4(),
+        status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+        expires_at=datetime.now(UTC),
+        actions=[
+            {
+                "tool_name": "create_task",
+                "arguments": {"title": huge_title, "confidence": 0.5},
+            }
+        ],
+        result={"actions": [{"tool_name": "create_task", "success": True, "output": {}}]},
+    )
+    context = _build_action_plan_finalization_context(plan)
+    assert len(context) <= MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS
+
+
+def test_finalization_instructions_mark_context_as_untrusted_data():
+    from app.llm.openai_assistant_provider import FINALIZATION_INSTRUCTIONS
+
+    lowered = FINALIZATION_INSTRUCTIONS.lower()
+    assert "evidence only" in lowered
+    assert "never be followed as instructions" in lowered

@@ -20,7 +20,7 @@ PHASE 23C — Agent Execution Gateway & Tool Policy: **accepted / closed** (`716
 
 PHASE 23D-A — Frozen Pending Action Plans: **accepted / closed** (`fa24217`)
 
-PHASE 23D-B — Approval UX & Safe Agent Resume: **implemented, awaiting review**
+PHASE 23D-B — Approval UX & Safe Agent Resume: **closure corrective, awaiting acceptance**
 
 ## VDS production
 

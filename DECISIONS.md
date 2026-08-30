@@ -129,3 +129,5 @@ Resume derives `affected_objects` deterministically from persisted execution res
 
 Flutter blocks normal send/voice while a pending plan is unresolved and drives approve → resume UX from the proposal message card.
 
+PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 409 decoding, resume validates plan before provider construction, bounded untrusted finalization context, and truthful completed-affected-object labels.
+

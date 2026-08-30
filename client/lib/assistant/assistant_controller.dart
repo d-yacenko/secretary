@@ -124,11 +124,15 @@ class AssistantController extends ChangeNotifier {
             message.actionPlan != null &&
             message.actionPlan!.cardState == ActionPlanCardState.pending,
       );
+  bool get isActionPlanOperationBusy =>
+      actionPlanOperationState == AssistantActionPlanOperationState.approving ||
+      actionPlanOperationState == AssistantActionPlanOperationState.rejecting ||
+      actionPlanOperationState == AssistantActionPlanOperationState.resuming;
   bool get isInputBlocked =>
       isSending ||
       isVoiceBusy ||
       hasPendingActionPlan ||
-      actionPlanOperationState != AssistantActionPlanOperationState.idle;
+      isActionPlanOperationBusy;
 
   void setObjectContext(SecretaryObject object) {
     _objectContext = AssistantContextRef(
@@ -258,16 +262,16 @@ class AssistantController extends ChangeNotifier {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
     } on AuthenticationException catch (e) {
-      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       _authController.handleAuthenticationFailure();
       notifyListeners();
     } on NetworkException catch (e) {
-      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       notifyListeners();
     } on ApiException catch (e) {
-      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       notifyListeners();
     } finally {
@@ -303,16 +307,16 @@ class AssistantController extends ChangeNotifier {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
     } on AuthenticationException catch (e) {
-      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       _authController.handleAuthenticationFailure();
       notifyListeners();
     } on NetworkException catch (e) {
-      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       notifyListeners();
     } on ApiException catch (e) {
-      actionPlanOperationState = AssistantActionPlanOperationState.error;
+      actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       notifyListeners();
     }

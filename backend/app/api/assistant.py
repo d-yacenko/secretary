@@ -314,7 +314,6 @@ def resume_action_plan(
     plan_id: UUID,
     current_user: CurrentUserContext = Depends(get_current_user),
     session: Session = Depends(get_db),
-    provider: AssistantProvider = Depends(get_assistant_provider),
 ) -> ActionPlanResumeResponse:
     plan_service = ActionPlanService(session, current_user.user_id)
     try:
@@ -330,10 +329,18 @@ def resume_action_plan(
             detail=exc.message,
         ) from exc
 
+    try:
+        provider = create_assistant_provider()
+    except AssistantConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+        ) from exc
+
     assistant = AssistantService(current_user.user_id, provider)
     try:
         result = assistant.finalize_executed_plan(plan)
-    except (AssistantConfigurationError, AssistantProviderError) as exc:
+    except AssistantProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=ASSISTANT_PROVIDER_UNAVAILABLE,

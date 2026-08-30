@@ -609,6 +609,25 @@ class ActionPlanResponse {
       failure: json['failure'] as String?,
     );
   }
+
+  /// Parses structured action-plan terminal responses; returns null for generic conflicts.
+  static ActionPlanResponse? tryParse(Map<String, dynamic> json) {
+    if (json.containsKey('detail') && !json.containsKey('actions')) {
+      return null;
+    }
+    final id = json['id'];
+    final status = json['status'];
+    final expiresAt = json['expires_at'];
+    final actions = json['actions'];
+    if (id is! String || status is! String || expiresAt is! String || actions is! List) {
+      return null;
+    }
+    try {
+      return ActionPlanResponse.fromJson(json);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 class ActionPlanResumeResponse {

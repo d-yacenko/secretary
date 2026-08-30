@@ -143,21 +143,71 @@ class SecretaryApiClient {
   }
 
   Future<ActionPlanResponse> approveActionPlan(String planId) async {
-    final body = await _requestJson(
-      'POST',
-      '/assistant/action-plans/$planId/approve',
-      successStatuses: {200, 409},
-    );
-    return ActionPlanResponse.fromJson(body as Map<String, dynamic>);
+    return _postActionPlan('/assistant/action-plans/$planId/approve');
   }
 
   Future<ActionPlanResponse> rejectActionPlan(String planId) async {
-    final body = await _requestJson(
-      'POST',
-      '/assistant/action-plans/$planId/reject',
-      successStatuses: {200, 409},
-    );
-    return ActionPlanResponse.fromJson(body as Map<String, dynamic>);
+    return _postActionPlan('/assistant/action-plans/$planId/reject');
+  }
+
+  Future<ActionPlanResponse> _postActionPlan(String path) async {
+    if (_baseUri == null) {
+      throw StateError('API client is not configured with a base URL');
+    }
+    if (_token == null || _token!.isEmpty) {
+      throw AuthenticationException();
+    }
+
+    final uri = buildApiEndpointUri(_baseUri!, path);
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'Authorization': 'Bearer $_token',
+    };
+
+    try {
+      final response = await _httpClient
+          .post(uri, headers: headers)
+          .timeout(_timeout);
+
+      if (response.statusCode == 200 || response.statusCode == 409) {
+        if (response.body.isEmpty) {
+          throw ServerException('Unexpected response format');
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          final parsed = ActionPlanResponse.tryParse(decoded);
+          if (parsed != null) {
+            return parsed;
+          }
+        }
+        if (response.statusCode == 409) {
+          throw ServerException(sanitizeErrorMessage(_extractDetail(response)));
+        }
+        throw ServerException('Unexpected response format');
+      }
+
+      final detail = _extractDetail(response);
+      final safeMessage = sanitizeErrorMessage(detail);
+      switch (response.statusCode) {
+        case 401:
+          throw AuthenticationException(safeMessage);
+        case 404:
+          throw NotFoundException(safeMessage);
+        case 422:
+          throw ValidationException(safeMessage);
+        case 413:
+          throw ValidationException(safeMessage);
+        default:
+          if (response.statusCode >= 500) {
+            throw ServerException(safeMessage);
+          }
+          throw ServerException(safeMessage);
+      }
+    } on TimeoutException {
+      throw NetworkException('Request timed out');
+    } on http.ClientException catch (e) {
+      throw NetworkException(sanitizeErrorMessage(e.message));
+    }
   }
 
   Future<ActionPlanResumeResponse> resumeActionPlan(String planId) async {
