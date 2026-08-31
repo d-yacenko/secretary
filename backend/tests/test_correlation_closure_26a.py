@@ -7,13 +7,14 @@ import pytest
 from sqlalchemy import func, select
 
 from app.api.schemas import EdgeCreate, ObjectCreate
-from app.db.models import Edge, Job, Object, Representation
+from app.db.models import Edge, Job, Object, Representation, User
 from app.jobs.constants import (
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_SUMMARIZE_RESOURCE,
 )
 from app.llm.correlation_judge import CorrelationJudgeResult
+from app.domain.task_lifecycle import TASK_STATUS_DELETED
 from app.services.correlation_candidate_service import CorrelationCandidateService
 from app.services.correlation_constants import (
     CANDIDATE_MAX_EXACT_THREAD,
@@ -313,23 +314,118 @@ def test_symmetric_rejected_related_to_blocks_reverse(db_session) -> None:
     assert created == 0
 
 
-def test_event_kind_enters_correlation(db_session) -> None:
+def test_judge_cross_user_target_ignored(db_session) -> None:
+    other_user = User(display_name="Other user")
+    db_session.add(other_user)
+    db_session.flush()
+    other_graph = GraphService(db_session, other_user.id)
+    cross_user_target = other_graph.create_object(
+        ObjectCreate(kind="task", title="Other user task", origin="user")
+    )
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    trigger = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Trigger",
+            origin="user",
+            metadata={"sender": "user@example.com"},
+        )
+    )
+    allowed = graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Allowed",
+            origin="user",
+            metadata={"recipients": ["user@example.com"]},
+        )
+    )
+    judge = RawCorrelationJudge(
+        [
+            CorrelationDecision(cross_user_target.id, "related_to", 0.95, "cross-user"),
+            CorrelationDecision(allowed.id, "related_to", 0.95, "ok"),
+        ]
+    )
+    created = CorrelationService(db_session, BOOTSTRAP_USER_ID, judge).run_correlation(trigger.id)
+    assert created == 1
+    cross_edge = db_session.scalar(
+        select(Edge).where(
+            Edge.source_id == trigger.id,
+            Edge.target_id == cross_user_target.id,
+        )
+    )
+    assert cross_edge is None
+
+
+def test_judge_deleted_task_target_ignored(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    trigger = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Trigger",
+            origin="user",
+            metadata={"sender": "user@example.com"},
+        )
+    )
+    deleted_task = graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Deleted task",
+            origin="user",
+            status=TASK_STATUS_DELETED,
+        )
+    )
+    allowed = graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Allowed",
+            origin="user",
+            metadata={"recipients": ["user@example.com"]},
+        )
+    )
+    judge = RawCorrelationJudge(
+        [
+            CorrelationDecision(deleted_task.id, "related_to", 0.95, "deleted"),
+            CorrelationDecision(allowed.id, "related_to", 0.95, "ok"),
+        ]
+    )
+    created = CorrelationService(db_session, BOOTSTRAP_USER_ID, judge).run_correlation(trigger.id)
+    assert created == 1
+    deleted_edge = db_session.scalar(
+        select(Edge).where(
+            Edge.source_id == trigger.id,
+            Edge.target_id == deleted_task.id,
+        )
+    )
+    assert deleted_edge is None
+
+
+def test_event_embed_queues_correlate_job(db_session, fake_embedding_service) -> None:
+    from unittest.mock import patch
+
+    from app.jobs.handlers import handle_embed_object
+
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     event = graph.create_object(
         ObjectCreate(kind="event", title="Meeting", origin="source", provider="google_calendar")
     )
-    enqueue_embed_object(db_session, event.id, BOOTSTRAP_USER_ID)
-    db_session.flush()
-    embed_jobs = db_session.scalars(
-        select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT, Job.status == "pending")
-    ).all()
-    assert len(embed_jobs) == 1
-    enqueue_correlate_object(db_session, event.id, BOOTSTRAP_USER_ID, event.kind)
-    db_session.flush()
-    correlate_jobs = db_session.scalars(
-        select(Job).where(Job.type == JOB_TYPE_CORRELATE_OBJECT, Job.status == "pending")
-    ).all()
-    assert len(correlate_jobs) == 1
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
+    ), patch.object(db_session, "close", lambda: None):
+        handle_embed_object(
+            db_session,
+            fake_embedding_service,
+            {"object_id": str(event.id)},
+            BOOTSTRAP_USER_ID,
+        )
+    correlate_job = db_session.scalar(
+        select(Job).where(
+            Job.type == JOB_TYPE_CORRELATE_OBJECT,
+            Job.status == "pending",
+        )
+    )
+    assert correlate_job is not None
+    payload = correlate_job.payload or {}
+    assert payload.get("object_id") == str(event.id)
 
 
 def test_semantic_summary_discards_stale_revision(db_session) -> None:
@@ -428,15 +524,19 @@ def test_folder_context_scoped_to_contained(db_session, fake_embedding_service) 
         object_id=folder.id,
         query="ADC secret",
     )
-    contained_items = [
-        item for item in result.items if item.why_included == "folder-contained resource"
-    ]
-    assert any(item.object_id == contained.id for item in contained_items)
     global_notes = db_session.scalars(
         select(Object).where(Object.title.like("Global strong ADC%"))
     ).all()
     global_ids = {obj.id for obj in global_notes}
-    assert all(item.object_id not in global_ids for item in contained_items)
+    result_ids = {item.object_id for item in result.items}
+    assert contained.id in result_ids
+    assert global_ids.isdisjoint(result_ids)
+    semantic_match_ids = {
+        item.object_id
+        for item in result.items
+        if item.why_included == "semantic object match"
+    }
+    assert semantic_match_ids.isdisjoint(global_ids)
 
 
 def test_pipeline_summarize_embed_correlate_sequence(db_session, fake_embedding_service) -> None:

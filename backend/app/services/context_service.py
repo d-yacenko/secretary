@@ -106,6 +106,7 @@ class ContextService:
         slots: list[_Slot] = []
         included_object_ids: set[UUID] = set()
         representation_object_ids: set[UUID] = set()
+        is_folder_scope = False
 
         if object_id is not None:
             target = self._graph.get_object(object_id)
@@ -163,6 +164,8 @@ class ContextService:
                 )
 
             if target.kind == FOLDER_KIND:
+                if query:
+                    is_folder_scope = True
                 slots.extend(
                     self._folder_contained_slots(
                         folder=target,
@@ -208,7 +211,7 @@ class ContextService:
                     )
                 )
 
-        if query:
+        if query and not is_folder_scope:
             semantic_results = self._search.search(query=query, limit=MAX_SEMANTIC_CANDIDATES)
             for result in semantic_results:
                 if result.id in included_object_ids:
