@@ -285,6 +285,41 @@ void main() {
     expect(find.textContaining('Событие •'), findsNothing);
     expect(find.textContaining('Яндекс Календарь'), findsNothing);
   });
+
+  testWidgets('source card uses single compact header row', (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode(inboxJson(
+              recentSources: [
+                {
+                  'id': 'event-1',
+                  'title': 'Дима — Синхронизация',
+                  'kind': 'event',
+                  'provider': 'yandex_calendar',
+                  'state': 'observed',
+                  'status': null,
+                  'primary_at': '2026-09-02T10:30:00Z',
+                  'excerpt': 'Ссылка на видеовстречу',
+                },
+              ],
+            ))),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Дима — Синхронизация'), findsOneWidget);
+    expect(find.text('Я'), findsOneWidget);
+    expect(find.text('·'), findsOneWidget);
+    expect(find.textContaining('02.09.2026'), findsOneWidget);
+    expect(find.textContaining('Событие •'), findsNothing);
+  });
 }
 
 Map<String, dynamic> _notificationJson(NotificationOut notification) {

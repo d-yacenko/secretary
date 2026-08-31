@@ -10,7 +10,7 @@ import '../navigation/secretary_navigation.dart';
 import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
-import '../ui/object_visuals.dart' hide objectKindLabel;
+import '../ui/object_presentation.dart';
 
 enum SearchLoadState { idle, loading, ready, empty, error }
 
@@ -248,7 +248,6 @@ class _SearchResultTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final snippet = SearchResultSnippet.fromBody(object.body);
-    final typeSource = _typeSourceLine(object);
     final dateLabel = objectPrimaryDateLabel(object);
     final statusLine = _statusLine(object, snippet);
 
@@ -258,78 +257,29 @@ class _SearchResultTile extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  iconForKind(object.kind),
-                  size: 22,
-                  color: theme.colorScheme.primary,
-                ),
+              ObjectCompactHeaderRow(
+                title: object.title,
+                kind: object.kind,
+                provider: object.provider,
+                trailingText: dateLabel,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      object.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (typeSource.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        typeSource,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (dateLabel.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        dateLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (statusLine.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        statusLine,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ],
+              if (statusLine.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  statusLine,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
                 ),
-              ),
+              ],
             ],
           ),
         ),
       ),
     );
-  }
-
-  String _typeSourceLine(SecretaryObject object) {
-    final kind = objectKindLabel(object.kind);
-    final provider = providerLabel(object.provider);
-    if (provider.isNotEmpty) {
-      return '$kind · $provider';
-    }
-    return kind;
   }
 
   String _statusLine(SecretaryObject object, String snippet) {

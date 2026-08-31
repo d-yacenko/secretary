@@ -467,5 +467,7 @@ void main() {
     expect(find.textContaining('Google Календарь'), findsNothing);
     expect(find.text('Я'), findsOneWidget);
     expect(find.text('G'), findsOneWidget);
+    expect(find.text('·'), findsWidgets);
   });
+
 }

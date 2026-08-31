@@ -231,8 +231,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Письмо от преподавателя'), findsOneWidget);
-    expect(find.textContaining('Gmail'), findsOneWidget);
+    expect(find.text('G'), findsOneWidget);
     expect(find.textContaining('30.08.2026'), findsOneWidget);
+    expect(find.textContaining('Письмо · Gmail'), findsNothing);
+    expect(find.textContaining('Gmail'), findsNothing);
     expect(find.byIcon(Icons.sort), findsOneWidget);
     expect(find.text('Показано: 1'), findsOneWidget);
   });
@@ -292,5 +294,54 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(auth.status, AuthStatus.needsAuth);
+  });
+
+  testWidgets('search uses compact header without type source line', (tester) async {
+    await tester.pumpWidget(
+      buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
+        if (request.url.path == '/search') {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode([
+              {
+                'id': 'email-1',
+                'kind': 'email',
+                'title': 'test для электронного секретаря',
+                'body': 'это тестовое письмо',
+                'provider': 'gmail',
+                'external_id': null,
+                'canonical_uri': null,
+                'status': null,
+                'start_at': null,
+                'due_at': null,
+                'occurred_at': '2026-08-31T17:33:00Z',
+                'metadata': {},
+                'origin': 'source',
+                'state': 'observed',
+                'confidence': null,
+                'created_at': '2026-08-31T08:00:00Z',
+                'updated_at': '2026-08-31T08:00:00Z',
+              },
+            ])),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'test');
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('test для электронного секретаря'), findsOneWidget);
+    expect(find.text('G'), findsOneWidget);
+    expect(find.textContaining('31.08.2026'), findsOneWidget);
+    expect(find.textContaining('Письмо · Gmail'), findsNothing);
+    expect(find.textContaining('это тестовое письмо'), findsOneWidget);
   });
 }

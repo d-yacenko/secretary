@@ -100,13 +100,25 @@ IconData iconForObjectKind(String kind) {
 
 IconData iconForKind(String kind) => iconForObjectKind(kind);
 
-Widget providerCompactIcon(String? provider, {double size = 18}) {
+/// Compact provider glyph for header rows; null when provider is absent.
+Widget? compactProviderGlyphWidget(String? provider, {double size = 14}) {
+  if (provider == null || provider.isEmpty) {
+    return null;
+  }
   final glyph = providerCompactGlyph(provider);
   if (glyph != null) {
     return Text(
       glyph,
       style: TextStyle(fontSize: size, fontWeight: FontWeight.w600),
     );
+  }
+  return Icon(Icons.storage_outlined, size: size);
+}
+
+Widget providerCompactIcon(String? provider, {double size = 18}) {
+  final glyphWidget = compactProviderGlyphWidget(provider, size: size);
+  if (glyphWidget != null) {
+    return glyphWidget;
   }
   return Icon(Icons.storage_outlined, size: size);
 }
@@ -135,6 +147,12 @@ class ObjectCompactHeaderRow extends StatelessWidget {
     final kindLabel = objectKindLabel(kind);
     final providerName = providerLabel(provider);
     final label = semanticsLabel ?? '$kindLabel, $providerName';
+    final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        );
+    final metadataStyle = Theme.of(context).textTheme.bodyMedium;
+    final providerGlyph = compactProviderGlyphWidget(provider, size: 14);
+
     return Semantics(
       label: label,
       child: Row(
@@ -143,27 +161,35 @@ class ObjectCompactHeaderRow extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: titleStyle,
               overflow: TextOverflow.ellipsis,
               maxLines: 2,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(iconForKind(kind), size: 16),
-              const SizedBox(width: 4),
-              providerCompactIcon(provider, size: 14),
-              ...trailingBadges,
+              if (providerGlyph != null) ...[
+                const SizedBox(width: 6),
+                providerGlyph,
+              ],
+              ...trailingBadges.map(
+                (badge) => Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: badge,
+                ),
+              ),
               if (trailingText.isNotEmpty) ...[
                 const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    trailingText,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  ),
+                Text('·', style: metadataStyle),
+                const SizedBox(width: 6),
+                Text(
+                  trailingText,
+                  style: metadataStyle,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
                 ),
               ],
             ],

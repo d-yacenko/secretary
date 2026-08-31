@@ -444,8 +444,6 @@ class _SourceObjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final when = formatUserDateTime(sourceObject.primaryAt);
-    final kindLabel = objectKindLabel(sourceObject.kind);
-    final providerName = providerLabel(sourceObject.provider);
     return Card(
       child: InkWell(
         onTap: onTap,
@@ -454,24 +452,11 @@ class _SourceObjectCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                sourceObject.title,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              Semantics(
-                label: '$kindLabel, $providerName',
-                child: Row(
-                  children: [
-                    Icon(iconForKind(sourceObject.kind), size: 16),
-                    const SizedBox(width: 6),
-                    providerCompactIcon(sourceObject.provider, size: 14),
-                    if (when.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      Text(when),
-                    ],
-                  ],
-                ),
+              ObjectCompactHeaderRow(
+                title: sourceObject.title,
+                kind: sourceObject.kind,
+                provider: sourceObject.provider,
+                trailingText: when,
               ),
               if (sourceObject.excerpt != null)
                 Padding(
