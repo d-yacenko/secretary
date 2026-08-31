@@ -131,7 +131,7 @@ Flutter blocks normal send/voice while a pending plan is unresolved and drives a
 
 PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 409 decoding, resume validates plan before provider construction, bounded untrusted finalization context, and truthful completed-affected-object labels.
 
-## PHASE 26A — Bounded personal data correlation (in review)
+## PHASE 26A — Bounded personal data correlation (accepted / closed)
 
 - Correlation pipeline: deterministic source relations → bounded candidates → `CorrelationJudge` → `agent/proposed` edges (min confidence 0.80, max 5 per run).
 - Worker pipeline: `summarize_resource` → `embed_object` → `correlate_object`; OpenAI summary uses `OPENAI_ASSISTANT_MODEL` in worker only.
@@ -139,7 +139,7 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Local roots map to `folder` objects with `system/confirmed contains` edges.
 - Proposed correlation review via `POST /relations/{edge_id}/decision`; not a Pending Action Plan.
 
-## PHASE 26B — Client-assisted intake & source navigation (in review)
+## PHASE 26B — Client-assisted intake & source navigation (accepted / closed)
 
 - Mechanical extraction on Desktop/Android for `.txt`, `.md`, `.csv`; unsupported formats metadata-only.
 - Typed `POST /local/files/client-intake` with server-side representation allowlist and revision validation.
@@ -150,7 +150,7 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Android: system file picker without broad storage permission; persistent reopen best-effort.
 - Yandex Mail open-target: mailbox URL when exact message browser link unavailable from IMAP.
 
-## PHASE 26C — Structured query, search ordering & topology graph (awaiting architect review)
+## PHASE 26C — Structured query, search ordering & topology graph (accepted / closed)
 
 - `query_objects` is the general structured READ primitive; `retrieve` remains semantic discovery only.
 - `ObjectQueryService`: bounded filters, inclusive date ranges, `NULLS LAST` nullable date sorts, max limit 50, default visibility excludes rejected/deleted tasks; `proposed` objects remain visible; legacy task `status NULL→open`, `completed→done` on read/filter; model-visible normalization `NULL→open`, `completed→done`.
@@ -158,6 +158,18 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Search newest/oldest: bounded qualified candidate pool (≤100), primary date helper aligned with Flutter semantics (UTC-aware; naive `metadata.modified_at` falls back), sort before display limit.
 - `GET /search/facets`: capped per dimension (`MAX_SEARCH_FACETS_PER_DIMENSION=64`), count DESC / value ASC, no empty provider values.
 - Flutter: shared `object_presentation.dart`; compact icon filters on Search and Graph; desktop uses anchored menus (`MenuAnchor`), mobile may use bottom sheet; topology-aware layout uses visible edges (undirected for placement), cumulative BFS radii, branch sectors, isolated grid packing, incremental expansion preserves existing positions.
+- Client timezone contract: Flutter sends `client_timezone_id` and `client_utc_offset_minutes` on Assistant and Today requests; backend `resolve_client_timezone()` for day-boundary semantics.
+- Search provider filter: retrieval filter suffix uses newline join (not empty-string join) to avoid malformed `:kindAND` suffix and HTTP 500.
+- Graph workspace: client-side `visibleNodes` / `visibleEdges` display filters; fit/empty state when selection hidden.
+- Assistant per-turn tool budget: `MAX_ASSISTANT_TOOL_CALLS_PER_TURN = 12` (generic `ToolExecutor.DEFAULT_MAX_TOOL_CALLS` unchanged at 5).
+- Task evidence: `update_task` reports `evidence_added_object_ids` and `evidence_already_linked_object_ids`; `link_objects` rejects self-link and idempotent duplicates (`created: bool`).
+- Email HTML-to-text: shared `email_html_text.py` for Gmail/Yandex normalize; legacy flattened DB rows not retroactively restored.
 - No specialized deadline/urgency tools; Secretary combines atomic tools.
+- Manual matched-version Linux E2E PASS: deadline/today semantics, urgent task, task context enrichment, Gmail/Yandex provider filters, Graph type/provider filtering, HTML email readable structure.
+- Accepted application SHA: `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`.
 - Deferred: Mattermost, Google Drive, Yandex Disk connectors; manual drag; persisted layout; curved edges.
+
+## PHASE 26 — Personal data correlation (accepted / closed)
+
+PHASE 26A + 26B + 26C accepted as one major phase. Full PHASE 26 closed at `5c4ffc40`.
 

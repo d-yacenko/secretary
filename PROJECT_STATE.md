@@ -46,20 +46,22 @@ PHASE 26A — Personal Data Correlation Core & Semantic Resource Context: **acce
 
 PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **accepted / closed** (`be6bdfa`).
 
-PHASE 26 remains **open** until PHASE 26C is accepted.
+PHASE 26 — Personal Data Correlation: **accepted / closed** (`5c4ffc40`).
 
-PHASE 26C — Structured Query, Search UX & Topology-Aware Graph: **implementation complete, awaiting architect review** (branch `review/phase-26c-query-search-graph`).
+PHASE 26C — Structured Query, Search UX & Topology-Aware Graph: **accepted / closed** (`5c4ffc40`).
+
+PHASE 26C manual matched-version Linux E2E: **PASS** (2026-08-31).
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next planned subphase after PHASE 26 closes: **PHASE 27 — Safe External Actions**.
+Next planned major phase: **PHASE 27 — Safe External Actions** (not started).
 
-## PHASE 26C verification (awaiting architect review)
+## PHASE 26C verification (accepted)
 
-- full `ruff check .`: 53 known pre-existing findings, 0 new PHASE 26C findings
-- `pytest`: 764 passed, 3 skipped
+- full `ruff check .`: 49 known pre-existing findings (exit 1), 0 new PHASE 26C findings
+- `pytest`: 779 passed, 3 skipped
 - `flutter analyze`: 49 info/warning, 0 errors
-- `flutter test`: 263 passed
+- `flutter test`: 266 passed
 - Android APK: PASS
 - Linux build: PASS
 - Android `minSdk`: 23
@@ -131,9 +133,9 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `be6bdfa9936ea91c46e2d84a8aa86ce34bd11d0c`
-- Deployed: 2026-08-31 (PHASE 26B Source Navigation & Client File Intake)
-- Accepted application: `be6bdfa9936ea91c46e2d84a8aa86ce34bd11d0c`
+- SHA: pending closure deploy (accepted application `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`)
+- Deployed: 2026-08-31 (PHASE 26 closure — pending final VDS update)
+- Accepted application: `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
