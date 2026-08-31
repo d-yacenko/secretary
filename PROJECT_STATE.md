@@ -44,13 +44,15 @@ PHASE 25.1 — UX Baseline: **accepted / closed** (`4c40b93`).
 
 PHASE 26A — Personal Data Correlation Core & Semantic Resource Context: **accepted / closed** (`1e41198`).
 
-PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **implementation complete, awaiting architect review** (branch `review/phase-26b-source-file-intake`).
+PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **accepted / closed** (`be6bdfa`).
 
-PHASE 26 remains **open** until PHASE 26B and PHASE 26C are accepted.
+PHASE 26 remains **open** until PHASE 26C is accepted.
 
-Next planned subphase after 26B acceptance: PHASE 26C — Graph Topology & Search Ordering.
+Next planned subphase: PHASE 26C — Graph Topology & Search Ordering.
 
-Do not start PHASE 26B until architect assigns the next task.
+**ARCHITECT CONTEXT REFRESH CHECKPOINT** required before starting PHASE 26C.
+
+Do not start PHASE 26C until architect context refresh is complete.
 
 ## PHASE 26A verification (accepted)
 
@@ -63,7 +65,34 @@ Do not start PHASE 26B until architect assigns the next task.
 - Android `minSdk`: 23
 - migrations: none
 
-## PHASE 26B architecture (deferred)
+## PHASE 26B verification (accepted)
+
+- full `ruff check .`: 51 existing findings, exit 1
+- `pytest`: 733 passed, 3 skipped
+- `flutter analyze`: 48 info/warning, 0 errors
+- `flutter test`: 249 passed
+- Android APK: PASS
+- Linux build: PASS
+- Android `minSdk`: 23
+- migrations: none
+- final focused Ruff: PASS
+- final focused pytest: 30 passed
+
+## PHASE 26B accepted decisions
+
+- Local-device mechanical extraction happens client-side where practical
+- Semantic understanding remains backend-side
+- Local raw files are not uploaded by default
+- `.txt` / `.md` / `.csv` are client-indexable
+- Unsupported formats (PDF, DOCX, XLSX, PPTX, Parquet, images, archives) are metadata-only for client-assisted intake
+- Metadata-only downgrade removes old indexed content
+- Gmail / Yandex attachments are canonical file objects
+- `open-target` is the canonical source-navigation abstraction
+- Local open actions are device-aware
+- Android persistent local reopen remains deferred
+- Yandex Mail uses truthful mailbox-level fallback when exact deep link cannot be derived
+
+## PHASE 26B architecture (implemented)
 
 Mechanical local-file extraction may happen on Desktop/Android client.
 
@@ -91,9 +120,9 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `eee5b692da14a740eb86ebe659b350192ad915a5`
-- Deployed: 2026-08-31 (PHASE 26A Personal Data Correlation Core)
-- Accepted application: `1e4119873f64d75c7c8e3b833068c82d8d135bc1`
+- SHA: `be6bdfa9936ea91c46e2d84a8aa86ce34bd11d0c`
+- Deployed: 2026-08-31 (PHASE 26B Source Navigation & Client File Intake)
+- Accepted application: `be6bdfa9936ea91c46e2d84a8aa86ce34bd11d0c`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -161,7 +190,14 @@ VDS `assistant_turn` logs were not available from the local development environm
   - Deterministic email/thread relations; `CorrelationJudge`; proposed relation review API
   - Semantic summaries; folder objects + `contains`; folder-scoped context retrieval
   - Graph proposed-relation UI (Предложено / Подтвердить / Отклонить)
+- PHASE 26B (closed at `be6bdfa`):
+  - Client-assisted mechanical extraction (`.txt`, `.md`, `.csv`) with bounded representations
+  - Metadata-only registration for unsupported formats; `POST /local/files/client-intake`
+  - `GET /objects/{id}/open-target` source navigation resolver
+  - Gmail / Yandex Mail attachment objects + `email --contains--> attachment`
+  - Flutter: device identity, file/folder picker, Linux drag-and-drop, source actions, email attachments UI
+  - Assistant/Capture context via object IDs (no raw file upload by default)
 
 ## Next phase
 
-PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake. Do not start until architect assigns the next task.
+PHASE 26C — Graph Topology & Search Ordering. **ARCHITECT CONTEXT REFRESH CHECKPOINT** before start. Do not implement until architect context refresh is complete.
