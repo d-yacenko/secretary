@@ -1,10 +1,9 @@
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
-from app.services.object_primary_date import object_primary_search_datetime
 
 RECENT_SOURCE_KINDS = frozenset(
     {
@@ -40,28 +39,17 @@ class RecentSourceService:
                 or_(Object.status.is_(None), Object.status != "deleted"),
                 Object.kind.in_(tuple(RECENT_SOURCE_KINDS)),
             )
-            .order_by(
-                func.coalesce(
-                    Object.occurred_at,
-                    Object.start_at,
-                    Object.due_at,
-                    Object.updated_at,
-                ).desc()
-            )
+            .order_by(Object.updated_at.desc(), Object.id.desc())
             .limit(bounded_limit)
         )
-        rows = list(self._session.scalars(stmt))
-        rows.sort(
-            key=lambda obj: object_primary_search_datetime(obj) or obj.updated_at,
-            reverse=True,
-        )
-        return rows[:bounded_limit]
+        return list(self._session.scalars(stmt))
 
     @staticmethod
     def excerpt(body: str | None) -> str | None:
         if not body:
             return None
-        text = " ".join(body.split())
+        normalized = body.replace("\\n", " ").replace("\n", " ")
+        text = " ".join(normalized.split())
         if len(text) <= RECENT_SOURCE_EXCERPT_CHARS:
             return text
         return text[:RECENT_SOURCE_EXCERPT_CHARS].rstrip() + "…"

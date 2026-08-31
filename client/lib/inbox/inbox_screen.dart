@@ -7,6 +7,7 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
 import '../ui/object_presentation.dart';
 import 'notification_labels.dart';
@@ -42,6 +43,11 @@ class _InboxScreenState extends State<InboxScreen> {
   InboxOut? _inbox;
   String? _errorMessage;
   String? _mutatingNotificationId;
+  String? _refreshStatusMessage;
+  bool _isSourceRefreshing = false;
+
+  late final SourceRefreshService _sourceRefreshService =
+      SourceRefreshService(apiClient: widget.apiClient);
 
   @override
   void initState() {
@@ -49,14 +55,16 @@ class _InboxScreenState extends State<InboxScreen> {
     _loadInbox();
   }
 
-  Future<void> _loadInbox() async {
+  Future<void> _loadInbox({bool showFullLoader = true}) async {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _loadState = InboxLoadState.loading;
-      _errorMessage = null;
-    });
+    if (showFullLoader) {
+      setState(() {
+        _loadState = InboxLoadState.loading;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final snapshot = await widget.apiClient.getInbox();
@@ -78,6 +86,30 @@ class _InboxScreenState extends State<InboxScreen> {
         _errorMessage = e.message;
       });
     }
+  }
+
+  Future<void> _refreshWithSources() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSourceRefreshing = true;
+      _refreshStatusMessage = null;
+      if (_inbox == null) {
+        _loadState = InboxLoadState.loading;
+      }
+    });
+    final result = await _sourceRefreshService.refreshSources();
+    await _loadInbox(showFullLoader: _inbox == null);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSourceRefreshing = false;
+      if (result.timedOut) {
+        _refreshStatusMessage = 'Синхронизация источников продолжается';
+      }
+    });
   }
 
   Future<void> _accept(NotificationOut notification) async {
@@ -169,8 +201,14 @@ class _InboxScreenState extends State<InboxScreen> {
           alignment: Alignment.centerRight,
           child: IconButton(
             tooltip: 'Обновить',
-            onPressed: _loadInbox,
-            icon: const Icon(Icons.refresh),
+            onPressed: _isSourceRefreshing ? null : _refreshWithSources,
+            icon: _isSourceRefreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
           ),
         ),
         Expanded(child: _buildBody()),
@@ -206,6 +244,11 @@ class _InboxScreenState extends State<InboxScreen> {
         return ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           children: [
+            if (_refreshStatusMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(_refreshStatusMessage!),
+              ),
             if (inbox.sourceSyncStatus.any((row) => row.status == 'error'))
               Card(
                 child: Padding(
@@ -401,7 +444,8 @@ class _SourceObjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final when = formatUserDateTime(sourceObject.primaryAt);
-    final provider = providerLabel(sourceObject.provider);
+    final kindLabel = objectKindLabel(sourceObject.kind);
+    final providerName = providerLabel(sourceObject.provider);
     return Card(
       child: InkWell(
         onTap: onTap,
@@ -410,27 +454,33 @@ class _SourceObjectCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  providerCompactIcon(sourceObject.provider),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      sourceObject.title,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
               Text(
-                '${objectKindLabel(sourceObject.kind)} • $provider'
-                '${when.isNotEmpty ? ' • $when' : ''}',
+                sourceObject.title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Semantics(
+                label: '$kindLabel, $providerName',
+                child: Row(
+                  children: [
+                    Icon(iconForKind(sourceObject.kind), size: 16),
+                    const SizedBox(width: 6),
+                    providerCompactIcon(sourceObject.provider, size: 14),
+                    if (when.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(when),
+                    ],
+                  ],
+                ),
               ),
               if (sourceObject.excerpt != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(sourceObject.excerpt!),
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    sourceObject.excerpt!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               const SizedBox(height: 8),
               Wrap(

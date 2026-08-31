@@ -181,6 +181,13 @@ class JobQueueService:
             run_after=run_after or now,
         )
 
+    def retire_recurring_source_job(self, job: Job) -> None:
+        job.status = JOB_STATUS_DONE
+        job.locked_at = None
+        job.last_error = None
+        job.updated_at = utcnow()
+        self._session.flush()
+
     def trigger_recurring_source_job(
         self,
         user_id: UUID,

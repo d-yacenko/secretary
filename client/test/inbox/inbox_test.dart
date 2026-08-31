@@ -282,6 +282,8 @@ void main() {
     expect(find.text('Входящие пусты'), findsNothing);
     expect(find.text('VPN marker email'), findsOneWidget);
     expect(find.text('Последние из источников'), findsOneWidget);
+    expect(find.textContaining('Событие •'), findsNothing);
+    expect(find.textContaining('Яндекс Календарь'), findsNothing);
   });
 }
 

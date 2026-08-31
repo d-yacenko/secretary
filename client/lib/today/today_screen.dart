@@ -8,6 +8,7 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/notification_labels.dart';
 import '../navigation/secretary_navigation.dart';
+import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
 
 enum TodayLoadState { loading, ready, error }
@@ -38,6 +39,11 @@ class _TodayScreenState extends State<TodayScreen> {
   TodayLoadState _loadState = TodayLoadState.loading;
   TodayOut? _today;
   String? _errorMessage;
+  String? _refreshStatusMessage;
+  bool _isSourceRefreshing = false;
+
+  late final SourceRefreshService _sourceRefreshService =
+      SourceRefreshService(apiClient: widget.apiClient);
 
   @override
   void initState() {
@@ -45,14 +51,16 @@ class _TodayScreenState extends State<TodayScreen> {
     _loadToday();
   }
 
-  Future<void> _loadToday() async {
+  Future<void> _loadToday({bool showFullLoader = true}) async {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _loadState = TodayLoadState.loading;
-      _errorMessage = null;
-    });
+    if (showFullLoader) {
+      setState(() {
+        _loadState = TodayLoadState.loading;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final snapshot = await widget.apiClient.getToday();
@@ -76,6 +84,30 @@ class _TodayScreenState extends State<TodayScreen> {
     }
   }
 
+  Future<void> _refreshWithSources() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSourceRefreshing = true;
+      _refreshStatusMessage = null;
+      if (_today == null) {
+        _loadState = TodayLoadState.loading;
+      }
+    });
+    final result = await _sourceRefreshService.refreshSources();
+    await _loadToday(showFullLoader: _today == null);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSourceRefreshing = false;
+      if (result.timedOut) {
+        _refreshStatusMessage = 'Синхронизация источников продолжается';
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -84,8 +116,14 @@ class _TodayScreenState extends State<TodayScreen> {
           alignment: Alignment.centerRight,
           child: IconButton(
             tooltip: 'Обновить',
-            onPressed: _loadToday,
-            icon: const Icon(Icons.refresh),
+            onPressed: _isSourceRefreshing ? null : _refreshWithSources,
+            icon: _isSourceRefreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
           ),
         ),
         Expanded(child: _buildBody()),
@@ -116,6 +154,11 @@ class _TodayScreenState extends State<TodayScreen> {
         return ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           children: [
+            if (_refreshStatusMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(_refreshStatusMessage!),
+              ),
             Text('${today.date} (${today.timezone})'),
             const SizedBox(height: 16),
             _SectionHeader(title: 'Задачи'),

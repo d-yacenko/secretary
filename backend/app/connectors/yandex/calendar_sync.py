@@ -22,6 +22,7 @@ from app.connectors.yandex.constants import (
     CALENDAR_BACKFILL_MIN_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS,
+    CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
     DEFAULT_CALENDAR_SYNC_DAYS_FORWARD,
     DEFAULT_CALENDAR_SYNC_LIMIT,
@@ -99,10 +100,21 @@ class YandexCalendarSyncService:
 
         transport = self._open_transport(snapshot)
         window_min, window_max = self._sync_window()
+        sync_state_root = dict(snapshot.sync_state or {})
+        calendar_state = dict(sync_state_root.get("calendars", {}))
+        if (
+            sync_state_root.get("normalization_version", 0)
+            < CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION
+        ):
+            for calendar_href, stored in list(calendar_state.items()):
+                refreshed = dict(stored)
+                refreshed.pop("sync_token", None)
+                refreshed["backfill_cursor"] = window_min.isoformat()
+                refreshed.pop("pending_sync_token", None)
+                calendar_state[calendar_href] = refreshed
         calendars = transport.discover_calendars(self._max_calendars)
 
         totals = _BatchStats()
-        calendar_state = dict(snapshot.sync_state.get("calendars", {}))
 
         for calendar in calendars:
             if occurrence_budget <= 0:
@@ -146,7 +158,10 @@ class YandexCalendarSyncService:
         account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
             raise YandexConnectorError("yandex calendar account not found")
-        self._account_store.update_sync_state(account, {"calendars": calendar_state})
+        updated_state = dict(sync_state_root)
+        updated_state["calendars"] = calendar_state
+        updated_state["normalization_version"] = CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION
+        self._account_store.update_sync_state(account, updated_state)
         self._session.commit()
 
         return {

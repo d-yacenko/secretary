@@ -101,6 +101,17 @@ class SecretaryApiClient {
     return InboxOut.fromJson(body);
   }
 
+  Future<List<SourceSyncStatusOut>> getSourceStatus() async {
+    final body = await _request('GET', '/sources/status');
+    return (body['sources'] as List<dynamic>)
+        .map((e) => SourceSyncStatusOut.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> triggerSourceSync() async {
+    await _request('POST', '/sources/sync');
+  }
+
   Future<TodayOut> getToday() async {
     final timezone = await _timezoneProvider.current();
     final body = await _request(

@@ -4,6 +4,41 @@ from zoneinfo import ZoneInfo
 
 from app.connectors.yandex.constants import MAX_EVENT_BODY_CHARS
 
+ICAL_TEXT_NEWLINE_ESCAPE = frozenset({"n", "N"})
+
+
+def unescape_ical_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not value:
+        return value
+    result: list[str] = []
+    index = 0
+    length = len(value)
+    while index < length:
+        char = value[index]
+        if char == "\\" and index + 1 < length:
+            escaped = value[index + 1]
+            if escaped in ICAL_TEXT_NEWLINE_ESCAPE:
+                result.append("\n")
+                index += 2
+                continue
+            if escaped == "\\":
+                result.append("\\")
+                index += 2
+                continue
+            if escaped == ",":
+                result.append(",")
+                index += 2
+                continue
+            if escaped == ";":
+                result.append(";")
+                index += 2
+                continue
+        result.append(char)
+        index += 1
+    return "".join(result)
+
 
 def _unfold_ical_lines(text: str) -> list[str]:
     lines: list[str] = []
@@ -152,9 +187,10 @@ def normalize_caldav_events(
         ):
             continue
 
-        description = fields.get("DESCRIPTION")
+        description = unescape_ical_text(fields.get("DESCRIPTION"))
         body = description[:MAX_EVENT_BODY_CHARS] if description else None
-        title = fields.get("SUMMARY") or f"Calendar event {event_uid}"
+        title = unescape_ical_text(fields.get("SUMMARY")) or f"Calendar event {event_uid}"
+        location = unescape_ical_text(fields.get("LOCATION"))
 
         metadata: dict[str, Any] = {
             "calendar_href": calendar_href,
@@ -164,7 +200,7 @@ def normalize_caldav_events(
             "event_href": event_href,
             "etag": etag,
             "status": fields.get("STATUS"),
-            "location": fields.get("LOCATION"),
+            "location": location,
             "last_modified": fields.get("LAST-MODIFIED"),
             "recurrence_id": recurrence_id,
             "rrule": fields.get("RRULE"),

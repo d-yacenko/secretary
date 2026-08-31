@@ -150,22 +150,28 @@ void main() {
   });
 
   testWidgets('refresh works', (tester) async {
-    var calls = 0;
+    var todayCalls = 0;
     await tester.pumpWidget(
       buildToday(MockClient((request) async {
+        if (request.method == 'POST' && request.url.path.endsWith('/sources/sync')) {
+          return http.Response(jsonEncode({'triggered': [], 'count': 0}), 200);
+        }
+        if (request.url.path.endsWith('/sources/status')) {
+          return http.Response(jsonEncode({'sources': []}), 200);
+        }
         if (request.url.path == '/today') {
-          calls += 1;
+          todayCalls += 1;
           return http.Response(jsonEncode(todayPayload()), 200);
         }
         return http.Response('{}', 404);
       })),
     );
     await tester.pumpAndSettle();
-    expect(calls, 1);
+    expect(todayCalls, 1);
 
     await tester.tap(find.byTooltip('Обновить'));
     await tester.pumpAndSettle();
-    expect(calls, 2);
+    expect(todayCalls, 2);
   });
 
   testWidgets('tapping task opens Object Detail', (tester) async {

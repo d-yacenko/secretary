@@ -21,8 +21,10 @@ from app.connectors.yandex.calendar_normalize import (
     build_external_id,
     normalize_caldav_event,
     normalize_caldav_events,
+    unescape_ical_text,
 )
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
+from app.connectors.yandex.constants import CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION
 from app.connectors.yandex.errors import (
     YandexCalDavError,
     YandexCalDavStaleSyncTokenError,
@@ -36,6 +38,16 @@ CALENDAR_HREF = "/calendars/user@yandex.ru/events-1/"
 PRINCIPAL_HREF = "/principals/users/user@yandex.ru/"
 HOME_HREF = "/calendars/user@yandex.ru/"
 SHARED_EVENT_UID = "shared-corporate-evt"
+
+
+def _steady_sync_state(
+    calendars: dict,
+    normalization_version: int = CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+) -> dict:
+    return {
+        "normalization_version": normalization_version,
+        "calendars": calendars,
+    }
 
 
 def _sample_ical(
@@ -116,6 +128,34 @@ def test_normalize_caldav_event_matches_event_object_shape() -> None:
     assert normalized["kind"] == "event"
     assert normalized["provider"] == "yandex_calendar"
     assert normalized["external_id"] == build_external_id(CALENDAR_HREF, "evt-yandex-1")
+
+
+def test_unescape_ical_text_decodes_newlines_and_punctuation() -> None:
+    assert unescape_ical_text("Строка 1\\nСтрока 2\\n\\nСтрока 4") == (
+        "Строка 1\nСтрока 2\n\nСтрока 4"
+    )
+    assert unescape_ical_text("Обсуждение\\, часть 2") == "Обсуждение, часть 2"
+    assert unescape_ical_text("Комната\\; этаж 3") == "Комната; этаж 3"
+    assert unescape_ical_text("path\\\\share") == "path\\share"
+    assert unescape_ical_text("lower\\nupper\\N") == "lower\nupper\n"
+
+
+def test_normalize_caldav_event_unescapes_description() -> None:
+    ical = (
+        "BEGIN:VEVENT\n"
+        "UID:escape-test\n"
+        "SUMMARY:Обсуждение\\, часть 2\n"
+        "DESCRIPTION:Строка 1\\nСтрока 2\n"
+        "LOCATION:Комната\\; этаж 3\n"
+        "DTSTART:20260829T100000Z\n"
+        "DTEND:20260829T110000Z\n"
+        "END:VEVENT\n"
+    )
+    normalized = normalize_caldav_event(ical, calendar_href=CALENDAR_HREF)
+    assert normalized is not None
+    assert normalized["title"] == "Обсуждение, часть 2"
+    assert normalized["body"] == "Строка 1\nСтрока 2"
+    assert normalized["metadata"]["location"] == "Комната; этаж 3"
 
 
 def test_normalize_moscow_tzid_to_utc() -> None:
@@ -351,7 +391,7 @@ def test_sync_collection_batches_with_partial_tokens(db_session, credential_key:
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-start"}}},
+        _steady_sync_state({CALENDAR_HREF: {"sync_token": "token-start"}}),
     )
     db_session.commit()
 
@@ -429,14 +469,14 @@ def test_sync_collection_tombstones_deleted_event(db_session, credential_key: st
     )
     store.update_sync_state(
         account,
-        {
-            "calendars": {
+        _steady_sync_state(
+            {
                 CALENDAR_HREF: {
                     "sync_token": "t2",
                     "covered_window_end": "2026-12-31T00:00:00+00:00",
                 }
             }
-        },
+        ),
     )
     db_session.commit()
 
@@ -852,7 +892,7 @@ def test_bounded_reconciliation_rerun_no_duplicate_embed_jobs(
     state.pop("sync_token", None)
     state["pending_sync_token"] = "steady"
     calendars_state[CALENDAR_HREF] = state
-    store.update_sync_state(account, {"calendars": calendars_state})
+    store.update_sync_state(account, _steady_sync_state(calendars_state))
     db_session.commit()
 
     second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
@@ -894,7 +934,7 @@ def test_incremental_sync_persists_token_after_all_occurrences_in_resource(
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-2"}}},
+        _steady_sync_state({CALENDAR_HREF: {"sync_token": "token-2"}}),
     )
     db_session.commit()
 
@@ -963,7 +1003,7 @@ def test_deletion_tombstones_all_occurrences_for_event_href(
 
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-del"}}},
+        _steady_sync_state({CALENDAR_HREF: {"sync_token": "token-del"}}),
     )
     db_session.commit()
 
@@ -1036,7 +1076,7 @@ def test_deletion_does_not_touch_other_user_same_event_href(
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-iso"}}},
+        _steady_sync_state({CALENDAR_HREF: {"sync_token": "token-iso"}}),
     )
     db_session.commit()
 
@@ -1095,15 +1135,15 @@ def test_no_db_transaction_leak_after_noop_deletion_before_next_calendar(
     )
     store.update_sync_state(
         account,
-        {
-            "calendars": {
+        _steady_sync_state(
+            {
                 CALENDAR_HREF: {"sync_token": "token-a"},
                 CALENDAR_B_HREF: {
                     "sync_token": "token-b",
                     "covered_window_end": "2026-12-31T00:00:00+00:00",
                 },
             }
-        },
+        ),
     )
     db_session.commit()
 
@@ -1268,14 +1308,14 @@ def test_future_horizon_reconciliation_imports_newly_visible_event(
     initial_window_max = initial_now + timedelta(days=90)
     store.update_sync_state(
         account,
-        {
-            "calendars": {
+        _steady_sync_state(
+            {
                 CALENDAR_HREF: {
                     "sync_token": "steady-1",
                     "covered_window_end": initial_window_max.isoformat(),
                 }
             }
-        },
+        ),
     )
     db_session.commit()
 
@@ -1345,7 +1385,9 @@ def test_incremental_reconcile_tombstones_removed_recurring_occurrences(
         )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-rec", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+        _steady_sync_state(
+            {CALENDAR_HREF: {"sync_token": "token-rec", "covered_window_end": "2026-12-31T00:00:00+00:00"}}
+        ),
     )
     db_session.commit()
 
@@ -1427,7 +1469,7 @@ def test_reconcile_does_not_touch_other_user_same_event_href(
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-iso-rec"}}},
+        _steady_sync_state({CALENDAR_HREF: {"sync_token": "token-iso-rec"}}),
     )
     db_session.commit()
 
@@ -1495,7 +1537,9 @@ def test_stale_sync_token_resets_to_bounded_backfill(
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "stale-token", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+        _steady_sync_state(
+            {CALENDAR_HREF: {"sync_token": "stale-token", "covered_window_end": "2026-12-31T00:00:00+00:00"}}
+        ),
     )
     db_session.commit()
 
@@ -1686,7 +1730,9 @@ def test_incremental_reconcile_tombstones_when_changed_resource_has_one_vevent(
         )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "token-single", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+        _steady_sync_state(
+            {CALENDAR_HREF: {"sync_token": "token-single", "covered_window_end": "2026-12-31T00:00:00+00:00"}}
+        ),
     )
     db_session.commit()
 
@@ -1834,7 +1880,14 @@ def test_sync_collection_permission_forbidden_does_not_trigger_backfill(
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "steady-token", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+        _steady_sync_state(
+            {
+                CALENDAR_HREF: {
+                    "sync_token": "steady-token",
+                    "covered_window_end": "2026-12-31T00:00:00+00:00",
+                }
+            }
+        ),
     )
     db_session.commit()
 
@@ -1873,7 +1926,14 @@ def test_sync_collection_unrelated_409_does_not_trigger_backfill(
     )
     store.update_sync_state(
         account,
-        {"calendars": {CALENDAR_HREF: {"sync_token": "steady-token", "covered_window_end": "2026-12-31T00:00:00+00:00"}}},
+        _steady_sync_state(
+            {
+                CALENDAR_HREF: {
+                    "sync_token": "steady-token",
+                    "covered_window_end": "2026-12-31T00:00:00+00:00",
+                }
+            }
+        ),
     )
     db_session.commit()
 

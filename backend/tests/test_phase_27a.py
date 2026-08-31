@@ -802,6 +802,271 @@ def test_today_excludes_deleted_proposed_task(db_session) -> None:
     assert all(obj.id != task.id for obj in snapshot["tasks"])
 
 
+def test_inbox_recent_orders_by_updated_at_not_semantic_date(db_session) -> None:
+    from zoneinfo import ZoneInfo
+
+    moscow = ZoneInfo("Europe/Moscow")
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    earlier = utcnow() - timedelta(days=2)
+    later = utcnow() - timedelta(minutes=1)
+
+    graph.create_object(
+        ObjectCreate(
+            kind="event",
+            title="Future event A",
+            origin="source",
+            state="observed",
+            provider="yandex_calendar",
+            external_id=f"ycal-a-{uuid.uuid4()}",
+            start_at=datetime(2026, 9, 1, 10, 0, tzinfo=moscow),
+            due_at=datetime(2026, 9, 1, 11, 0, tzinfo=moscow),
+            occurred_at=datetime(2026, 9, 1, 10, 0, tzinfo=moscow),
+        )
+    )
+    event_a = db_session.scalar(
+        select(Object).where(Object.title == "Future event A")
+    )
+    event_a.updated_at = earlier
+    graph.create_object(
+        ObjectCreate(
+            kind="event",
+            title="Future event B",
+            origin="source",
+            state="observed",
+            provider="yandex_calendar",
+            external_id=f"ycal-b-{uuid.uuid4()}",
+            start_at=datetime(2026, 9, 22, 10, 0, tzinfo=moscow),
+            due_at=datetime(2026, 9, 22, 11, 0, tzinfo=moscow),
+            occurred_at=datetime(2026, 9, 22, 10, 0, tzinfo=moscow),
+        )
+    )
+    event_b = db_session.scalar(
+        select(Object).where(Object.title == "Future event B")
+    )
+    event_b.updated_at = earlier - timedelta(hours=1)
+
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Fresh email C",
+            origin="source",
+            state="confirmed",
+            provider="gmail",
+            external_id=f"gmail-c-{uuid.uuid4()}",
+            occurred_at=later,
+        )
+    )
+    email_c = db_session.scalar(select(Object).where(Object.title == "Fresh email C"))
+    email_c.updated_at = later
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()
+    titles = [row.title for row in rows]
+    assert titles.index("Fresh email C") < titles.index("Future event A")
+    assert titles.index("Fresh email C") < titles.index("Future event B")
+
+
+def test_inbox_recent_materially_updated_event_surfaces_near_top(db_session) -> None:
+    from zoneinfo import ZoneInfo
+
+    moscow = ZoneInfo("Europe/Moscow")
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    stale = utcnow() - timedelta(days=5)
+    fresh = utcnow() - timedelta(minutes=2)
+
+    graph.create_object(
+        ObjectCreate(
+            kind="event",
+            title="Old event updated",
+            origin="source",
+            state="observed",
+            provider="yandex_calendar",
+            external_id=f"ycal-old-{uuid.uuid4()}",
+            start_at=datetime(2026, 8, 1, 10, 0, tzinfo=moscow),
+            due_at=datetime(2026, 8, 1, 11, 0, tzinfo=moscow),
+            occurred_at=datetime(2026, 8, 1, 10, 0, tzinfo=moscow),
+        )
+    )
+    old_event = db_session.scalar(select(Object).where(Object.title == "Old event updated"))
+    old_event.updated_at = stale
+
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Stable email",
+            origin="source",
+            state="confirmed",
+            provider="gmail",
+            external_id=f"gmail-stable-{uuid.uuid4()}",
+            occurred_at=fresh - timedelta(hours=1),
+        )
+    )
+    stable_email = db_session.scalar(select(Object).where(Object.title == "Stable email"))
+    stable_email.updated_at = fresh - timedelta(hours=1)
+    db_session.commit()
+
+    old_event.title = "Old event updated (material)"
+    old_event.updated_at = fresh
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()
+    titles = [row.title for row in rows]
+    assert titles.index("Old event updated (material)") < titles.index("Stable email")
+
+
+def test_inbox_recent_unchanged_repeat_sync_does_not_reorder(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    base = utcnow() - timedelta(days=1)
+
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="First ingested",
+            origin="source",
+            state="confirmed",
+            provider="gmail",
+            external_id=f"gmail-first-{uuid.uuid4()}",
+            occurred_at=base,
+        )
+    )
+    first = db_session.scalar(select(Object).where(Object.title == "First ingested"))
+    first.updated_at = base
+
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Second ingested",
+            origin="source",
+            state="confirmed",
+            provider="yandex_mail",
+            external_id=f"ymail-second-{uuid.uuid4()}",
+            occurred_at=base + timedelta(minutes=30),
+        )
+    )
+    second = db_session.scalar(select(Object).where(Object.title == "Second ingested"))
+    second.updated_at = base + timedelta(minutes=30)
+    db_session.commit()
+
+    before = [row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()]
+    assert before.index("Second ingested") < before.index("First ingested")
+
+    after = [row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()]
+    assert after == before
+    excerpt = RecentSourceService.excerpt("Строка 1\\nСтрока 2")
+    assert excerpt == "Строка 1 Строка 2"
+    assert "\\n" not in excerpt
+
+
+def test_recurring_success_uses_configured_yandex_calendar_interval(
+    credential_key, monkeypatch, fake_embedding_service
+) -> None:
+    custom_interval = 75
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    monkeypatch.setattr(
+        "app.core.config.settings.source_sync_yandex_calendar_interval_seconds",
+        custom_interval,
+    )
+    conn = engine.connect()
+    trans = conn.begin()
+    session = Session(bind=conn)
+    store = YandexCalendarAccountStore(session, CredentialEncryption(credential_key))
+    store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@yandex.ru",
+        app_password="app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    SourceSyncScheduler(session).run_maintenance()
+    job = session.scalar(select(Job).where(Job.type == JOB_TYPE_SYNC_YANDEX_CALENDAR))
+    assert job is not None
+    job.run_after = utcnow() - timedelta(seconds=1)
+    trans.commit()
+    conn.close()
+
+    with patch.dict(HANDLERS, {JOB_TYPE_SYNC_YANDEX_CALENDAR: lambda s, e, p, u: None}):
+        assert process_one_job(fake_embedding_service)
+
+    conn = engine.connect()
+    session = Session(bind=conn)
+    job = session.scalar(select(Job).where(Job.type == JOB_TYPE_SYNC_YANDEX_CALENDAR))
+    delta_seconds = (job.run_after - utcnow()).total_seconds()
+    conn.close()
+    assert 65 <= delta_seconds <= 85
+
+
+def test_yandex_calendar_scheduled_sync_event_appears_in_today_api(
+    auth_client, db_session, credential_key, monkeypatch
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    moscow = ZoneInfo("Europe/Moscow")
+    reference = datetime(2026, 8, 31, 12, 0, tzinfo=moscow)
+    start_at = reference + timedelta(minutes=30)
+    end_at = start_at + timedelta(minutes=30)
+    marker = "YCAL_TODAY_SCHEDULED"
+
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@yandex.ru",
+        app_password="app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+
+    from app.connectors.yandex.caldav_transport import CalDavEvent
+    from tests.test_yandex_calendar import _sample_ical
+
+    ical = _sample_ical(
+        "evt-today-sched",
+        marker,
+        "Daily sync",
+        start_at.strftime("%Y%m%dT%H%M%SZ"),
+        end_at.strftime("%Y%m%dT%H%M%SZ"),
+    )
+    cal_event = CalDavEvent(
+        event_href=f"{CALENDAR_HREF}evt-today-sched.ics",
+        etag='"evt-today-sched"',
+        calendar_data=ical,
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="t1")],
+        query_events_by_calendar={CALENDAR_HREF: [cal_event]},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    db_session.commit()
+
+    _patch_today_snapshot(monkeypatch, reference)
+    response = auth_client.get(
+        "/today",
+        params={"client_timezone_id": "Europe/Moscow", "client_utc_offset_minutes": 180},
+    )
+    events = [e for e in response.json()["calendar_events"] if e["title"] == marker]
+    assert len(events) == 1
+
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    db_session.commit()
+    count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.provider == "yandex_calendar",
+            Object.title == marker,
+        )
+    )
+    assert count == 1
+
+
 @pytest.fixture
 def fake_embedding_service() -> FakeEmbeddingService:
     return FakeEmbeddingService()
