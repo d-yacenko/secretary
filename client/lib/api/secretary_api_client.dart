@@ -131,6 +131,7 @@ class SecretaryApiClient {
     required String deviceKey,
     required String rootPath,
     String defaultPolicy = 'metadata_only',
+    String? clientSourcePath,
   }) async {
     return await _request(
       'POST',
@@ -139,6 +140,7 @@ class SecretaryApiClient {
         'device_key': deviceKey,
         'root_path': rootPath,
         'default_policy': defaultPolicy,
+        if (clientSourcePath != null) 'client_source_path': clientSourcePath,
       },
       successStatuses: {201},
     );

@@ -9,6 +9,7 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../navigation/source_navigation_presenter.dart';
 import '../navigation/source_navigation_service.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/domain_labels.dart';
@@ -428,20 +429,20 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               child: OutlinedButton.icon(
                 onPressed: () {
                   widget.captureController.attachObjectContext(object);
-                  openCapture(context, captureController: widget.captureController);
+                  openCapture(
+                    context,
+                    captureController: widget.captureController,
+                    authController: widget.authController,
+                  );
                 },
                 icon: const Icon(Icons.add_task_outlined, size: 18),
                 label: Text(compact ? 'Контекст' : 'Использовать как контекст'),
               ),
             ),
-            Tooltip(
-              message: 'Открыть в источнике',
-              child: OutlinedButton.icon(
-                key: const Key('graph_open_source_button'),
-                onPressed: () => _openSource(context, object.id),
-                icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('Открыть в источнике'),
-              ),
+            _GraphOpenSourceAction(
+              objectId: object.id,
+              apiClient: widget.apiClient,
+              onOpen: () => _openSource(context, object.id),
             ),
             Tooltip(
               message: 'Открыть подробности',
@@ -1011,4 +1012,72 @@ class _GraphEdgePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GraphEdgePainter oldDelegate) => true;
+}
+
+class _GraphOpenSourceAction extends StatefulWidget {
+  const _GraphOpenSourceAction({
+    required this.objectId,
+    required this.apiClient,
+    required this.onOpen,
+  });
+
+  final String objectId;
+  final SecretaryApiClient apiClient;
+  final VoidCallback onOpen;
+
+  @override
+  State<_GraphOpenSourceAction> createState() => _GraphOpenSourceActionState();
+}
+
+class _GraphOpenSourceActionState extends State<_GraphOpenSourceAction> {
+  SourceActionPresentation? _presentation;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final target = await widget.apiClient.getOpenTarget(widget.objectId);
+      final presentation = await SourceNavigationPresenter().present(target);
+      if (mounted) {
+        setState(() => _presentation = presentation);
+      }
+    } catch (_) {
+      // Source action unavailable for this object.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final presentation = _presentation;
+    if (presentation == null) {
+      return const SizedBox.shrink();
+    }
+    if (presentation.canOpen) {
+      final label = presentation.openLabel ?? 'Открыть в источнике';
+      return Tooltip(
+        message: label,
+        child: OutlinedButton.icon(
+          key: const Key('graph_open_source_button'),
+          onPressed: widget.onOpen,
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: Text(label),
+        ),
+      );
+    }
+    if (presentation.isDisabled) {
+      return Tooltip(
+        message: presentation.disabledReason!,
+        child: OutlinedButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: Text(presentation.disabledReason!),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
 }

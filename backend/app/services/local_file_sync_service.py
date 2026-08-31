@@ -48,6 +48,7 @@ class LocalFileReport:
     modified_at: str
     content_hash: str | None = None
     policy: str | None = None
+    client_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,12 @@ class LocalFileSyncService:
             }
             if item.content_hash:
                 metadata["content_hash"] = item.content_hash
+            if item.client_source_path:
+                from app.local.client_paths import normalize_client_source_path
+
+                metadata["client_source_path"] = normalize_client_source_path(
+                    item.client_source_path
+                )
 
             revision = _revision_signature(metadata)
             if revision is not None:

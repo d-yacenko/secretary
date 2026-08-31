@@ -86,10 +86,25 @@ class SemanticSummaryService:
 
     def _build_summary_input(self, obj: Object, reps: list[Representation]) -> str:
         if obj.kind == "dataset":
+            ordered_kinds = [KIND_SCHEMA, KIND_STATISTICS, KIND_SAMPLE]
             parts: list[str] = []
-            for rep in reps:
-                if rep.kind in {KIND_SCHEMA, KIND_STATISTICS, KIND_SAMPLE}:
-                    parts.append(rep.text)
+            total = 0
+            for kind in ordered_kinds:
+                for rep in reps:
+                    if rep.kind != kind:
+                        continue
+                    text = rep.text or ""
+                    if not text:
+                        continue
+                    if total + len(text) > SEMANTIC_SUMMARY_INPUT_MAX_CHARS:
+                        remaining = SEMANTIC_SUMMARY_INPUT_MAX_CHARS - total
+                        if remaining > 0:
+                            parts.append(text[:remaining])
+                        break
+                    parts.append(text)
+                    total += len(text) + 1
+                if total >= SEMANTIC_SUMMARY_INPUT_MAX_CHARS:
+                    break
             return "\n".join(parts).strip()
 
         full_text = None

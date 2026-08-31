@@ -21,6 +21,7 @@ class LocalIntakeActions {
     this.captureController,
     this.assistantController,
     this.onIntakeObject,
+    this.attachToCapture = false,
   })  : _intakeService = LocalFileIntakeService(apiClient: apiClient);
 
   final SecretaryApiClient apiClient;
@@ -28,6 +29,7 @@ class LocalIntakeActions {
   final CaptureController? captureController;
   final AssistantController? assistantController;
   final IntakeObjectHandler? onIntakeObject;
+  final bool attachToCapture;
 
   final LocalFileIntakeService _intakeService;
 
@@ -45,7 +47,7 @@ class LocalIntakeActions {
       _showMessage(context, 'Не удалось прочитать файл');
       return;
     }
-    await _registerFiles(context, [File(path)]);
+    await _registerPaths(context, [path]);
   }
 
   Future<void> pickAndRegisterFolder(BuildContext context) async {
@@ -70,33 +72,151 @@ class LocalIntakeActions {
     if (paths.isEmpty) {
       return;
     }
-    final bounded = paths.take(10).map((p) => File(p)).toList();
-    await _registerFiles(context, bounded);
+    await _registerPaths(context, paths.take(10).toList());
   }
 
-  Future<void> _registerFiles(BuildContext context, List<File> files) async {
-    for (final file in files) {
+  Future<void> _registerPaths(BuildContext context, List<String> paths) async {
+    final files = <File>[];
+    final directories = <Directory>[];
+    final errors = <String>[];
+
+    for (final path in paths) {
+      final type = FileSystemEntity.typeSync(path);
+      if (type == FileSystemEntityType.directory) {
+        directories.add(Directory(path));
+      } else if (type == FileSystemEntityType.file) {
+        files.add(File(path));
+      } else {
+        errors.add('Не удалось прочитать: $path');
+      }
+    }
+
+    for (final directory in directories) {
       try {
-        final object = await _intakeService.registerFileAndFetch(file);
-        onIntakeObject?.call(object);
-        if (assistantController != null) {
-          assistantController!.setObjectContext(object);
+        final indexing = await _askFolderIndexingPolicy(context);
+        if (indexing == null) {
+          continue;
         }
-        _showMessage(
-          context,
-          object.metadata['indexing_policy'] == 'metadata_only'
-              ? 'Формат пока индексируется только по метаданным: ${object.title}'
-              : 'Файл добавлен: ${object.title}',
-        );
+        await _registerFolder(context, directory, indexSupported: indexing);
       } on AuthenticationException {
         authController.handleAuthenticationFailure();
         return;
       } on ApiException catch (e) {
-        _showMessage(context, e.message);
+        errors.add(e.message);
       } catch (_) {
-        _showMessage(context, 'Не удалось зарегистрировать источник');
+        errors.add('Не удалось зарегистрировать папку: ${directory.path}');
       }
     }
+
+    if (files.isEmpty) {
+      if (errors.isNotEmpty) {
+        _showMessage(context, errors.join('\n'));
+      }
+      return;
+    }
+
+    if (files.length == 1) {
+      await _registerSingleFile(context, files.first);
+      if (errors.isNotEmpty) {
+        _showMessage(context, errors.join('\n'));
+      }
+      return;
+    }
+
+    final objects = <SecretaryObject>[];
+    for (final file in files) {
+      try {
+        objects.add(await _intakeService.registerFileAndFetch(file));
+      } on AuthenticationException {
+        authController.handleAuthenticationFailure();
+        return;
+      } on ApiException catch (e) {
+        errors.add('${file.path}: ${e.message}');
+      } catch (_) {
+        errors.add('Не удалось зарегистрировать: ${file.path}');
+      }
+    }
+
+    if (objects.isEmpty) {
+      if (errors.isNotEmpty) {
+        _showMessage(context, errors.join('\n'));
+      }
+      return;
+    }
+
+    final chosen = await _askActiveContext(context, objects);
+    if (chosen != null) {
+      _attachObject(chosen);
+    }
+    _showMessage(
+      context,
+      'Добавлено файлов: ${objects.length}. Активный контекст: ${chosen?.title ?? "не выбран"}',
+    );
+    if (errors.isNotEmpty) {
+      _showMessage(context, errors.join('\n'));
+    }
+  }
+
+  Future<void> _registerSingleFile(BuildContext context, File file) async {
+    try {
+      final object = await _intakeService.registerFileAndFetch(file);
+      onIntakeObject?.call(object);
+      _attachObject(object);
+      _showMessage(
+        context,
+        object.metadata['indexing_policy'] == 'metadata_only'
+            ? 'Формат пока индексируется только по метаданным: ${object.title}'
+            : 'Файл добавлен: ${object.title}',
+      );
+    } on AuthenticationException {
+      authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      _showMessage(context, e.message);
+    } catch (_) {
+      _showMessage(context, 'Не удалось зарегистрировать источник');
+    }
+  }
+
+  void _attachObject(SecretaryObject object) {
+    if (attachToCapture && captureController != null) {
+      captureController!.attachObjectContext(object);
+      return;
+    }
+    if (assistantController != null) {
+      assistantController!.setObjectContext(object);
+    }
+  }
+
+  Future<SecretaryObject?> _askActiveContext(
+    BuildContext context,
+    List<SecretaryObject> objects,
+  ) async {
+    return showDialog<SecretaryObject>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Выберите активный контекст'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: objects.length,
+            itemBuilder: (context, index) {
+              final object = objects[index];
+              return ListTile(
+                title: Text(object.title),
+                onTap: () => Navigator.pop(context, object),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _registerFolder(

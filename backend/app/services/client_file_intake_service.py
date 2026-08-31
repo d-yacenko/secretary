@@ -9,10 +9,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import LocalRoot, Object
+from app.db.models import LocalRoot, Object, Representation
 from app.local.client_paths import (
     build_client_source_external_id,
-    cheap_content_hash,
+    compute_client_content_revision,
     normalize_client_source_path,
 )
 from app.local.constants import (
@@ -24,6 +24,7 @@ from app.local.constants import (
     infer_local_kind,
 )
 from app.local.paths import normalize_relative_path
+from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
 from app.services.client_representation_service import ClientRepresentationPersistence
 from app.services.errors import NotFoundError, ValidationError
 from app.services.folder_containment_service import FolderContainmentService
@@ -72,6 +73,10 @@ class ClientFileIntakeService:
         if device is None:
             raise NotFoundError("local_device", device_key)
 
+        reps = representations or []
+        if metadata_only and reps:
+            raise ValidationError("metadata_only intake cannot include representations")
+
         normalized_root: str | None = None
         normalized_rel: str | None = None
         if root_path:
@@ -80,12 +85,18 @@ class ClientFileIntakeService:
             external_id = build_local_external_id(
                 device_key, normalized_root, normalized_rel
             )
-            client_path = normalize_client_source_path(
+            client_locator = normalize_client_source_path(
                 client_absolute_path or source_path
             )
         else:
-            client_path = normalize_client_source_path(source_path)
-            external_id = build_client_source_external_id(device_key, client_path)
+            client_locator = normalize_client_source_path(source_path)
+            external_id = build_client_source_external_id(device_key, client_locator)
+
+        expected_revision = compute_client_content_revision(
+            client_locator, size, modified_at, content_hash
+        )
+        if content_revision != expected_revision:
+            raise ValidationError("invalid client revision")
 
         filename_value = Path(filename).name if root_path else filename
         suffix = Path(filename_value).suffix.lower()
@@ -95,45 +106,49 @@ class ClientFileIntakeService:
         elif suffix == ".csv":
             kind = "dataset"
 
-        reps = representations or []
+        incoming_policy = POLICY_METADATA_ONLY if metadata_only else POLICY_INDEX_TEXT
         has_content = not metadata_only and len(reps) > 0
 
         existing = self._session.scalar(
-            select(Object).where(
+            select(Object)
+            .where(
                 Object.user_id == self._user_id,
                 Object.provider == PROVIDER_LOCAL_DEVICE,
                 Object.external_id == external_id,
             )
+            .with_for_update()
         )
 
-        if existing is not None and has_content:
-            prior_meta = existing.metadata_ or {}
-            prior_revision = prior_meta.get("content_revision")
-            if prior_revision and prior_revision != content_revision:
-                stored_mtime = prior_meta.get("modified_at")
-                stored_size = prior_meta.get("size")
-                if stored_mtime == modified_at and stored_size == size:
-                    raise ValidationError("stale client representation revision")
+        prior_meta: dict[str, Any] = dict(existing.metadata_ or {}) if existing else {}
+        prior_revision = prior_meta.get("content_revision")
+        prior_policy = prior_meta.get("indexing_policy")
+        prior_registered_at = prior_meta.get("registered_at")
+        had_mechanical_reps = (
+            self._has_mechanical_representations(existing.id) if existing else False
+        )
+
+        revision_changed = existing is not None and prior_revision != expected_revision
+        policy_changed = existing is not None and prior_policy != incoming_policy
+        created = existing is None
 
         metadata: dict[str, Any] = {
             "device_key": device_key,
-            "client_source_path": client_path,
+            "client_source_path": client_locator,
             "filename": filename_value,
             "size": size,
             "modified_at": modified_at,
-            "content_revision": content_revision,
-            "indexing_policy": (
-                POLICY_METADATA_ONLY if metadata_only else POLICY_INDEX_TEXT
-            ),
-            "registered_at": datetime.now(UTC).isoformat(),
+            "content_revision": expected_revision,
+            "indexing_policy": incoming_policy,
         }
         if normalized_root and normalized_rel:
             metadata["local_root_path"] = normalized_root
             metadata["local_relative_path"] = normalized_rel
         if content_hash:
             metadata["content_hash"] = content_hash
-
-        created = existing is None
+        if prior_registered_at:
+            metadata["registered_at"] = prior_registered_at
+        else:
+            metadata["registered_at"] = datetime.now(UTC).isoformat()
 
         if existing is None:
             obj = Object(
@@ -151,10 +166,8 @@ class ClientFileIntakeService:
             self._session.flush()
             obj.canonical_uri = build_personal_file_uri(device_key, str(obj.id))
         else:
-            prior_meta = existing.metadata_ or {}
-            prior_revision = prior_meta.get("content_revision")
             merged = dict(prior_meta)
-            if prior_revision != content_revision:
+            if revision_changed:
                 merged = invalidate_semantic_summary_metadata(merged)
             merged.update(metadata)
             existing.title = filename_value
@@ -162,20 +175,6 @@ class ClientFileIntakeService:
             existing.metadata_ = merged
             existing.canonical_uri = build_personal_file_uri(device_key, str(existing.id))
             obj = existing
-
-        prior_revision = (obj.metadata_ or {}).get("content_revision")
-        same_revision = not created and prior_revision == content_revision
-
-        representations_created = 0
-        content_changed = False
-        if has_content:
-            if not same_revision or not self._has_client_representations(obj.id):
-                representations_created = self._representations.replace_for_object(
-                    obj.id, reps
-                )
-                content_changed = True
-        elif metadata_only and created:
-            content_changed = False
 
         if normalized_root:
             root = self._session.scalar(
@@ -193,25 +192,54 @@ class ClientFileIntakeService:
                 folder_obj.id, [obj.id]
             )
 
+        representations_created = 0
         jobs_enqueued = 0
-        needs_reps = has_content and (
-            created or not same_revision or not self._has_client_representations(obj.id)
-        )
-        if needs_reps:
-            enqueue_summarize_resource(
-                self._session, obj.id, self._user_id, content_revision
+        status = "created"
+
+        if metadata_only:
+            if had_mechanical_reps or prior_policy == POLICY_INDEX_TEXT:
+                self._representations.delete_all_for_object(obj.id)
+                obj.metadata_ = invalidate_semantic_summary_metadata(dict(obj.metadata_ or {}))
+                obj.embedding = None
+                enqueue_embed_object(self._session, obj.id, self._user_id)
+                jobs_enqueued = 1
+                status = "updated" if existing else "created"
+            elif created:
+                enqueue_embed_object(self._session, obj.id, self._user_id)
+                jobs_enqueued = 1
+                status = "created"
+            elif revision_changed or policy_changed:
+                enqueue_embed_object(self._session, obj.id, self._user_id)
+                jobs_enqueued = 1
+                status = "updated"
+            else:
+                status = "unchanged"
+        elif has_content:
+            truly_unchanged = (
+                not created
+                and not revision_changed
+                and not policy_changed
+                and prior_policy == POLICY_INDEX_TEXT
+                and had_mechanical_reps
             )
-            jobs_enqueued = 1
-        elif (created or not same_revision) and (metadata_only or not has_content):
+            if truly_unchanged:
+                status = "unchanged"
+            else:
+                representations_created = self._representations.replace_for_object(
+                    obj.id,
+                    filename_value,
+                    reps,
+                    metadata_only=False,
+                )
+                enqueue_summarize_resource(
+                    self._session, obj.id, self._user_id, expected_revision
+                )
+                jobs_enqueued = 1
+                status = "created" if created else "updated"
+        elif created:
             enqueue_embed_object(self._session, obj.id, self._user_id)
             jobs_enqueued = 1
-
-        if created:
             status = "created"
-        elif content_changed or not same_revision:
-            status = "updated"
-        else:
-            status = "unchanged"
 
         self._session.flush()
         return ClientFileIntakeResult(
@@ -222,34 +250,11 @@ class ClientFileIntakeService:
             metadata_only=metadata_only or not has_content,
         )
 
-    def _has_client_representations(self, object_id: UUID) -> bool:
-        from app.db.models import Representation
-
+    def _has_mechanical_representations(self, object_id: UUID) -> bool:
         row = self._session.scalar(
-            select(Representation.id).where(Representation.object_id == object_id).limit(1)
+            select(Representation.id).where(
+                Representation.object_id == object_id,
+                Representation.kind.in_(CLIENT_REPRESENTATION_KINDS),
+            ).limit(1)
         )
         return row is not None
-
-    @staticmethod
-    def build_revision(
-        source_path: str,
-        size: int,
-        modified_at: str,
-        content_hash: str | None = None,
-        root_path: str | None = None,
-    ) -> str:
-        path_key = (
-            f"{normalize_relative_path(root_path)}/{normalize_relative_path(source_path)}"
-            if root_path
-            else normalize_client_source_path(source_path)
-        )
-        parts = {
-            "source_path": path_key,
-            "size": size,
-            "modified_at": modified_at,
-        }
-        if content_hash:
-            parts["content_hash"] = content_hash
-        return cheap_content_hash(
-            "|".join(f"{key}={parts[key]}" for key in sorted(parts)).encode("utf-8")
-        )

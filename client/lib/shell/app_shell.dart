@@ -48,7 +48,11 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
 
   void _openCapture() {
-    openCapture(context, captureController: widget.captureController);
+    openCapture(
+      context,
+      captureController: widget.captureController,
+      authController: widget.authController,
+    );
   }
 
   void _openAccount() {

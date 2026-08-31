@@ -2,7 +2,7 @@
 
 ## Status
 
-PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **implementation complete, awaiting architect review**
+PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **implementation complete (closure corrective applied), awaiting architect review**
 
 Branch: `review/phase-26b-source-file-intake`
 

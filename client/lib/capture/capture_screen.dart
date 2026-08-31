@@ -1,13 +1,24 @@
+import 'dart:io' show Platform;
+
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../auth/auth_controller.dart';
+import '../local/local_intake_actions.dart';
 import '../voice/voice_transcription_controller.dart';
 import 'capture_controller.dart';
 import 'capture_draft.dart';
 
 class CaptureScreen extends StatefulWidget {
-  const CaptureScreen({super.key, required this.controller});
+  const CaptureScreen({
+    super.key,
+    required this.controller,
+    this.authController,
+  });
 
   final CaptureController controller;
+  final AuthController? authController;
 
   @override
   State<CaptureScreen> createState() => _CaptureScreenState();
@@ -16,12 +27,22 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen> {
   late final TextEditingController _textController;
   late final TextEditingController _titleController;
+  LocalIntakeActions? _intakeActions;
 
   @override
   void initState() {
     super.initState();
     _textController = TextEditingController(text: widget.controller.draft.text);
     _titleController = TextEditingController(text: widget.controller.draft.title ?? '');
+    final auth = widget.authController;
+    if (auth != null) {
+      _intakeActions = LocalIntakeActions(
+        apiClient: auth.apiClient,
+        authController: auth,
+        captureController: widget.controller,
+        attachToCapture: true,
+      );
+    }
     widget.controller.addListener(_onControllerChanged);
   }
 
@@ -78,9 +99,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final draft = controller.draft;
     final isSubmitting = controller.submitState == CaptureSubmitState.submitting;
     final inputDisabled = isSubmitting || controller.isVoiceBusy;
+    final intakeActions = _intakeActions;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Создание задачи')),
+    final body = Scaffold(
+      appBar: AppBar(
+        title: const Text('Создание задачи'),
+        actions: [
+          if (intakeActions != null)
+            buildAddFileButton(actions: intakeActions, context: context),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -221,6 +249,22 @@ class _CaptureScreenState extends State<CaptureScreen> {
           ],
         ),
       ),
+    );
+
+    if (intakeActions == null || kIsWeb || !Platform.isLinux) {
+      return body;
+    }
+
+    return DropTarget(
+      onDragDone: (detail) {
+        final paths = detail.files
+            .map((file) => file.path)
+            .where((path) => path != null)
+            .cast<String>()
+            .toList();
+        intakeActions.registerDroppedFiles(context, paths);
+      },
+      child: body,
     );
   }
 }

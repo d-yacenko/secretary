@@ -1,21 +1,26 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../local/client_device_store.dart';
+import 'external_launcher.dart';
+import 'external_launcher.dart';
 
 class SourceNavigationService {
   SourceNavigationService({
     required SecretaryApiClient apiClient,
     ClientDeviceStore? deviceStore,
+    ExternalLauncher? launcher,
   })  : _apiClient = apiClient,
-        _deviceStore = deviceStore ?? ClientDeviceStore();
+        _deviceStore = deviceStore ?? ClientDeviceStore(),
+        _launcher = launcher ?? ProductionExternalLauncher();
 
   final SecretaryApiClient _apiClient;
   final ClientDeviceStore _deviceStore;
+  final ExternalLauncher _launcher;
 
   Future<OpenTarget> resolve(String objectId) {
     return _apiClient.getOpenTarget(objectId);
@@ -37,7 +42,7 @@ class SourceNavigationService {
           throw SourceLaunchException('Не удалось открыть источник');
         }
         final uri = Uri.parse(url);
-        if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        if (!await _launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication)) {
           throw SourceLaunchException('Не удалось открыть источник');
         }
         return null;
@@ -79,8 +84,7 @@ class SourceNavigationService {
 
   Future<void> _openPath(String path, {required bool folder}) async {
     if (Platform.isLinux) {
-      final executable = 'xdg-open';
-      final result = await Process.run(executable, [path], runInShell: false);
+      final result = await _launcher.runExecutable('xdg-open', [path], runInShell: false);
       if (result.exitCode != 0) {
         throw SourceLaunchException('Не удалось открыть источник');
       }
@@ -93,10 +97,9 @@ class SourceNavigationService {
     if (!file.existsSync()) {
       throw SourceLaunchException('Исходный файл сейчас недоступен на этом устройстве');
     }
-    if (folder) {
-      await Process.run('xdg-open', [path], runInShell: false);
-    } else {
-      await Process.run('xdg-open', [path], runInShell: false);
+    final result = await _launcher.runExecutable('xdg-open', [path], runInShell: false);
+    if (result.exitCode != 0) {
+      throw SourceLaunchException('Не удалось открыть источник');
     }
   }
 

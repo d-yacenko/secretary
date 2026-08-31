@@ -9,6 +9,7 @@ import '../auth/auth_controller.dart';
 import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../navigation/source_navigation_presenter.dart';
 import '../navigation/source_navigation_service.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/date_format.dart';
@@ -49,14 +50,16 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
   SecretaryObject? _object;
   List<NeighborOut> _neighbors = [];
   ContextResponse? _context;
-  OpenTarget? _openTarget;
+  SourceActionPresentation? _sourcePresentation;
   String? _errorMessage;
   late final SourceNavigationService _sourceNavigation;
+  late final SourceNavigationPresenter _sourcePresenter;
 
   @override
   void initState() {
     super.initState();
     _sourceNavigation = SourceNavigationService(apiClient: widget.apiClient);
+    _sourcePresenter = SourceNavigationPresenter();
     _load();
   }
 
@@ -82,11 +85,18 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       if (!mounted) {
         return;
       }
-      OpenTarget? openTarget;
+      OpenTarget openTarget;
+      SourceActionPresentation? sourcePresentation;
       try {
         openTarget = await widget.apiClient.getOpenTarget(widget.objectId);
+        sourcePresentation = await _sourcePresenter.present(openTarget);
       } on ApiException {
-        openTarget = null;
+        openTarget = OpenTarget(
+          available: false,
+          action: 'unavailable',
+          label: 'Открыть в источнике',
+        );
+        sourcePresentation = null;
       }
       if (!mounted) {
         return;
@@ -95,7 +105,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         _object = object;
         _neighbors = neighbors.neighbors;
         _context = context;
-        _openTarget = openTarget;
+        _sourcePresentation = sourcePresentation;
         _loadState = ObjectDetailLoadState.ready;
       });
     } on AuthenticationException {
@@ -117,7 +127,11 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       return;
     }
     widget.captureController.attachObjectContext(object);
-    openCapture(context, captureController: widget.captureController);
+    openCapture(
+      context,
+      captureController: widget.captureController,
+      authController: widget.authController,
+    );
   }
 
   void _askSecretary() {
@@ -164,12 +178,32 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     }
   }
 
+  Future<void> _showInFolder() async {
+    final path = _sourcePresentation?.localPath;
+    if (path == null) {
+      return;
+    }
+    try {
+      await _sourceNavigation.showInFolder(path);
+    } on SourceLaunchException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   List<NeighborOut> get _attachmentNeighbors {
+    final object = _object;
+    if (object == null || object.kind != 'email') {
+      return [];
+    }
     return _neighbors.where(
       (neighbor) =>
           neighbor.edge.type == 'contains' &&
           neighbor.direction == 'outgoing' &&
-          neighbor.object.kind == 'file',
+          neighbor.object.kind == 'file' &&
+          neighbor.edge.metadata['source_fact'] == 'email_attachment',
     ).toList();
   }
 
@@ -237,15 +271,34 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              if (_openTarget != null && _openTarget!.available)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: FilledButton(
-                    key: const Key('object_detail_open_source'),
-                    onPressed: _openSource,
-                    child: Text(_openTarget!.label),
+              if (_sourcePresentation != null) ...[
+                if (_sourcePresentation!.canOpen)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FilledButton(
+                      key: const Key('object_detail_open_source'),
+                      onPressed: _openSource,
+                      child: Text(_sourcePresentation!.openLabel ?? 'Открыть в источнике'),
+                    ),
                   ),
-                ),
+                if (_sourcePresentation!.canShowInFolder)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: OutlinedButton(
+                      key: const Key('object_detail_show_in_folder'),
+                      onPressed: _showInFolder,
+                      child: Text(_sourcePresentation!.showInFolderLabel),
+                    ),
+                  ),
+                if (_sourcePresentation!.isDisabled)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      _sourcePresentation!.disabledReason!,
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+              ],
               if (primaryDateValue.isNotEmpty)
                 _FieldRow(
                   label: objectPrimaryDateFieldLabel(object),
@@ -272,11 +325,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   (neighbor) => ListTile(
                     leading: const Icon(Icons.attach_file),
                     title: Text(neighbor.object.title),
-                    subtitle: Text(
-                      neighbor.object.metadata['mime_type']?.toString() ??
-                          neighbor.object.metadata['size']?.toString() ??
-                          objectKindLabel(neighbor.object.kind),
-                    ),
+                    subtitle: Text(_attachmentSubtitle(neighbor.object)),
                     onTap: () => openObjectDetail(
                       context,
                       objectId: neighbor.object.id,
@@ -356,6 +405,22 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
           ),
         );
     }
+  }
+
+  String _attachmentSubtitle(SecretaryObject attachment) {
+    final mime = attachment.metadata['mime_type']?.toString();
+    final size = attachment.metadata['size'];
+    final parts = <String>[];
+    if (mime != null && mime.isNotEmpty) {
+      parts.add(mime);
+    }
+    if (size != null) {
+      parts.add('$size B');
+    }
+    if (parts.isEmpty) {
+      return objectKindLabel(attachment.kind);
+    }
+    return parts.join(' • ');
   }
 
   String _formatMetadata(Map<String, dynamic> metadata) {

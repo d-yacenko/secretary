@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_secretary/local/client_content_revision.dart';
 import 'package:personal_secretary/local/local_resource_extractor.dart';
 
 void main() {
@@ -75,5 +77,84 @@ void main() {
     file.writeAsStringSync('two');
     final second = extractor.extractFile(file);
     expect(first.contentRevision, isNot(second.contentRevision));
+  });
+
+  test('revision matches backend algorithm', () {
+    final file = writeFile('align.txt', 'payload');
+    final result = extractor.extractFile(file);
+    final expected = computeClientContentRevision(
+      clientSourceLocator: file.path,
+      size: result.size,
+      modifiedAt: result.modifiedAt,
+      contentHash: result.contentHash,
+    );
+    expect(result.contentRevision, expected);
+  });
+
+  test('utf8 byte bounds per part', () {
+    final file = writeFile('bytes.txt', 'й' * 20000);
+    final result = extractor.extractFile(file);
+    for (final rep in result.representations) {
+      expect(utf8ByteLength(rep['text'] as String), lessThanOrEqualTo(kMaxExtractorPartBytes));
+    }
+  });
+
+  test('aggregate utf8 byte bound', () {
+    final file = writeFile('aggregate.txt', 'word ' * 10000);
+    final result = extractor.extractFile(file);
+    var total = 0;
+    for (final rep in result.representations) {
+      total += utf8ByteLength(rep['text'] as String);
+    }
+    expect(total, lessThanOrEqualTo(kMaxExtractorTotalBytes));
+  });
+
+  test('whitespace-heavy text stays bounded', () {
+    final file = writeFile('spaces.txt', ' ' * 50000);
+    final result = extractor.extractFile(file);
+    expect(result.representations.length <= kMaxExtractorParts, isTrue);
+    for (final rep in result.representations) {
+      expect(utf8ByteLength(rep['text'] as String), lessThanOrEqualTo(kMaxExtractorPartBytes));
+    }
+  });
+
+  test('quoted csv comma parsed', () {
+    final file = writeFile('quoted.csv', 'name,value\n"Doe, John",42\n"Smith",17');
+    final result = extractor.extractFile(file);
+    final sample = result.representations.firstWhere((r) => r['kind'] == 'sample');
+    expect(sample['text'], contains('Doe, John'));
+  });
+
+  test('escaped quote csv parsed', () {
+    final file = writeFile('escape.csv', 'name,note\n"John","said ""hi"""');
+    final result = extractor.extractFile(file);
+    final sample = result.representations.firstWhere((r) => r['kind'] == 'sample');
+    expect(sample['text'], contains('said'));
+  });
+
+  test('empty csv cell preserved', () {
+    final file = writeFile('empty.csv', 'a,b\n,2');
+    final result = extractor.extractFile(file);
+    final sample = result.representations.firstWhere((r) => r['kind'] == 'sample');
+    expect(sample['text'], isNotEmpty);
+  });
+
+  test('utf8 csv values', () {
+    final file = writeFile('utf8.csv', 'name,value\nМосква,42');
+    final result = extractor.extractFile(file);
+    final sample = result.representations.firstWhere((r) => r['kind'] == 'sample');
+    expect(sample['text'], contains('Москва'));
+  });
+
+  test('oversized csv sample remains bounded', () {
+    final rows = <String>['a,b'];
+    for (var i = 0; i < 100; i++) {
+      rows.add('${'x' * 500},${'y' * 500}');
+    }
+    final file = writeFile('big.csv', rows.join('\n'));
+    final result = extractor.extractFile(file);
+    for (final rep in result.representations) {
+      expect(utf8ByteLength(rep['text'] as String), lessThanOrEqualTo(kMaxExtractorPartBytes));
+    }
   });
 }

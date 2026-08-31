@@ -6,6 +6,9 @@ from email.utils import parseaddr
 from typing import Any
 
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE, MAX_EMAIL_BODY_CHARS
+from app.services.client_intake_constants import (
+    MAX_EMAIL_ATTACHMENTS_PER_MESSAGE,
+)
 
 
 def _header_value(headers: list[dict[str, Any]], name: str) -> str | None:
@@ -90,26 +93,48 @@ def _collect_text_parts(payload: dict[str, Any]) -> tuple[str | None, str | None
 def extract_gmail_attachment_descriptors(payload: dict[str, Any]) -> list[dict[str, Any]]:
     descriptors: list[dict[str, Any]] = []
 
-    def walk(part: dict[str, Any]) -> None:
+    def walk(part: dict[str, Any], path_prefix: str = "") -> None:
+        part_id = str(part.get("partId") or path_prefix or len(descriptors))
         body = part.get("body") or {}
-        attachment_id = body.get("attachmentId")
         headers = _part_headers(part)
         filename = part.get("filename") or headers.get("filename")
-        if attachment_id and filename:
-            descriptors.append(
-                {
-                    "attachment_id": str(attachment_id),
-                    "filename": str(filename),
-                    "mime_type": part.get("mimeType"),
-                    "size": body.get("size"),
-                    "content_id": headers.get("content-id"),
-                }
-            )
+        attachment_id = body.get("attachmentId")
+        inline_data = body.get("data")
+        is_attachment = _is_gmail_attachment_part(part) or (
+            filename and (attachment_id is not None or inline_data)
+        )
+        if not is_attachment:
+            for child in part.get("parts", []):
+                child_prefix = f"{part_id}.{len(descriptors)}"
+                walk(child, child_prefix)
+            return
+
+        attachment_key = str(attachment_id) if attachment_id else f"inline:{part_id}"
+        inline_bytes: bytes | None = None
+        if inline_data and not attachment_id:
+            padded = str(inline_data) + "=" * (-len(str(inline_data)) % 4)
+            inline_bytes = base64.urlsafe_b64decode(padded.encode("ascii"))
+
+        descriptors.append(
+            {
+                "attachment_key": attachment_key,
+                "attachment_id": attachment_id,
+                "part_id": part_id,
+                "filename": str(filename or "attachment"),
+                "mime_type": part.get("mimeType"),
+                "size": body.get("size") or (
+                    len(inline_bytes) if inline_bytes is not None else None
+                ),
+                "content_id": headers.get("content-id"),
+                "inline_bytes": inline_bytes,
+            }
+        )
         for child in part.get("parts", []):
-            walk(child)
+            child_prefix = f"{part_id}.{len(descriptors)}"
+            walk(child, child_prefix)
 
     walk(payload)
-    return descriptors
+    return descriptors[:MAX_EMAIL_ATTACHMENTS_PER_MESSAGE]
 
 
 def _extract_body(payload: dict[str, Any]) -> str | None:

@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -12,7 +14,9 @@ from app.core.current_user import CurrentUserContext
 from app.local.constants import MAX_REPORT_BATCH
 from app.local.errors import LocalAccessError, LocalFileError, LocalPathError
 from app.local.paths import LocalPathResolver
+from app.resources.request_bounds import read_bounded_body
 from app.services.client_file_intake_service import ClientFileIntakeService
+from app.services.client_intake_constants import MAX_CLIENT_INTAKE_REQUEST_BYTES
 from app.services.dataset_tool_service import DatasetToolService
 from app.services.errors import NotFoundError, ValidationError
 from app.services.job_queue_service import JobQueueService
@@ -20,6 +24,8 @@ from app.services.local_device_service import LocalDeviceService
 from app.services.local_file_sync_service import LocalFileReport, LocalFileSyncService
 
 router = APIRouter(tags=["local"])
+
+_CLIENT_INTAKE_PAYLOAD_TOO_LARGE = "client intake payload exceeds size limit"
 
 
 def _path_resolver() -> LocalPathResolver:
@@ -74,6 +80,7 @@ class LocalRootRegisterRequest(BaseModel):
     device_key: str = Field(min_length=1, max_length=128)
     root_path: str = Field(min_length=1, max_length=512)
     default_policy: str = "metadata_only"
+    client_source_path: str | None = Field(default=None, max_length=1024)
 
 
 class LocalRootRegisterOut(BaseModel):
@@ -90,6 +97,7 @@ class LocalFileReportItem(BaseModel):
     modified_at: str = Field(min_length=1)
     content_hash: str | None = None
     policy: str | None = None
+    client_source_path: str | None = Field(default=None, max_length=1024)
 
 
 class LocalFilesReportRequest(BaseModel):
@@ -189,6 +197,7 @@ def register_local_root(
             data.device_key,
             data.root_path,
             default_policy=data.default_policy,
+            client_source_path=data.client_source_path,
         )
     except (ValidationError, NotFoundError, LocalPathError) as exc:
         raise _http_error(exc) from exc
@@ -232,6 +241,7 @@ def report_local_files(
             modified_at=item.modified_at,
             content_hash=item.content_hash,
             policy=item.policy,
+            client_source_path=item.client_source_path,
         )
         for item in data.files
     ]
@@ -250,8 +260,8 @@ def report_local_files(
 
 
 @router.post("/local/files/client-intake", status_code=status.HTTP_201_CREATED)
-def client_file_intake(
-    data: ClientFileIntakeRequest,
+async def client_file_intake(
+    request: Request,
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> ClientFileIntakeOut:
@@ -261,16 +271,25 @@ def client_file_intake(
     intake_service = ClientFileIntakeService(
         session, current_user.user_id, device_service
     )
-    reps = [
-        {
-            "kind": item.kind,
-            "text": item.text,
-            "part_index": item.part_index,
-            "metadata": item.metadata,
-        }
-        for item in data.representations
-    ]
     try:
+        body = await read_bounded_body(
+            request,
+            MAX_CLIENT_INTAKE_REQUEST_BYTES,
+            _CLIENT_INTAKE_PAYLOAD_TOO_LARGE,
+        )
+        try:
+            data = ClientFileIntakeRequest.model_validate_json(body)
+        except (json.JSONDecodeError, PydanticValidationError) as exc:
+            raise ValidationError("request body must be valid JSON") from exc
+        reps = [
+            {
+                "kind": item.kind,
+                "text": item.text,
+                "part_index": item.part_index,
+                "metadata": item.metadata,
+            }
+            for item in data.representations
+        ]
         result = intake_service.intake(
             device_key=data.device_key,
             source_path=data.source_path,
@@ -284,7 +303,14 @@ def client_file_intake(
             root_path=data.root_path,
             client_absolute_path=data.client_absolute_path,
         )
-    except (ValidationError, NotFoundError, LocalPathError) as exc:
+    except ValidationError as exc:
+        status_code = (
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+            if exc.message == _CLIENT_INTAKE_PAYLOAD_TOO_LARGE
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=status_code, detail=exc.message) from exc
+    except (NotFoundError, LocalPathError) as exc:
         raise _http_error(exc) from exc
     session.commit()
     return ClientFileIntakeOut(

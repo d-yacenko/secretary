@@ -144,14 +144,12 @@ class YandexMailSyncService:
                 synchronized += 1
                 max_processed_uid = max(max_processed_uid, uid)
                 msg = message_from_bytes(raw_message, policy=email_policy.default)
-                descriptors, raw_parts = extract_imap_attachment_descriptors(msg)
+                descriptors = extract_imap_attachment_descriptors(msg)
                 if descriptors:
                     attachment_service = EmailAttachmentService(
                         self._session, snapshot.user_id
                     )
-                    attachment_service.materialize_yandex_attachments(
-                        obj, descriptors, raw_parts
-                    )
+                    attachment_service.materialize_yandex_attachments(obj, descriptors)
                 self._job_queue.enqueue(
                     "embed_object",
                     {"object_id": str(obj.id)},

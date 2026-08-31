@@ -5,6 +5,11 @@ from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any
 
 from app.connectors.yandex.constants import MAX_EMAIL_BODY_CHARS
+from app.services.client_intake_constants import (
+    MAX_EMAIL_ATTACHMENT_BYTES,
+    MAX_EMAIL_ATTACHMENT_BYTES_PER_MESSAGE,
+    MAX_EMAIL_ATTACHMENTS_PER_MESSAGE,
+)
 
 
 def _strip_html(text: str) -> str:
@@ -142,11 +147,9 @@ def normalize_imap_message(
     }
 
 
-def extract_imap_attachment_descriptors(
-    msg: Any,
-) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
+def extract_imap_attachment_descriptors(msg: Any) -> list[dict[str, Any]]:
     descriptors: list[dict[str, Any]] = []
-    raw_parts: dict[str, bytes] = {}
+    fetched_total = 0
     part_counter = 0
     for part in msg.walk():
         if part.get_content_maintype() == "multipart":
@@ -158,22 +161,32 @@ def extract_imap_attachment_descriptors(
         )
         if not is_attachment:
             continue
+        if len(descriptors) >= MAX_EMAIL_ATTACHMENTS_PER_MESSAGE:
+            break
         part_key = f"part-{part_counter}"
         part_counter += 1
         try:
             payload = part.get_payload(decode=True)
         except TypeError:
             payload = None
-        if isinstance(payload, bytes) and payload:
-            raw_parts[part_key] = payload
+        payload_len = len(payload) if isinstance(payload, bytes) else 0
+        known_size = payload_len or None
         content_id = part.get("Content-ID")
-        descriptors.append(
-            {
-                "part_key": part_key,
-                "filename": filename or "attachment",
-                "mime_type": part.get_content_type(),
-                "size": len(payload) if isinstance(payload, bytes) else None,
-                "content_id": str(content_id) if content_id else None,
-            }
-        )
-    return descriptors, raw_parts
+        descriptor: dict[str, Any] = {
+            "part_key": part_key,
+            "filename": filename or "attachment",
+            "mime_type": part.get_content_type(),
+            "size": known_size,
+            "content_id": str(content_id) if content_id else None,
+        }
+        remaining = MAX_EMAIL_ATTACHMENT_BYTES_PER_MESSAGE - fetched_total
+        if (
+            isinstance(payload, bytes)
+            and payload_len > 0
+            and payload_len <= MAX_EMAIL_ATTACHMENT_BYTES
+            and payload_len <= remaining
+        ):
+            descriptor["inline_bytes"] = payload
+            fetched_total += payload_len
+        descriptors.append(descriptor)
+    return descriptors

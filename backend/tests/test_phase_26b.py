@@ -20,6 +20,7 @@ from app.connectors.yandex.mail_normalize import extract_imap_attachment_descrip
 from app.db.models import Edge, Job, Object, Representation, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_SUMMARIZE_RESOURCE
 from app.llm.embedding_service import FakeEmbeddingService
+from app.local.client_paths import compute_client_content_revision
 from app.local.constants import PROVIDER_LOCAL_DEVICE
 from app.main import app
 from app.services.correlation_constants import EDGE_TYPE_CONTAINS
@@ -69,18 +70,38 @@ def _register_device(client, device_key: str = "desk-26b") -> None:
     assert resp.status_code == 201
 
 
+def _revision(
+    source_path: str = "/home/user/notes.md",
+    size: int = 12,
+    modified_at: str = "2026-01-01T10:00:00Z",
+    content_hash: str | None = None,
+) -> str:
+    return compute_client_content_revision(source_path, size, modified_at, content_hash)
+
+
 def _intake_payload(**overrides) -> dict:
+    source_path = overrides.get("source_path", "/home/user/notes.md")
+    size = overrides.get("size", 12)
+    modified_at = overrides.get("modified_at", "2026-01-01T10:00:00Z")
+    content_hash = overrides.get("content_hash")
     base = {
         "device_key": "desk-26b",
-        "source_path": "/home/user/notes.md",
+        "source_path": source_path,
         "filename": "notes.md",
-        "size": 12,
-        "modified_at": "2026-01-01T10:00:00Z",
-        "content_revision": "rev-1",
+        "size": size,
+        "modified_at": modified_at,
+        "content_revision": overrides.get(
+            "content_revision",
+            _revision(source_path, size, modified_at, content_hash),
+        ),
         "representations": [{"kind": "full", "text": "hello world"}],
         "metadata_only": False,
     }
     base.update(overrides)
+    if "content_revision" not in overrides:
+        base["content_revision"] = _revision(
+            base["source_path"], base["size"], base["modified_at"], base.get("content_hash")
+        )
     return base
 
 
@@ -127,6 +148,7 @@ def test_client_intake_rejects_stale_revision(phase26b_client, db_session) -> No
         ),
     )
     assert stale.status_code == 422
+    assert stale.json()["detail"] == "invalid client revision"
 
     obj = db_session.get(Object, first.json()["object_id"])
     reps = db_session.scalars(
@@ -145,6 +167,7 @@ def test_client_intake_rejects_duplicate_part_index(phase26b_client) -> None:
             {"kind": "chunk", "text": "b", "part_index": 0},
         ],
     )
+    payload["content_revision"] = _revision()
     resp = phase26b_client.post("/local/files/client-intake", json=payload)
     assert resp.status_code == 422
 
@@ -153,7 +176,6 @@ def test_client_intake_rejects_oversized_payload(phase26b_client) -> None:
     _register_device(phase26b_client)
     huge = "x" * (256 * 1024 + 1)
     payload = _intake_payload(
-        content_revision="rev-huge",
         representations=[{"kind": "full", "text": huge}],
     )
     resp = phase26b_client.post("/local/files/client-intake", json=payload)
@@ -169,7 +191,6 @@ def test_client_intake_metadata_only_enqueues_embed(phase26b_client, db_session)
             source_path="/home/user/report.pdf",
             representations=[],
             metadata_only=True,
-            content_revision="rev-pdf",
         ),
     )
     assert resp.status_code == 201
@@ -378,7 +399,7 @@ def test_yandex_imap_attachment_descriptors() -> None:
     msg["Subject"] = "Yandex att"
     msg.set_content("Body text")
     msg.add_attachment(b"csv,data", maintype="text", subtype="plain", filename="data.csv")
-    descriptors, raw_parts = extract_imap_attachment_descriptors(msg)
+    descriptors = extract_imap_attachment_descriptors(msg)
     assert len(descriptors) == 1
     assert descriptors[0]["filename"] == "data.csv"
-    assert descriptors[0]["part_key"] in raw_parts
+    assert descriptors[0].get("inline_bytes") == b"csv,data"

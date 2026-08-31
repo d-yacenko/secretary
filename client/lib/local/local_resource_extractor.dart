@@ -3,12 +3,15 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:csv/csv.dart';
 import 'package:path/path.dart' as p;
+
+import 'client_content_revision.dart';
 
 /// Mechanical local file extraction bounds (PHASE 26B).
 const int kMaxExtractorParts = 64;
-const int kMaxExtractorPartChars = 16 * 1024;
-const int kMaxExtractorTotalChars = 256 * 1024;
+const int kMaxExtractorPartBytes = 16 * 1024;
+const int kMaxExtractorTotalBytes = 256 * 1024;
 const int kSmallTextMaxChars = 500;
 const int kChunkSize = 800;
 const int kChunkOverlap = 100;
@@ -65,7 +68,12 @@ class LocalResourceExtractor {
       contentHash = digest.toString();
     }
 
-    final revision = _buildRevision(path, size, modifiedAt, contentHash);
+    final revision = computeClientContentRevision(
+      clientSourceLocator: path,
+      size: size,
+      modifiedAt: modifiedAt,
+      contentHash: contentHash,
+    );
 
     if (!_supportedSuffixes.contains(extension)) {
       return LocalExtractionResult(
@@ -120,25 +128,18 @@ class LocalResourceExtractor {
   List<Map<String, dynamic>> _extractText(File file, String extension) {
     final bytes = _readBoundedBytes(file);
     final text = utf8.decode(bytes, allowMalformed: true);
-    if (text.trim().length <= kSmallTextMaxChars) {
-      return [
+    if (text.trim().length <= kSmallTextMaxChars &&
+        utf8ByteLength(text) <= kMaxExtractorPartBytes) {
+      return _boundedRepresentations([
         {'kind': 'full', 'text': text},
-      ];
+      ]);
     }
     final chunks = _chunkText(text, kChunkSize, kChunkOverlap);
     final indices = _selectBoundedIndices(chunks.length, kMaxExtractorParts);
     final reps = <Map<String, dynamic>>[];
-    var total = 0;
     for (var slot = 0; slot < indices.length; slot++) {
       final index = indices[slot];
-      final chunk = chunks[index];
-      if (chunk.length > kMaxExtractorPartChars) {
-        continue;
-      }
-      total += chunk.length;
-      if (total > kMaxExtractorTotalChars) {
-        break;
-      }
+      final chunk = truncateToUtf8Bytes(chunks[index], kMaxExtractorPartBytes);
       reps.add({
         'kind': 'chunk',
         'text': chunk,
@@ -146,54 +147,91 @@ class LocalResourceExtractor {
         'metadata': {'source_chunk_index': index},
       });
     }
-    return reps;
+    return _boundedRepresentations(reps);
   }
 
   List<Map<String, dynamic>> _extractCsv(File file) {
     final text = utf8.decode(_readBoundedBytes(file), allowMalformed: true);
-    final lines = text.split('\n').take(kMaxCsvStatsRows + 1).toList();
+    final rows = const CsvToListConverter(
+      shouldParseNumbers: false,
+    ).convert(text, eol: '\n');
 
-    if (lines.isEmpty) {
-      return [
+    if (rows.isEmpty) {
+      return _boundedRepresentations([
         {'kind': 'schema', 'text': 'columns: (empty)'},
-      ];
+      ]);
     }
 
-    final headerLine = lines.first;
-    final columns = _parseCsvLine(headerLine).take(kMaxCsvColumns).toList();
-    final schemaText = 'columns: ${columns.join(', ')}';
+    final header = rows.first
+        .map((cell) => cell?.toString() ?? '')
+        .take(kMaxCsvColumns)
+        .toList();
+    final schemaText = truncateToUtf8Bytes(
+      'columns: ${header.join(', ')}',
+      kMaxExtractorPartBytes,
+    );
 
     final sampleRows = <List<String>>[];
-    for (var i = 1; i < lines.length && sampleRows.length < kMaxCsvSampleRows; i++) {
-      sampleRows.add(_parseCsvLine(lines[i]).take(kMaxCsvColumns).toList());
+    for (var i = 1; i < rows.length && sampleRows.length < kMaxCsvSampleRows; i++) {
+      if (i > kMaxCsvStatsRows) {
+        break;
+      }
+      final row = rows[i]
+          .map((cell) => cell?.toString() ?? '')
+          .take(kMaxCsvColumns)
+          .toList();
+      sampleRows.add(row);
     }
-    final sampleText = sampleRows
-        .map((row) => row.join('\t'))
-        .join('\n');
+    final sampleText = truncateToUtf8Bytes(
+      sampleRows.map((row) => row.join('\t')).join('\n'),
+      kMaxExtractorPartBytes,
+    );
 
-    final statsLines = <String>['row_count_inspected: ${lines.length - 1}'];
-    for (final col in columns) {
+    final statsLines = <String>[
+      'row_count_inspected: ${min(rows.length - 1, kMaxCsvStatsRows)}',
+    ];
+    for (final col in header) {
       statsLines.add('column $col: type=text');
     }
+    final statsText = truncateToUtf8Bytes(
+      statsLines.join('\n'),
+      kMaxExtractorPartBytes,
+    );
 
-    return [
+    return _boundedRepresentations([
       {'kind': 'schema', 'text': schemaText},
       {'kind': 'sample', 'text': sampleText},
-      {'kind': 'statistics', 'text': statsLines.join('\n')},
-    ];
+      {'kind': 'statistics', 'text': statsText},
+    ]);
   }
 
-  List<String> _parseCsvLine(String line) {
-    // Minimal CSV split for mechanical sampling; not a full CSV parser.
-    if (line.trim().isEmpty) {
-      return [];
+  List<Map<String, dynamic>> _boundedRepresentations(
+    List<Map<String, dynamic>> reps,
+  ) {
+    final bounded = <Map<String, dynamic>>[];
+    var totalBytes = 0;
+    for (final rep in reps) {
+      if (bounded.length >= kMaxExtractorParts) {
+        break;
+      }
+      final text = rep['text'] as String? ?? '';
+      final partText = truncateToUtf8Bytes(text, kMaxExtractorPartBytes);
+      final partBytes = utf8ByteLength(partText);
+      if (totalBytes + partBytes > kMaxExtractorTotalBytes) {
+        break;
+      }
+      totalBytes += partBytes;
+      bounded.add({
+        ...rep,
+        'text': partText,
+      });
     }
-    return line.split(',').map((v) => v.trim()).toList();
+    return bounded;
   }
 
   List<int> _readBoundedBytes(File file) {
     final size = file.lengthSync();
-    if (size <= kMaxExtractorTotalChars) {
+    if (size <= kMaxExtractorTotalBytes) {
       return file.readAsBytesSync();
     }
     final raf = file.openSync();
@@ -208,11 +246,11 @@ class LocalResourceExtractor {
         raf.setPositionSync(offset);
         final toRead = min(kReadWindowBytes, size - offset);
         buffer.addAll(raf.readSync(toRead));
-        if (buffer.length >= kMaxExtractorTotalChars) {
+        if (buffer.length >= kMaxExtractorTotalBytes) {
           break;
         }
       }
-      return buffer.take(kMaxExtractorTotalChars).toList();
+      return buffer.take(kMaxExtractorTotalBytes).toList();
     } finally {
       raf.closeSync();
     }
@@ -255,24 +293,5 @@ class LocalResourceExtractor {
       }
     }
     return indices;
-  }
-
-  String _buildRevision(
-    String path,
-    int size,
-    String modifiedAt,
-    String? contentHash,
-  ) {
-    final parts = <String>[
-      'modified_at=$modifiedAt',
-      'size=$size',
-      'source_path=${path.replaceAll('\\', '/')}',
-    ];
-    if (contentHash != null) {
-      parts.add('content_hash=$contentHash');
-    }
-    parts.sort();
-    final payload = parts.join('|');
-    return sha256.convert(utf8.encode(payload)).toString();
   }
 }

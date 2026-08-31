@@ -80,6 +80,7 @@ class LocalDeviceService:
         device_key: str,
         root_path: str,
         default_policy: str = DEFAULT_LOCAL_POLICY,
+        client_source_path: str | None = None,
     ) -> LocalRootResult:
         if default_policy not in LOCAL_POLICIES:
             raise ValidationError(f"unsupported local policy: {default_policy}")
@@ -101,7 +102,9 @@ class LocalDeviceService:
             if existing.default_policy != default_policy:
                 existing.default_policy = default_policy
                 self._session.flush()
-            FolderObjectService(self._session, self._user_id).ensure_folder_for_root(device, existing)
+            FolderObjectService(self._session, self._user_id).ensure_folder_for_root(
+                device, existing, client_source_path=client_source_path
+            )
             return LocalRootResult(
                 root_id=existing.id,
                 device_key=device.device_key,
@@ -118,7 +121,9 @@ class LocalDeviceService:
         )
         self._session.add(root)
         self._session.flush()
-        FolderObjectService(self._session, self._user_id).ensure_folder_for_root(device, root)
+        FolderObjectService(self._session, self._user_id).ensure_folder_for_root(
+            device, root, client_source_path=client_source_path
+        )
         return LocalRootResult(
             root_id=root.id,
             device_key=device.device_key,

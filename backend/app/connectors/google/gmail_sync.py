@@ -5,7 +5,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.connectors.google.constants import DEFAULT_SYNC_DAYS, DEFAULT_SYNC_LIMIT, MAX_SYNC_LIMIT
+from app.connectors.google.constants import (
+    DEFAULT_SYNC_DAYS,
+    DEFAULT_SYNC_LIMIT,
+    MAX_SYNC_LIMIT,
+)
+from app.services.client_intake_constants import MAX_EMAIL_ATTACHMENT_BYTES
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.connectors.google.gmail_normalize import (
@@ -114,12 +119,21 @@ class GmailSyncService:
                     desc: dict,
                     mid: str = message_id,
                 ) -> bytes | None:
+                    inline = desc.get("inline_bytes")
+                    if inline is not None:
+                        return inline
+                    attachment_id = desc.get("attachment_id")
+                    if not attachment_id:
+                        return None
+                    known_size = desc.get("size")
+                    if known_size is not None and int(known_size) > MAX_EMAIL_ATTACHMENT_BYTES:
+                        return None
                     try:
                         return self._transport.get_attachment(
                             access_token,
                             "me",
                             mid,
-                            str(desc["attachment_id"]),
+                            str(attachment_id),
                         )
                     except GoogleApiError:
                         return None

@@ -136,34 +136,28 @@ class OpenTargetService:
 
     def _local_device_target(self, obj: Object, meta: dict) -> OpenTarget:
         device_key = meta.get("device_key")
-        local_path = (
-            meta.get("client_source_path")
-            or meta.get("local_relative_path")
-            or meta.get("local_source_path")
-        )
+        client_path = meta.get("client_source_path")
+        if not device_key or not client_path:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label="Открыть файл",
+                reason="client_source_path_missing",
+            )
         if obj.kind == "folder":
-            folder_path = meta.get("local_root_path") or local_path
-            if device_key and folder_path:
-                return OpenTarget(
-                    available=True,
-                    action="local_folder",
-                    label="Открыть папку",
-                    device_key=str(device_key),
-                    local_path=str(folder_path),
-                )
-        if device_key and local_path:
             return OpenTarget(
                 available=True,
-                action="local_file",
-                label="Открыть файл",
+                action="local_folder",
+                label="Открыть папку",
                 device_key=str(device_key),
-                local_path=str(local_path),
+                local_path=str(client_path),
             )
         return OpenTarget(
-            available=False,
-            action="unavailable",
+            available=True,
+            action="local_file",
             label="Открыть файл",
-            reason="local_path_missing",
+            device_key=str(device_key),
+            local_path=str(client_path),
         )
 
     def _attachment_target(self, obj: Object, meta: dict) -> OpenTarget:

@@ -11,9 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate
-from app.db.models import Object
+from app.db.models import Object, Representation
 from app.services.client_intake_constants import (
     ATTACHMENT_TEXT_SUFFIXES,
+    CLIENT_REPRESENTATION_KINDS,
     MAX_EMAIL_ATTACHMENT_BYTES,
     MAX_EMAIL_ATTACHMENT_BYTES_PER_MESSAGE,
     MAX_EMAIL_ATTACHMENTS_PER_MESSAGE,
@@ -26,8 +27,8 @@ from app.services.provenance import OBSERVED_STATE, SOURCE_ORIGIN
 from app.services.representation_service import RepresentationService
 
 
-def build_gmail_attachment_external_id(parent_external_id: str, attachment_id: str) -> str:
-    return f"gmail:{parent_external_id}:att:{attachment_id}"
+def build_gmail_attachment_external_id(parent_external_id: str, attachment_key: str) -> str:
+    return f"gmail:{parent_external_id}:att:{attachment_key}"
 
 
 def build_yandex_attachment_external_id(parent_external_id: str, part_key: str) -> str:
@@ -53,7 +54,7 @@ class EmailAttachmentService:
             fetch_bytes=fetch_bytes,
             external_id_builder=lambda desc: build_gmail_attachment_external_id(
                 parent.external_id or "",
-                str(desc["attachment_id"]),
+                str(desc["attachment_key"]),
             ),
         )
 
@@ -61,10 +62,10 @@ class EmailAttachmentService:
         self,
         parent: Object,
         descriptors: list[dict[str, Any]],
-        raw_parts: dict[str, bytes],
     ) -> int:
         def fetch_bytes(desc: dict[str, Any]) -> bytes | None:
-            return raw_parts.get(str(desc["part_key"]))
+            inline = desc.get("inline_bytes")
+            return inline if isinstance(inline, bytes) else None
 
         return self._materialize(
             parent=parent,
@@ -91,12 +92,12 @@ class EmailAttachmentService:
             external_id = external_id_builder(desc)
             filename = str(desc.get("filename") or "attachment")
             mime_type = desc.get("mime_type")
-            size = desc.get("size")
+            known_size = desc.get("size")
             metadata: dict[str, Any] = {
                 "parent_email_id": str(parent.id),
                 "filename": filename,
                 "mime_type": mime_type,
-                "size": size,
+                "size": known_size,
                 "provider_attachment_id": desc.get("attachment_id") or desc.get("part_key"),
                 "content_id": desc.get("content_id"),
             }
@@ -107,7 +108,8 @@ class EmailAttachmentService:
                     Object.external_id == external_id,
                 )
             )
-            if existing is None:
+            was_created = existing is None
+            if was_created:
                 obj = Object(
                     user_id=self._user_id,
                     kind="file",
@@ -132,27 +134,58 @@ class EmailAttachmentService:
 
             suffix = Path(filename).suffix.lower()
             if suffix not in ATTACHMENT_TEXT_SUFFIXES:
-                enqueue_embed_object(self._session, obj.id, self._user_id)
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
                 continue
 
-            if fetched_total >= MAX_EMAIL_ATTACHMENT_BYTES_PER_MESSAGE:
-                enqueue_embed_object(self._session, obj.id, self._user_id)
+            remaining_budget = MAX_EMAIL_ATTACHMENT_BYTES_PER_MESSAGE - fetched_total
+            if remaining_budget <= 0:
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
+                continue
+
+            if known_size is not None and int(known_size) > MAX_EMAIL_ATTACHMENT_BYTES:
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
+                continue
+
+            if known_size is not None and int(known_size) > remaining_budget:
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
                 continue
 
             data = fetch_bytes(desc)
             if data is None:
-                enqueue_embed_object(self._session, obj.id, self._user_id)
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
                 continue
-            if len(data) > MAX_EMAIL_ATTACHMENT_BYTES:
-                enqueue_embed_object(self._session, obj.id, self._user_id)
-                continue
-            fetched_total += len(data)
 
+            if len(data) > MAX_EMAIL_ATTACHMENT_BYTES:
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
+                continue
+
+            if fetched_total + len(data) > MAX_EMAIL_ATTACHMENT_BYTES_PER_MESSAGE:
+                if was_created or not self._has_usable_embedding(obj):
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
+                continue
+
+            fetched_total += len(data)
             revision = hashlib.sha256(data).hexdigest()
-            metadata = dict(obj.metadata_ or {})
-            metadata["content_revision"] = revision
-            metadata["content_hash"] = revision
-            obj.metadata_ = metadata
+            prior_meta = dict(obj.metadata_ or {})
+            prior_revision = prior_meta.get("content_revision")
+            had_mechanical = self._has_mechanical_representations(obj.id)
+
+            if (
+                not was_created
+                and prior_revision == revision
+                and had_mechanical
+            ):
+                continue
+
+            prior_meta["content_revision"] = revision
+            prior_meta["content_hash"] = revision
+            obj.metadata_ = prior_meta
 
             reps = RepresentationService(self._session, self._user_id)
             if suffix == ".csv":
@@ -167,10 +200,22 @@ class EmailAttachmentService:
                 count = len(reps.ingest_text_content(obj.id, text))
             if count:
                 enqueue_summarize_resource(self._session, obj.id, self._user_id, revision)
-            else:
+            elif was_created or not self._has_usable_embedding(obj):
                 enqueue_embed_object(self._session, obj.id, self._user_id)
 
         return created
+
+    def _has_mechanical_representations(self, object_id: UUID) -> bool:
+        row = self._session.scalar(
+            select(Representation.id).where(
+                Representation.object_id == object_id,
+                Representation.kind.in_(CLIENT_REPRESENTATION_KINDS),
+            ).limit(1)
+        )
+        return row is not None
+
+    def _has_usable_embedding(self, obj: Object) -> bool:
+        return obj.embedding is not None
 
     def _link_contains(self, email_id: UUID, attachment_id: UUID) -> None:
         if has_equivalent_relation(

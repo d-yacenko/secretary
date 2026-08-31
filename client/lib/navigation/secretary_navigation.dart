@@ -130,10 +130,14 @@ Future<void> openNotificationContext(
 Future<void> openCapture(
   BuildContext context, {
   required CaptureController captureController,
+  AuthController? authController,
 }) async {
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
-      builder: (context) => CaptureScreen(controller: captureController),
+      builder: (context) => CaptureScreen(
+        controller: captureController,
+        authController: authController,
+      ),
     ),
   );
 }

@@ -32,7 +32,12 @@ class FolderObjectService:
         self._user_id = user_id
         self._graph = GraphService(session, user_id)
 
-    def ensure_folder_for_root(self, device: LocalDevice, root: LocalRoot) -> Object:
+    def ensure_folder_for_root(
+        self,
+        device: LocalDevice,
+        root: LocalRoot,
+        client_source_path: str | None = None,
+    ) -> Object:
         external_id = build_folder_external_id(device.device_key, root.root_path)
         existing = self._session.scalar(
             select(Object).where(
@@ -41,25 +46,22 @@ class FolderObjectService:
                 Object.external_id == external_id,
             )
         )
+        folder_meta_update = {
+            "device_key": device.device_key,
+            "local_root_path": root.root_path,
+            "default_policy": root.default_policy,
+        }
+        if client_source_path:
+            folder_meta_update["client_source_path"] = client_source_path
         if existing is not None:
             metadata = dict(existing.metadata_ or {})
-            metadata.update(
-                {
-                    "device_key": device.device_key,
-                    "local_root_path": root.root_path,
-                    "default_policy": root.default_policy,
-                }
-            )
+            metadata.update(folder_meta_update)
             existing.title = folder_title_from_root_path(root.root_path)
             existing.metadata_ = metadata
             self._session.flush()
             return existing
 
-        metadata = {
-            "device_key": device.device_key,
-            "local_root_path": root.root_path,
-            "default_policy": root.default_policy,
-        }
+        metadata = dict(folder_meta_update)
         return self._graph.create_object(
             ObjectCreate(
                 kind=FOLDER_KIND,

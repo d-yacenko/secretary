@@ -63,6 +63,7 @@ class LocalFileIntakeService {
       deviceKey: device.deviceKey,
       rootPath: rootPath,
       defaultPolicy: indexSupported ? 'index_text' : 'metadata_only',
+      clientSourcePath: root.path,
     );
 
     final files = _boundedWalk(root);
@@ -96,6 +97,7 @@ class LocalFileIntakeService {
           'size': stat.size,
           'modified_at': modifiedAt,
           'policy': 'metadata_only',
+          'client_source_path': file.path,
         });
       }
     }
