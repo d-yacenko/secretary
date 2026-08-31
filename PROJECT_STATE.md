@@ -42,11 +42,34 @@ PHASE 25 manual UI verification: **PASS** (2026-08-30).
 
 PHASE 25.1 — UX Baseline: **accepted / closed** (`4c40b93`).
 
-PHASE 26A closure corrective delivered on branch `review/phase-26a-correlation-core` (hardening correlation validation, candidate caps, metadata-only embed pipeline, semantic-summary revision safety, folder-scoped context, RFC Message-ID handling, relation decision API tests, Flutter regressions).
+PHASE 26A — Personal Data Correlation Core & Semantic Resource Context: **accepted / closed** (`1e41198`).
+
+PHASE 26 remains **open** until PHASE 26B and PHASE 26C are accepted.
 
 Next planned subphase: PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake.
 
-Do not start PHASE 26B until PHASE 26A architect review is recorded.
+Do not start PHASE 26B until architect assigns the next task.
+
+## PHASE 26A verification (accepted)
+
+- full `ruff check .`: 50 known pre-existing findings, none introduced by closure
+- `pytest`: 693 passed, 3 skipped
+- `flutter analyze`: 23 info/warning, 0 errors
+- `flutter test`: 218 passed
+- Android APK: PASS
+- Linux build: PASS
+- Android `minSdk`: 23
+- migrations: none
+
+## PHASE 26B architecture (deferred)
+
+Mechanical local-file extraction may happen on Desktop/Android client.
+
+Client: file selection/drop → filename/path/size/mtime/hash → bounded text/chunks → bounded dataset schema/sample/statistics → typed bounded payload.
+
+Backend: validation → canonical Object/Representation → semantic summary → embedding → correlation.
+
+Semantic understanding remains server-side. See also `DECISIONS.md`.
 
 ## Deferred UX / data backlog (not PHASE 25.1)
 
@@ -66,9 +89,9 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: (updated after PHASE 25.1 deploy)
-- Deployed: 2026-08-30 (PHASE 25.1 UX Baseline)
-- Accepted application: `4c40b93a59e33b62ec13a2770b31b322eac2cc94`
+- SHA: `1e4119873f64d75c7c8e3b833068c82d8d135bc1` (PHASE 26A deploy pending update below)
+- Deployed: (updated after PHASE 26A deploy)
+- Accepted application: `1e4119873f64d75c7c8e3b833068c82d8d135bc1`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -131,7 +154,12 @@ VDS `assistant_turn` logs were not available from the local development environm
 - PHASE 25 (closed at `143f674`):
   - Russian-first Flutter UI (`ru_RU`), domain label mapper, Graph node overflow fix
   - Notification presentation labels; real-widget Graph overflow regression tests
+- PHASE 26A (closed at `1e41198`):
+  - Bounded correlation pipeline (`summarize_resource` → `embed_object` → `correlate_object`)
+  - Deterministic email/thread relations; `CorrelationJudge`; proposed relation review API
+  - Semantic summaries; folder objects + `contains`; folder-scoped context retrieval
+  - Graph proposed-relation UI (Предложено / Подтвердить / Отклонить)
 
 ## Next phase
 
-PHASE 26B — Source Navigation, Attachments & File Intake. Do not start until PHASE 26A architect review is recorded.
+PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake. Do not start until architect assigns the next task.
