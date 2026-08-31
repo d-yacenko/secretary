@@ -315,6 +315,16 @@ class GraphWorkspaceOut(BaseModel):
     truncated: bool
 
 
+class OpenTargetOut(BaseModel):
+    available: bool
+    action: str
+    label: str
+    url: str | None = None
+    device_key: str | None = None
+    local_path: str | None = None
+    reason: str | None = None
+
+
 class RelationCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

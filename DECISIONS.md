@@ -139,17 +139,14 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Local roots map to `folder` objects with `system/confirmed contains` edges.
 - Proposed correlation review via `POST /relations/{edge_id}/decision`; not a Pending Action Plan.
 
-## PHASE 26B — Client-assisted local file intake (deferred)
+## PHASE 26B — Client-assisted intake & source navigation (in review)
 
-Canonical future local-device path:
-
-`Desktop / Android → choose/drop file → mechanical local extraction (filename/path, size/mtime, revision/hash, bounded text/chunks, dataset schema/sample/statistics) → typed bounded payload → backend validation → canonical Object/Representation → semantic summary → embedding → correlation`
-
-Architecture rule: mechanical extraction may happen on the client; semantic understanding remains server-side. The client must not make semantic correlation decisions. The backend must still validate all client-extracted representation bounds and ownership.
-
-PHASE 26B should use this path for: desktop drag-and-drop, desktop file/folder intake, Android system file picker.
-
-Server-side parsing remains valid for: cloud/server-accessible sources, compatibility/fallback paths.
-
-Do not implement client extraction in PHASE 26A closure.
+- Mechanical extraction on Desktop/Android for `.txt`, `.md`, `.csv`; unsupported formats metadata-only.
+- Typed `POST /local/files/client-intake` with server-side representation allowlist and revision validation.
+- `GET /objects/{id}/open-target` returns trusted navigation actions only (no arbitrary metadata URL guessing).
+- Gmail/Yandex attachments as `file` objects with `source/observed` `contains` edges from parent email.
+- Server-side `ingest_local_file` and upload paths preserved for server-accessible sources.
+- Flutter deps: `file_picker`, `url_launcher`, `desktop_drop` (Linux drop only).
+- Android: system file picker without broad storage permission; persistent reopen best-effort.
+- Yandex Mail open-target: mailbox URL when exact message browser link unavailable from IMAP.
 

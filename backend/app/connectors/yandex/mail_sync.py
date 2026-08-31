@@ -1,5 +1,7 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from email import message_from_bytes
+from email import policy as email_policy
 from typing import Any
 from uuid import UUID
 
@@ -16,8 +18,13 @@ from app.connectors.yandex.constants import (
 from app.connectors.yandex.credentials import YandexMailAccountStore, YandexMailSyncSnapshot
 from app.connectors.yandex.errors import YandexConnectorError
 from app.connectors.yandex.imap_transport import ImaplibTransport, ImapTransport
-from app.connectors.yandex.mail_normalize import build_external_id, normalize_imap_message
+from app.connectors.yandex.mail_normalize import (
+    build_external_id,
+    extract_imap_attachment_descriptors,
+    normalize_imap_message,
+)
 from app.db.models import Object
+from app.services.email_attachment_service import EmailAttachmentService
 from app.services.job_queue_service import JobQueueService
 
 
@@ -136,6 +143,15 @@ class YandexMailSyncService:
                 created += 1
                 synchronized += 1
                 max_processed_uid = max(max_processed_uid, uid)
+                msg = message_from_bytes(raw_message, policy=email_policy.default)
+                descriptors, raw_parts = extract_imap_attachment_descriptors(msg)
+                if descriptors:
+                    attachment_service = EmailAttachmentService(
+                        self._session, snapshot.user_id
+                    )
+                    attachment_service.materialize_yandex_attachments(
+                        obj, descriptors, raw_parts
+                    )
                 self._job_queue.enqueue(
                     "embed_object",
                     {"object_id": str(obj.id)},

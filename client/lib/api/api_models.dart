@@ -785,6 +785,87 @@ class GraphWorkspaceOut {
   }
 }
 
+class OpenTarget {
+  OpenTarget({
+    required this.available,
+    required this.action,
+    required this.label,
+    this.url,
+    this.deviceKey,
+    this.localPath,
+    this.reason,
+  });
+
+  final bool available;
+  final String action;
+  final String label;
+  final String? url;
+  final String? deviceKey;
+  final String? localPath;
+  final String? reason;
+
+  factory OpenTarget.fromJson(Map<String, dynamic> json) {
+    return OpenTarget(
+      available: json['available'] as bool? ?? false,
+      action: json['action'] as String? ?? 'unavailable',
+      label: json['label'] as String? ?? 'Открыть в источнике',
+      url: json['url'] as String?,
+      deviceKey: json['device_key'] as String?,
+      localPath: json['local_path'] as String?,
+      reason: json['reason'] as String?,
+    );
+  }
+}
+
+class ClientFileIntakeResult {
+  ClientFileIntakeResult({
+    required this.objectId,
+    required this.status,
+    required this.jobsEnqueued,
+    required this.representationsCreated,
+    required this.metadataOnly,
+  });
+
+  final String objectId;
+  final String status;
+  final int jobsEnqueued;
+  final int representationsCreated;
+  final bool metadataOnly;
+
+  factory ClientFileIntakeResult.fromJson(Map<String, dynamic> json) {
+    return ClientFileIntakeResult(
+      objectId: json['object_id'] as String,
+      status: json['status'] as String,
+      jobsEnqueued: json['jobs_enqueued'] as int? ?? 0,
+      representationsCreated: json['representations_created'] as int? ?? 0,
+      metadataOnly: json['metadata_only'] as bool? ?? false,
+    );
+  }
+}
+
+class LocalDeviceRegisterResult {
+  LocalDeviceRegisterResult({
+    required this.deviceId,
+    required this.deviceKey,
+    required this.displayName,
+    required this.created,
+  });
+
+  final String deviceId;
+  final String deviceKey;
+  final String displayName;
+  final bool created;
+
+  factory LocalDeviceRegisterResult.fromJson(Map<String, dynamic> json) {
+    return LocalDeviceRegisterResult(
+      deviceId: json['device_id'] as String,
+      deviceKey: json['device_key'] as String,
+      displayName: json['display_name'] as String,
+      created: json['created'] as bool? ?? false,
+    );
+  }
+}
+
 class TaskPatchRequest {
   String? title;
   bool titleSet = false;

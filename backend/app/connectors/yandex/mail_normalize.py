@@ -140,3 +140,40 @@ def normalize_imap_message(
         "metadata": metadata,
         "occurred_at": timestamp,
     }
+
+
+def extract_imap_attachment_descriptors(
+    msg: Any,
+) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
+    descriptors: list[dict[str, Any]] = []
+    raw_parts: dict[str, bytes] = {}
+    part_counter = 0
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        filename = part.get_filename()
+        disposition = part.get_content_disposition()
+        is_attachment = disposition == "attachment" or (
+            filename and disposition != "inline"
+        )
+        if not is_attachment:
+            continue
+        part_key = f"part-{part_counter}"
+        part_counter += 1
+        try:
+            payload = part.get_payload(decode=True)
+        except TypeError:
+            payload = None
+        if isinstance(payload, bytes) and payload:
+            raw_parts[part_key] = payload
+        content_id = part.get("Content-ID")
+        descriptors.append(
+            {
+                "part_key": part_key,
+                "filename": filename or "attachment",
+                "mime_type": part.get_content_type(),
+                "size": len(payload) if isinstance(payload, bytes) else None,
+                "content_id": str(content_id) if content_id else None,
+            }
+        )
+    return descriptors, raw_parts

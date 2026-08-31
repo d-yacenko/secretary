@@ -40,7 +40,28 @@ def _strip_html(text: str) -> str:
     return html.unescape(collapsed).strip()
 
 
+def _part_headers(part: dict[str, Any]) -> dict[str, str]:
+    headers = part.get("headers") or []
+    compact: dict[str, str] = {}
+    for header in headers:
+        name = str(header.get("name", "")).lower()
+        if header.get("value"):
+            compact[name] = str(header["value"])
+    return compact
+
+
+def _is_gmail_attachment_part(part: dict[str, Any]) -> bool:
+    body = part.get("body") or {}
+    if body.get("attachmentId"):
+        return True
+    headers = _part_headers(part)
+    disposition = headers.get("content-disposition", "").lower()
+    return disposition.startswith("attachment")
+
+
 def _collect_text_parts(payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    if _is_gmail_attachment_part(payload):
+        return None, None
     mime_type = payload.get("mimeType", "")
     body = payload.get("body", {})
     data = body.get("data")
@@ -55,6 +76,8 @@ def _collect_text_parts(payload: dict[str, Any]) -> tuple[str | None, str | None
             html_body = decoded
 
     for part in payload.get("parts", []):
+        if _is_gmail_attachment_part(part):
+            continue
         nested_plain, nested_html = _collect_text_parts(part)
         if nested_plain and plain is None:
             plain = nested_plain
@@ -62,6 +85,31 @@ def _collect_text_parts(payload: dict[str, Any]) -> tuple[str | None, str | None
             html_body = nested_html
 
     return plain, html_body
+
+
+def extract_gmail_attachment_descriptors(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    descriptors: list[dict[str, Any]] = []
+
+    def walk(part: dict[str, Any]) -> None:
+        body = part.get("body") or {}
+        attachment_id = body.get("attachmentId")
+        headers = _part_headers(part)
+        filename = part.get("filename") or headers.get("filename")
+        if attachment_id and filename:
+            descriptors.append(
+                {
+                    "attachment_id": str(attachment_id),
+                    "filename": str(filename),
+                    "mime_type": part.get("mimeType"),
+                    "size": body.get("size"),
+                    "content_id": headers.get("content-id"),
+                }
+            )
+        for child in part.get("parts", []):
+            walk(child)
+
+    walk(payload)
+    return descriptors
 
 
 def _extract_body(payload: dict[str, Any]) -> str | None:

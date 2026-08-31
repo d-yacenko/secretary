@@ -44,9 +44,11 @@ PHASE 25.1 — UX Baseline: **accepted / closed** (`4c40b93`).
 
 PHASE 26A — Personal Data Correlation Core & Semantic Resource Context: **accepted / closed** (`1e41198`).
 
+PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **implementation complete, awaiting architect review** (branch `review/phase-26b-source-file-intake`).
+
 PHASE 26 remains **open** until PHASE 26B and PHASE 26C are accepted.
 
-Next planned subphase: PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake.
+Next planned subphase after 26B acceptance: PHASE 26C — Graph Topology & Search Ordering.
 
 Do not start PHASE 26B until architect assigns the next task.
 

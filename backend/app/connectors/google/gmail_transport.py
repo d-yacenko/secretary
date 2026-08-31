@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -46,6 +47,26 @@ class GmailTransport:
         if response.status_code >= 400:
             raise GoogleApiError(f"failed to fetch gmail message {message_id}")
         return response.json()
+
+    def get_attachment(
+        self,
+        access_token: str,
+        user_id: str,
+        message_id: str,
+        attachment_id: str,
+    ) -> bytes:
+        response = self._http.get(
+            f"{GMAIL_API_BASE}/users/{user_id}/messages/{message_id}/attachments/{attachment_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code >= 400:
+            raise GoogleApiError(f"failed to fetch gmail attachment {attachment_id}")
+        payload = response.json()
+        data = payload.get("data")
+        if not data:
+            return b""
+        padded = data + "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(padded.encode("ascii"))
 
     def fetch_account_email(self, access_token: str, user_id: str = "me") -> str:
         response = self._http.get(

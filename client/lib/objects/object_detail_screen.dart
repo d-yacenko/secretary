@@ -9,6 +9,7 @@ import '../auth/auth_controller.dart';
 import '../assistant/assistant_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../navigation/source_navigation_service.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
@@ -48,11 +49,14 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
   SecretaryObject? _object;
   List<NeighborOut> _neighbors = [];
   ContextResponse? _context;
+  OpenTarget? _openTarget;
   String? _errorMessage;
+  late final SourceNavigationService _sourceNavigation;
 
   @override
   void initState() {
     super.initState();
+    _sourceNavigation = SourceNavigationService(apiClient: widget.apiClient);
     _load();
   }
 
@@ -78,10 +82,20 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       if (!mounted) {
         return;
       }
+      OpenTarget? openTarget;
+      try {
+        openTarget = await widget.apiClient.getOpenTarget(widget.objectId);
+      } on ApiException {
+        openTarget = null;
+      }
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _object = object;
         _neighbors = neighbors.neighbors;
         _context = context;
+        _openTarget = openTarget;
         _loadState = ObjectDetailLoadState.ready;
       });
     } on AuthenticationException {
@@ -132,6 +146,31 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       authController: widget.authController,
       onTaskUpdated: _notifyTaskUpdated,
     );
+  }
+
+  Future<void> _openSource() async {
+    try {
+      await _sourceNavigation.launchForObject(widget.objectId);
+    } on SourceLaunchException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  List<NeighborOut> get _attachmentNeighbors {
+    return _neighbors.where(
+      (neighbor) =>
+          neighbor.edge.type == 'contains' &&
+          neighbor.direction == 'outgoing' &&
+          neighbor.object.kind == 'file',
+    ).toList();
   }
 
   bool get _showDeleteAction {
@@ -198,6 +237,15 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (_openTarget != null && _openTarget!.available)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: FilledButton(
+                    key: const Key('object_detail_open_source'),
+                    onPressed: _openSource,
+                    child: Text(_openTarget!.label),
+                  ),
+                ),
               if (primaryDateValue.isNotEmpty)
                 _FieldRow(
                   label: objectPrimaryDateFieldLabel(object),
@@ -217,6 +265,32 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                 value: formatUserDateTime(object.updatedAt),
               ),
               if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
+              if (_attachmentNeighbors.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text('Вложения', style: Theme.of(context).textTheme.titleMedium),
+                ..._attachmentNeighbors.map(
+                  (neighbor) => ListTile(
+                    leading: const Icon(Icons.attach_file),
+                    title: Text(neighbor.object.title),
+                    subtitle: Text(
+                      neighbor.object.metadata['mime_type']?.toString() ??
+                          neighbor.object.metadata['size']?.toString() ??
+                          objectKindLabel(neighbor.object.kind),
+                    ),
+                    onTap: () => openObjectDetail(
+                      context,
+                      objectId: neighbor.object.id,
+                      apiClient: widget.apiClient,
+                      authController: widget.authController,
+                      captureController: widget.captureController,
+                      assistantController: widget.assistantController,
+                      onAskSecretary: widget.onAskSecretary,
+                      onShowInGraph: widget.onShowInGraph,
+                      onTaskUpdated: widget.onTaskUpdated,
+                    ),
+                  ),
+                ),
+              ],
               if (object.provider != null)
                 _FieldRow(label: 'Провайдер', value: providerLabel(object.provider!)),
               if (object.canonicalUri != null)

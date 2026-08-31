@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +12,7 @@ from app.core.current_user import CurrentUserContext
 from app.local.constants import MAX_REPORT_BATCH
 from app.local.errors import LocalAccessError, LocalFileError, LocalPathError
 from app.local.paths import LocalPathResolver
+from app.services.client_file_intake_service import ClientFileIntakeService
 from app.services.dataset_tool_service import DatasetToolService
 from app.services.errors import NotFoundError, ValidationError
 from app.services.job_queue_service import JobQueueService
@@ -108,6 +110,39 @@ class LocalSyncOut(BaseModel):
 class DatasetQueryRequest(BaseModel):
     columns: list[str] = Field(min_length=1)
     limit: int = Field(default=20, ge=1, le=50)
+
+
+class ClientRepresentationItem(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    kind: str = Field(min_length=1, max_length=32)
+    text: str = ""
+    part_index: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClientFileIntakeRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    device_key: str = Field(min_length=1, max_length=128)
+    source_path: str = Field(min_length=1, max_length=1024)
+    filename: str = Field(min_length=1, max_length=512)
+    size: int = Field(ge=0)
+    modified_at: str = Field(min_length=1, max_length=128)
+    content_revision: str = Field(min_length=1, max_length=128)
+    representations: list[ClientRepresentationItem] = Field(default_factory=list)
+    content_hash: str | None = Field(default=None, max_length=128)
+    metadata_only: bool = False
+    root_path: str | None = Field(default=None, max_length=512)
+    client_absolute_path: str | None = Field(default=None, max_length=1024)
+
+
+class ClientFileIntakeOut(BaseModel):
+    object_id: UUID
+    status: str
+    jobs_enqueued: int
+    representations_created: int
+    metadata_only: bool
 
 
 def _http_error(exc: Exception) -> HTTPException:
@@ -211,6 +246,53 @@ def report_local_files(
         ingest_jobs_enqueued=result.ingest_jobs_enqueued,
         items_seen=result.items_seen,
         items_truncated=result.items_truncated,
+    )
+
+
+@router.post("/local/files/client-intake", status_code=status.HTTP_201_CREATED)
+def client_file_intake(
+    data: ClientFileIntakeRequest,
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> ClientFileIntakeOut:
+    device_service = LocalDeviceService(
+        session, current_user.user_id, _path_resolver()
+    )
+    intake_service = ClientFileIntakeService(
+        session, current_user.user_id, device_service
+    )
+    reps = [
+        {
+            "kind": item.kind,
+            "text": item.text,
+            "part_index": item.part_index,
+            "metadata": item.metadata,
+        }
+        for item in data.representations
+    ]
+    try:
+        result = intake_service.intake(
+            device_key=data.device_key,
+            source_path=data.source_path,
+            filename=data.filename,
+            size=data.size,
+            modified_at=data.modified_at,
+            content_revision=data.content_revision,
+            representations=reps,
+            content_hash=data.content_hash,
+            metadata_only=data.metadata_only,
+            root_path=data.root_path,
+            client_absolute_path=data.client_absolute_path,
+        )
+    except (ValidationError, NotFoundError, LocalPathError) as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    return ClientFileIntakeOut(
+        object_id=result.object_id,
+        status=result.status,
+        jobs_enqueued=result.jobs_enqueued,
+        representations_created=result.representations_created,
+        metadata_only=result.metadata_only,
     )
 
 

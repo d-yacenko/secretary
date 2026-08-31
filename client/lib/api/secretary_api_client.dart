@@ -106,6 +106,94 @@ class SecretaryApiClient {
     return ContextResponse.fromJson(body);
   }
 
+  Future<OpenTarget> getOpenTarget(String objectId) async {
+    final body = await _request('GET', '/objects/$objectId/open-target');
+    return OpenTarget.fromJson(body);
+  }
+
+  Future<LocalDeviceRegisterResult> registerLocalDevice({
+    required String deviceKey,
+    required String displayName,
+  }) async {
+    final body = await _request(
+      'POST',
+      '/local/devices/register',
+      jsonBody: {
+        'device_key': deviceKey,
+        'display_name': displayName,
+      },
+      successStatuses: {201},
+    );
+    return LocalDeviceRegisterResult.fromJson(body);
+  }
+
+  Future<Map<String, dynamic>> registerLocalRoot({
+    required String deviceKey,
+    required String rootPath,
+    String defaultPolicy = 'metadata_only',
+  }) async {
+    return await _request(
+      'POST',
+      '/local/roots/register',
+      jsonBody: {
+        'device_key': deviceKey,
+        'root_path': rootPath,
+        'default_policy': defaultPolicy,
+      },
+      successStatuses: {201},
+    );
+  }
+
+  Future<Map<String, dynamic>> reportLocalFiles({
+    required String deviceKey,
+    required String rootPath,
+    required List<Map<String, dynamic>> files,
+  }) async {
+    return await _request(
+      'POST',
+      '/local/files/report',
+      jsonBody: {
+        'device_key': deviceKey,
+        'root_path': rootPath,
+        'files': files,
+      },
+    );
+  }
+
+  Future<ClientFileIntakeResult> clientFileIntake({
+    required String deviceKey,
+    required String sourcePath,
+    required String filename,
+    required int size,
+    required String modifiedAt,
+    required String contentRevision,
+    List<Map<String, dynamic>> representations = const [],
+    String? contentHash,
+    bool metadataOnly = false,
+    String? rootPath,
+    String? clientAbsolutePath,
+  }) async {
+    final body = await _request(
+      'POST',
+      '/local/files/client-intake',
+      jsonBody: {
+        'device_key': deviceKey,
+        'source_path': sourcePath,
+        'filename': filename,
+        'size': size,
+        'modified_at': modifiedAt,
+        'content_revision': contentRevision,
+        'representations': representations,
+        if (contentHash != null) 'content_hash': contentHash,
+        'metadata_only': metadataOnly,
+        if (rootPath != null) 'root_path': rootPath,
+        if (clientAbsolutePath != null) 'client_absolute_path': clientAbsolutePath,
+      },
+      successStatuses: {201},
+    );
+    return ClientFileIntakeResult.fromJson(body);
+  }
+
   Future<GraphWorkspaceOut> getGraphWorkspace({
     String? rootId,
     int? seedLimit,

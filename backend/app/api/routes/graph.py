@@ -13,11 +13,13 @@ from app.api.schemas import (
     ObjectCreate,
     ObjectOut,
     ObjectUpdate,
+    OpenTargetOut,
 )
 from app.core.current_user import CurrentUserContext
 from app.llm.embedding_service import EmbeddingService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.open_target_service import OpenTargetService
 from app.services.search_service import SearchService
 
 router = APIRouter()
@@ -137,6 +139,28 @@ def get_context(object_id: UUID, service: GraphService = Depends(_service)) -> C
         object=ObjectOut.from_model(obj),
         edges=[EdgeOut.from_model(edge) for edge in edges],
         neighbors=[ObjectOut.from_model(neighbor) for neighbor in neighbors],
+    )
+
+
+@router.get("/objects/{object_id}/open-target", response_model=OpenTargetOut)
+def get_open_target(
+    object_id: UUID,
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> OpenTargetOut:
+    service = OpenTargetService(session, current_user.user_id)
+    try:
+        target = service.resolve(object_id)
+    except NotFoundError as exc:
+        raise _not_found(exc) from exc
+    return OpenTargetOut(
+        available=target.available,
+        action=target.action,
+        label=target.label,
+        url=target.url,
+        device_key=target.device_key,
+        local_path=target.local_path,
+        reason=target.reason,
     )
 
 

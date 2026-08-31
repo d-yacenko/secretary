@@ -9,6 +9,7 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../navigation/source_navigation_service.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
@@ -434,6 +435,15 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               ),
             ),
             Tooltip(
+              message: 'Открыть в источнике',
+              child: OutlinedButton.icon(
+                key: const Key('graph_open_source_button'),
+                onPressed: () => _openSource(context, object.id),
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Открыть в источнике'),
+              ),
+            ),
+            Tooltip(
               message: 'Открыть подробности',
               child: OutlinedButton.icon(
                 onPressed: () async {
@@ -626,6 +636,15 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
       }
     }
     return neighbors;
+  }
+
+  Future<void> _openSource(BuildContext context, String objectId) async {
+    final navigation = SourceNavigationService(apiClient: widget.apiClient);
+    try {
+      await navigation.launchForObject(objectId);
+    } on SourceLaunchException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   Future<void> _deleteTask(BuildContext context, SecretaryObject task) async {

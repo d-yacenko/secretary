@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.connectors.google.constants import DEFAULT_SYNC_DAYS, DEFAULT_SYNC_LIMIT, MAX_SYNC_LIMIT
 from app.connectors.google.credentials import GoogleAccountStore
-from app.connectors.google.errors import GoogleConnectorError
-from app.connectors.google.gmail_normalize import normalize_gmail_message
+from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
+from app.connectors.google.gmail_normalize import (
+    extract_gmail_attachment_descriptors,
+    normalize_gmail_message,
+)
 from app.connectors.google.gmail_transport import GmailTransport, GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.db.models import Object
+from app.services.email_attachment_service import EmailAttachmentService
 from app.services.job_queue_service import JobQueueService
 
 
@@ -102,6 +106,27 @@ class GmailSyncService:
             self._session.flush()
             created += 1
             synchronized += 1
+            descriptors = extract_gmail_attachment_descriptors(raw_message.get("payload", {}))
+            if descriptors:
+                attachment_service = EmailAttachmentService(self._session, owner_user_id)
+
+                def fetch_attachment(
+                    desc: dict,
+                    mid: str = message_id,
+                ) -> bytes | None:
+                    try:
+                        return self._transport.get_attachment(
+                            access_token,
+                            "me",
+                            mid,
+                            str(desc["attachment_id"]),
+                        )
+                    except GoogleApiError:
+                        return None
+
+                attachment_service.materialize_gmail_attachments(
+                    obj, descriptors, fetch_attachment
+                )
             self._job_queue.enqueue(
                 "embed_object",
                 {"object_id": str(obj.id)},

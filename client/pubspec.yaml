@@ -17,6 +17,11 @@ dependencies:
   shared_preferences: ^2.3.3
   record: ^6.0.0
   path_provider: ^2.1.5
+  file_picker: ^8.1.7
+  url_launcher: ^6.3.1
+  desktop_drop: ^0.5.0
+  crypto: ^3.0.6
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

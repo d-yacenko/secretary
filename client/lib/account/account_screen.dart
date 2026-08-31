@@ -4,6 +4,8 @@ import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
+import '../capture/capture_controller.dart';
+import '../local/local_intake_actions.dart';
 import '../ui/domain_labels.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -24,10 +26,15 @@ class _AccountScreenState extends State<AccountScreen> {
   Connections? _connections;
   String? _error;
   bool _loading = true;
+  late final LocalIntakeActions _intakeActions;
 
   @override
   void initState() {
     super.initState();
+    _intakeActions = LocalIntakeActions(
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+    );
     _loadConnections();
   }
 
@@ -78,6 +85,10 @@ class _AccountScreenState extends State<AccountScreen> {
             Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))
           else if (_connections != null)
             _ConnectionsList(connections: _connections!),
+          const SizedBox(height: 16),
+          Text('Локальные файлы', style: Theme.of(context).textTheme.titleSmall),
+          buildAddFileButton(actions: _intakeActions, context: context),
+          buildAddFolderButton(actions: _intakeActions, context: context),
           const SizedBox(height: 24),
           OutlinedButton(
             onPressed: () async {

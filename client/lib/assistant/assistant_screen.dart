@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import '../api/secretary_api_client.dart';
 import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
+import '../local/local_intake_actions.dart';
 import '../navigation/secretary_navigation.dart';
 import '../ui/domain_labels.dart';
 
@@ -34,10 +36,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
   AssistantSendState? _lastSendState;
+  late final LocalIntakeActions _intakeActions;
 
   @override
   void initState() {
     super.initState();
+    _intakeActions = LocalIntakeActions(
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      captureController: widget.captureController,
+      assistantController: widget.controller,
+    );
     _lastSendState = widget.controller.sendState;
     widget.controller.addListener(_onControllerChanged);
     if (widget.controller.pendingRetryMessage != null &&
@@ -181,8 +190,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final inputDisabled = controller.isInputBlocked;
-    return Scaffold(
-      body: Column(
+    final body = Column(
         children: [
           if (controller.objectContext != null)
             _ContextBanner(
@@ -350,6 +358,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     ),
                     const SizedBox(width: 4),
                     IconButton(
+                      key: const Key('assistant_attach_file_button'),
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Добавить файл',
+                      onPressed: inputDisabled
+                          ? null
+                          : () => _intakeActions.pickAndRegisterFile(context),
+                      icon: const Icon(Icons.attach_file),
+                    ),
+                    IconButton(
                       key: const Key('assistant_voice_button'),
                       visualDensity: VisualDensity.compact,
                       tooltip: controller.voiceState == AssistantVoiceState.recording
@@ -407,7 +424,26 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
           ),
         ],
-      ),
+      );
+    return Scaffold(
+      body: _wrapDropTarget(body),
+    );
+  }
+
+  Widget _wrapDropTarget(Widget child) {
+    if (kIsWeb || !Platform.isLinux) {
+      return child;
+    }
+    return DropTarget(
+      onDragDone: (detail) {
+        final paths = detail.files
+            .map((file) => file.path)
+            .where((path) => path != null)
+            .cast<String>()
+            .toList();
+        _intakeActions.registerDroppedFiles(context, paths);
+      },
+      child: child,
     );
   }
 }

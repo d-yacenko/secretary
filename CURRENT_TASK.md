@@ -1,42 +1,28 @@
-# Current task — PHASE 26A accepted / closed
+# Current task — PHASE 26B awaiting architect review
 
 ## Status
 
-PHASE 26A — Personal Data Correlation Core & Semantic Resource Context: **accepted / closed**
+PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **implementation complete, awaiting architect review**
 
-Accepted application SHA: `1e4119873f64d75c7c8e3b833068c82d8d135bc1`
+Branch: `review/phase-26b-source-file-intake`
 
-## Verification (accepted)
+Do **not** merge, deploy, or start PHASE 26C until review accepts.
 
-- full `ruff check .`: 50 known pre-existing findings, none introduced by closure
-- `pytest`: 693 passed, 3 skipped
-- `flutter analyze`: 23 info/warning, 0 errors
-- `flutter test`: 218 passed
-- Android APK: PASS
-- Linux build: PASS
-- Android `minSdk`: 23
-- migrations: none
+## PHASE 26B delivered
 
-## PHASE 26 (open)
+- Client-assisted mechanical extraction (`.txt`, `.md`, `.csv`) with bounded representations
+- Metadata-only registration for unsupported formats
+- `POST /local/files/client-intake` typed contract
+- `GET /objects/{id}/open-target` source navigation resolver
+- Gmail / Yandex Mail attachment objects + `email --contains--> attachment`
+- Flutter: device identity, file/folder picker, Linux drag-and-drop, source actions, email attachments UI
+- Assistant/Capture context via object IDs (no raw file upload by default)
 
-PHASE 26 remains open until **26B** and **26C** are accepted.
+## Known limitations (documented)
 
-## Next subphase
+- Android persistent reopen of picked files: best-effort; SAF layer deferred
+- Yandex Mail: no exact per-message browser deep link from IMAP UID; mailbox-level fallback
 
-PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake
+## Next subphase (after 26B acceptance)
 
-### PHASE 26B architecture (deferred)
-
-Mechanical local-file extraction may happen on Desktop/Android client.
-
-Client path: file selection/drop → filename/path/size/mtime/hash → bounded text/chunks → bounded dataset schema/sample/statistics → typed bounded payload.
-
-Backend path: validation → canonical Object/Representation → semantic summary → embedding → correlation.
-
-Semantic understanding remains server-side.
-
-## STOP
-
-Do not start PHASE 26B until architect assigns the next task.
-
-Wait for architect review / next phase task.
+PHASE 26C — Graph Topology & Search Ordering
