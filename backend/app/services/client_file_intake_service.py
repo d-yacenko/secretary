@@ -19,6 +19,7 @@ from app.local.constants import (
     POLICY_INDEX_TEXT,
     POLICY_METADATA_ONLY,
     PROVIDER_LOCAL_DEVICE,
+    SUPPORTED_LOCAL_SUFFIXES,
     build_local_external_id,
     build_personal_file_uri,
     infer_local_kind,
@@ -77,6 +78,11 @@ class ClientFileIntakeService:
         if metadata_only and reps:
             raise ValidationError("metadata_only intake cannot include representations")
 
+        filename_value = Path(filename).name if root_path else filename
+        suffix = Path(filename_value).suffix.lower()
+        if not metadata_only and suffix in SUPPORTED_LOCAL_SUFFIXES and not reps:
+            raise ValidationError("indexed intake requires mechanical representations")
+
         normalized_root: str | None = None
         normalized_rel: str | None = None
         if root_path:
@@ -98,8 +104,6 @@ class ClientFileIntakeService:
         if content_revision != expected_revision:
             raise ValidationError("invalid client revision")
 
-        filename_value = Path(filename).name if root_path else filename
-        suffix = Path(filename_value).suffix.lower()
         kind = infer_local_kind(suffix) if suffix in {".txt", ".md", ".csv"} else "file"
         if suffix in {".txt", ".md"}:
             kind = "document"

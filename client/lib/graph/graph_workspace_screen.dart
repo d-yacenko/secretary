@@ -440,6 +440,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               ),
             ),
             _GraphOpenSourceAction(
+              key: ValueKey(object.id),
               objectId: object.id,
               apiClient: widget.apiClient,
               onOpen: () => _openSource(context, object.id),
@@ -1016,6 +1017,7 @@ class _GraphEdgePainter extends CustomPainter {
 
 class _GraphOpenSourceAction extends StatefulWidget {
   const _GraphOpenSourceAction({
+    super.key,
     required this.objectId,
     required this.apiClient,
     required this.onOpen,
@@ -1036,6 +1038,15 @@ class _GraphOpenSourceActionState extends State<_GraphOpenSourceAction> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _GraphOpenSourceAction oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.objectId != widget.objectId) {
+      setState(() => _presentation = null);
+      _load();
+    }
   }
 
   Future<void> _load() async {

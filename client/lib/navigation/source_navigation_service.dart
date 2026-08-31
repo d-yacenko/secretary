@@ -7,7 +7,6 @@ import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../local/client_device_store.dart';
 import 'external_launcher.dart';
-import 'external_launcher.dart';
 
 class SourceNavigationService {
   SourceNavigationService({

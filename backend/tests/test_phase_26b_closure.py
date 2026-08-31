@@ -27,7 +27,7 @@ from app.services.client_intake_constants import (
     MAX_CLIENT_REPRESENTATION_PART_BYTES,
     MAX_CLIENT_REPRESENTATION_TOTAL_BYTES,
 )
-from app.services.correlation_constants import EDGE_TYPE_CONTAINS
+from app.services.correlation_constants import EDGE_TYPE_CONTAINS, SEMANTIC_SUMMARY_INPUT_MAX_CHARS
 from app.services.email_attachment_service import EmailAttachmentService
 from app.services.open_target_service import OpenTargetService
 from app.services.semantic_summary_service import SemanticSummaryService
@@ -643,3 +643,40 @@ def test_folder_client_source_path_on_register(closure_client, db_session) -> No
     assert folder is not None
     assert folder.metadata_["client_source_path"] == "/home/user/docs"
     assert folder.metadata_["local_root_path"] == "home/user/docs"
+
+
+def test_dataset_summary_input_hard_cap_when_schema_exceeds_limit(db_session) -> None:
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="dataset",
+        title="big.csv",
+        origin="user",
+        state="confirmed",
+        provider=PROVIDER_LOCAL_DEVICE,
+        external_id="closure:dataset-cap",
+        metadata_={},
+    )
+    db_session.add(obj)
+    db_session.flush()
+    schema = "columns: " + "x" * 5000
+    stats = "\n".join([f"column c{i}: type=text" for i in range(200)])
+    sample = "\n".join(["sample-row " * 40 for _ in range(20)])
+    reps = [
+        Representation(object_id=obj.id, kind="schema", text=schema, metadata_={}),
+        Representation(object_id=obj.id, kind="statistics", text=stats, metadata_={}),
+        Representation(object_id=obj.id, kind="sample", text=sample, metadata_={}),
+    ]
+    service = SemanticSummaryService(db_session, BOOTSTRAP_USER_ID)
+    input_text = service._build_summary_input(obj, reps)
+    assert len(input_text) <= SEMANTIC_SUMMARY_INPUT_MAX_CHARS
+
+
+def test_indexed_intake_empty_representations_rejected(closure_client) -> None:
+    _register_device(closure_client)
+    resp = _intake(
+        closure_client,
+        representations=[],
+        metadata_only=False,
+    )
+    assert resp.status_code == 422
+    assert "mechanical" in resp.json()["detail"].lower()

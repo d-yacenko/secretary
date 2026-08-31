@@ -100,7 +100,7 @@ class SemanticSummaryService:
                         remaining = SEMANTIC_SUMMARY_INPUT_MAX_CHARS - total
                         if remaining > 0:
                             parts.append(text[:remaining])
-                        break
+                        return "\n".join(parts).strip()
                     parts.append(text)
                     total += len(text) + 1
                 if total >= SEMANTIC_SUMMARY_INPUT_MAX_CHARS:

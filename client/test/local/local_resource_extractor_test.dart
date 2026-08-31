@@ -146,15 +146,13 @@ void main() {
     expect(sample['text'], contains('Москва'));
   });
 
-  test('oversized csv sample remains bounded', () {
-    final rows = <String>['a,b'];
-    for (var i = 0; i < 100; i++) {
-      rows.add('${'x' * 500},${'y' * 500}');
-    }
-    final file = writeFile('big.csv', rows.join('\n'));
+  test('large csv uses coherent prefix without mid-file splice', () {
+    final rows = <String>['name,value', '"Doe, John",42'];
+    rows.addAll(List.generate(20000, (i) => 'row$i,value$i'));
+    final file = writeFile('huge.csv', rows.join('\n'));
     final result = extractor.extractFile(file);
-    for (final rep in result.representations) {
-      expect(utf8ByteLength(rep['text'] as String), lessThanOrEqualTo(kMaxExtractorPartBytes));
-    }
+    final sample = result.representations.firstWhere((r) => r['kind'] == 'sample');
+    expect(sample['text'], contains('Doe, John'));
+    expect(sample['text'], isNot(contains('row19999')));
   });
 }

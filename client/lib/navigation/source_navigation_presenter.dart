@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../api/api_models.dart';
 import '../local/client_device_store.dart';
+import 'platform_capabilities.dart';
 
 class SourceActionPresentation {
   const SourceActionPresentation({
@@ -24,10 +25,14 @@ class SourceActionPresentation {
 }
 
 class SourceNavigationPresenter {
-  SourceNavigationPresenter({ClientDeviceStore? deviceStore})
-      : _deviceStore = deviceStore ?? ClientDeviceStore();
+  SourceNavigationPresenter({
+    ClientDeviceStore? deviceStore,
+    PlatformCapabilities? platform,
+  })  : _deviceStore = deviceStore ?? ClientDeviceStore(),
+        _platform = platform ?? DefaultPlatformCapabilities();
 
   final ClientDeviceStore _deviceStore;
+  final PlatformCapabilities _platform;
 
   Future<SourceActionPresentation> present(OpenTarget target) async {
     if (!target.available) {
@@ -45,7 +50,7 @@ class SourceNavigationPresenter {
     }
 
     if (target.action == 'local_file' || target.action == 'local_folder') {
-      if (kIsWeb) {
+      if (kIsWeb || !_platform.canOpenLocalSourcePaths) {
         return SourceActionPresentation(
           canOpen: false,
           disabledReason: 'Исходный файл сейчас недоступен на этом устройстве',

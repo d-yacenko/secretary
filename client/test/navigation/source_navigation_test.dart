@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_secretary/api/api_models.dart';
+import 'package:personal_secretary/local/client_device_store.dart';
 import 'package:personal_secretary/navigation/external_launcher.dart';
+import 'package:personal_secretary/navigation/platform_capabilities.dart';
 import 'package:personal_secretary/navigation/source_navigation_presenter.dart';
 import 'package:personal_secretary/navigation/source_navigation_service.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
@@ -34,6 +36,35 @@ void main() {
     final presentation = await presenter.present(target);
     expect(presentation.canOpen, isFalse);
     expect(presentation.disabledReason, 'Файл находится на другом устройстве');
+  });
+
+  test('android local target disabled in presenter', () async {
+    SharedPreferences.setMockInitialValues({
+      'secretary_device_key': 'desk-test',
+      'secretary_device_display_name': 'Test',
+    });
+    final presenter = SourceNavigationPresenter(
+      deviceStore: ClientDeviceStore(preferences: await SharedPreferences.getInstance()),
+      platform: StubPlatformCapabilities(
+        canOpenLocalSourcePaths: false,
+        isAndroid: true,
+      ),
+    );
+    final presentation = await presenter.present(
+      OpenTarget(
+        available: true,
+        action: 'local_file',
+        label: 'Открыть файл',
+        deviceKey: 'desk-test',
+        localPath: '/home/user/file.txt',
+      ),
+    );
+    expect(presentation.canOpen, isFalse);
+    expect(presentation.canShowInFolder, isFalse);
+    expect(
+      presentation.disabledReason,
+      'Исходный файл сейчас недоступен на этом устройстве',
+    );
   });
 
   test('recording launcher launches safe https url', () async {

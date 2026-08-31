@@ -151,7 +151,8 @@ class LocalResourceExtractor {
   }
 
   List<Map<String, dynamic>> _extractCsv(File file) {
-    final text = utf8.decode(_readBoundedBytes(file), allowMalformed: true);
+    final bytes = _readCoherentPrefixBytes(file);
+    final text = utf8.decode(bytes, allowMalformed: true);
     final rows = const CsvToListConverter(
       shouldParseNumbers: false,
     ).convert(text, eol: '\n');
@@ -227,6 +228,20 @@ class LocalResourceExtractor {
       });
     }
     return bounded;
+  }
+
+  List<int> _readCoherentPrefixBytes(File file) {
+    final size = file.lengthSync();
+    final toRead = min(size, kMaxExtractorTotalBytes);
+    if (toRead <= 0) {
+      return [];
+    }
+    final raf = file.openSync();
+    try {
+      return raf.readSync(toRead);
+    } finally {
+      raf.closeSync();
+    }
   }
 
   List<int> _readBoundedBytes(File file) {
