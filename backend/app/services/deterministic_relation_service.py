@@ -9,22 +9,32 @@ from sqlalchemy.orm import Session
 from app.api.schemas import EdgeCreate
 from app.db.models import Edge, Object
 from app.services.correlation_constants import (
+    CANDIDATE_MAX_EXACT_THREAD,
     CORRELATION_VERSION,
     EDGE_TYPE_REFERENCES,
     EDGE_TYPE_RELATED_TO,
+    MAX_MAIL_PEER_LOOKUP_ROWS,
+    MAX_MAIL_REFERENCE_IDS,
 )
 from app.services.edge_dedup import has_equivalent_relation
 from app.services.graph_service import GraphService
+from app.services.mail_rfc_id import extract_rfc_message_id, normalize_rfc_message_id_token
 from app.services.provenance import OBSERVED_STATE, SOURCE_ORIGIN
 
 
-def _parse_message_ids(value: str | None) -> list[str]:
+def _parse_message_ids(value: str | None, limit: int = MAX_MAIL_REFERENCE_IDS) -> list[str]:
     if not value:
         return []
     tokens = re.findall(r"<[^>]+>", value)
     if tokens:
-        return [token.strip("<>") for token in tokens]
-    return [part.strip() for part in value.split() if part.strip()]
+        normalized = [normalize_rfc_message_id_token(token) for token in tokens]
+    else:
+        normalized = [
+            normalize_rfc_message_id_token(part)
+            for part in value.split()
+            if part.strip()
+        ]
+    return [token for token in normalized[:limit] if token]
 
 
 class DeterministicRelationService:
@@ -52,27 +62,22 @@ class DeterministicRelationService:
             if thread_id:
                 created += self._link_same_thread(trigger, "gmail", str(thread_id))
 
-        message_id = metadata.get("message_id") or (metadata.get("headers") or {}).get(
-            "message-id"
-        )
         headers = metadata.get("headers") or {}
         reply_refs = _parse_message_ids(headers.get("in-reply-to"))
         reply_refs.extend(_parse_message_ids(headers.get("references")))
-        if message_id:
-            reply_refs.extend(_parse_message_ids(str(message_id)))
-
+        seen_refs: set[str] = set()
         for ref_id in reply_refs:
-            normalized = ref_id.strip("<>")
-            if not normalized:
+            if ref_id in seen_refs:
                 continue
-            target = self._find_email_by_message_id(trigger, normalized)
+            seen_refs.add(ref_id)
+            target = self._find_email_by_rfc_message_id(trigger, ref_id)
             if target is None or target.id == trigger.id:
                 continue
             if self._create_source_edge(
                 trigger.id,
                 target.id,
                 EDGE_TYPE_REFERENCES,
-                {"source_fact": "mail_reference", "referenced_message_id": normalized},
+                {"source_fact": "mail_reference", "referenced_message_id": ref_id},
             ):
                 created += 1
 
@@ -87,12 +92,19 @@ class DeterministicRelationService:
                 Object.id != trigger.id,
                 Object.state != "rejected",
             )
+            .order_by(Object.occurred_at.desc().nullslast(), Object.id)
+            .limit(MAX_MAIL_PEER_LOOKUP_ROWS)
         ).all()
-        created = 0
+        thread_peers: list[Object] = []
         for peer in peers:
             peer_meta = peer.metadata_ or {}
             if str(peer_meta.get("thread_id")) != thread_id:
                 continue
+            thread_peers.append(peer)
+            if len(thread_peers) >= CANDIDATE_MAX_EXACT_THREAD:
+                break
+        created = 0
+        for peer in thread_peers:
             if self._create_source_edge(
                 trigger.id,
                 peer.id,
@@ -102,7 +114,7 @@ class DeterministicRelationService:
                 created += 1
         return created
 
-    def _find_email_by_message_id(self, trigger: Object, message_id: str) -> Object | None:
+    def _find_email_by_rfc_message_id(self, trigger: Object, message_id: str) -> Object | None:
         candidates = self._session.scalars(
             select(Object).where(
                 Object.user_id == self._user_id,
@@ -110,13 +122,12 @@ class DeterministicRelationService:
                 Object.provider == trigger.provider,
                 Object.id != trigger.id,
                 Object.state != "rejected",
-            )
+            ).limit(MAX_MAIL_PEER_LOOKUP_ROWS)
         ).all()
         needle = message_id.lower()
         for obj in candidates:
-            meta = obj.metadata_ or {}
-            mid = meta.get("message_id") or (meta.get("headers") or {}).get("message-id")
-            if mid and str(mid).strip("<>").lower() == needle:
+            rfc_id = extract_rfc_message_id(obj.metadata_ or {}, obj.provider)
+            if rfc_id and rfc_id == needle:
                 return obj
         return None
 

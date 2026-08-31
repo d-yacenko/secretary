@@ -6,6 +6,7 @@ CORRELATION_TRIGGER_KINDS = frozenset(
     {
         "email",
         "calendar_event",
+        "event",
         "file",
         "document",
         "dataset",
@@ -25,6 +26,10 @@ CANDIDATE_MAX_EXACT_THREAD = 8
 CANDIDATE_MAX_PARTICIPANT_TIME = 8
 CANDIDATE_MAX_SEMANTIC = 8
 
+MAX_MAIL_REFERENCE_IDS = 20
+MAX_MAIL_PEER_LOOKUP_ROWS = 200
+
+SEMANTIC_SUMMARY_INPUT_MAX_CHARS = 4000
 SEMANTIC_SUMMARY_MAX_CHARS = 500
 SEMANTIC_SUMMARY_METADATA_KEY = "semantic_summary"
 SEMANTIC_SUMMARY_REVISION_KEY = "semantic_summary_revision"

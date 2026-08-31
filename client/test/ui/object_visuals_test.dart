@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_secretary/ui/object_visuals.dart';
 
@@ -5,6 +6,8 @@ void main() {
   test('known object kind icon and label', () {
     expect(iconForKind('task'), isNotNull);
     expect(objectKindLabel('email'), 'Письмо');
+    expect(iconForKind('folder'), Icons.folder_outlined);
+    expect(objectKindLabel('folder'), 'Папка');
     expect(iconForKind('unknown_kind'), isNotNull);
     expect(objectKindLabel('unknown_kind'), 'unknown_kind');
   });

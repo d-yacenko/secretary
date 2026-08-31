@@ -72,7 +72,7 @@ def _staged_upload(path: Path, filename: str | None = None) -> StagedUpload:
     )
 
 
-def test_register_google_drive_metadata_only_no_embed_job(db_session, upload_root) -> None:
+def test_register_google_drive_metadata_only_enqueues_embed(db_session, upload_root) -> None:
     service = _register_service(db_session, upload_root)
     result = service.register(
         ResourceRegisterRequest(
@@ -90,8 +90,11 @@ def test_register_google_drive_metadata_only_no_embed_job(db_session, upload_roo
         )
     )
     assert result.status == "created"
-    assert result.jobs_enqueued == 0
+    assert result.jobs_enqueued == 1
     assert result.representations_created == 0
+
+    job = db_session.scalar(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT))
+    assert job is not None
 
     obj = db_session.scalar(select(Object).where(Object.id == result.object_id))
     assert obj is not None
@@ -220,7 +223,7 @@ def test_register_metadata_only_then_ingest_once(db_session, upload_root) -> Non
             metadata=metadata,
         )
     )
-    assert first.jobs_enqueued == 0
+    assert first.jobs_enqueued == 1
     obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
     assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) is None
 
@@ -312,7 +315,7 @@ def test_register_revision_change_updates_metadata_without_embed(db_session, upl
         )
     )
     assert second.status == "updated"
-    assert second.jobs_enqueued == 0
+    assert second.jobs_enqueued == 1
     obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
     assert obj.title == "Budget report v2"
     assert obj.metadata_["etag"] == "rev-2"
@@ -441,7 +444,7 @@ def test_register_web_page_stub_without_ingest(db_session, upload_root) -> None:
         )
     )
     assert result.status == "created"
-    assert result.jobs_enqueued == 0
+    assert result.jobs_enqueued == 1
     obj = db_session.scalar(select(Object).where(Object.id == result.object_id))
     assert obj.kind == "web_page"
 
@@ -545,7 +548,7 @@ def test_register_api_json(client: TestClient) -> None:
     assert response.status_code == 201
     payload = response.json()
     assert payload["status"] == "created"
-    assert payload["jobs_enqueued"] == 0
+    assert payload["jobs_enqueued"] == 1
 
 
 def test_register_api_multipart_upload(client: TestClient) -> None:
@@ -844,7 +847,7 @@ def test_metadata_only_upload_persisted_for_later_ingest(
         ),
         staged_upload=staged,
     )
-    assert first.jobs_enqueued == 0
+    assert first.jobs_enqueued == 1
     obj = db_session.scalar(select(Object).where(Object.id == first.object_id))
     stored_path = Path(obj.metadata_["upload_path"])
     assert stored_path.is_file()

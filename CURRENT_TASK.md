@@ -20,7 +20,7 @@ Baseline: `7b98489c1797d758d1f6edee49fe522628d8060b`
 
 ## Next subphase
 
-PHASE 26B — Source Navigation, Attachments & File Intake
+PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake
 
 ## STOP
 

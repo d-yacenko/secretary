@@ -145,10 +145,11 @@ def handle_summarize_resource(
         if expected_revision is not None and metadata.get("content_revision") != expected_revision:
             return
         summarizer = create_openai_summarizer()
-        SemanticSummaryService(lookup_session, user_id, summarizer=summarizer).update_summary_for_object(
-            object_id
-        )
-        enqueue_embed_object(lookup_session, object_id, user_id)
+        summary = SemanticSummaryService(
+            lookup_session, user_id, summarizer=summarizer
+        ).update_summary_for_object(object_id)
+        if summary is not None:
+            enqueue_embed_object(lookup_session, object_id, user_id)
         lookup_session.commit()
     finally:
         lookup_session.close()

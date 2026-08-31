@@ -277,6 +277,17 @@ class ResourceRegistrationService:
                 revision,
             )
             jobs_enqueued = 1
+        elif (
+            not data.ingest_content or not self._revision_already_ingested(obj, revision)
+        ) and (
+            created
+            or metadata_changed
+            or (revision is not None and not same_revision)
+        ):
+            from app.services.pipeline_enqueue import enqueue_embed_object
+
+            enqueue_embed_object(self._session, obj.id, self._user_id)
+            jobs_enqueued = 1
 
         self._session.flush()
 

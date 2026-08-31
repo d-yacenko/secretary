@@ -47,6 +47,11 @@ void main() {
 
   test('relation type labels', () {
     expect(relationTypeLabel('related_to'), 'Связано с');
+    expect(relationTypeLabel('contains'), 'Содержит');
     expect(relationTypeLabel('custom_edge'), 'custom_edge');
+  });
+
+  test('folder kind label', () {
+    expect(objectKindLabel('folder'), 'Папка');
   });
 }

@@ -36,6 +36,8 @@ from app.services.errors import NotFoundError, ValidationError
 from app.services.folder_containment_service import FolderContainmentService
 from app.services.folder_object_service import FolderObjectService
 from app.services.job_queue_service import JobQueueService
+from app.services.pipeline_enqueue import enqueue_embed_object
+from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 from app.services.local_device_service import LocalDeviceService
 
 
@@ -207,6 +209,7 @@ class LocalFileSyncService:
             )
 
             was_created = obj is None
+            prior_revision: str | None = None
             if was_created:
                 metadata["registered_at"] = datetime.now(UTC).isoformat()
                 suffix = Path(normalized_rel).suffix.lower()
@@ -229,6 +232,8 @@ class LocalFileSyncService:
                 prior_meta = obj.metadata_ or {}
                 prior_revision = prior_meta.get("content_revision")
                 merged = dict(prior_meta)
+                if prior_revision != revision:
+                    merged = invalidate_semantic_summary_metadata(merged)
                 merged.update(metadata)
                 obj.title = Path(normalized_rel).name
                 obj.kind = infer_local_kind(Path(normalized_rel).suffix.lower())
@@ -251,6 +256,8 @@ class LocalFileSyncService:
 
             if policy == POLICY_METADATA_ONLY:
                 file_object_ids.append(obj.id)
+                if was_created or prior_revision != revision:
+                    enqueue_embed_object(self._session, obj.id, self._user_id)
                 continue
 
             self._job_queue.enqueue(

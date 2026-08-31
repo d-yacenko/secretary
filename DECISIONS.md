@@ -139,3 +139,17 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Local roots map to `folder` objects with `system/confirmed contains` edges.
 - Proposed correlation review via `POST /relations/{edge_id}/decision`; not a Pending Action Plan.
 
+## PHASE 26B — Client-assisted local file intake (deferred)
+
+Canonical future local-device path:
+
+`Desktop / Android → choose/drop file → mechanical local extraction (filename/path, size/mtime, revision/hash, bounded text/chunks, dataset schema/sample/statistics) → typed bounded payload → backend validation → canonical Object/Representation → semantic summary → embedding → correlation`
+
+Architecture rule: mechanical extraction may happen on the client; semantic understanding remains server-side. The client must not make semantic correlation decisions. The backend must still validate all client-extracted representation bounds and ownership.
+
+PHASE 26B should use this path for: desktop drag-and-drop, desktop file/folder intake, Android system file picker.
+
+Server-side parsing remains valid for: cloud/server-accessible sources, compatibility/fallback paths.
+
+Do not implement client extraction in PHASE 26A closure.
+

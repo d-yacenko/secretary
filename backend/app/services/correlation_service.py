@@ -1,5 +1,6 @@
 """Orchestrates bounded correlation runs."""
 
+import math
 from uuid import UUID
 
 from sqlalchemy import select
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate
 from app.db.models import Object
+from app.domain.task_lifecycle import TASK_STATUS_DELETED
 from app.llm.correlation_judge import CorrelationJudge
 from app.services.correlation_candidate_service import CorrelationCandidateService
 from app.services.correlation_constants import (
@@ -17,16 +19,16 @@ from app.services.correlation_constants import (
     CORRELATION_VERSION,
     SEMANTIC_SUMMARY_METADATA_KEY,
 )
-from app.services.correlation_models import CorrelationCandidate
+from app.services.correlation_models import CorrelationCandidate, CorrelationDecision
 from app.services.deterministic_relation_service import DeterministicRelationService
-from app.services.edge_dedup import has_equivalent_relation, has_rejected_proposal_signature
+from app.services.edge_dedup import (
+    correlation_signature,
+    has_equivalent_relation,
+    has_rejected_proposal_signature,
+)
 from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
 from app.services.provenance import AGENT_ORIGIN, PROPOSED_STATE
-
-
-def correlation_signature(trigger_id: UUID, target_id: UUID, relation_type: str) -> str:
-    return f"{CORRELATION_VERSION}:{trigger_id}:{target_id}:{relation_type}"
 
 
 class CorrelationService:
@@ -62,6 +64,7 @@ class CorrelationService:
         if not candidate_list:
             return 0
 
+        allowed_candidate_ids = {candidate.object_id for candidate in candidate_list}
         trigger_summary = _trigger_summary(trigger)
         judge_result = self._judge.judge(
             trigger_title=trigger.title,
@@ -74,19 +77,13 @@ class CorrelationService:
         for decision in judge_result.decisions:
             if created >= CORRELATION_MAX_PROPOSED_EDGES:
                 break
-            if decision.confidence < CORRELATION_MIN_CONFIDENCE:
-                continue
-            if decision.relation_type not in CORRELATION_ALLOWED_TYPES:
-                continue
-            if decision.target_object_id == trigger_object_id:
-                continue
-            target = self._session.scalar(
-                select(Object).where(
-                    Object.id == decision.target_object_id,
-                    Object.user_id == self._user_id,
-                )
-            )
-            if target is None or target.state == "rejected":
+            if not _is_valid_judge_decision(
+                decision,
+                trigger_object_id,
+                allowed_candidate_ids,
+                self._session,
+                self._user_id,
+            ):
                 continue
             if has_equivalent_relation(
                 self._session,
@@ -133,6 +130,39 @@ class CorrelationService:
             )
             created += 1
         return created
+
+
+def _is_valid_judge_decision(
+    decision: CorrelationDecision,
+    trigger_object_id: UUID,
+    allowed_candidate_ids: set[UUID],
+    session: Session,
+    user_id: UUID,
+) -> bool:
+    target_id = decision.target_object_id
+    if target_id not in allowed_candidate_ids:
+        return False
+    if target_id == trigger_object_id:
+        return False
+    if decision.relation_type not in CORRELATION_ALLOWED_TYPES:
+        return False
+    confidence = decision.confidence
+    if not math.isfinite(confidence):
+        return False
+    if confidence < 0.0 or confidence > 1.0:
+        return False
+    if confidence < CORRELATION_MIN_CONFIDENCE:
+        return False
+    target = session.scalar(
+        select(Object).where(Object.id == target_id, Object.user_id == user_id)
+    )
+    if target is None:
+        return False
+    if target.state == "rejected":
+        return False
+    if target.status == TASK_STATUS_DELETED:
+        return False
+    return True
 
 
 def _trigger_summary(trigger: Object) -> str:

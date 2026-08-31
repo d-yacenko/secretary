@@ -1,6 +1,7 @@
 """Bounded correlation candidate generation."""
 
 from datetime import UTC, datetime, timedelta
+from email.utils import getaddresses, parseaddr
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -12,8 +13,8 @@ from app.services.correlation_constants import (
     CANDIDATE_MAX_EXACT_THREAD,
     CANDIDATE_MAX_PARTICIPANT_TIME,
     CANDIDATE_MAX_SEMANTIC,
-    CORRELATION_HARD_MAX_CANDIDATES,
     CORRELATION_MAX_FINAL_CANDIDATES,
+    MAX_MAIL_PEER_LOOKUP_ROWS,
     SEMANTIC_SUMMARY_METADATA_KEY,
 )
 from app.services.correlation_models import CorrelationCandidate
@@ -51,6 +52,17 @@ def _content_summary(obj: Object, summary_rep: str | None) -> str:
     return obj.title[:500]
 
 
+def _normalize_email_address(value: str) -> str | None:
+    text = value.strip()
+    if not text:
+        return None
+    _, addr = parseaddr(text)
+    candidate = addr.strip() if addr else text
+    if "@" not in candidate:
+        return None
+    return candidate.lower()
+
+
 class CorrelationCandidateService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
@@ -73,6 +85,8 @@ class CorrelationCandidateService:
         def add_candidate(candidate: CorrelationCandidate) -> None:
             if candidate.object_id == trigger_object_id:
                 return
+            if len(by_id) >= CORRELATION_MAX_FINAL_CANDIDATES:
+                return
             existing = by_id.get(candidate.object_id)
             if existing is None:
                 by_id[candidate.object_id] = candidate
@@ -90,21 +104,23 @@ class CorrelationCandidateService:
 
         for candidate in self._exact_thread_candidates(trigger):
             add_candidate(candidate)
-            if len(by_id) >= CANDIDATE_MAX_EXACT_THREAD:
-                break
-
-        for candidate in self._participant_time_candidates(trigger):
-            add_candidate(candidate)
-            if len(by_id) >= CANDIDATE_MAX_EXACT_THREAD + CANDIDATE_MAX_PARTICIPANT_TIME:
-                break
-
-        for candidate in self._semantic_candidates(trigger):
-            add_candidate(candidate)
             if len(by_id) >= CORRELATION_MAX_FINAL_CANDIDATES:
                 break
 
+        if len(by_id) < CORRELATION_MAX_FINAL_CANDIDATES:
+            for candidate in self._participant_time_candidates(trigger):
+                add_candidate(candidate)
+                if len(by_id) >= CORRELATION_MAX_FINAL_CANDIDATES:
+                    break
+
+        if len(by_id) < CORRELATION_MAX_FINAL_CANDIDATES:
+            for candidate in self._semantic_candidates(trigger, by_id):
+                add_candidate(candidate)
+                if len(by_id) >= CORRELATION_MAX_FINAL_CANDIDATES:
+                    break
+
         ordered = sorted(by_id.values(), key=lambda row: (row.kind, row.title, str(row.object_id)))
-        return ordered[:CORRELATION_HARD_MAX_CANDIDATES]
+        return ordered[:CORRELATION_MAX_FINAL_CANDIDATES]
 
     def _is_eligible_target(self, obj: Object) -> bool:
         if obj.state == "rejected":
@@ -149,6 +165,8 @@ class CorrelationCandidateService:
                 Object.provider == trigger.provider,
                 Object.id != trigger.id,
             )
+            .order_by(Object.occurred_at.desc().nullslast(), Object.id)
+            .limit(MAX_MAIL_PEER_LOOKUP_ROWS)
         ).all()
         results: list[CorrelationCandidate] = []
         for peer in peers:
@@ -174,7 +192,9 @@ class CorrelationCandidateService:
             select(Object).where(
                 Object.user_id == self._user_id,
                 Object.id != trigger.id,
-            ).limit(200)
+            )
+            .order_by(Object.updated_at.desc().nullslast(), Object.id)
+            .limit(MAX_MAIL_PEER_LOOKUP_ROWS)
         ).all()
 
         results: list[CorrelationCandidate] = []
@@ -195,7 +215,16 @@ class CorrelationCandidateService:
                 break
         return results
 
-    def _semantic_candidates(self, trigger: Object) -> list[CorrelationCandidate]:
+    def _semantic_candidates(
+        self,
+        trigger: Object,
+        existing: dict[UUID, CorrelationCandidate],
+    ) -> list[CorrelationCandidate]:
+        remaining = CORRELATION_MAX_FINAL_CANDIDATES - len(existing)
+        semantic_limit = min(CANDIDATE_MAX_SEMANTIC, remaining)
+        if semantic_limit <= 0:
+            return []
+
         query_parts = [trigger.title]
         meta = trigger.metadata_ or {}
         semantic = meta.get(SEMANTIC_SUMMARY_METADATA_KEY)
@@ -206,10 +235,10 @@ class CorrelationCandidateService:
         query = " ".join(part for part in query_parts if part).strip()
         if not query:
             return []
-        hits = self._search.search(query=query, limit=CANDIDATE_MAX_SEMANTIC)
+        hits = self._search.search(query=query, limit=semantic_limit)
         results: list[CorrelationCandidate] = []
         for hit in hits:
-            if hit.id == trigger.id:
+            if hit.id == trigger.id or hit.id in existing:
                 continue
             obj = self._session.scalar(
                 select(Object).where(Object.id == hit.id, Object.user_id == self._user_id)
@@ -223,7 +252,7 @@ class CorrelationCandidateService:
                     self._relation_hint(trigger.id, obj.id),
                 )
             )
-            if len(results) >= CANDIDATE_MAX_SEMANTIC:
+            if len(results) >= semantic_limit:
                 break
         return results
 
@@ -251,14 +280,23 @@ class CorrelationCandidateService:
         emails: set[str] = set()
         for key in ("sender", "from"):
             value = meta.get(key)
-            if isinstance(value, str) and value.strip():
-                emails.add(value.strip().lower())
+            if isinstance(value, str):
+                normalized = _normalize_email_address(value)
+                if normalized:
+                    emails.add(normalized)
         for key in ("recipients", "to", "cc"):
             value = meta.get(key)
             if isinstance(value, list):
                 for item in value:
-                    if isinstance(item, str) and item.strip():
-                        emails.add(item.strip().lower())
+                    if isinstance(item, str):
+                        normalized = _normalize_email_address(item)
+                        if normalized:
+                            emails.add(normalized)
+            elif isinstance(value, str):
+                for _, addr in getaddresses([value]):
+                    normalized = _normalize_email_address(addr or value)
+                    if normalized:
+                        emails.add(normalized)
         return emails
 
     def _participants_overlap(self, left: set[str], right: set[str]) -> bool:

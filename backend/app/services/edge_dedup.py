@@ -6,9 +6,16 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Edge
-from app.services.correlation_constants import EDGE_TYPE_RELATED_TO
+from app.services.correlation_constants import CORRELATION_VERSION, EDGE_TYPE_RELATED_TO
 
 _NON_REJECTED_STATES = ("observed", "proposed", "confirmed")
+
+
+def correlation_signature(trigger_id: UUID, target_id: UUID, relation_type: str) -> str:
+    if relation_type == EDGE_TYPE_RELATED_TO:
+        left_id, right_id = sorted((trigger_id, target_id), key=str)
+        return f"{CORRELATION_VERSION}:{left_id}:{right_id}:{relation_type}"
+    return f"{CORRELATION_VERSION}:{trigger_id}:{target_id}:{relation_type}"
 
 
 def has_equivalent_relation(
@@ -70,16 +77,30 @@ def has_rejected_proposal_signature(
     relation_type: str,
     signature: str,
 ) -> bool:
-    edges = session.scalars(
-        select(Edge).where(
-            Edge.user_id == user_id,
-            Edge.source_id == trigger_object_id,
-            Edge.target_id == target_id,
-            Edge.type == relation_type,
-            Edge.origin == "agent",
-            Edge.state == "rejected",
-        )
-    ).all()
+    if relation_type == EDGE_TYPE_RELATED_TO:
+        edges = session.scalars(
+            select(Edge).where(
+                Edge.user_id == user_id,
+                Edge.type == EDGE_TYPE_RELATED_TO,
+                Edge.origin == "agent",
+                Edge.state == "rejected",
+                or_(
+                    and_(Edge.source_id == trigger_object_id, Edge.target_id == target_id),
+                    and_(Edge.source_id == target_id, Edge.target_id == trigger_object_id),
+                ),
+            )
+        ).all()
+    else:
+        edges = session.scalars(
+            select(Edge).where(
+                Edge.user_id == user_id,
+                Edge.source_id == trigger_object_id,
+                Edge.target_id == target_id,
+                Edge.type == relation_type,
+                Edge.origin == "agent",
+                Edge.state == "rejected",
+            )
+        ).all()
     for edge in edges:
         meta = edge.metadata_ or {}
         if meta.get("correlation_signature") == signature:

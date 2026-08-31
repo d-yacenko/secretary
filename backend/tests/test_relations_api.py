@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.schemas import EdgeCreate, ObjectCreate
-from app.db.models import Object
+from app.db.models import Object, User
 from app.main import app
 from app.services.graph_service import GraphService
 from app.services.provenance import CONFIRMED_STATE
@@ -149,3 +149,164 @@ def test_create_related_to_references_depends_on(db_session, relation_client):
         )
         assert response.status_code == 200
         assert response.json()["edge"]["type"] == relation_type
+
+
+def _proposed_edge(graph: GraphService, source, target, relation_type: str = "related_to"):
+    return graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type=relation_type,
+            origin="agent",
+            state="proposed",
+            confidence=0.9,
+        )
+    )
+
+
+def test_relation_decision_confirm_api(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = _proposed_edge(graph, source, target)
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "confirm"},
+    )
+    assert response.status_code == 200
+    assert response.json()["edge"]["state"] == "confirmed"
+
+
+def test_relation_decision_reject_api(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = _proposed_edge(graph, source, target)
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "reject"},
+    )
+    assert response.status_code == 200
+    assert response.json()["edge"]["state"] == "rejected"
+
+
+def test_relation_decision_wrong_user_404(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    other_user = User(display_name="Other")
+    db_session.add(other_user)
+    db_session.flush()
+    other_graph = GraphService(db_session, other_user.id)
+    source = other_graph.create_object(
+        ObjectCreate(kind="note", title="Other source", origin="user", state=CONFIRMED_STATE)
+    )
+    target = other_graph.create_object(
+        ObjectCreate(kind="note", title="Other target", origin="user", state=CONFIRMED_STATE)
+    )
+    edge = _proposed_edge(other_graph, source, target)
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "confirm"},
+    )
+    assert response.status_code == 404
+
+
+def test_relation_decision_source_observed_rejected(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type="references",
+            origin="source",
+            state="observed",
+        )
+    )
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "confirm"},
+    )
+    assert response.status_code == 422
+
+
+def test_relation_decision_user_confirmed_rejected(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type="related_to",
+            origin="user",
+            state=CONFIRMED_STATE,
+        )
+    )
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "confirm"},
+    )
+    assert response.status_code == 422
+
+
+def test_relation_decision_already_confirmed_cannot_transition(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type="related_to",
+            origin="agent",
+            state="confirmed",
+            confidence=0.9,
+        )
+    )
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "reject"},
+    )
+    assert response.status_code == 422
+
+
+def test_relation_decision_already_rejected_cannot_transition(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type="related_to",
+            origin="agent",
+            state="rejected",
+            confidence=0.9,
+        )
+    )
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "confirm"},
+    )
+    assert response.status_code == 422
+
+
+def test_relation_decision_invalid_schema(db_session, relation_client):
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _object(graph, "Source")
+    target = _object(graph, "Target")
+    edge = _proposed_edge(graph, source, target)
+    db_session.flush()
+    response = relation_client.post(
+        f"/relations/{edge.id}/decision",
+        json={"decision": "approve"},
+    )
+    assert response.status_code == 422

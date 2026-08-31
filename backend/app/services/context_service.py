@@ -524,11 +524,10 @@ class ContextService:
             ).all()
         )
         if query:
-            ranked = self._search.search(query=query, limit=MAX_FOLDER_CONTAINED)
-            rank_order = {hit.id: index for index, hit in enumerate(ranked)}
+            query_lower = query.lower()
             objects.sort(
                 key=lambda obj: (
-                    rank_order.get(obj.id, MAX_FOLDER_CONTAINED + 1),
+                    -_folder_contained_text_score(obj, query_lower),
                     str(obj.id),
                 )
             )
@@ -566,6 +565,22 @@ class ContextService:
                 )
             )
         return slots
+
+
+def _folder_contained_text_score(obj: Object, query_lower: str) -> int:
+    if not query_lower:
+        return 0
+    score = 0
+    title = obj.title.lower()
+    if query_lower in title:
+        score += 10
+    meta = obj.metadata_ or {}
+    summary = meta.get(SEMANTIC_SUMMARY_METADATA_KEY)
+    if isinstance(summary, str) and query_lower in summary.lower():
+        score += 5
+    if obj.body and query_lower in obj.body.lower():
+        score += 3
+    return score
 
 
 def _bounded_body_excerpt(body: str, max_len: int) -> tuple[str, bool]:

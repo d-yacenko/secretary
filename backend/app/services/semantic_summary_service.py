@@ -7,13 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Object, Representation
 from app.llm.summarizer import FakeSummarizer, Summarizer
+from app.services.bounded_chunks import select_bounded_chunk_indices
 from app.services.correlation_constants import (
+    SEMANTIC_SUMMARY_INPUT_MAX_CHARS,
     SEMANTIC_SUMMARY_MAX_CHARS,
     SEMANTIC_SUMMARY_METADATA_KEY,
     SEMANTIC_SUMMARY_REVISION_KEY,
 )
 from app.services.errors import NotFoundError
 from app.services.representation_service import (
+    KIND_CHUNK,
     KIND_FULL,
     KIND_SAMPLE,
     KIND_SCHEMA,
@@ -22,6 +25,15 @@ from app.services.representation_service import (
     SMALL_TEXT_MAX_CHARS,
     RepresentationService,
 )
+
+_MAX_SUMMARY_CHUNKS = 8
+
+
+def invalidate_semantic_summary_metadata(metadata: dict) -> dict:
+    cleaned = dict(metadata)
+    cleaned.pop(SEMANTIC_SUMMARY_METADATA_KEY, None)
+    cleaned.pop(SEMANTIC_SUMMARY_REVISION_KEY, None)
+    return cleaned
 
 
 class SemanticSummaryService:
@@ -44,8 +56,8 @@ class SemanticSummaryService:
             raise NotFoundError("object", object_id)
 
         metadata = dict(obj.metadata_ or {})
-        content_revision = metadata.get("content_revision")
-        if content_revision is None:
+        expected_revision = metadata.get("content_revision")
+        if expected_revision is None:
             return None
 
         reps = self._representations.list_for_object(object_id)
@@ -58,11 +70,17 @@ class SemanticSummaryService:
         else:
             summary_text = self._summarizer.summarize(summary_input)
 
+        self._session.refresh(obj)
+        current_metadata = dict(obj.metadata_ or {})
+        if current_metadata.get("content_revision") != expected_revision:
+            return None
+
         summary_text = summary_text[:SEMANTIC_SUMMARY_MAX_CHARS]
+        reps = self._representations.list_for_object(object_id)
         self._upsert_summary_representation(object_id, summary_text, reps)
-        metadata[SEMANTIC_SUMMARY_METADATA_KEY] = summary_text
-        metadata[SEMANTIC_SUMMARY_REVISION_KEY] = content_revision
-        obj.metadata_ = metadata
+        current_metadata[SEMANTIC_SUMMARY_METADATA_KEY] = summary_text
+        current_metadata[SEMANTIC_SUMMARY_REVISION_KEY] = expected_revision
+        obj.metadata_ = current_metadata
         self._session.flush()
         return summary_text
 
@@ -79,14 +97,37 @@ class SemanticSummaryService:
             if rep.kind == KIND_FULL:
                 full_text = rep.text
                 break
-        if full_text:
+        if full_text and len(full_text.strip()) <= SMALL_TEXT_MAX_CHARS:
             return full_text
+
+        chunk_texts = [rep.text for rep in reps if rep.kind == KIND_CHUNK and rep.text]
+        if chunk_texts:
+            return self._bounded_chunks_input(chunk_texts)
+
+        if full_text:
+            return full_text[:SEMANTIC_SUMMARY_INPUT_MAX_CHARS]
         if obj.body:
-            return obj.body
+            return obj.body[:SEMANTIC_SUMMARY_INPUT_MAX_CHARS]
         for rep in reps:
             if rep.kind == KIND_SUMMARY:
                 return rep.text
         return obj.title
+
+    def _bounded_chunks_input(self, chunks: list[str]) -> str:
+        max_chunks = min(len(chunks), _MAX_SUMMARY_CHUNKS)
+        indices = select_bounded_chunk_indices(len(chunks), max_chunks)
+        parts: list[str] = []
+        total = 0
+        for index in indices:
+            chunk = chunks[index]
+            if total + len(chunk) > SEMANTIC_SUMMARY_INPUT_MAX_CHARS:
+                remaining = SEMANTIC_SUMMARY_INPUT_MAX_CHARS - total
+                if remaining > 0:
+                    parts.append(chunk[:remaining])
+                break
+            parts.append(chunk)
+            total += len(chunk) + 1
+        return "\n".join(parts)
 
     def _upsert_summary_representation(
         self,

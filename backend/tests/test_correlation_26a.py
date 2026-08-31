@@ -93,7 +93,7 @@ def test_gmail_in_reply_to_creates_references(db_session) -> None:
     parent = _create_email(
         graph,
         "Parent",
-        {"message_id": "<parent@example.com>", "thread_id": "t1"},
+        {"headers": {"message-id": "<parent@example.com>"}, "thread_id": "t1"},
         external_id="parent",
     )
     child = _create_email(

@@ -42,9 +42,9 @@ PHASE 25 manual UI verification: **PASS** (2026-08-30).
 
 PHASE 25.1 — UX Baseline: **accepted / closed** (`4c40b93`).
 
-PHASE 26A — Correlation Core & Semantic Resource Context: **implementation complete, awaiting architect review** (branch `review/phase-26a-correlation-core`).
+PHASE 26A closure corrective delivered on branch `review/phase-26a-correlation-core` (hardening correlation validation, candidate caps, metadata-only embed pipeline, semantic-summary revision safety, folder-scoped context, RFC Message-ID handling, relation decision API tests, Flutter regressions).
 
-Next planned subphase: PHASE 26B — Source Navigation, Attachments & File Intake.
+Next planned subphase: PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake.
 
 Do not start PHASE 26B until PHASE 26A architect review is recorded.
 
