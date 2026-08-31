@@ -6,12 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import Notification, Object
+from app.domain.task_lifecycle import TERMINAL_TASK_STATUSES_FOR_TODAY
 from app.notifications.constants import (
     NOTIFICATION_STATUS_NEW,
     NOTIFICATION_STATUS_READ,
 )
-
-from app.domain.task_lifecycle import TERMINAL_TASK_STATUSES_FOR_TODAY
 
 TODAY_MAX_TASKS = 100
 TODAY_MAX_EVENTS = 100
@@ -26,8 +25,13 @@ class TodayService:
         self._session = session
         self._user_id = user_id
 
-    def snapshot(self, reference_at: datetime | None = None) -> dict:
-        tz = ZoneInfo(settings.secretary_timezone)
+    def snapshot(
+        self,
+        reference_at: datetime | None = None,
+        timezone: str | None = None,
+    ) -> dict:
+        tz_name = timezone or settings.secretary_timezone
+        tz = ZoneInfo(tz_name)
         now_local = (
             reference_at.astimezone(tz)
             if reference_at is not None
@@ -42,7 +46,7 @@ class TodayService:
 
         return {
             "date": now_local.date().isoformat(),
-            "timezone": settings.secretary_timezone,
+            "timezone": tz_name,
             "day_start": day_start,
             "tasks": tasks,
             "calendar_events": events,

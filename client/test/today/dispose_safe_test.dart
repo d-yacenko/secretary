@@ -14,13 +14,15 @@ import 'package:personal_secretary/inbox/inbox_screen.dart';
 import 'package:personal_secretary/objects/object_detail_screen.dart';
 import 'package:personal_secretary/today/today_screen.dart';
 
+import '../test_secretary_api_client.dart';
+
 void main() {
   const baseUrl = 'https://secretary.example';
   const token = 'dispose-token';
 
   SecretaryApiClient buildClient(Future<http.Response> todayResponse) {
-    final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async {
+    final apiClient = testSecretaryApiClient(
+      MockClient((request) async {
         if (request.url.path == '/today') {
           return todayResponse;
         }

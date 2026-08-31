@@ -558,6 +558,89 @@ void main() {
     expect(controller.errorMessage, 'offline');
     expect(controller.loadState, GraphWorkspaceLoadState.ready);
   });
+
+  test('display filters hide nodes and edges without reloading layout', () async {
+    final auth = _FakeAuth();
+    final task = SecretaryObject(
+      id: 'task-local',
+      kind: 'task',
+      title: 'Local task',
+      metadata: {},
+      origin: 'user',
+      state: 'confirmed',
+      provider: 'local_device',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    final gmail = SecretaryObject(
+      id: 'email-gmail',
+      kind: 'email',
+      title: 'Gmail mail',
+      metadata: {},
+      origin: 'source',
+      state: 'observed',
+      provider: 'gmail',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    final yandex = SecretaryObject(
+      id: 'email-yandex',
+      kind: 'email',
+      title: 'Yandex mail',
+      metadata: {},
+      origin: 'source',
+      state: 'observed',
+      provider: 'yandex_mail',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+  final edgeTaskGmail = SecretaryEdge(
+      id: 'e-task-gmail',
+      sourceId: 'task-local',
+      targetId: 'email-gmail',
+      type: 'references',
+      origin: 'user',
+      state: 'confirmed',
+      metadata: {},
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    final controller = GraphWorkspaceController(
+      apiClient: _FakeApiClient((_) async {
+        return GraphWorkspaceOut(
+          rootId: null,
+          seedIds: ['task-local', 'email-gmail', 'email-yandex'],
+          nodes: [task, gmail, yandex],
+          edges: [edgeTaskGmail],
+          truncated: false,
+        );
+      }),
+      authController: auth,
+    );
+
+    await controller.loadOverview();
+    final originalPositions = Map<String, Offset>.from(controller.positions);
+
+    controller.searchKindFilter = 'email';
+    controller.applyDisplayFilters();
+    expect(controller.visibleNodes.map((n) => n.id).toList(),
+        ['email-gmail', 'email-yandex']);
+    expect(controller.visibleEdges, isEmpty);
+
+    controller.searchProviderFilter = 'gmail';
+    controller.applyDisplayFilters();
+    expect(controller.visibleNodes.single.id, 'email-gmail');
+
+    controller.searchProviderFilter = null;
+    controller.applyDisplayFilters();
+    expect(controller.visibleNodes.length, 2);
+
+    controller.searchKindFilter = null;
+    controller.applyDisplayFilters();
+    expect(controller.visibleNodes.length, 3);
+    expect(controller.positions['task-local'], originalPositions['task-local']);
+    expect(controller.positions['email-gmail'], originalPositions['email-gmail']);
+  });
 }
 
 void _expectNoOverlaps(Map<String, Offset> positions) {

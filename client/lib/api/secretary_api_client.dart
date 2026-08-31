@@ -7,15 +7,21 @@ import 'package:http_parser/http_parser.dart';
 import 'api_error.dart';
 import 'api_models.dart';
 import '../config/url_utils.dart';
+import '../timezone/client_timezone_context.dart';
 
 /// Typed HTTP client for Secretary personal APIs.
 class SecretaryApiClient {
-  SecretaryApiClient({http.Client? httpClient, Duration? timeout})
-      : _httpClient = httpClient ?? http.Client(),
-        _timeout = timeout ?? const Duration(seconds: 30);
+  SecretaryApiClient({
+    http.Client? httpClient,
+    Duration? timeout,
+    ClientTimezoneProvider? timezoneProvider,
+  })  : _httpClient = httpClient ?? http.Client(),
+        _timeout = timeout ?? const Duration(seconds: 30),
+        _timezoneProvider = timezoneProvider ?? const SystemClientTimezoneProvider();
 
   final http.Client _httpClient;
   final Duration _timeout;
+  final ClientTimezoneProvider _timezoneProvider;
 
   Uri? _baseUri;
   String? _token;
@@ -87,7 +93,12 @@ class SecretaryApiClient {
   }
 
   Future<TodayOut> getToday() async {
-    final body = await _request('GET', '/today');
+    final timezone = await _timezoneProvider.current();
+    final body = await _request(
+      'GET',
+      '/today',
+      queryParameters: timezone.queryParameters(),
+    );
     return TodayOut.fromJson(body);
   }
 
@@ -326,10 +337,18 @@ class SecretaryApiClient {
   Future<AssistantMessageResponse> sendAssistantMessage(
     AssistantMessageRequest request,
   ) async {
+    final timezone = await _timezoneProvider.current();
+    final payload = request.toJson();
+    if (request.clientTimezoneId == null && timezone.zoneId != null) {
+      payload['client_timezone_id'] = timezone.zoneId;
+    }
+    if (request.clientUtcOffsetMinutes == null) {
+      payload['client_utc_offset_minutes'] = timezone.utcOffsetMinutes;
+    }
     final body = await _request(
       'POST',
       '/assistant/message',
-      jsonBody: request.toJson(),
+      jsonBody: payload,
     );
     return AssistantMessageResponse.fromJson(body);
   }

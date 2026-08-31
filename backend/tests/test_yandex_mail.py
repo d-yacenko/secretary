@@ -262,6 +262,8 @@ def test_bounded_yandex_sync_creates_observed_email_objects(
             select(Object).where(
                 Object.provider == "yandex_mail",
                 Object.kind == "email",
+                Object.user_id == BOOTSTRAP_USER_ID,
+                Object.title.in_(["First", "Second"]),
             )
         ).all()
     )

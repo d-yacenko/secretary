@@ -14,6 +14,7 @@ from app.assistant.constants import (
     MAX_ASSISTANT_HISTORY_TOTAL_CHARS,
     MAX_ASSISTANT_MESSAGE_CHARS,
     MAX_ASSISTANT_REFERENCES,
+    MAX_ASSISTANT_TOOL_CALLS_PER_TURN,
     MAX_UI_CONTEXT_CHARS,
 )
 from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_preserve_order
@@ -24,6 +25,11 @@ from app.core.assistant_openai_config import (
     AssistantOpenAIConfigError,
     validated_assistant_openai_settings,
 )
+from app.core.client_timezone import (
+    clear_request_timezone,
+    resolve_client_timezone,
+    set_request_timezone,
+)
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
@@ -33,7 +39,7 @@ from app.llm.openai_assistant_provider import (
     OpenAIAssistantProvider,
 )
 from app.services.action_plan_service import ActionPlanService, PendingActionPlanView
-from app.services.errors import NotFoundError
+from app.services.errors import NotFoundError, ValidationError
 from app.services.notification_service import NotificationService
 from app.services.secretary_service import normalize_reference_datetime
 
@@ -132,6 +138,8 @@ class AssistantService:
         history: list[AssistantHistoryMessage],
         context_object_id: UUID | None = None,
         context_notification_id: UUID | None = None,
+        client_timezone_id: str | None = None,
+        client_utc_offset_minutes: int | None = None,
     ) -> AssistantMessageResult:
         normalized_message = _validate_message(message)
         normalized_history = _normalize_history(history)
@@ -141,7 +149,11 @@ class AssistantService:
         )
         self._validate_context_ids(context_object_id, context_notification_id)
         ui_context_result = self._build_ui_context(context_object_id, context_notification_id)
-        tz_name = settings.secretary_timezone
+        try:
+            tz_name = resolve_client_timezone(client_timezone_id, client_utc_offset_minutes)
+        except ValidationError as exc:
+            raise AssistantValidationError(exc.message) from exc
+        set_request_timezone(tz_name)
         reference = normalize_reference_datetime(None, tz_name)
 
         validated_context_ids: list[UUID] = []
@@ -155,19 +167,23 @@ class AssistantService:
 
         telemetry = AssistantTurnTelemetry()
         tool_budget = PerTurnToolBudget(
+            max_calls=MAX_ASSISTANT_TOOL_CALLS_PER_TURN,
             telemetry=telemetry,
             initial_seen_object_ids=seen_seed_ids,
         )
         tool_runner = BoundAssistantToolRunner(tool_budget, self._user_id)
 
-        provider_result = self._provider.run(
-            message=normalized_message,
-            history=provider_history,
-            ui_context=ui_context_result.text,
-            reference_datetime=reference,
-            timezone=tz_name,
-            tool_runner=tool_runner,
-        )
+        try:
+            provider_result = self._provider.run(
+                message=normalized_message,
+                history=provider_history,
+                ui_context=ui_context_result.text,
+                reference_datetime=reference,
+                timezone=tz_name,
+                tool_runner=tool_runner,
+            )
+        finally:
+            clear_request_timezone()
 
         telemetry.openai_input_tokens = provider_result.openai_input_tokens
         telemetry.openai_cached_input_tokens = provider_result.openai_cached_input_tokens
@@ -528,12 +544,7 @@ def _affected_object_ids_from_execution_result(result: dict) -> list[UUID]:
             obj = output.get("object")
             if obj:
                 _append_uuid(affected_ids, seen, obj.get("id"))
-        elif tool_name == "update_task":
-            if output.get("changed"):
-                obj = output.get("object")
-                if obj:
-                    _append_uuid(affected_ids, seen, obj.get("id"))
-        elif tool_name in ("set_task_status", "delete_task"):
+        elif tool_name == "update_task" or tool_name in ("set_task_status", "delete_task"):
             if output.get("changed"):
                 obj = output.get("object")
                 if obj:

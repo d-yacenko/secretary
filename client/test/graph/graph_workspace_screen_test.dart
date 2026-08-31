@@ -13,6 +13,7 @@ import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/graph/graph_layout.dart';
+import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/graph/graph_workspace_screen.dart';
 
 import 'graph_test_harness.dart';
@@ -778,5 +779,183 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(searchProvider, 'gmail');
+  });
+
+  testWidgets('display kind filter hides non-matching loaded nodes', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          return http.Response(
+            jsonEncode(
+              graphWorkspaceJson(
+                nodes: [
+                  graphObjectJson(
+                    id: 'task-local',
+                    title: 'Local task',
+                    kind: 'task',
+                    provider: 'local',
+                  ),
+                  graphObjectJson(
+                    id: 'email-yandex',
+                    title: 'Yandex mail',
+                    kind: 'email',
+                    provider: 'yandex_mail',
+                  ),
+                  graphObjectJson(
+                    id: 'email-gmail',
+                    title: 'Gmail mail',
+                    kind: 'email',
+                    provider: 'gmail',
+                  ),
+                ],
+              ),
+            ),
+            200,
+          );
+        }
+        if (request.url.path == '/search/facets') {
+          return http.Response(
+            jsonEncode({
+              'kinds': [
+                {'value': 'task', 'count': 1},
+                {'value': 'email', 'count': 2},
+              ],
+              'providers': [
+                {'value': 'gmail', 'count': 1},
+                {'value': 'yandex_mail', 'count': 1},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    expect(find.text('Local task'), findsOneWidget);
+    expect(find.text('Gmail mail'), findsOneWidget);
+    expect(find.text('Yandex mail'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('Фильтр типа: Все типы'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.ancestor(
+      of: find.text('Письмо'),
+      matching: find.byType(MenuItemButton),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Local task'), findsNothing);
+    expect(find.text('Gmail mail'), findsOneWidget);
+    expect(find.text('Yandex mail'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('Фильтр источника: Все источники'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.ancestor(
+      of: find.text('Gmail'),
+      matching: find.byType(MenuItemButton),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Yandex mail'), findsNothing);
+    expect(find.text('Gmail mail'), findsOneWidget);
+  });
+
+  testWidgets('graph detail preserves multiline object body', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final multilineBody = 'Первая строка\n\nВторой абзац\nТретья строка';
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return jsonUtf8Response({'notifications': []});
+        }
+        if (request.url.path == '/today') {
+          return jsonUtf8Response({
+            'date': '2026-08-28',
+            'timezone': 'Europe/Amsterdam',
+            'day_start': '2026-08-28T00:00:00+02:00',
+            'tasks': [],
+            'calendar_events': [],
+            'notifications': [],
+          });
+        }
+        if (request.url.path == '/graph/workspace') {
+          return jsonUtf8Response(
+            graphWorkspaceJson(
+              nodes: [
+                graphObjectJson(
+                  id: 'email-body',
+                  title: 'Readable email',
+                  kind: 'email',
+                  provider: 'gmail',
+                  body: multilineBody,
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/objects/email-body') {
+          return jsonUtf8Response(
+            graphObjectJson(
+              id: 'email-body',
+              title: 'Readable email',
+              kind: 'email',
+              provider: 'gmail',
+              body: multilineBody,
+            ),
+          );
+        }
+        if (request.url.path == '/search/facets') {
+          return jsonUtf8Response({
+            'kinds': [
+              {'value': 'email', 'count': 1},
+            ],
+            'providers': [
+              {'value': 'gmail', 'count': 1},
+            ],
+          });
+        }
+        return jsonUtf8Response({}, statusCode: 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    expect(harness.graph.loadState, GraphWorkspaceLoadState.ready);
+    expect(harness.graph.nodes.length, 1);
+    expect(harness.graph.nodes.first.body, multilineBody);
+
+    await tester.tap(find.text('Readable email'));
+    await tester.pumpAndSettle();
+
+    expect(harness.graph.selectedObject?.body, multilineBody);
+    expect(find.textContaining('Первая строка'), findsWidgets);
+    expect(find.textContaining('Второй абзац'), findsWidgets);
   });
 }

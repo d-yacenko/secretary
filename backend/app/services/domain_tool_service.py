@@ -11,9 +11,7 @@ from app.api.schemas import (
     NotificationOut,
     ObjectCreate,
     ObjectOut,
-    ObjectUpdate,
 )
-from app.core.config import settings
 from app.db.models import Edge, Object
 from app.domain.task_lifecycle import (
     TASK_STATUS_DELETED,
@@ -23,18 +21,18 @@ from app.domain.task_lifecycle import (
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
+from app.services.domain_write_mode import DomainWriteMode
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
-from app.services.domain_write_mode import DomainWriteMode
+from app.services.object_query_service import ObjectQueryService
 from app.services.provenance import (
     AGENT_ORIGIN,
     CONFIRMED_STATE,
     PROPOSED_STATE,
     REJECTED_STATE,
 )
-from app.services.object_query_service import ObjectQueryService
 from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.services.task_mutation_service import TaskMutationService
@@ -57,10 +55,10 @@ from app.tools.schemas import (
     ListNotificationsInput,
     ListNotificationsOutput,
     NeighborItem,
-    RetrievalHitOut,
     QueryObjectItemOut,
     QueryObjectsInput,
     QueryObjectsOutput,
+    RetrievalHitOut,
     RetrieveInput,
     RetrieveOutput,
     SearchObjectsInput,
@@ -81,10 +79,14 @@ class DomainToolService:
         embedding_service: EmbeddingService,
         defer_write_embeddings: bool = False,
         write_mode: DomainWriteMode = DomainWriteMode.AGENT_PROPOSED,
+        client_timezone: str | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._write_mode = write_mode
+        from app.core.client_timezone import get_request_timezone
+
+        self._client_timezone = client_timezone or get_request_timezone()
         self._graph = GraphService(session, user_id, embedding_service)
         self._search = SearchService(session, user_id)
         self._retrieval = RetrievalService(session, user_id)
@@ -297,8 +299,10 @@ class DomainToolService:
         task_id: UUID,
         evidence_ids: list[UUID],
         confidence: float,
-    ) -> int:
+    ) -> tuple[int, list[UUID], list[UUID]]:
         created = 0
+        added_ids: list[UUID] = []
+        already_linked_ids: list[UUID] = []
         edge_state = self._new_artifact_state()
         for evidence_id in evidence_ids:
             existing = self._session.scalar(
@@ -309,7 +313,8 @@ class DomainToolService:
                     Edge.type == "references",
                 )
             )
-            if existing is not None:
+            if existing is not None and existing.state != REJECTED_STATE:
+                already_linked_ids.append(evidence_id)
                 continue
             self._write_graph.create_edge(
                 EdgeCreate(
@@ -321,8 +326,9 @@ class DomainToolService:
                     confidence=confidence,
                 )
             )
+            added_ids.append(evidence_id)
             created += 1
-        return created
+        return created, added_ids, already_linked_ids
 
     def _get_task_for_mutation(self, object_id: UUID, *, allow_deleted: bool = False) -> Object:
         try:
@@ -358,7 +364,9 @@ class DomainToolService:
         except ConflictError as exc:
             raise ToolError(exc.message) from exc
         if evidence_ids:
-            self._attach_evidence_references(obj.id, evidence_ids, input.confidence)
+            _, _, _ = self._attach_evidence_references(
+                obj.id, evidence_ids, input.confidence
+            )
         self._enqueue_object_embedding(obj.id)
         return CreateTaskOutput(object=ObjectOut.from_model(obj))
 
@@ -393,11 +401,15 @@ class DomainToolService:
             raise ToolError("update_task requires at least one field to update")
 
         evidence_edges_created = 0
+        evidence_added_object_ids: list[UUID] = []
+        evidence_already_linked_object_ids: list[UUID] = []
         if evidence_ids:
             confidence = updated.confidence if updated.confidence is not None else 0.5
-            evidence_edges_created = self._attach_evidence_references(
-                updated.id, evidence_ids, confidence
-            )
+            (
+                evidence_edges_created,
+                evidence_added_object_ids,
+                evidence_already_linked_object_ids,
+            ) = self._attach_evidence_references(updated.id, evidence_ids, confidence)
         changed = fields_changed or evidence_edges_created > 0
         if fields_changed:
             self._enqueue_object_embedding(updated.id)
@@ -405,6 +417,8 @@ class DomainToolService:
             object=ObjectOut.from_model(updated),
             changed=changed,
             evidence_edges_created=evidence_edges_created,
+            evidence_added_object_ids=evidence_added_object_ids,
+            evidence_already_linked_object_ids=evidence_already_linked_object_ids,
         )
 
     def set_task_status(self, input: SetTaskStatusInput) -> SetTaskStatusOutput:
@@ -436,6 +450,19 @@ class DomainToolService:
         )
 
     def link_objects(self, input: LinkObjectsInput) -> LinkObjectsOutput:
+        if input.source_id == input.target_id:
+            raise ToolError("source and target must differ")
+        existing = self._session.scalar(
+            select(Edge).where(
+                Edge.user_id == self._user_id,
+                Edge.source_id == input.source_id,
+                Edge.target_id == input.target_id,
+                Edge.type == input.relation_type,
+                Edge.state != REJECTED_STATE,
+            )
+        )
+        if existing is not None:
+            return LinkObjectsOutput(edge=EdgeOut.from_model(existing), created=False)
         try:
             edge = self._graph.create_edge(
                 EdgeCreate(
@@ -451,9 +478,9 @@ class DomainToolService:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
         except ValidationError as exc:
             raise ToolError(exc.message) from exc
-        return LinkObjectsOutput(edge=EdgeOut.from_model(edge))
+        return LinkObjectsOutput(edge=EdgeOut.from_model(edge), created=True)
 
     def get_today(self) -> GetTodayOutput:
-        tz_name = settings.secretary_timezone
+        tz_name = self._client_timezone
         now = datetime.now(ZoneInfo(tz_name))
         return GetTodayOutput(datetime=now, timezone=tz_name)

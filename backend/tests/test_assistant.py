@@ -14,6 +14,7 @@ from app.api.schemas import EdgeCreate, ObjectCreate
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
     MAX_ASSISTANT_REFERENCES,
+    MAX_ASSISTANT_TOOL_CALLS_PER_TURN,
     MAX_ASSISTANT_TOOL_OUTPUT_CHARS,
     UI_CONTEXT_DELIMITER_START,
 )
@@ -384,14 +385,14 @@ def test_assistant_per_turn_tool_budget_via_service(db_session, fake_embedding_s
         def run(self, message, history, ui_context, reference_datetime, timezone, tool_runner):
             successes = 0
             blocked = 0
-            for _ in range(7):
+            for _ in range(MAX_ASSISTANT_TOOL_CALLS_PER_TURN + 1):
                 result = tool_runner("get_today", {})
                 if result.limit_reached:
                     blocked += 1
                 elif result.success:
                     successes += 1
-            assert successes == DEFAULT_MAX_TOOL_CALLS
-            assert blocked == 2
+            assert successes == MAX_ASSISTANT_TOOL_CALLS_PER_TURN
+            assert blocked == 1
             return AssistantProviderResult(
                 answer="budget ok",
                 candidate_object_ids=[],
@@ -467,7 +468,25 @@ def test_assistant_openai_provider_multi_round_tool_budget(monkeypatch, db_sessi
         timezone="Europe/Amsterdam",
         tool_runner=lambda name, args: budget.run(BOOTSTRAP_USER_ID, name, args),
     )
-    assert budget.calls_made == DEFAULT_MAX_TOOL_CALLS
+    assert budget.calls_made == 6
+
+
+def test_assistant_tool_budget_allows_more_than_generic_executor_limit() -> None:
+    budget = PerTurnToolBudget()
+    for _ in range(DEFAULT_MAX_TOOL_CALLS):
+        result = budget.run(BOOTSTRAP_USER_ID, "get_today", {})
+        assert result.success
+    extra = budget.run(BOOTSTRAP_USER_ID, "get_today", {})
+    assert extra.success
+    assert budget.calls_made == DEFAULT_MAX_TOOL_CALLS + 1
+
+    while budget.calls_made < MAX_ASSISTANT_TOOL_CALLS_PER_TURN:
+        result = budget.run(BOOTSTRAP_USER_ID, "get_today", {})
+        assert result.success
+
+    blocked = budget.run(BOOTSTRAP_USER_ID, "get_today", {})
+    assert not blocked.success
+    assert budget.calls_made == MAX_ASSISTANT_TOOL_CALLS_PER_TURN
 
 
 def test_function_call_input_items_skips_reasoning() -> None:

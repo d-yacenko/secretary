@@ -222,6 +222,12 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
         if tool_name == "update_task":
             payload["changed"] = raw_output.get("changed", False)
             payload["evidence_edges_created"] = raw_output.get("evidence_edges_created", 0)
+            payload["evidence_added_object_ids"] = raw_output.get(
+                "evidence_added_object_ids", []
+            )
+            payload["evidence_already_linked_object_ids"] = raw_output.get(
+                "evidence_already_linked_object_ids", []
+            )
         return payload
 
     if tool_name == "link_objects":
@@ -236,7 +242,8 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
                 "state": edge.get("state"),
             }
             if edge
-            else None
+            else None,
+            "created": raw_output.get("created", True),
         }
 
     if tool_name == "get_today":

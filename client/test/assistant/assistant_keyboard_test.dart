@@ -15,6 +15,7 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
+import 'package:personal_secretary/timezone/client_timezone_context.dart';
 
 void main() {
   const baseUrl = 'https://secretary.example';
@@ -27,7 +28,12 @@ void main() {
     AuthController auth,
     CaptureController capture,
   }) buildAssistant(MockClient mock) {
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = SecretaryApiClient(
+      httpClient: mock,
+      timezoneProvider: const FixedClientTimezoneProvider(
+        ClientTimezoneContext(zoneId: 'Europe/Amsterdam', utcOffsetMinutes: 120),
+      ),
+    );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,

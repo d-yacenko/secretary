@@ -15,6 +15,7 @@ import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/graph/graph_workspace_controller.dart';
+import 'package:personal_secretary/timezone/client_timezone_context.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
 http.Response jsonUtf8Response(Object body, {int statusCode = 200}) {
@@ -32,12 +33,13 @@ Map<String, dynamic> graphObjectJson({
   String status = 'open',
   String? provider,
   String? dueAt,
+  String? body,
 }) {
   return {
     'id': id,
     'kind': kind,
     'title': title,
-    'body': null,
+    'body': body,
     'provider': provider,
     'external_id': null,
     'canonical_uri': null,
@@ -78,7 +80,12 @@ class GraphTestHarness {
   late final GraphWorkspaceController graph;
 
   void configure() {
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = SecretaryApiClient(
+      httpClient: mock,
+      timezoneProvider: const FixedClientTimezoneProvider(
+        ClientTimezoneContext(zoneId: 'Europe/Amsterdam', utcOffsetMinutes: 120),
+      ),
+    );
     apiClient.configure(baseUrl: 'https://example.com', token: 'token');
     auth = AuthController(
       apiClient: apiClient,

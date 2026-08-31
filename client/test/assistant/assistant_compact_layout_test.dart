@@ -15,6 +15,7 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
+import '../test_secretary_api_client.dart';
 import 'package:personal_secretary/graph/graph_workspace_controller.dart';
 import 'package:personal_secretary/shell/app_shell.dart';
 
@@ -75,7 +76,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final mock = MockClient((request) async => http.Response('{}', 404));
-      final apiClient = SecretaryApiClient(httpClient: mock);
+      final apiClient = testSecretaryApiClient(mock);
       apiClient.configure(baseUrl: baseUrl, token: token);
       final auth = AuthController(
         apiClient: apiClient,
@@ -150,7 +151,7 @@ void main() {
       }
       return http.Response('{}', 404);
     });
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -215,7 +216,7 @@ void main() {
       }
       return http.Response('{}', 404);
     });
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -255,8 +256,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    final apiClient = testSecretaryApiClient(
+      MockClient((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(

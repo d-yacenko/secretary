@@ -15,6 +15,8 @@ import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 
+import '../test_secretary_api_client.dart';
+
 void main() {
   const baseUrl = 'https://secretary.example';
   const token = 'action-plan-token';
@@ -84,7 +86,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -118,7 +120,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -152,7 +154,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -225,7 +227,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -291,7 +293,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -343,7 +345,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -390,7 +392,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -424,7 +426,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -483,7 +485,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -523,7 +525,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -566,7 +568,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -627,7 +629,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -666,7 +668,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -706,7 +708,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,
@@ -749,7 +751,7 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
       apiClient: apiClient,

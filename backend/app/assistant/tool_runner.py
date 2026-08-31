@@ -3,10 +3,10 @@ from uuid import UUID
 
 import app.assistant.session as assistant_session
 from app.assistant.action_plan_constants import MAX_ACTIONS_PER_PLAN
+from app.assistant.constants import MAX_ASSISTANT_TOOL_CALLS_PER_TURN
 from app.assistant.reference_ids import collect_seen_object_ids_from_bounded_tool
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
-from app.tools.executor import DEFAULT_MAX_TOOL_CALLS
 from app.tools.results import ToolExecutionResult, ToolExecutionStatus
 
 _READ_TOOLS = frozenset(
@@ -32,7 +32,7 @@ _MUTATION_TOOLS = frozenset(
 class PerTurnToolBudget:
     def __init__(
         self,
-        max_calls: int = DEFAULT_MAX_TOOL_CALLS,
+        max_calls: int = MAX_ASSISTANT_TOOL_CALLS_PER_TURN,
         telemetry: AssistantTurnTelemetry | None = None,
         initial_seen_object_ids: Sequence[UUID] | None = None,
     ) -> None:

@@ -42,9 +42,29 @@ class GraphWorkspaceController extends ChangeNotifier {
   final Map<String, Offset> _positions = {};
 
   List<SecretaryObject> get nodes => _nodes.values.toList();
+  List<SecretaryObject> get visibleNodes =>
+      _nodes.values.where(_matchesDisplayFilters).toList();
+  bool get hasActiveDisplayFilters =>
+      searchKindFilter != null || searchProviderFilter != null;
   SecretaryObject? nodeById(String id) => _nodes[id];
   List<SecretaryEdge> get edges => List.unmodifiable(_edges);
+  List<SecretaryEdge> get visibleEdges {
+    final visibleIds = visibleNodes.map((node) => node.id).toSet();
+    return _edges
+        .where(
+          (edge) =>
+              visibleIds.contains(edge.sourceId) &&
+              visibleIds.contains(edge.targetId),
+        )
+        .toList();
+  }
   Map<String, Offset> get positions => Map.unmodifiable(_positions);
+  Map<String, Offset> get visiblePositions {
+    final visibleIds = visibleNodes.map((node) => node.id).toSet();
+    return Map.fromEntries(
+      _positions.entries.where((entry) => visibleIds.contains(entry.key)),
+    );
+  }
 
   SecretaryObject? get selectedObject =>
       selectedObjectId == null ? null : _nodes[selectedObjectId!];
@@ -377,6 +397,25 @@ class GraphWorkspaceController extends ChangeNotifier {
 
   void clearFitRequest() {
     shouldFitAfterLayout = false;
+  }
+
+  void applyDisplayFilters() {
+    final selected = selectedObject;
+    if (selected != null && !_matchesDisplayFilters(selected)) {
+      selectedObjectId = null;
+      selectedEdgeId = null;
+    }
+    notifyListeners();
+  }
+
+  bool _matchesDisplayFilters(SecretaryObject node) {
+    if (searchKindFilter != null && node.kind != searchKindFilter) {
+      return false;
+    }
+    if (searchProviderFilter != null && node.provider != searchProviderFilter) {
+      return false;
+    }
+    return true;
   }
 
   void _removeObjectFromWorkspace(String objectId) {

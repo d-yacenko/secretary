@@ -1,9 +1,9 @@
-import re
 from datetime import UTC, datetime
 from email import message_from_bytes, policy
 from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any
 
+from app.connectors.email_html_text import html_email_to_plain_text, normalize_plain_email_text
 from app.connectors.yandex.constants import MAX_EMAIL_BODY_CHARS
 from app.services.client_intake_constants import (
     MAX_EMAIL_ATTACHMENT_BYTES,
@@ -13,8 +13,7 @@ from app.services.client_intake_constants import (
 
 
 def _strip_html(text: str) -> str:
-    without_tags = re.sub(r"<[^>]+>", " ", text)
-    return re.sub(r"\s+", " ", without_tags).strip()
+    return html_email_to_plain_text(text)
 
 
 def _header_value(msg: Any, name: str) -> str | None:
@@ -62,7 +61,7 @@ def _extract_body(msg: Any) -> str | None:
                 continue
             decoded = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
             if content_type == "text/plain" and plain is None:
-                plain = decoded.strip()
+                plain = normalize_plain_email_text(decoded)
             elif content_type == "text/html" and html_body is None:
                 html_body = decoded
         if plain:
@@ -83,7 +82,7 @@ def _extract_body(msg: Any) -> str | None:
     decoded = payload.decode(msg.get_content_charset() or "utf-8", errors="replace")
     if msg.get_content_type() == "text/html":
         return _strip_html(decoded)
-    return decoded.strip()
+    return normalize_plain_email_text(decoded)
 
 
 def _parse_timestamp(msg: Any) -> datetime:

@@ -1,10 +1,9 @@
 import base64
-import html
-import re
 from datetime import UTC, datetime
 from email.utils import parseaddr
 from typing import Any
 
+from app.connectors.email_html_text import html_email_to_plain_text, normalize_plain_email_text
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE, MAX_EMAIL_BODY_CHARS
 from app.services.client_intake_constants import (
     MAX_EMAIL_ATTACHMENTS_PER_MESSAGE,
@@ -38,9 +37,7 @@ def _decode_body_data(data: str) -> str:
 
 
 def _strip_html(text: str) -> str:
-    without_tags = re.sub(r"<[^>]+>", " ", text)
-    collapsed = re.sub(r"\s+", " ", without_tags)
-    return html.unescape(collapsed).strip()
+    return html_email_to_plain_text(text)
 
 
 def _part_headers(part: dict[str, Any]) -> dict[str, str]:
@@ -74,7 +71,7 @@ def _collect_text_parts(payload: dict[str, Any]) -> tuple[str | None, str | None
     if data:
         decoded = _decode_body_data(str(data))
         if mime_type == "text/plain":
-            plain = decoded.strip()
+            plain = normalize_plain_email_text(decoded)
         elif mime_type == "text/html":
             html_body = decoded
 

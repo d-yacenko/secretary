@@ -451,12 +451,16 @@ class AssistantMessageRequest {
     this.history = const [],
     this.contextObjectId,
     this.contextNotificationId,
+    this.clientTimezoneId,
+    this.clientUtcOffsetMinutes,
   });
 
   final String message;
   final List<AssistantHistoryMessage> history;
   final String? contextObjectId;
   final String? contextNotificationId;
+  final String? clientTimezoneId;
+  final int? clientUtcOffsetMinutes;
 
   Map<String, dynamic> toJson() {
     return {
@@ -465,6 +469,9 @@ class AssistantMessageRequest {
       if (contextObjectId != null) 'context_object_id': contextObjectId,
       if (contextNotificationId != null)
         'context_notification_id': contextNotificationId,
+      if (clientTimezoneId != null) 'client_timezone_id': clientTimezoneId,
+      if (clientUtcOffsetMinutes != null)
+        'client_utc_offset_minutes': clientUtcOffsetMinutes,
     };
   }
 }

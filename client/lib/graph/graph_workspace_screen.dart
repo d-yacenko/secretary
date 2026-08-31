@@ -86,7 +86,6 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
         _searchResults = [];
         _searching = false;
       });
-      await widget.controller.loadOverview();
       return;
     }
     setState(() => _searching = true);
@@ -114,7 +113,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
       return;
     }
     _transform.value = GraphLayout.fitTransform(
-      positions: widget.controller.positions,
+      positions: widget.controller.visiblePositions,
       viewportSize: viewportSize,
     );
   }
@@ -219,10 +218,12 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             showSort: false,
             onKindChanged: (value) {
               widget.controller.searchKindFilter = value;
+              widget.controller.applyDisplayFilters();
               _runSearch(_searchController.text);
             },
             onProviderChanged: (value) {
               widget.controller.searchProviderFilter = value;
+              widget.controller.applyDisplayFilters();
               _runSearch(_searchController.text);
             },
             onSortChanged: (_) {},
@@ -282,9 +283,29 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
       );
     }
 
-    final nodes = widget.controller.nodes;
-    final edges = widget.controller.edges;
-    final positions = widget.controller.positions;
+    final nodes = widget.controller.visibleNodes;
+    final edges = widget.controller.visibleEdges;
+    final positions = widget.controller.visiblePositions;
+    if (widget.controller.hasActiveDisplayFilters && nodes.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Нет объектов по выбранным фильтрам'),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: () {
+                widget.controller.searchKindFilter = null;
+                widget.controller.searchProviderFilter = null;
+                widget.controller.applyDisplayFilters();
+                _runSearch(_searchController.text);
+              },
+              child: const Text('Сбросить фильтры'),
+            ),
+          ],
+        ),
+      );
+    }
     final bounds = GraphLayout.computeBounds(positions);
     final canvasWidth = bounds.width + kGraphCanvasPadding * 2;
     final canvasHeight = bounds.height + kGraphCanvasPadding * 2;
@@ -415,7 +436,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               Text(objectSummaryLabel(object)),
               if (object.body != null) ...[
                 const SizedBox(height: 8),
-                Text(object.body!),
+                SelectableText(object.body!),
               ],
               if (primaryDateValue.isNotEmpty)
                 Padding(

@@ -19,6 +19,7 @@ from app.tools.schemas import (
     LinkObjectsInput,
     ListNeighborsInput,
     SearchObjectsInput,
+    ToolError,
     UpdateTaskInput,
 )
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -120,6 +121,53 @@ def test_link_objects_creates_agent_proposed_edge_with_confidence(
     assert edge.origin == AGENT_ORIGIN
     assert edge.state == PROPOSED_STATE
     assert edge.confidence == 0.66
+
+
+def test_link_objects_self_link_rejected(db_session, domain_tools) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    task = _create_task(graph, "Self link task")
+    with pytest.raises(ToolError):
+        domain_tools.link_objects(
+            LinkObjectsInput(
+                source_id=task.id,
+                target_id=task.id,
+                relation_type="related_to",
+                confidence=0.5,
+            )
+        )
+
+
+def test_link_objects_exact_duplicate_is_idempotent(db_session, domain_tools) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _create_task(graph, "Dup source")
+    target = _create_task(graph, "Dup target")
+    first = domain_tools.link_objects(
+        LinkObjectsInput(
+            source_id=source.id,
+            target_id=target.id,
+            relation_type="related_to",
+            confidence=0.5,
+        )
+    )
+    second = domain_tools.link_objects(
+        LinkObjectsInput(
+            source_id=source.id,
+            target_id=target.id,
+            relation_type="related_to",
+            confidence=0.5,
+        )
+    )
+    assert first.created is True
+    assert second.created is False
+    assert second.edge.id == first.edge.id
+    count = db_session.scalar(
+        select(func.count()).select_from(Edge).where(
+            Edge.source_id == source.id,
+            Edge.target_id == target.id,
+            Edge.type == "related_to",
+        )
+    )
+    assert count == 1
 
 
 def test_update_task_cannot_rewrite_origin(db_session, domain_tools) -> None:

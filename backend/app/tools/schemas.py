@@ -176,6 +176,8 @@ class UpdateTaskOutput(BaseModel):
     object: ObjectOut
     changed: bool = False
     evidence_edges_created: int = 0
+    evidence_added_object_ids: list[UUID] = Field(default_factory=list)
+    evidence_already_linked_object_ids: list[UUID] = Field(default_factory=list)
 
 
 SetTaskStatusValue = Literal["open", "in_progress", "done", "cancelled", "archived"]
@@ -213,6 +215,7 @@ class LinkObjectsInput(BaseModel):
 
 class LinkObjectsOutput(BaseModel):
     edge: EdgeOut
+    created: bool = True
 
 
 class GetTodayOutput(BaseModel):

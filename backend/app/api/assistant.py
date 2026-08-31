@@ -54,6 +54,8 @@ class AssistantMessageRequest(BaseModel):
     history: list[AssistantHistoryMessageIn] = Field(default_factory=list)
     context_object_id: UUID | None = None
     context_notification_id: UUID | None = None
+    client_timezone_id: str | None = None
+    client_utc_offset_minutes: int | None = None
 
 
 class AssistantReferenceOut(BaseModel):
@@ -188,6 +190,8 @@ def assistant_message(
             history=history,
             context_object_id=data.context_object_id,
             context_notification_id=data.context_notification_id,
+            client_timezone_id=data.client_timezone_id,
+            client_utc_offset_minutes=data.client_utc_offset_minutes,
         )
     except AssistantValidationError as exc:
         raise HTTPException(

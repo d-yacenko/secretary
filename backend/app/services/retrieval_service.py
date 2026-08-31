@@ -123,7 +123,7 @@ def _build_filter_suffix(
             )
             """
         )
-    return "".join(filters)
+    return "\n".join(filters)
 
 
 def _build_fts_candidate_sql(filter_suffix: str) -> str:

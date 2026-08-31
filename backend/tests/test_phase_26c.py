@@ -595,3 +595,38 @@ def test_search_sort_query_param(phase26c_client) -> None:
         params={"q": "Sortable gamma keyword", "sort": "newest", "limit": 5},
     )
     assert resp.status_code == 200
+
+
+def test_search_kind_and_provider_filters_do_not_500(phase26c_client) -> None:
+    phase26c_client.post(
+        "/objects",
+        json={
+            "kind": "email",
+            "title": "Норникель provider gmail",
+            "body": "норникель metals",
+            "origin": "source",
+            "provider": "gmail",
+        },
+    )
+    phase26c_client.post(
+        "/objects",
+        json={
+            "kind": "email",
+            "title": "Норникель provider yandex",
+            "body": "норникель metals",
+            "origin": "source",
+            "provider": "yandex_mail",
+        },
+    )
+    for provider in ("gmail", "yandex_mail"):
+        resp = phase26c_client.get(
+            "/search",
+            params={
+                "q": "норникель",
+                "kind": "email",
+                "provider": provider,
+            },
+        )
+        assert resp.status_code == 200
+        for row in resp.json():
+            assert row["provider"] == provider
