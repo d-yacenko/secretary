@@ -89,8 +89,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `1e4119873f64d75c7c8e3b833068c82d8d135bc1` (PHASE 26A deploy pending update below)
-- Deployed: (updated after PHASE 26A deploy)
+- SHA: `eee5b692da14a740eb86ebe659b350192ad915a5`
+- Deployed: 2026-08-31 (PHASE 26A Personal Data Correlation Core)
 - Accepted application: `1e4119873f64d75c7c8e3b833068c82d8d135bc1`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
