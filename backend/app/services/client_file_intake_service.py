@@ -19,13 +19,16 @@ from app.local.constants import (
     POLICY_INDEX_TEXT,
     POLICY_METADATA_ONLY,
     PROVIDER_LOCAL_DEVICE,
-    SUPPORTED_LOCAL_SUFFIXES,
     build_local_external_id,
     build_personal_file_uri,
     infer_local_kind,
 )
 from app.local.paths import normalize_relative_path
-from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
+from app.services.client_intake_constants import (
+    CLIENT_REPRESENTATION_KINDS,
+    DATASET_FILE_SUFFIXES,
+    TEXT_FILE_SUFFIXES,
+)
 from app.services.client_representation_service import ClientRepresentationPersistence
 from app.services.errors import NotFoundError, ValidationError
 from app.services.folder_containment_service import FolderContainmentService
@@ -33,6 +36,8 @@ from app.services.folder_object_service import FolderObjectService
 from app.services.local_device_service import LocalDeviceService
 from app.services.pipeline_enqueue import enqueue_embed_object, enqueue_summarize_resource
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
+
+CLIENT_INDEXABLE_SUFFIXES = TEXT_FILE_SUFFIXES | DATASET_FILE_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -80,8 +85,13 @@ class ClientFileIntakeService:
 
         filename_value = Path(filename).name if root_path else filename
         suffix = Path(filename_value).suffix.lower()
-        if not metadata_only and suffix in SUPPORTED_LOCAL_SUFFIXES and not reps:
-            raise ValidationError("indexed intake requires mechanical representations")
+        if not metadata_only:
+            if suffix not in CLIENT_INDEXABLE_SUFFIXES:
+                raise ValidationError(
+                    "unsupported file format requires metadata_only intake"
+                )
+            if not reps:
+                raise ValidationError("indexed intake requires mechanical representations")
 
         normalized_root: str | None = None
         normalized_rel: str | None = None

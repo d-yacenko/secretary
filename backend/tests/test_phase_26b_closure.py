@@ -680,3 +680,55 @@ def test_indexed_intake_empty_representations_rejected(closure_client) -> None:
     )
     assert resp.status_code == 422
     assert "mechanical" in resp.json()["detail"].lower()
+
+
+def test_indexed_pdf_requires_metadata_only(closure_client) -> None:
+    _register_device(closure_client)
+    resp = _intake(
+        closure_client,
+        source_path="/home/user/doc.pdf",
+        filename="doc.pdf",
+        representations=[],
+        metadata_only=False,
+    )
+    assert resp.status_code == 422
+    assert "metadata_only" in resp.json()["detail"].lower()
+
+
+def test_indexed_unknown_bin_requires_metadata_only(closure_client) -> None:
+    _register_device(closure_client)
+    resp = _intake(
+        closure_client,
+        source_path="/home/user/data.bin",
+        filename="data.bin",
+        representations=[],
+        metadata_only=False,
+    )
+    assert resp.status_code == 422
+    assert "metadata_only" in resp.json()["detail"].lower()
+
+
+def test_indexed_parquet_requires_metadata_only(closure_client) -> None:
+    _register_device(closure_client)
+    resp = _intake(
+        closure_client,
+        source_path="/home/user/data.parquet",
+        filename="data.parquet",
+        representations=[],
+        metadata_only=False,
+    )
+    assert resp.status_code == 422
+    assert "metadata_only" in resp.json()["detail"].lower()
+
+
+def test_metadata_only_pdf_accepted_without_representations(closure_client) -> None:
+    _register_device(closure_client)
+    resp = _intake(
+        closure_client,
+        source_path="/home/user/doc.pdf",
+        filename="doc.pdf",
+        representations=[],
+        metadata_only=True,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["metadata_only"] is True
