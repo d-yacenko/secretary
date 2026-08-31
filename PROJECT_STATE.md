@@ -133,8 +133,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: pending closure deploy (accepted application `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`)
-- Deployed: 2026-08-31 (PHASE 26 closure — pending final VDS update)
+- SHA: `f472b8ce51b4f63cf85c81affe0f40cd9e0b7a66`
+- Deployed: 2026-08-31 (PHASE 26 closure — full PHASE 26 accepted)
 - Accepted application: `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`
 - Checkout: `main`, clean (no tracked modifications)
 - Alembic current/head: `0018` (`pending_action_plans`)
