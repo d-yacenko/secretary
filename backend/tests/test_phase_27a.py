@@ -29,12 +29,14 @@ from app.jobs.constants import (
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_YANDEX_CALENDAR,
+    JOB_TYPE_SYNC_YANDEX_MAIL,
 )
 from app.jobs.handlers import HANDLERS
 from app.jobs.worker import process_one_job
 from app.llm.embedding_service import FakeEmbeddingService
 from app.services.graph_service import GraphService
-from app.services.job_queue_service import utcnow
+from app.services.job_queue_service import JobQueueService, utcnow
 from app.services.recent_source_service import RecentSourceService
 from app.services.search_service import SearchService
 from app.services.source_sync_scheduler import SourceSyncScheduler
@@ -616,6 +618,188 @@ def test_inbox_endpoint(auth_client, db_session, credential_key, monkeypatch) ->
         item["title"] == "Inbox feed email" for item in body["recent_source_objects"]
     )
     assert len(body["source_sync_status"]) >= 1
+
+
+def test_recurring_interval_seconds_reads_settings(db_session, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.source_sync_gmail_interval_seconds", 90)
+    monkeypatch.setattr("app.core.config.settings.source_sync_yandex_mail_interval_seconds", 91)
+    monkeypatch.setattr("app.core.config.settings.source_sync_google_calendar_interval_seconds", 400)
+    monkeypatch.setattr("app.core.config.settings.source_sync_yandex_calendar_interval_seconds", 401)
+    queue = JobQueueService(db_session)
+    assert queue.recurring_interval_seconds(JOB_TYPE_SYNC_GOOGLE_GMAIL) == 90
+    assert queue.recurring_interval_seconds(JOB_TYPE_SYNC_YANDEX_MAIL) == 91
+    assert queue.recurring_interval_seconds(JOB_TYPE_SYNC_GOOGLE_CALENDAR) == 400
+    assert queue.recurring_interval_seconds(JOB_TYPE_SYNC_YANDEX_CALENDAR) == 401
+
+
+def test_source_sync_interval_minimum_validation() -> None:
+    from pydantic import ValidationError as PydanticValidationError
+
+    from app.core.config import Settings
+
+    with pytest.raises(PydanticValidationError):
+        Settings(source_sync_gmail_interval_seconds=30)
+
+
+def test_recurring_success_uses_configured_gmail_interval(
+    credential_key, monkeypatch, fake_embedding_service
+) -> None:
+    custom_interval = 180
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    monkeypatch.setattr("app.core.config.settings.source_sync_gmail_interval_seconds", custom_interval)
+    _persist_gmail_schedule(credential_key, [GMAIL_READONLY_SCOPE])
+
+    conn = engine.connect()
+    session = Session(bind=conn)
+    job = session.scalar(select(Job).where(Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL))
+    job.run_after = utcnow() - timedelta(seconds=1)
+    conn.commit()
+    conn.close()
+
+    with patch.dict(HANDLERS, {JOB_TYPE_SYNC_GOOGLE_GMAIL: lambda s, e, p, u: None}):
+        assert process_one_job(fake_embedding_service)
+
+    conn = engine.connect()
+    session = Session(bind=conn)
+    job = session.scalar(select(Job).where(Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL))
+    delta_seconds = (job.run_after - utcnow()).total_seconds()
+    assert 170 <= delta_seconds <= 190
+    conn.close()
+
+
+def _patch_today_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    reference: datetime,
+) -> None:
+    original_snapshot = TodayService.snapshot
+
+    def patched_snapshot(self, reference_at=None, timezone=None):
+        return original_snapshot(self, reference_at=reference, timezone=timezone)
+
+    monkeypatch.setattr(TodayService, "snapshot", patched_snapshot)
+
+
+def test_today_api_proposed_due_today_moscow(
+    auth_client, db_session, monkeypatch
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    moscow = ZoneInfo("Europe/Moscow")
+    reference = datetime(2026, 8, 31, 12, 0, tzinfo=moscow)
+    _patch_today_snapshot(monkeypatch, reference)
+    due_today = datetime(2026, 8, 31, 14, 0, tzinfo=moscow)
+
+    GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="task",
+            title="Proposed due today API",
+            origin="agent",
+            state="proposed",
+            status="open",
+            confidence=0.9,
+            due_at=due_today,
+        )
+    )
+    db_session.commit()
+
+    response = auth_client.get(
+        "/today",
+        params={"client_timezone_id": "Europe/Moscow", "client_utc_offset_minutes": 180},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["timezone"] == "Europe/Moscow"
+    assert payload["date"] == "2026-08-31"
+    tasks = [t for t in payload["tasks"] if t["title"] == "Proposed due today API"]
+    assert len(tasks) == 1
+    assert tasks[0]["state"] == "proposed"
+    assert tasks[0]["status"] == "open"
+
+
+def test_today_api_proposed_overdue_moscow(auth_client, db_session, monkeypatch) -> None:
+    from zoneinfo import ZoneInfo
+
+    moscow = ZoneInfo("Europe/Moscow")
+    reference = datetime(2026, 8, 31, 12, 0, tzinfo=moscow)
+    _patch_today_snapshot(monkeypatch, reference)
+    due_yesterday = datetime(2026, 8, 30, 22, 0, tzinfo=moscow)
+
+    GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="task",
+            title="Proposed overdue API",
+            origin="agent",
+            state="proposed",
+            status="open",
+            confidence=0.9,
+            due_at=due_yesterday,
+        )
+    )
+    db_session.commit()
+
+    response = auth_client.get(
+        "/today",
+        params={"client_timezone_id": "Europe/Moscow", "client_utc_offset_minutes": 180},
+    )
+    tasks = [t for t in response.json()["tasks"] if t["title"] == "Proposed overdue API"]
+    assert len(tasks) == 1
+    assert tasks[0]["state"] == "proposed"
+
+
+def test_today_api_proposed_future_excluded_moscow(
+    auth_client, db_session, monkeypatch
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    moscow = ZoneInfo("Europe/Moscow")
+    reference = datetime(2026, 8, 31, 12, 0, tzinfo=moscow)
+    _patch_today_snapshot(monkeypatch, reference)
+    due_tomorrow = datetime(2026, 9, 1, 10, 0, tzinfo=moscow)
+
+    GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="task",
+            title="Proposed future API",
+            origin="agent",
+            state="proposed",
+            status="open",
+            confidence=0.9,
+            due_at=due_tomorrow,
+        )
+    )
+    db_session.commit()
+
+    response = auth_client.get(
+        "/today",
+        params={"client_timezone_id": "Europe/Moscow", "client_utc_offset_minutes": 180},
+    )
+    titles = {t["title"] for t in response.json()["tasks"]}
+    assert "Proposed future API" not in titles
+
+
+def test_today_excludes_deleted_proposed_task(db_session) -> None:
+    from zoneinfo import ZoneInfo
+
+    moscow = ZoneInfo("Europe/Moscow")
+    reference = datetime(2026, 8, 31, 12, 0, tzinfo=moscow)
+    due_today = datetime(2026, 8, 31, 14, 0, tzinfo=moscow)
+
+    task = GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="task",
+            title="PHASE26B smoke revert fixture",
+            origin="agent",
+            state="proposed",
+            status="deleted",
+            confidence=0.9,
+            due_at=due_today,
+        )
+    )
+    snapshot = TodayService(db_session, BOOTSTRAP_USER_ID).snapshot(
+        reference_at=reference,
+        timezone="Europe/Moscow",
+    )
+    assert all(obj.id != task.id for obj in snapshot["tasks"])
 
 
 @pytest.fixture

@@ -1,4 +1,7 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+MIN_SOURCE_SYNC_INTERVAL_SECONDS = 60
 
 
 class Settings(BaseSettings):
@@ -43,6 +46,20 @@ class Settings(BaseSettings):
     source_sync_failed_rearm_seconds: int = 3600
     resource_upload_root: str = "/var/lib/secretary/resources"
     local_files_root: str = "/var/lib/secretary/local-files"
+
+    @field_validator(
+        "source_sync_gmail_interval_seconds",
+        "source_sync_yandex_mail_interval_seconds",
+        "source_sync_google_calendar_interval_seconds",
+        "source_sync_yandex_calendar_interval_seconds",
+    )
+    @classmethod
+    def _validate_source_sync_interval(cls, value: int) -> int:
+        if value < MIN_SOURCE_SYNC_INTERVAL_SECONDS:
+            raise ValueError(
+                f"source sync interval must be >= {MIN_SOURCE_SYNC_INTERVAL_SECONDS} seconds"
+            )
+        return value
 
     @property
     def database_url(self) -> str:

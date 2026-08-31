@@ -12,11 +12,14 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_INGEST_LOCAL_FILE,
+    JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_YANDEX_CALENDAR,
+    JOB_TYPE_SYNC_YANDEX_MAIL,
     MAX_JOB_ATTEMPTS,
     MAX_LAST_ERROR_LENGTH,
     RECURRING_SOURCE_JOB_TYPES,
     RETRY_BACKOFF_SECONDS,
-    SOURCE_SYNC_INTERVAL_SECONDS,
     STALE_LOCK_MINUTES,
 )
 
@@ -228,7 +231,15 @@ class JobQueueService:
         job.updated_at = now
 
     def recurring_interval_seconds(self, job_type: str) -> int:
-        return SOURCE_SYNC_INTERVAL_SECONDS.get(job_type, 120)
+        from app.core.config import settings
+
+        mapping = {
+            JOB_TYPE_SYNC_GOOGLE_GMAIL: settings.source_sync_gmail_interval_seconds,
+            JOB_TYPE_SYNC_YANDEX_MAIL: settings.source_sync_yandex_mail_interval_seconds,
+            JOB_TYPE_SYNC_GOOGLE_CALENDAR: settings.source_sync_google_calendar_interval_seconds,
+            JOB_TYPE_SYNC_YANDEX_CALENDAR: settings.source_sync_yandex_calendar_interval_seconds,
+        }
+        return mapping.get(job_type, settings.source_sync_gmail_interval_seconds)
 
     def is_recurring_source_job(self, job_type: str) -> bool:
         return job_type in RECURRING_SOURCE_JOB_TYPES
