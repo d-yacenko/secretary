@@ -1,0 +1,623 @@
+import json
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import patch
+
+import httpx
+import pytest
+from cryptography.fernet import Fernet
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
+
+from app.api.schemas import ObjectCreate
+from app.connectors.google.calendar_sync import build_calendar_sync_service
+from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
+from app.connectors.google.credentials import GoogleAccountStore
+from app.connectors.google.encryption import CredentialEncryption
+from app.connectors.google.gmail_sync import build_gmail_sync_service
+from app.connectors.yandex.caldav_transport import CalDavCalendar, FakeCalDavTransport
+from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
+from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
+from app.connectors.yandex.credentials import YandexMailAccountStore
+from app.connectors.yandex.imap_transport import FakeImapTransport
+from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
+from app.db.engine import engine
+from app.db.models import GoogleAccount, Job, Object, User, YandexCalendarAccount, YandexMailAccount
+from app.jobs.constants import (
+    JOB_STATUS_PENDING,
+    JOB_TYPE_EMBED_OBJECT,
+    JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_GMAIL,
+)
+from app.jobs.handlers import HANDLERS
+from app.jobs.worker import process_one_job
+from app.llm.embedding_service import FakeEmbeddingService
+from app.services.graph_service import GraphService
+from app.services.job_queue_service import utcnow
+from app.services.recent_source_service import RecentSourceService
+from app.services.search_service import SearchService
+from app.services.source_sync_scheduler import SourceSyncScheduler
+from app.services.today_service import TodayService
+from app.users.bootstrap import BOOTSTRAP_USER_ID
+from tests.test_google_calendar import FakeHttpClient as CalendarFakeHttpClient
+from tests.test_google_calendar import _calendar_handlers, _sample_calendar_event
+from tests.test_google_oauth import FakeHttpClient, _sample_gmail_message
+from tests.test_yandex_calendar import CALENDAR_HREF
+from tests.test_yandex_calendar import _event as _yandex_caldav_event
+from tests.test_yandex_mail import _build_raw_email
+
+
+@pytest.fixture(autouse=True)
+def cleanup_persisted_jobs() -> None:
+    conn = engine.connect()
+    trans = conn.begin()
+    session = Session(bind=conn)
+    session.execute(delete(Job))
+    session.execute(delete(GoogleAccount))
+    session.execute(delete(YandexMailAccount))
+    session.execute(delete(YandexCalendarAccount))
+    trans.commit()
+    conn.close()
+    yield
+
+
+@pytest.fixture
+def oauth_client_file(tmp_path: Path) -> str:
+    path = tmp_path / "google-oauth-client.json"
+    path.write_text(
+        json.dumps(
+            {
+                "web": {
+                    "client_id": "test-client-id",
+                    "client_secret": "test-client-secret",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+@pytest.fixture
+def google_settings(monkeypatch: pytest.MonkeyPatch, oauth_client_file: str, credential_key: str) -> None:
+    monkeypatch.setattr("app.core.config.settings.google_oauth_client_file", oauth_client_file)
+    monkeypatch.setattr(
+        "app.core.config.settings.google_redirect_uri",
+        "http://localhost:18080/auth/google/callback",
+    )
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+
+
+@pytest.fixture
+def credential_key() -> str:
+    return Fernet.generate_key().decode()
+
+
+def _persist_gmail_schedule(
+    credential_key: str,
+    scopes: list[str],
+) -> uuid.UUID:
+    conn = engine.connect()
+    trans = conn.begin()
+    session = Session(bind=conn)
+    store = GoogleAccountStore(session, CredentialEncryption(credential_key))
+    account = store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=scopes,
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    SourceSyncScheduler(session).run_maintenance()
+    trans.commit()
+    conn.close()
+    return account.id
+
+
+def _google_account(
+    db_session,
+    credential_key: str,
+    scopes: list[str],
+) -> GoogleAccount:
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=scopes,
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+    return account
+
+
+def test_recurring_job_ensure_single_row(db_session, credential_key, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    account = _google_account(db_session, credential_key, [GMAIL_READONLY_SCOPE])
+    scheduler = SourceSyncScheduler(db_session)
+    scheduler.run_maintenance()
+    scheduler.run_maintenance()
+    db_session.commit()
+    jobs = list(
+        db_session.scalars(
+            select(Job).where(
+                Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+                Job.user_id == BOOTSTRAP_USER_ID,
+            )
+        )
+    )
+    assert len(jobs) == 1
+    assert jobs[0].payload["account_id"] == str(account.id)
+
+
+def test_recurring_success_reschedules_same_row(
+    db_session, credential_key, google_settings, fake_embedding_service
+) -> None:
+    account_id = _persist_gmail_schedule(credential_key, [GMAIL_READONLY_SCOPE])
+    job = db_session.scalar(
+        select(Job).where(
+            Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+            Job.payload["account_id"].as_string() == str(account_id),
+        )
+    )
+    job_id = job.id
+
+    with patch.dict(HANDLERS, {JOB_TYPE_SYNC_GOOGLE_GMAIL: lambda s, e, p, u: None}):
+        assert process_one_job(fake_embedding_service)
+
+    db_session.expire_all()
+    job = db_session.get(Job, job_id)
+    assert job.status == JOB_STATUS_PENDING
+    assert job.attempts == 0
+    assert job.last_error is None
+    assert "last_success_at" in job.payload
+    assert job.run_after > utcnow()
+
+
+def test_missing_gmail_scope_does_not_schedule_gmail_job(
+    db_session, credential_key, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    _google_account(db_session, credential_key, [CALENDAR_READONLY_SCOPE])
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+    count = db_session.scalar(
+        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL)
+    )
+    assert count == 0
+
+
+def test_manual_sync_now_without_duplicate_row(
+    db_session, credential_key, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    _google_account(db_session, credential_key, [GMAIL_READONLY_SCOPE])
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+    triggered = SourceSyncScheduler(db_session).trigger_all_for_user(BOOTSTRAP_USER_ID)
+    db_session.commit()
+    assert triggered
+    jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL))
+    )
+    assert len(jobs) == 1
+    assert jobs[0].run_after <= utcnow() + timedelta(seconds=1)
+
+
+def test_gmail_auto_sync_creates_searchable_email(
+    db_session, credential_key, google_settings, oauth_client_file, fake_embedding_service
+) -> None:
+    marker = "VPN_AUTOSYNC_UNIQUE_MARKER"
+    account_id = _persist_gmail_schedule(credential_key, [GMAIL_READONLY_SCOPE])
+
+    message_id = "marker-msg-1"
+    handlers = {
+        ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"): lambda params, headers: httpx.Response(
+            200,
+            json={"messages": [{"id": message_id}]},
+        ),
+        (
+            "GET",
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}",
+        ): lambda params, headers: httpx.Response(
+            200,
+            json=_sample_gmail_message(message_id, marker),
+        ),
+    }
+
+    def fake_gmail_service(session):
+        return build_gmail_sync_service(
+            session=session,
+            credential_key=credential_key,
+            client_file=oauth_client_file,
+            redirect_uri="http://localhost:18080/auth/google/callback",
+            sync_days=30,
+            default_limit=10,
+            max_limit=10,
+            http_client=FakeHttpClient(handlers),
+        )
+
+    sync_service = fake_gmail_service(db_session)
+    sync_service.sync_account(account_id, user_id=BOOTSTRAP_USER_ID)
+    db_session.commit()
+
+    email = db_session.scalar(
+        select(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.provider == "gmail",
+            Object.kind == "email",
+            Object.external_id == message_id,
+        )
+    )
+    assert email is not None
+    embed_count = db_session.scalar(
+        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+    )
+    assert embed_count >= 1
+
+    results = SearchService(db_session, BOOTSTRAP_USER_ID).search(marker, limit=10)
+    assert any(hit.id == email.id for hit in results)
+
+    sync_service.sync_account(account_id, user_id=BOOTSTRAP_USER_ID)
+    db_session.commit()
+    duplicate_count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.provider == "gmail",
+            Object.kind == "email",
+            Object.external_id == message_id,
+        )
+    )
+    assert duplicate_count == 1
+
+
+def test_today_includes_proposed_task_due_today(db_session) -> None:
+    from zoneinfo import ZoneInfo
+
+    reference = datetime(2026, 8, 31, 15, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+    day_start = datetime.combine(
+        reference.date(), datetime.min.time(), tzinfo=ZoneInfo("Europe/Moscow")
+    )
+    due_today = day_start + timedelta(hours=10)
+
+    GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="task",
+            title="Proposed today",
+            origin="agent",
+            state="proposed",
+            status="open",
+            confidence=0.9,
+            due_at=due_today,
+        )
+    )
+    snapshot = TodayService(db_session, BOOTSTRAP_USER_ID).snapshot(
+        reference_at=reference,
+        timezone="Europe/Moscow",
+    )
+    assert any(task.title == "Proposed today" for task in snapshot["tasks"])
+
+
+def test_recent_source_objects_exclude_rejected(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Visible email",
+            origin="source",
+            state="confirmed",
+            provider="gmail",
+            external_id=f"ext-{uuid.uuid4()}",
+            occurred_at=utcnow(),
+        )
+    )
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Rejected email",
+            origin="source",
+            state="rejected",
+            provider="gmail",
+            external_id=f"ext-{uuid.uuid4()}",
+            occurred_at=utcnow(),
+        )
+    )
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()
+    titles = {row.title for row in rows}
+    assert "Visible email" in titles
+    assert "Rejected email" not in titles
+
+
+def test_sources_status_api(auth_client, db_session, credential_key, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    _google_account(db_session, credential_key, [GMAIL_READONLY_SCOPE])
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+
+    response = auth_client.get("/sources/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["sources"]) == 1
+    row = body["sources"][0]
+    assert row["provider"] == "gmail"
+    assert row["account_label"] == "user@example.com"
+    assert "access_token" not in json.dumps(body)
+    assert "refresh_token" not in json.dumps(body)
+
+
+def test_cross_user_cannot_trigger_other_user_jobs(
+    db_session, credential_key, issue_bearer, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    other_user_id = uuid.uuid4()
+    db_session.add(User(id=other_user_id, display_name="Other"))
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    store.upsert_tokens(
+        user_id=other_user_id,
+        email="other@example.com",
+        scopes=[GMAIL_READONLY_SCOPE],
+        access_token="other-access",
+        refresh_token="other-refresh",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_db
+    from app.main import app
+    from tests.conftest import AuthTestClient
+
+    other_bearer = issue_bearer(other_user_id)
+    other_headers = {"Authorization": f"Bearer {other_bearer}"}
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as raw:
+        client = AuthTestClient(raw, other_headers)
+        triggered = client.post("/sources/sync").json()["triggered"]
+    app.dependency_overrides.clear()
+
+    assert any("gmail:" in item for item in triggered)
+    bootstrap_jobs = list(
+        db_session.scalars(
+            select(Job).where(
+                Job.user_id == BOOTSTRAP_USER_ID,
+                Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+            )
+        )
+    )
+    assert bootstrap_jobs == []
+
+
+def test_google_calendar_auto_sync_creates_event(
+    db_session, credential_key, google_settings, oauth_client_file
+) -> None:
+    marker = "VPN_AUTOSYNC_CAL_MARKER"
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=[CALENDAR_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    event = _sample_calendar_event("evt-auto-1", marker)
+    fake_http = CalendarFakeHttpClient(_calendar_handlers(events=[event]))
+    sync_service = build_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        http_client=fake_http,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    db_session.commit()
+
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.provider == "google_calendar",
+            Object.external_id == "primary:evt-auto-1",
+        )
+    )
+    assert obj is not None
+    assert marker in obj.title
+
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    db_session.commit()
+    count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.external_id == "primary:evt-auto-1",
+        )
+    )
+    assert count == 1
+
+
+def test_yandex_mail_auto_sync_creates_searchable_email(
+    db_session, credential_key, fake_embedding_service, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    marker = "VPN_AUTOSYNC_YANDEX_MARKER"
+    store = YandexMailAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@yandex.ru",
+        app_password="app-password",
+        imap_host="imap.yandex.ru",
+        imap_port=993,
+    )
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+
+    transport = FakeImapTransport(
+        uidvalidity=10,
+        messages={1: _build_raw_email(subject=marker, body=marker, message_id="<autosync@yandex.test>")},
+    )
+    sync_service = build_yandex_mail_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=30,
+        default_limit=50,
+        max_limit=100,
+        transport_factory=lambda snapshot: transport,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    db_session.commit()
+
+    email = db_session.scalar(
+        select(Object).where(
+            Object.provider == "yandex_mail",
+            Object.kind == "email",
+            Object.title == marker,
+        )
+    )
+    assert email is not None
+    results = SearchService(db_session, BOOTSTRAP_USER_ID).search(marker, limit=10)
+    assert any(hit.id == email.id for hit in results)
+
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    db_session.commit()
+    duplicate_count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.provider == "yandex_mail",
+            Object.title == marker,
+        )
+    )
+    assert duplicate_count == 1
+
+
+def test_yandex_calendar_auto_sync_creates_event(
+    db_session, credential_key, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    marker = "VPN_AUTOSYNC_YCAL_MARKER"
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@yandex.ru",
+        app_password="app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+
+    cal_event = _yandex_caldav_event("evt-yandex-auto", marker)
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="t1")],
+        query_events_by_calendar={CALENDAR_HREF: [cal_event]},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    db_session.commit()
+
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.provider == "yandex_calendar",
+            Object.kind == "event",
+            Object.title == marker,
+        )
+    )
+    assert obj is not None
+
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    db_session.commit()
+    count = db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.provider == "yandex_calendar",
+            Object.title == marker,
+        )
+    )
+    assert count == 1
+
+
+def test_broken_gmail_job_does_not_block_calendar_job(
+    credential_key, monkeypatch, fake_embedding_service
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    _persist_gmail_schedule(credential_key, [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE])
+    conn = engine.connect()
+    trans = conn.begin()
+    session = Session(bind=conn)
+    SourceSyncScheduler(session).trigger_all_for_user(BOOTSTRAP_USER_ID)
+    trans.commit()
+    conn.close()
+
+    def failing_gmail(session, embedding, payload, user_id):
+        raise RuntimeError("gmail broken")
+
+    with patch.dict(HANDLERS, {JOB_TYPE_SYNC_GOOGLE_GMAIL: failing_gmail}):
+        assert process_one_job(fake_embedding_service)
+
+    conn = engine.connect()
+    session = Session(bind=conn)
+    gmail_job = session.scalar(select(Job).where(Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL))
+    assert gmail_job.last_error is not None
+    assert gmail_job.attempts >= 1
+    calendar_job_id = session.scalar(
+        select(Job.id).where(Job.type == JOB_TYPE_SYNC_GOOGLE_CALENDAR)
+    )
+    conn.close()
+
+    with patch.dict(HANDLERS, {JOB_TYPE_SYNC_GOOGLE_CALENDAR: lambda s, e, p, u: None}):
+        assert process_one_job(fake_embedding_service)
+
+    conn = engine.connect()
+    session = Session(bind=conn)
+    calendar_job = session.get(Job, calendar_job_id)
+    assert calendar_job.status == JOB_STATUS_PENDING
+    conn.close()
+
+
+def test_inbox_endpoint(auth_client, db_session, credential_key, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="email",
+            title="Inbox feed email",
+            origin="source",
+            state="confirmed",
+            provider="gmail",
+            external_id=f"ext-{uuid.uuid4()}",
+            occurred_at=utcnow(),
+        )
+    )
+    _google_account(db_session, credential_key, [GMAIL_READONLY_SCOPE])
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.commit()
+
+    response = auth_client.get("/inbox")
+    assert response.status_code == 200
+    body = response.json()
+    assert "unresolved_notifications" in body
+    assert any(
+        item["title"] == "Inbox feed email" for item in body["recent_source_objects"]
+    )
+    assert len(body["source_sync_status"]) >= 1
+
+
+@pytest.fixture
+def fake_embedding_service() -> FakeEmbeddingService:
+    return FakeEmbeddingService()

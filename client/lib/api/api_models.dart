@@ -367,6 +367,105 @@ class NotificationOut {
   }
 }
 
+class InboxSourceObjectOut {
+  InboxSourceObjectOut({
+    required this.id,
+    required this.title,
+    required this.kind,
+    required this.provider,
+    required this.state,
+    required this.status,
+    required this.primaryAt,
+    required this.excerpt,
+  });
+
+  final String id;
+  final String title;
+  final String kind;
+  final String? provider;
+  final String state;
+  final String? status;
+  final String? primaryAt;
+  final String? excerpt;
+
+  factory InboxSourceObjectOut.fromJson(Map<String, dynamic> json) {
+    return InboxSourceObjectOut(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      kind: json['kind'] as String,
+      provider: json['provider'] as String?,
+      state: json['state'] as String,
+      status: json['status'] as String?,
+      primaryAt: json['primary_at'] as String?,
+      excerpt: json['excerpt'] as String?,
+    );
+  }
+}
+
+class SourceSyncStatusOut {
+  SourceSyncStatusOut({
+    required this.source,
+    required this.provider,
+    required this.accountId,
+    required this.accountLabel,
+    required this.status,
+    required this.lastSuccessAt,
+    required this.lastAttemptAt,
+    required this.nextSyncAt,
+    required this.lastError,
+  });
+
+  final String source;
+  final String provider;
+  final String accountId;
+  final String accountLabel;
+  final String status;
+  final String? lastSuccessAt;
+  final String? lastAttemptAt;
+  final String? nextSyncAt;
+  final String? lastError;
+
+  factory SourceSyncStatusOut.fromJson(Map<String, dynamic> json) {
+    return SourceSyncStatusOut(
+      source: json['source'] as String,
+      provider: json['provider'] as String,
+      accountId: json['account_id'] as String,
+      accountLabel: json['account_label'] as String,
+      status: json['status'] as String,
+      lastSuccessAt: json['last_success_at'] as String?,
+      lastAttemptAt: json['last_attempt_at'] as String?,
+      nextSyncAt: json['next_sync_at'] as String?,
+      lastError: json['last_error'] as String?,
+    );
+  }
+}
+
+class InboxOut {
+  InboxOut({
+    required this.unresolvedNotifications,
+    required this.recentSourceObjects,
+    required this.sourceSyncStatus,
+  });
+
+  final List<NotificationOut> unresolvedNotifications;
+  final List<InboxSourceObjectOut> recentSourceObjects;
+  final List<SourceSyncStatusOut> sourceSyncStatus;
+
+  factory InboxOut.fromJson(Map<String, dynamic> json) {
+    return InboxOut(
+      unresolvedNotifications: (json['unresolved_notifications'] as List<dynamic>)
+          .map((e) => NotificationOut.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      recentSourceObjects: (json['recent_source_objects'] as List<dynamic>)
+          .map((e) => InboxSourceObjectOut.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      sourceSyncStatus: (json['source_sync_status'] as List<dynamic>)
+          .map((e) => SourceSyncStatusOut.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 class TodayOut {
   TodayOut({
     required this.date,

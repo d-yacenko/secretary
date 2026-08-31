@@ -169,6 +169,25 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Accepted application SHA: `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`.
 - Deferred: Mattermost, Google Drive, Yandex Disk connectors; manual drag; persisted layout; curved edges.
 
+## PHASE 27 — Source Completion (in progress)
+
+Major phase reordered before Safe External Actions.
+
+- **27A** Live Source Sync, Inbox/Today & Assistant Presentation — awaiting architect review
+- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — not started
+- **27C** Google Drive, Yandex Disk, registered-folder local refresh — not started
+
+## PHASE 27A — Live source sync & daily workspace (awaiting architect review)
+
+- Recurring DB jobs: `sync_google_gmail`, `sync_google_calendar`, `sync_yandex_mail`, `sync_yandex_calendar`; payload `account_id` only; same-row reschedule on success.
+- `SourceSyncScheduler`: enumerate connected accounts, scope-aware scheduling, repair missing jobs, re-arm failed after cooldown; worker maintenance ≈60s.
+- Default intervals: mail 120s, calendar 300s; manual `POST /sources/sync` re-arms without duplicate rows.
+- `GET /sources/status` bounded status without credentials; `GET /inbox` aggregates notifications + recent source objects + sync status.
+- Today includes active proposed tasks (`state != rejected`, non-terminal); «Предложено» in Flutter.
+- Assistant Markdown rendering (`flutter_markdown`); user messages remain plain text.
+- Provider compact badges: `yandex_calendar` → `Я`, `google_calendar` → `G`.
+- Local files unchanged; VDS does not poll user filesystem (27C).
+
 ## PHASE 26 — Personal data correlation (accepted / closed)
 
 PHASE 26A + 26B + 26C accepted as one major phase. Full PHASE 26 closed at `5c4ffc40`.

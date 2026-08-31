@@ -15,10 +15,19 @@ void main() {
   test('provider labels', () {
     expect(providerLabel('gmail'), 'Gmail');
     expect(providerLabel('yandex_mail'), 'Яндекс');
+    expect(providerLabel('yandex_calendar'), 'Яндекс Календарь');
+    expect(providerLabel('google_calendar'), 'Google Календарь');
     expect(providerLabel('local_device'), 'Компьютер');
     expect(providerLabel('upload'), 'Загрузка');
     expect(providerLabel('web'), 'Веб');
     expect(providerLabel('custom_provider'), 'custom_provider');
     expect(providerLabel(null), 'Источник');
+  });
+
+  test('provider compact glyphs', () {
+    expect(providerCompactGlyph('yandex_calendar'), 'Я');
+    expect(providerCompactGlyph('google_calendar'), 'G');
+    expect(providerCompactGlyph('yandex_mail'), 'Я');
+    expect(providerCompactGlyph('gmail'), 'G');
   });
 }

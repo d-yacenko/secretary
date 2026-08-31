@@ -39,7 +39,12 @@ def process_one_job(embedding_service: EmbeddingService) -> bool:
         session = SessionLocal()
         try:
             handler(session, embedding_service, claimed.payload, claimed.user_id)
-            JobQueueService(session).mark_done(claimed.id)
+            queue = JobQueueService(session)
+            if queue.is_recurring_source_job(claimed.type):
+                interval = queue.recurring_interval_seconds(claimed.type)
+                queue.mark_recurring_success(claimed.id, interval)
+            else:
+                queue.mark_done(claimed.id)
             session.commit()
         except Exception:
             session.rollback()

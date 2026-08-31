@@ -12,26 +12,40 @@ from app.jobs.constants import (
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_SUMMARIZE_RESOURCE,
+    JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_YANDEX_CALENDAR,
+    JOB_TYPE_SYNC_YANDEX_MAIL,
+)
+from app.jobs.source_sync_handlers import (
+    handle_sync_google_calendar,
+    handle_sync_google_gmail,
+    handle_sync_yandex_calendar,
+    handle_sync_yandex_mail,
 )
 from app.jobs.types import JobHandler
+from app.llm.correlation_judge import create_correlation_judge
 from app.llm.embedding_text import build_embedding_text
+from app.llm.openai_summarizer import create_openai_summarizer
 from app.local.constants import POLICY_UPLOAD_COPY
 from app.local.paths import LocalPathResolver
 from app.resources.constants import (
     CONTENT_INGESTED_POLICY_KEY,
     CONTENT_INGESTED_REVISION_KEY,
 )
-from app.llm.correlation_judge import create_correlation_judge
-from app.llm.openai_summarizer import create_openai_summarizer
 from app.services.correlation_service import CorrelationService
-from app.services.pipeline_enqueue import enqueue_correlate_object, enqueue_embed_object, enqueue_summarize_resource
-from app.services.semantic_summary_service import SemanticSummaryService
 from app.services.local_file_sync_service import copy_local_file_to_upload
+from app.services.pipeline_enqueue import (
+    enqueue_correlate_object,
+    enqueue_embed_object,
+    enqueue_summarize_resource,
+)
 from app.services.representation_embedding_worker import (
     load_unembedded_chunk_targets,
     store_representation_embeddings,
 )
 from app.services.representation_service import RepresentationService
+from app.services.semantic_summary_service import SemanticSummaryService
 
 
 def _load_embedding_text(object_id: UUID, user_id: UUID) -> str:
@@ -280,6 +294,10 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
     JOB_TYPE_SUMMARIZE_RESOURCE: handle_summarize_resource,
     JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
+    JOB_TYPE_SYNC_GOOGLE_GMAIL: handle_sync_google_gmail,
+    JOB_TYPE_SYNC_GOOGLE_CALENDAR: handle_sync_google_calendar,
+    JOB_TYPE_SYNC_YANDEX_MAIL: handle_sync_yandex_mail,
+    JOB_TYPE_SYNC_YANDEX_CALENDAR: handle_sync_yandex_calendar,
 }
 
 

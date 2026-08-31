@@ -335,4 +335,43 @@ void main() {
 
     expect(find.textContaining('Просрочено'), findsOneWidget);
   });
+
+  testWidgets('proposed task shows marker', (tester) async {
+    await tester.pumpWidget(
+      buildToday(MockClient((request) async {
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode(todayPayload(
+              tasks: [
+                {
+                  'id': 'task-proposed',
+                  'kind': 'task',
+                  'title': 'Proposed today',
+                  'body': null,
+                  'provider': null,
+                  'external_id': null,
+                  'canonical_uri': null,
+                  'status': 'open',
+                  'start_at': null,
+                  'due_at': '2026-08-28T14:00:00+02:00',
+                  'metadata': {},
+                  'origin': 'agent',
+                  'state': 'proposed',
+                  'confidence': 0.9,
+                  'created_at': '2026-08-28T08:00:00Z',
+                  'updated_at': '2026-08-28T08:00:00Z',
+                },
+              ],
+            )),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Proposed today'), findsOneWidget);
+    expect(find.text('Предложено'), findsOneWidget);
+  });
 }

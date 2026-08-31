@@ -92,6 +92,15 @@ class SecretaryApiClient {
     return NotificationOut.fromJson(body);
   }
 
+  Future<InboxOut> getInbox({int recentLimit = 30}) async {
+    final body = await _request(
+      'GET',
+      '/inbox',
+      queryParameters: {'recent_limit': recentLimit.toString()},
+    );
+    return InboxOut.fromJson(body);
+  }
+
   Future<TodayOut> getToday() async {
     final timezone = await _timezoneProvider.current();
     final body = await _request(

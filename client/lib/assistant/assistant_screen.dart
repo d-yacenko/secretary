@@ -13,6 +13,7 @@ import '../capture/capture_controller.dart';
 import '../local/local_intake_actions.dart';
 import '../navigation/secretary_navigation.dart';
 import '../ui/domain_labels.dart';
+import 'assistant_message_body.dart';
 
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({
@@ -249,7 +250,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                     .surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text(message.content),
+                          child: isUser
+                              ? Text(message.content)
+                              : AssistantMessageBody(content: message.content),
                         ),
                         if (!isUser && actionPlan != null)
                           _ActionPlanCard(

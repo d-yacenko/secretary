@@ -223,7 +223,16 @@ class _TaskRow extends StatelessWidget {
     final dueAt = formatUserDateTime(task.dueAt);
     final when = dueAt.isEmpty ? 'Нет срока' : dueAt;
     return ListTile(
-      title: Text(task.title),
+      title: Row(
+        children: [
+          Expanded(child: Text(task.title)),
+          if (task.state == 'proposed')
+            Text(
+              'Предложено',
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+        ],
+      ),
       subtitle: Text(overdue ? 'Просрочено • $when' : when),
       onTap: onTap,
     );

@@ -249,6 +249,44 @@ class TodayOut(BaseModel):
     notifications: list[NotificationOut]
 
 
+class InboxSourceObjectOut(BaseModel):
+    id: UUID
+    title: str
+    kind: str
+    provider: str | None
+    state: str
+    status: str | None
+    primary_at: datetime | None
+    excerpt: str | None
+
+
+class SourceSyncStatusOut(BaseModel):
+    source: str
+    provider: str
+    account_id: UUID
+    account_label: str
+    status: str
+    last_success_at: datetime | None
+    last_attempt_at: datetime | None
+    next_sync_at: datetime | None
+    last_error: str | None
+
+
+class InboxOut(BaseModel):
+    unresolved_notifications: list[NotificationOut]
+    recent_source_objects: list[InboxSourceObjectOut]
+    source_sync_status: list[SourceSyncStatusOut]
+
+
+class SourceStatusListOut(BaseModel):
+    sources: list[SourceSyncStatusOut]
+
+
+class SourceSyncTriggerOut(BaseModel):
+    triggered: list[str]
+    count: int
+
+
 class ResourceRegisterRequest(BaseModel):
     kind: str
     title: str

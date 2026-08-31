@@ -52,9 +52,21 @@ PHASE 26C — Structured Query, Search UX & Topology-Aware Graph: **accepted / c
 
 PHASE 26C manual matched-version Linux E2E: **PASS** (2026-08-31).
 
+PHASE 27 — Source Completion: **in progress**.
+
+PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **implementation complete, awaiting architect review**.
+
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next planned major phase: **PHASE 27 — Safe External Actions** (not started).
+Next planned subphase: **PHASE 27B — Mattermost** (not started).
+
+Safe External Actions follow Source Completion (PHASE 27B/27C).
+
+## PHASE 27A verification (awaiting architect review)
+
+- migrations: none expected
+- recurring source sync via existing DB job queue + worker scheduler maintenance
+- default mail interval: 120s; calendar: 300s; scheduler maintenance: 60s
 
 ## PHASE 26C verification (accepted)
 

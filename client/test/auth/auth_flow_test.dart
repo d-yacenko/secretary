@@ -63,8 +63,15 @@ void main() {
     await serverUrlStore.writeServerUrl(baseUrl);
 
     final apiClient = buildApiClient(MockClient((request) async {
-      if (request.url.path == '/notifications') {
-        return http.Response(jsonEncode({'notifications': []}), 200);
+      if (request.url.path == '/inbox') {
+        return http.Response(
+          jsonEncode({
+            'unresolved_notifications': [],
+            'recent_source_objects': [],
+            'source_sync_status': [],
+          }),
+          200,
+        );
       }
       if (request.url.path == '/today') {
         return http.Response(

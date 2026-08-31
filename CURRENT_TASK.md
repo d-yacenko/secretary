@@ -1,47 +1,35 @@
-# Current task — PHASE 26 closed; PHASE 27 not started
+# Current task — PHASE 27A awaiting architect review
 
 ## Status
 
-PHASE 26 — Personal Data Correlation: **accepted / closed** (accepted application SHA `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`).
+PHASE 27 — Source Completion: **in progress** (27A implementation complete, awaiting architect review).
 
-PHASE 26C — Structured Query, Search UX & Topology-Aware Graph: **accepted / closed** (`5c4ffc40`).
+PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **implementation complete, awaiting architect review**.
 
-PHASE 26C closure corrective: timezone contract, Search provider filter fix, Graph client-side visible filtering, Assistant tool budget/evidence, shared email HTML-to-text.
+PHASE 26 — Personal Data Correlation: **accepted / closed** (`5c4ffc40`).
 
-Manual matched-version Linux E2E: **PASS** (deadline/today semantics, urgent task, task context enrichment, Gmail/Yandex provider filters, Graph type/provider filtering, HTML email readable structure).
+Do **not** merge, deploy to production `main`, or start PHASE 27B until architect review.
 
-Architect code review: **PASS**.
+## PHASE 27A delivered
 
-Architect context refresh checkpoint: **completed** at `114608d`.
+- Recurring source sync jobs (`sync_google_gmail`, `sync_google_calendar`, `sync_yandex_mail`, `sync_yandex_calendar`) with same-row reschedule
+- `SourceSyncScheduler` worker maintenance (≈60s) without duplicate schedules
+- `GET /sources/status`, `POST /sources/sync`, `GET /inbox` aggregate snapshot
+- Inbox Flutter: «Требует внимания» + «Последние из источников»
+- Today includes active proposed tasks with «Предложено» marker
+- Assistant Markdown rendering via `flutter_markdown`
+- Compact `Я` badge for `yandex_calendar`, `G` for `google_calendar`
 
-Do **not** start PHASE 27A until explicitly tasked.
+## Roadmap — PHASE 27 Source Completion
 
-## PHASE 26C delivered
+- **27A** Live Source Sync, Inbox/Today & Assistant Presentation (this phase)
+- **27B** Mattermost connector (not started)
+- **27C** Google Drive / Yandex Disk / Local Source Refresh (not started)
 
-- `query_objects` structured READ primitive (Assistant + MCP)
-- `ObjectQueryService` deterministic SQL filtering/ordering; legacy `NULL→open`, `completed→done`
-- Assistant `query_objects` output: ordered-prefix truncation under `MAX_ASSISTANT_TOOL_OUTPUT_CHARS`
-- Search `sort=relevance|newest|oldest`, bounded candidate pool, capped `GET /search/facets`
-- Primary search date: UTC-aware normalization; naive `metadata.modified_at` falls back
-- Shared `object_presentation.dart` registry; compact Search/Graph icon filters
-- Desktop: anchored `MenuAnchor` popups (no bottom sheet / full-screen dim)
-- Topology-aware Graph layout: cumulative BFS radii, branch sectors, isolated grid packing, incremental stability
-- Client timezone transport for Assistant and Today (`client_timezone_id`, `client_utc_offset_minutes`)
+Safe External Actions follow Source Completion.
 
-## Closure corrective highlights
+## Deferred
 
-- Regression: NULL-status proposed task with today's `due_at` visible via `query_objects`
-- Regression: truncated `query_objects` preserves earliest-due prefix and grounding IDs
-- Graph production-widget tests: desktop anchored Type/Provider filters at 1280×800
-- Search `provider` filter: no HTTP 500 from malformed filter suffix
-- Email HTML-to-text shared helper for Gmail/Yandex normalize (legacy flattened rows not restored)
-
-## Deferred (not PHASE 26)
-
-- Mattermost / Google Drive / Yandex Disk connectors
-- Manual Graph node drag, persisted positions, curved edges
-- Labels/tags, workflow intelligence, external writes, proactive Secretary
-
-## Next major phase
-
-PHASE 27 — Safe External Actions (not started).
+- Mattermost, Google Drive, Yandex Disk connectors (27B/27C)
+- Local registered-folder automatic refresh (27C)
+- External writes / Safe External Actions (after Source Completion)

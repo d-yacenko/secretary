@@ -14,7 +14,9 @@ from app.jobs.constants import (
     JOB_TYPE_INGEST_LOCAL_FILE,
     MAX_JOB_ATTEMPTS,
     MAX_LAST_ERROR_LENGTH,
+    RECURRING_SOURCE_JOB_TYPES,
     RETRY_BACKOFF_SECONDS,
+    SOURCE_SYNC_INTERVAL_SECONDS,
     STALE_LOCK_MINUTES,
 )
 
@@ -94,6 +96,7 @@ class JobQueueService:
             ]
             job.locked_at = None
             job.updated_at = now
+            self._apply_recurring_failure_cooldown(job)
             self._session.flush()
             return None
 
@@ -122,6 +125,7 @@ class JobQueueService:
         job.last_error = error[:MAX_LAST_ERROR_LENGTH]
         job.locked_at = None
         job.updated_at = utcnow()
+        self._apply_recurring_failure_cooldown(job)
 
     def mark_retry(self, job_id: UUID, error: str) -> None:
         job = self._require_job(job_id)
@@ -130,12 +134,113 @@ class JobQueueService:
         if job.attempts >= MAX_JOB_ATTEMPTS:
             job.status = JOB_STATUS_FAILED
             job.locked_at = None
+            self._apply_recurring_failure_cooldown(job)
             return
 
         backoff = RETRY_BACKOFF_SECONDS.get(job.attempts, RETRY_BACKOFF_SECONDS[2])
         job.status = JOB_STATUS_PENDING
         job.locked_at = None
         job.run_after = utcnow() + timedelta(seconds=backoff)
+
+    def find_recurring_source_job(
+        self,
+        user_id: UUID,
+        job_type: str,
+        account_id: UUID,
+    ) -> Job | None:
+        account_key = str(account_id)
+        return self._session.scalar(
+            select(Job).where(
+                Job.user_id == user_id,
+                Job.type == job_type,
+                Job.payload["account_id"].as_string() == account_key,
+                Job.status.in_(
+                    (JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_FAILED)
+                ),
+            )
+        )
+
+    def ensure_recurring_source_job(
+        self,
+        job_type: str,
+        account_id: UUID,
+        user_id: UUID,
+        run_after: datetime | None = None,
+    ) -> Job:
+        existing = self.find_recurring_source_job(user_id, job_type, account_id)
+        now = utcnow()
+        if existing is not None:
+            return existing
+        return self.enqueue(
+            job_type,
+            {"account_id": str(account_id)},
+            user_id,
+            run_after=run_after or now,
+        )
+
+    def trigger_recurring_source_job(
+        self,
+        user_id: UUID,
+        job_type: str,
+        account_id: UUID,
+    ) -> bool:
+        job = self.find_recurring_source_job(user_id, job_type, account_id)
+        if job is None:
+            return False
+        now = utcnow()
+        job.run_after = now
+        if job.status == JOB_STATUS_FAILED:
+            job.status = JOB_STATUS_PENDING
+            job.attempts = 0
+        job.updated_at = now
+        self._session.flush()
+        return True
+
+    def rearm_failed_recurring_job(
+        self,
+        job: Job,
+        cooldown_seconds: int,
+    ) -> bool:
+        if job.status != JOB_STATUS_FAILED:
+            return False
+        now = utcnow()
+        if job.run_after > now:
+            return False
+        job.status = JOB_STATUS_PENDING
+        job.attempts = 0
+        job.last_error = None
+        job.run_after = now
+        job.updated_at = now
+        self._session.flush()
+        return True
+
+    def mark_recurring_success(self, job_id: UUID, interval_seconds: int) -> None:
+        job = self._require_job(job_id)
+        now = utcnow()
+        payload = dict(job.payload or {})
+        payload["last_success_at"] = now.isoformat()
+        job.payload = payload
+        job.status = JOB_STATUS_PENDING
+        job.attempts = 0
+        job.last_error = None
+        job.locked_at = None
+        job.run_after = now + timedelta(seconds=interval_seconds)
+        job.updated_at = now
+
+    def recurring_interval_seconds(self, job_type: str) -> int:
+        return SOURCE_SYNC_INTERVAL_SECONDS.get(job_type, 120)
+
+    def is_recurring_source_job(self, job_type: str) -> bool:
+        return job_type in RECURRING_SOURCE_JOB_TYPES
+
+    def _apply_recurring_failure_cooldown(self, job: Job) -> None:
+        if job.type not in RECURRING_SOURCE_JOB_TYPES:
+            return
+        from app.core.config import settings
+
+        job.run_after = utcnow() + timedelta(
+            seconds=settings.source_sync_failed_rearm_seconds
+        )
 
     def get_job(self, job_id: UUID) -> Job | None:
         return self._session.get(Job, job_id)

@@ -50,6 +50,18 @@ void main() {
     });
   }
 
+  Map<String, dynamic> inboxJson({
+    List<Map<String, dynamic>>? notifications,
+    List<Map<String, dynamic>>? recentSources,
+    List<Map<String, dynamic>>? syncStatus,
+  }) {
+    return {
+      'unresolved_notifications': notifications ?? [],
+      'recent_source_objects': recentSources ?? [],
+      'source_sync_status': syncStatus ?? [],
+    };
+  }
+
   Widget buildInbox(MockClient mock) {
     final apiClient = SecretaryApiClient(httpClient: mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
@@ -80,12 +92,11 @@ void main() {
   testWidgets('unresolved notifications render', (tester) async {
     await tester.pumpWidget(
       buildInbox(MockClient((request) async {
-        if (request.url.path == '/notifications' &&
-            request.url.queryParameters['status'] == 'unresolved') {
+        if (request.url.path == '/inbox') {
           return http.Response(
-            jsonEncode({
-              'notifications': [_notificationJson(sampleNotification())],
-            }),
+            jsonEncode(inboxJson(
+              notifications: [_notificationJson(sampleNotification())],
+            )),
             200,
           );
         }
@@ -95,17 +106,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Follow up email'), findsOneWidget);
-    expect(find.textContaining('Gmail message'), findsWidgets);
+    expect(find.text('Требует внимания'), findsOneWidget);
   });
 
   testWidgets('Accept calls correct endpoint', (tester) async {
     String? acceptedPath;
     await tester.pumpWidget(
       buildInbox(MockClient((request) async {
-        if (request.url.path == '/notifications' &&
-            request.url.queryParameters['status'] == 'unresolved') {
+        if (request.url.path == '/inbox') {
           return http.Response(
-            jsonEncode({'notifications': [_notificationJson(sampleNotification())]}),
+            jsonEncode(inboxJson(
+              notifications: [_notificationJson(sampleNotification())],
+            )),
             200,
           );
         }
@@ -135,10 +147,11 @@ void main() {
     String? ignoredPath;
     await tester.pumpWidget(
       buildInbox(MockClient((request) async {
-        if (request.url.path == '/notifications' &&
-            request.url.queryParameters['status'] == 'unresolved') {
+        if (request.url.path == '/inbox') {
           return http.Response(
-            jsonEncode({'notifications': [_notificationJson(sampleNotification())]}),
+            jsonEncode(inboxJson(
+              notifications: [_notificationJson(sampleNotification())],
+            )),
             200,
           );
         }
@@ -167,10 +180,11 @@ void main() {
   testWidgets('failed mutation leaves item visible', (tester) async {
     await tester.pumpWidget(
       buildInbox(MockClient((request) async {
-        if (request.url.path == '/notifications' &&
-            request.url.queryParameters['status'] == 'unresolved') {
+        if (request.url.path == '/inbox') {
           return http.Response(
-            jsonEncode({'notifications': [_notificationJson(sampleNotification())]}),
+            jsonEncode(inboxJson(
+              notifications: [_notificationJson(sampleNotification())],
+            )),
             200,
           );
         }
@@ -224,11 +238,11 @@ void main() {
     expect(auth.status, AuthStatus.needsAuth);
   });
 
-  testWidgets('empty state works', (tester) async {
+  testWidgets('empty state when both sections empty', (tester) async {
     await tester.pumpWidget(
       buildInbox(MockClient((request) async {
-        if (request.url.path == '/notifications') {
-          return http.Response(jsonEncode({'notifications': []}), 200);
+        if (request.url.path == '/inbox') {
+          return http.Response(jsonEncode(inboxJson()), 200);
         }
         return http.Response('{}', 404);
       })),
@@ -236,6 +250,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Входящие пусты'), findsOneWidget);
+  });
+
+  testWidgets('recent source section without notifications', (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response(
+            jsonEncode(inboxJson(
+              recentSources: [
+                {
+                  'id': 'email-1',
+                  'title': 'VPN marker email',
+                  'kind': 'email',
+                  'provider': 'gmail',
+                  'state': 'confirmed',
+                  'status': null,
+                  'primary_at': '2026-08-31T10:00:00Z',
+                  'excerpt': 'body excerpt',
+                },
+              ],
+            )),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Входящие пусты'), findsNothing);
+    expect(find.text('VPN marker email'), findsOneWidget);
+    expect(find.text('Последние из источников'), findsOneWidget);
   });
 }
 

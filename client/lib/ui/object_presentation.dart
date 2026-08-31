@@ -28,6 +28,7 @@ const Map<String, String> providerLabels = {
   'google_calendar': 'Google Календарь',
   'google_drive': 'Google Диск',
   'yandex': 'Яндекс',
+  'yandex_calendar': 'Яндекс Календарь',
   'yandex_disk': 'Яндекс.Диск',
   'calendar': 'Календарь',
   'outlook': 'Outlook',
@@ -39,7 +40,9 @@ const Map<String, String> providerLabels = {
 
 const Map<String, String> providerCompactGlyphs = {
   'gmail': 'G',
+  'google_calendar': 'G',
   'yandex_mail': 'Я',
+  'yandex_calendar': 'Я',
   'local_device': 'ПК',
   'upload': '↑',
   'web': 'W',
