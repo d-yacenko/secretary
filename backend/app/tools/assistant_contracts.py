@@ -29,6 +29,64 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         },
         "strict": False,
     },
+    "query_objects": {
+        "type": "function",
+        "name": "query_objects",
+        "description": (
+            "Structured filter and deterministic ordering over the user's objects. "
+            "Use for open tasks, due dates, date ranges, and sorted lists. "
+            "Do not use for semantic topic discovery — use retrieve instead."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kinds": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 8,
+                },
+                "providers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 8,
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 8,
+                },
+                "states": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 4,
+                },
+                "due_from": {"type": "string"},
+                "due_to": {"type": "string"},
+                "start_from": {"type": "string"},
+                "start_to": {"type": "string"},
+                "occurred_from": {"type": "string"},
+                "occurred_to": {"type": "string"},
+                "sort_by": {
+                    "type": "string",
+                    "enum": [
+                        "due_at",
+                        "start_at",
+                        "occurred_at",
+                        "created_at",
+                        "updated_at",
+                        "title",
+                    ],
+                },
+                "sort_order": {
+                    "type": "string",
+                    "enum": ["asc", "desc"],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
     "get_object": {
         "type": "function",
         "name": "get_object",

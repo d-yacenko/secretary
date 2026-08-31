@@ -20,73 +20,305 @@ class GraphLayout {
 
   static Map<String, Offset> computePositions({
     required List<SecretaryObject> nodes,
+    required List<SecretaryEdge> edges,
     required String? rootId,
     required Map<String, Offset> existing,
     bool freshRoot = false,
   }) {
     final positions = freshRoot ? <String, Offset>{} : Map<String, Offset>.from(existing);
+    final nodeIds = nodes.map((node) => node.id).toSet();
     final sorted = List<SecretaryObject>.from(nodes);
     sorted.sort((a, b) {
       final left = '${a.kind}|${a.title}|${a.id}';
       final right = '${b.kind}|${b.title}|${b.id}';
       return left.compareTo(right);
     });
+    final adjacency = _buildAdjacency(edges, nodeIds);
 
-    if (rootId != null) {
-      if (!positions.containsKey(rootId)) {
-        positions[rootId] = const Offset(0, 0);
+    if (rootId != null && nodeIds.contains(rootId)) {
+      _layoutRooted(
+        rootId: rootId,
+        sorted: sorted,
+        nodeIds: nodeIds,
+        adjacency: adjacency,
+        positions: positions,
+        freshRoot: freshRoot,
+      );
+      return positions;
+    }
+
+    _layoutOverview(
+      sorted: sorted,
+      nodeIds: nodeIds,
+      adjacency: adjacency,
+      positions: positions,
+      freshRoot: freshRoot,
+    );
+    return positions;
+  }
+
+  static Map<String, Set<String>> _buildAdjacency(
+    List<SecretaryEdge> edges,
+    Set<String> nodeIds,
+  ) {
+    final adjacency = <String, Set<String>>{for (final id in nodeIds) id: <String>{}};
+    for (final edge in edges) {
+      if (!nodeIds.contains(edge.sourceId) || !nodeIds.contains(edge.targetId)) {
+        continue;
       }
-      final ringNodes = sorted.where((node) => node.id != rootId).toList();
-      final newcomers = ringNodes.where((node) => !positions.containsKey(node.id)).toList();
-      if (newcomers.isNotEmpty) {
-        final rootTopLeft = positions[rootId]!;
-        final rootCenter = Offset(
-          rootTopLeft.dx + kGraphNodeWidth / 2,
-          rootTopLeft.dy + kGraphNodeHeight / 2,
+      adjacency[edge.sourceId]!.add(edge.targetId);
+      adjacency[edge.targetId]!.add(edge.sourceId);
+    }
+    return adjacency;
+  }
+
+  static Offset _nodeCenter(Offset topLeft) {
+    return Offset(
+      topLeft.dx + kGraphNodeWidth / 2,
+      topLeft.dy + kGraphNodeHeight / 2,
+    );
+  }
+
+  static Map<String, int> _bfsDistances(
+    String start,
+    Map<String, Set<String>> adjacency,
+    Set<String> nodeIds,
+  ) {
+    final distances = <String, int>{start: 0};
+    final queue = <String>[start];
+    while (queue.isNotEmpty) {
+      final current = queue.removeAt(0);
+      final nextDistance = distances[current]! + 1;
+      for (final neighbor in adjacency[current] ?? const <String>{}) {
+        if (!nodeIds.contains(neighbor) || distances.containsKey(neighbor)) {
+          continue;
+        }
+        distances[neighbor] = nextDistance;
+        queue.add(neighbor);
+      }
+    }
+    for (final id in nodeIds) {
+      distances.putIfAbsent(id, () => 9999);
+    }
+    return distances;
+  }
+
+  static void _layoutRooted({
+    required String rootId,
+    required List<SecretaryObject> sorted,
+    required Set<String> nodeIds,
+    required Map<String, Set<String>> adjacency,
+    required Map<String, Offset> positions,
+    required bool freshRoot,
+  }) {
+    if (!positions.containsKey(rootId)) {
+      positions[rootId] = const Offset(0, 0);
+    }
+    final newcomers = sorted
+        .where((node) => node.id != rootId && !positions.containsKey(node.id))
+        .toList();
+    if (newcomers.isEmpty) {
+      return;
+    }
+    final rootCenter = _nodeCenter(positions[rootId]!);
+    if (freshRoot) {
+      final distances = _bfsDistances(rootId, adjacency, nodeIds);
+      final layers = <int, List<String>>{};
+      for (final id in nodeIds) {
+        if (id == rootId) {
+          continue;
+        }
+        final layer = distances[id] ?? 9999;
+        layers.putIfAbsent(layer, () => <String>[]).add(id);
+      }
+      final layerKeys = layers.keys.where((layer) => layer > 0 && layer < 9999).toList()
+        ..sort();
+      final layerStep = _minCenterSeparation();
+      for (final layer in layerKeys) {
+        final members = layers[layer]!..sort();
+        final radius = _ringRadiusForCount(members.length) + (layer - 1) * layerStep;
+        final step = (2 * math.pi) / members.length;
+        for (var index = 0; index < members.length; index++) {
+          final angle = step * index - math.pi / 2;
+          final ringCenter = Offset(
+            rootCenter.dx + math.cos(angle) * radius,
+            rootCenter.dy + math.sin(angle) * radius,
+          );
+          positions[members[index]] = Offset(
+            ringCenter.dx - kGraphNodeWidth / 2,
+            ringCenter.dy - kGraphNodeHeight / 2,
+          );
+        }
+      }
+      for (final newcomer in newcomers) {
+        if (!positions.containsKey(newcomer.id)) {
+          positions[newcomer.id] = _findIncrementalRingPosition(
+            rootCenter: rootCenter,
+            occupied: positions,
+          );
+        }
+      }
+      return;
+    }
+    for (final newcomer in newcomers) {
+      final neighbors = adjacency[newcomer.id] ?? const <String>{};
+      final anchored = neighbors.where((id) => positions.containsKey(id)).toList()..sort();
+      if (anchored.isNotEmpty) {
+        var cx = 0.0;
+        var cy = 0.0;
+        for (final id in anchored) {
+          final center = _nodeCenter(positions[id]!);
+          cx += center.dx;
+          cy += center.dy;
+        }
+        final anchor = Offset(cx / anchored.length, cy / anchored.length);
+        positions[newcomer.id] = _findIncrementalNearCenter(
+          anchor: anchor,
+          occupied: positions,
         );
-        if (freshRoot) {
-          final radius = _ringRadiusForCount(newcomers.length);
-          final step = (2 * math.pi) / newcomers.length;
-          for (var index = 0; index < newcomers.length; index++) {
+      } else {
+        positions[newcomer.id] = _findIncrementalRingPosition(
+          rootCenter: rootCenter,
+          occupied: positions,
+        );
+      }
+    }
+  }
+
+  static List<Set<String>> _connectedComponents(
+    Set<String> nodeIds,
+    Map<String, Set<String>> adjacency,
+  ) {
+    final remaining = Set<String>.from(nodeIds);
+    final components = <Set<String>>[];
+    while (remaining.isNotEmpty) {
+      final start = remaining.first;
+      final component = <String>{};
+      final queue = <String>[start];
+      while (queue.isNotEmpty) {
+        final current = queue.removeAt(0);
+        if (!remaining.contains(current)) {
+          continue;
+        }
+        remaining.remove(current);
+        component.add(current);
+        for (final neighbor in adjacency[current] ?? const <String>{}) {
+          if (remaining.contains(neighbor)) {
+            queue.add(neighbor);
+          }
+        }
+      }
+      components.add(component);
+    }
+    components.sort((a, b) {
+      final aKey = a.reduce((left, right) => left.compareTo(right) <= 0 ? left : right);
+      final bKey = b.reduce((left, right) => left.compareTo(right) <= 0 ? left : right);
+      return aKey.compareTo(bKey);
+    });
+    return components;
+  }
+
+  static String _pickHub(Set<String> component, Map<String, Set<String>> adjacency) {
+    String hub = component.first;
+    var bestDegree = -1;
+    for (final id in component) {
+      final degree = (adjacency[id] ?? const <String>{}).where(component.contains).length;
+      if (degree > bestDegree || (degree == bestDegree && id.compareTo(hub) < 0)) {
+        hub = id;
+        bestDegree = degree;
+      }
+    }
+    return hub;
+  }
+
+  static void _layoutOverview({
+    required List<SecretaryObject> sorted,
+    required Set<String> nodeIds,
+    required Map<String, Set<String>> adjacency,
+    required Map<String, Offset> positions,
+    required bool freshRoot,
+  }) {
+    final components = _connectedComponents(nodeIds, adjacency);
+    var offsetX = 0.0;
+    for (final component in components) {
+      final componentNodes = sorted.where((node) => component.contains(node.id)).toList();
+      final local = <String, Offset>{};
+      for (final node in componentNodes) {
+        if (positions.containsKey(node.id)) {
+          local[node.id] = positions[node.id]!;
+        }
+      }
+      final newcomers = componentNodes.where((node) => !local.containsKey(node.id)).toList();
+      if (freshRoot || local.isEmpty) {
+        final hub = _pickHub(component, adjacency);
+        local[hub] = const Offset(0, 0);
+        final distances = _bfsDistances(hub, adjacency, component);
+        final layers = <int, List<String>>{};
+        for (final id in component) {
+          if (id == hub) {
+            continue;
+          }
+          layers.putIfAbsent(distances[id] ?? 9999, () => <String>[]).add(id);
+        }
+        final hubCenter = _nodeCenter(local[hub]!);
+        final layerKeys = layers.keys.where((layer) => layer > 0 && layer < 9999).toList()
+          ..sort();
+        final layerStep = _minCenterSeparation();
+        for (final layer in layerKeys) {
+          final members = layers[layer]!..sort();
+          final radius = _ringRadiusForCount(members.length) + (layer - 1) * layerStep;
+          final step = (2 * math.pi) / members.length;
+          for (var index = 0; index < members.length; index++) {
             final angle = step * index - math.pi / 2;
             final ringCenter = Offset(
-              rootCenter.dx + math.cos(angle) * radius,
-              rootCenter.dy + math.sin(angle) * radius,
+              hubCenter.dx + math.cos(angle) * radius,
+              hubCenter.dy + math.sin(angle) * radius,
             );
-            positions[newcomers[index].id] = Offset(
+            local[members[index]] = Offset(
               ringCenter.dx - kGraphNodeWidth / 2,
               ringCenter.dy - kGraphNodeHeight / 2,
             );
           }
-        } else {
-          for (final newcomer in newcomers) {
-            positions[newcomer.id] = _findIncrementalRingPosition(
-              rootCenter: rootCenter,
-              occupied: positions,
+        }
+        for (final node in componentNodes) {
+          if (!local.containsKey(node.id)) {
+            local[node.id] = _findIncrementalNearCenter(
+              anchor: hubCenter,
+              occupied: local,
+            );
+          }
+        }
+      } else {
+        for (final newcomer in newcomers) {
+          final neighbors = adjacency[newcomer.id] ?? const <String>{};
+          final anchored = neighbors.where((id) => local.containsKey(id)).toList()..sort();
+          if (anchored.isNotEmpty) {
+            var cx = 0.0;
+            var cy = 0.0;
+            for (final id in anchored) {
+              final center = _nodeCenter(local[id]!);
+              cx += center.dx;
+              cy += center.dy;
+            }
+            local[newcomer.id] = _findIncrementalNearCenter(
+              anchor: Offset(cx / anchored.length, cy / anchored.length),
+              occupied: local,
+            );
+          } else {
+            local[newcomer.id] = _findIncrementalNearCenter(
+              anchor: _nodeCenter(local.values.first),
+              occupied: local,
             );
           }
         }
       }
-      return positions;
-    }
-
-    final newcomers = sorted.where((node) => !positions.containsKey(node.id)).toList();
-    var column = 0;
-    var row = 0;
-    final originX = -(overviewColumnStep * (kGraphOverviewColumns - 1)) / 2;
-    final originY = -overviewRowStep;
-    for (final node in newcomers) {
-      positions[node.id] = Offset(
-        originX + column * overviewColumnStep,
-        originY + row * overviewRowStep,
-      );
-      column += 1;
-      if (column >= kGraphOverviewColumns) {
-        column = 0;
-        row += 1;
+      final bounds = computeBounds(local);
+      final translate = Offset(offsetX - bounds.left, -bounds.top);
+      for (final entry in local.entries) {
+        positions[entry.key] = entry.value + translate;
       }
+      offsetX += bounds.width + overviewColumnStep;
     }
-    return positions;
   }
 
   static double _minCenterSeparation() {
@@ -138,6 +370,35 @@ class GraphLayout {
       }
     }
     throw StateError('no free incremental graph slot around root');
+  }
+
+  static Offset _findIncrementalNearCenter({
+    required Offset anchor,
+    required Map<String, Offset> occupied,
+  }) {
+    final minCenter = _minCenterSeparation();
+    final radiusStep = minCenter;
+    final startRadius = _ringRadiusForCount(1);
+    final angleStep = (2 * math.pi) / _incrementalAngularSlots;
+
+    for (var ring = 0; ring < _incrementalMaxRings; ring++) {
+      final radius = startRadius + ring * radiusStep;
+      for (var slot = 0; slot < _incrementalAngularSlots; slot++) {
+        final angle = angleStep * slot - math.pi / 2;
+        final ringCenter = Offset(
+          anchor.dx + math.cos(angle) * radius,
+          anchor.dy + math.sin(angle) * radius,
+        );
+        final candidate = Offset(
+          ringCenter.dx - kGraphNodeWidth / 2,
+          ringCenter.dy - kGraphNodeHeight / 2,
+        );
+        if (!_positionOverlapsAny(candidate, occupied)) {
+          return candidate;
+        }
+      }
+    }
+    throw StateError('no free incremental graph slot near anchor');
   }
 
   static bool _positionOverlapsAny(

@@ -38,9 +38,28 @@ void main() {
     );
   }
 
+  http.Response facetsResponse() {
+    return http.Response(
+      jsonEncode({
+        'kinds': [
+          {'value': 'task', 'count': 1},
+          {'value': 'email', 'count': 1},
+        ],
+        'providers': [
+          {'value': 'gmail', 'count': 1},
+          {'value': 'local_device', 'count': 1},
+        ],
+      }),
+      200,
+    );
+  }
+
   testWidgets('search sends GET /search and renders results', (tester) async {
     await tester.pumpWidget(
       buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
         if (request.url.path == '/search') {
           expect(request.url.queryParameters['q'], 'alpha task');
           return http.Response(
@@ -83,6 +102,9 @@ void main() {
   testWidgets('search provider filter sends canonical provider value', (tester) async {
     await tester.pumpWidget(
       buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
         if (request.url.path == '/search') {
           expect(request.url.queryParameters['provider'], 'gmail');
           return http.Response('[]', 200);
@@ -93,10 +115,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'mail');
-    final providerDropdown = find.byType(DropdownButtonFormField<String?>).last;
-    await tester.tap(providerDropdown);
+    await tester.tap(find.byIcon(Icons.storage_outlined));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Gmail').last);
+    await tester.tap(find.text('G').last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
     await tester.pumpAndSettle();
@@ -105,6 +126,9 @@ void main() {
   testWidgets('search shows Russian provider label and date', (tester) async {
     await tester.pumpWidget(
       buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
         if (request.url.path == '/search') {
           return http.Response.bytes(
             utf8.encode(jsonEncode([
@@ -144,13 +168,16 @@ void main() {
     expect(find.text('Письмо от преподавателя'), findsOneWidget);
     expect(find.textContaining('Gmail'), findsOneWidget);
     expect(find.textContaining('30.08.2026'), findsOneWidget);
-    expect(find.text('По релевантности'), findsOneWidget);
+    expect(find.byIcon(Icons.sort), findsOneWidget);
     expect(find.text('Показано: 1'), findsOneWidget);
   });
 
   testWidgets('search empty state', (tester) async {
     await tester.pumpWidget(
       buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
         if (request.url.path == '/search') {
           return http.Response('[]', 200);
         }
@@ -167,6 +194,9 @@ void main() {
   testWidgets('search 401 exits authenticated UI', (tester) async {
     final apiClient = SecretaryApiClient(
       httpClient: MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
         return http.Response('{"detail":"unauthorized"}', 401);
       }),
     );

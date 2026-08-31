@@ -19,6 +19,7 @@ from app.tools.schemas import (
     ListNotificationsInput,
     RetrieveInput,
     SearchObjectsInput,
+    QueryObjectsInput,
     SetTaskStatusInput,
     ToolError,
     UpdateTaskInput,
@@ -58,6 +59,15 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         assistant_exposed=True,
         mcp_exposed=False,
         assistant_definition=_assistant_definition("retrieve"),
+    ),
+    ToolSpec(
+        name="query_objects",
+        permission=ToolPermission.READ,
+        input_model=QueryObjectsInput,
+        service_method="query_objects",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("query_objects"),
     ),
     ToolSpec(
         name="search_objects",

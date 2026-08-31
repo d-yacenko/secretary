@@ -8,6 +8,7 @@ from app.assistant.constants import (
     MAX_ASSISTANT_CONTEXT_CHARS,
     MAX_ASSISTANT_LIST_RESULTS,
     MAX_ASSISTANT_NEIGHBOR_RESULTS,
+    MAX_ASSISTANT_QUERY_OBJECTS_RESULTS,
     MAX_ASSISTANT_RETRIEVE_EXCERPT,
     MAX_ASSISTANT_RETRIEVE_RESULTS,
     MAX_ASSISTANT_SEARCH_RESULTS,
@@ -77,10 +78,35 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             payload["truncated"] = True
         return payload
 
+    if tool_name == "query_objects":
+        objects = raw_output.get("objects", [])[:MAX_ASSISTANT_QUERY_OBJECTS_RESULTS]
+        truncated = len(raw_output.get("objects", [])) > len(objects)
+        payload: dict[str, Any] = {
+            "objects": [
+                {
+                    "object_id": row.get("object_id"),
+                    "title": row.get("title"),
+                    "kind": row.get("kind"),
+                    "provider": row.get("provider"),
+                    "state": row.get("state"),
+                    "status": row.get("status"),
+                    "due_at": row.get("due_at"),
+                    "start_at": row.get("start_at"),
+                    "occurred_at": row.get("occurred_at"),
+                    "created_at": row.get("created_at"),
+                    "updated_at": row.get("updated_at"),
+                }
+                for row in objects
+            ],
+        }
+        if truncated:
+            payload["truncated"] = True
+        return payload
+
     if tool_name == "search_objects":
         objects = raw_output.get("objects", [])[:MAX_ASSISTANT_SEARCH_RESULTS]
         truncated = len(raw_output.get("objects", [])) > len(objects)
-        payload: dict[str, Any] = {
+        payload = {
             "objects": [_bounded_object(obj) for obj in objects],
         }
         if truncated:

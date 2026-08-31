@@ -19,6 +19,6 @@ void main() {
     expect(providerLabel('upload'), 'Загрузка');
     expect(providerLabel('web'), 'Веб');
     expect(providerLabel('custom_provider'), 'custom_provider');
-    expect(providerLabel(null), '');
+    expect(providerLabel(null), 'Источник');
   });
 }

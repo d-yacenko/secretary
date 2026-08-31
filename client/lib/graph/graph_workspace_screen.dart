@@ -12,9 +12,11 @@ import '../navigation/secretary_navigation.dart';
 import '../navigation/source_navigation_presenter.dart';
 import '../navigation/source_navigation_service.dart';
 import '../tasks/task_management_actions.dart';
+import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
-import '../ui/object_visuals.dart';
+import '../ui/object_presentation.dart';
+import '../ui/object_visuals.dart' show providerBadge;
 import 'graph_layout.dart';
 import 'graph_workspace_controller.dart';
 
@@ -45,12 +47,23 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<SecretaryObject> _searchResults = [];
   bool _searching = false;
+  SearchFacetsOut? _searchFacets;
   Size? _canvasViewportSize;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
+    _loadFacets();
+  }
+
+  Future<void> _loadFacets() async {
+    try {
+      final facets = await widget.apiClient.getSearchFacets();
+      if (mounted) {
+        setState(() => _searchFacets = facets);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -67,7 +80,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     }
   }
 
-  Future<void> _runSearch(String query, String? kind) async {
+  Future<void> _runSearch(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
         _searchResults = [];
@@ -80,7 +93,9 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     try {
       final results = await widget.apiClient.searchObjects(
         query: query.trim(),
-        kind: kind,
+        kind: widget.controller.searchKindFilter,
+        provider: widget.controller.searchProviderFilter,
+        sort: 'relevance',
       );
       setState(() {
         _searchResults = results;
@@ -193,20 +208,24 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     : null,
                 isDense: true,
               ),
-              onSubmitted: (value) => _runSearch(value, widget.controller.searchKindFilter),
+              onSubmitted: (value) => _runSearch(value),
             ),
           ),
-          DropdownButton<String?>(
-            value: widget.controller.searchKindFilter,
-            hint: const Text('Все объекты'),
-            items: const [
-              DropdownMenuItem(value: null, child: Text('Все объекты')),
-              DropdownMenuItem(value: 'task', child: Text('Задачи')),
-            ],
-            onChanged: (value) {
+          CompactObjectFilters(
+            facets: _searchFacets,
+            selectedKind: widget.controller.searchKindFilter,
+            selectedProvider: widget.controller.searchProviderFilter,
+            selectedSort: 'relevance',
+            showSort: false,
+            onKindChanged: (value) {
               widget.controller.searchKindFilter = value;
-              _runSearch(_searchController.text, value);
+              _runSearch(_searchController.text);
             },
+            onProviderChanged: (value) {
+              widget.controller.searchProviderFilter = value;
+              _runSearch(_searchController.text);
+            },
+            onSortChanged: (_) {},
           ),
           if (_searchResults.isNotEmpty)
             SizedBox(

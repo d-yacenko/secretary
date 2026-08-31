@@ -16,6 +16,7 @@ from app.tools.schemas import (
     LinkObjectsOutput,
     ListNeighborsOutput,
     ListNotificationsOutput,
+    QueryObjectsOutput,
     SearchObjectsOutput,
     SetTaskStatusOutput,
     ToolError,
@@ -47,6 +48,50 @@ def create_mcp_server() -> MCPServer:
         "personal-secretary",
         instructions="Personal Secretary domain tools over the internal object graph.",
     )
+
+    @mcp.tool()
+    def query_objects(
+        kinds: list[str] | None = None,
+        providers: list[str] | None = None,
+        statuses: list[str] | None = None,
+        states: list[str] | None = None,
+        due_from: datetime | None = None,
+        due_to: datetime | None = None,
+        start_from: datetime | None = None,
+        start_to: datetime | None = None,
+        occurred_from: datetime | None = None,
+        occurred_to: datetime | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+        limit: int = 20,
+    ) -> QueryObjectsOutput:
+        """Structured object query with filters and deterministic ordering."""
+        arguments: dict = {
+            "sort_by": sort_by,
+            "sort_order": sort_order,
+            "limit": limit,
+        }
+        if kinds is not None:
+            arguments["kinds"] = kinds
+        if providers is not None:
+            arguments["providers"] = providers
+        if statuses is not None:
+            arguments["statuses"] = statuses
+        if states is not None:
+            arguments["states"] = states
+        if due_from is not None:
+            arguments["due_from"] = due_from
+        if due_to is not None:
+            arguments["due_to"] = due_to
+        if start_from is not None:
+            arguments["start_from"] = start_from
+        if start_to is not None:
+            arguments["start_to"] = start_to
+        if occurred_from is not None:
+            arguments["occurred_from"] = occurred_from
+        if occurred_to is not None:
+            arguments["occurred_to"] = occurred_to
+        return _run_tool("query_objects", "query_objects", arguments)
 
     @mcp.tool()
     def search_objects(

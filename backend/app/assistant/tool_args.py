@@ -47,6 +47,27 @@ def normalize_assistant_tool_arguments(tool_name: str, arguments: dict[str, Any]
             "limit": min(limit, MAX_ASSISTANT_SEARCH_RESULTS),
         }
 
+    if tool_name == "query_objects":
+        from app.assistant.constants import MAX_ASSISTANT_QUERY_OBJECTS_RESULTS
+
+        limit = arguments.get("limit", MAX_ASSISTANT_QUERY_OBJECTS_RESULTS)
+        if not isinstance(limit, int):
+            raise ToolError("query_objects limit must be an integer")
+        if limit < 1:
+            raise ToolError("query_objects limit must be at least 1")
+        return {
+            **arguments,
+            "limit": min(limit, MAX_ASSISTANT_QUERY_OBJECTS_RESULTS),
+            "due_from": _parse_optional_datetime(arguments.get("due_from"), "due_from"),
+            "due_to": _parse_optional_datetime(arguments.get("due_to"), "due_to"),
+            "start_from": _parse_optional_datetime(arguments.get("start_from"), "start_from"),
+            "start_to": _parse_optional_datetime(arguments.get("start_to"), "start_to"),
+            "occurred_from": _parse_optional_datetime(
+                arguments.get("occurred_from"), "occurred_from"
+            ),
+            "occurred_to": _parse_optional_datetime(arguments.get("occurred_to"), "occurred_to"),
+        }
+
     if tool_name == "retrieve":
         limit = arguments.get("limit", MAX_ASSISTANT_RETRIEVE_RESULTS)
         if not isinstance(limit, int):

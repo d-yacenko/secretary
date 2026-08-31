@@ -24,6 +24,7 @@ from app.tools.schemas import ToolError
 _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
     {
         "retrieve",
+        "query_objects",
         "get_object",
         "get_context",
         "list_neighbors",
@@ -56,6 +57,7 @@ def test_registry_covers_executor_dispatch_tools():
     expected = {
         "search_objects",
         "retrieve",
+        "query_objects",
         "get_object",
         "get_context",
         "list_neighbors",
@@ -100,6 +102,7 @@ def test_mcp_exposed_tools_match_registry():
 def test_permission_classifications():
     read_tools = {
         "retrieve",
+        "query_objects",
         "search_objects",
         "get_object",
         "get_context",

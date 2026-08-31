@@ -168,6 +168,12 @@ MockClient overviewMock({
         graphObjectJson(id: 'search-root', title: 'Search hit'),
       ]);
     }
+    if (request.url.path == '/search/facets') {
+      return jsonUtf8Response({
+        'kinds': [{'value': 'task', 'count': 1}],
+        'providers': [],
+      });
+    }
     return jsonUtf8Response({}, statusCode: 404);
   });
 }
@@ -275,6 +281,19 @@ MockClient multiNodeOverviewMock() {
     }
     if (request.url.path == '/search') {
       return jsonUtf8Response([]);
+    }
+    if (request.url.path == '/search/facets') {
+      return jsonUtf8Response({
+        'kinds': [
+          {'value': 'task', 'count': 1},
+          {'value': 'email', 'count': 7},
+        ],
+        'providers': [
+          {'value': 'gmail', 'count': 1},
+          {'value': 'yandex_mail', 'count': 1},
+          {'value': 'local_device', 'count': 1},
+        ],
+      });
     }
     return jsonUtf8Response({}, statusCode: 404);
   });

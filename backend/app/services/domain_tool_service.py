@@ -33,6 +33,7 @@ from app.services.provenance import (
     PROPOSED_STATE,
     REJECTED_STATE,
 )
+from app.services.object_query_service import ObjectQueryService
 from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.services.task_mutation_service import TaskMutationService
@@ -56,6 +57,9 @@ from app.tools.schemas import (
     ListNotificationsOutput,
     NeighborItem,
     RetrievalHitOut,
+    QueryObjectItemOut,
+    QueryObjectsInput,
+    QueryObjectsOutput,
     RetrieveInput,
     RetrieveOutput,
     SearchObjectsInput,
@@ -83,6 +87,7 @@ class DomainToolService:
         self._graph = GraphService(session, user_id, embedding_service)
         self._search = SearchService(session, user_id)
         self._retrieval = RetrievalService(session, user_id)
+        self._object_query = ObjectQueryService(session, user_id)
         self._context = ContextService(session, user_id, embedding_service)
         self._notifications = NotificationService(session, user_id)
         self._defer_write_embeddings = defer_write_embeddings
@@ -132,6 +137,44 @@ class DomainToolService:
             limit=input.limit,
         )
         return SearchObjectsOutput(objects=objects)
+
+    def query_objects(self, input: QueryObjectsInput) -> QueryObjectsOutput:
+        try:
+            rows = self._object_query.query(
+                kinds=input.kinds if input.kinds else None,
+                providers=input.providers if input.providers else None,
+                statuses=input.statuses if input.statuses else None,
+                states=input.states if input.states else None,
+                due_from=input.due_from,
+                due_to=input.due_to,
+                start_from=input.start_from,
+                start_to=input.start_to,
+                occurred_from=input.occurred_from,
+                occurred_to=input.occurred_to,
+                sort_by=input.sort_by,
+                sort_order=input.sort_order,
+                limit=input.limit,
+            )
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        return QueryObjectsOutput(
+            objects=[
+                QueryObjectItemOut(
+                    object_id=obj.id,
+                    title=obj.title,
+                    kind=obj.kind,
+                    provider=obj.provider,
+                    state=obj.state,
+                    status=obj.status,
+                    due_at=obj.due_at,
+                    start_at=obj.start_at,
+                    occurred_at=obj.occurred_at,
+                    created_at=obj.created_at,
+                    updated_at=obj.updated_at,
+                )
+                for obj in rows
+            ]
+        )
 
     def retrieve(self, input: RetrieveInput) -> RetrieveOutput:
         try:

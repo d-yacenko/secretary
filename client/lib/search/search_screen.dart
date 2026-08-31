@@ -7,9 +7,10 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
+import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
-import '../ui/object_visuals.dart';
+import '../ui/object_visuals.dart' hide objectKindLabel;
 
 enum SearchLoadState { idle, loading, ready, empty, error }
 
@@ -42,15 +43,23 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _errorMessage;
   String? _selectedKind;
   String? _selectedProvider;
+  String _selectedSort = 'relevance';
+  SearchFacetsOut? _facets;
 
-  static const _kindOptions = <String?>[null, 'task', 'project', 'email', 'event', 'note'];
+  @override
+  void initState() {
+    super.initState();
+    _loadFacets();
+  }
 
-  static const _providerOptions = <(String?, String)>[
-    (null, 'Все источники'),
-    ('gmail', 'Gmail'),
-    ('yandex_mail', 'Яндекс'),
-    ('local_device', 'Компьютер'),
-  ];
+  Future<void> _loadFacets() async {
+    try {
+      final facets = await widget.apiClient.getSearchFacets();
+      if (mounted) {
+        setState(() => _facets = facets);
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -76,6 +85,7 @@ class _SearchScreenState extends State<SearchScreen> {
         query: query,
         kind: _selectedKind,
         provider: _selectedProvider,
+        sort: _selectedSort,
       );
       if (!mounted) {
         return;
@@ -119,71 +129,54 @@ class _SearchScreenState extends State<SearchScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextField(
-                controller: _queryController,
-                decoration: const InputDecoration(
-                  labelText: 'Поиск',
-                  hintText: 'Найти задачи, письма, проекты…',
-                  border: OutlineInputBorder(),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _queryController,
+                      decoration: const InputDecoration(
+                        labelText: 'Поиск',
+                        hintText: 'Найти задачи, письма, проекты…',
+                        border: OutlineInputBorder(),
+                      ),
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _search(),
+                    ),
+                  ),
+                  CompactObjectFilters(
+                    facets: _facets,
+                    selectedKind: _selectedKind,
+                    selectedProvider: _selectedProvider,
+                    selectedSort: _selectedSort,
+                    showSort: true,
+                    onKindChanged: (value) {
+                      setState(() => _selectedKind = value);
+                      if (_queryController.text.trim().isNotEmpty) {
+                        _search();
+                      }
+                    },
+                    onProviderChanged: (value) {
+                      setState(() => _selectedProvider = value);
+                      if (_queryController.text.trim().isNotEmpty) {
+                        _search();
+                      }
+                    },
+                    onSortChanged: (value) {
+                      setState(() => _selectedSort = value);
+                      if (_queryController.text.trim().isNotEmpty) {
+                        _search();
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: _loadState == SearchLoadState.loading ? null : _search,
+                  child: const Text('Поиск'),
                 ),
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _search(),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String?>(
-                      initialValue: _selectedKind,
-                      decoration: const InputDecoration(
-                        labelText: 'Тип',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _kindOptions
-                          .map(
-                            (kind) => DropdownMenuItem<String?>(
-                              value: kind,
-                              child: Text(searchKindFilterLabel(kind)),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) => setState(() => _selectedKind = value),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: DropdownButtonFormField<String?>(
-                      initialValue: _selectedProvider,
-                      decoration: const InputDecoration(
-                        labelText: 'Источник',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _providerOptions
-                          .map(
-                            (option) => DropdownMenuItem<String?>(
-                              value: option.$1,
-                              child: Text(option.$2),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) => setState(() => _selectedProvider = value),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Text(
-                    'По релевантности',
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: _loadState == SearchLoadState.loading ? null : _search,
-                    child: const Text('Поиск'),
-                  ),
-                ],
               ),
             ],
           ),

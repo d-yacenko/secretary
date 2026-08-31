@@ -12,6 +12,7 @@ from app.tools.results import ToolExecutionResult, ToolExecutionStatus
 _READ_TOOLS = frozenset(
     {
         "retrieve",
+        "query_objects",
         "search_objects",
         "get_object",
         "get_context",

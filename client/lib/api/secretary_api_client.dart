@@ -288,11 +288,13 @@ class SecretaryApiClient {
     required String query,
     String? kind,
     String? provider,
+    String sort = 'relevance',
     int limit = 20,
   }) async {
     final queryParameters = <String, String>{
       'q': query,
       'limit': '$limit',
+      'sort': sort,
     };
     if (kind != null && kind.isNotEmpty) {
       queryParameters['kind'] = kind;
@@ -311,6 +313,14 @@ class SecretaryApiClient {
     return decoded
         .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<SearchFacetsOut> getSearchFacets() async {
+    final decoded = await _requestJson('GET', '/search/facets');
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected search facets response format');
+    }
+    return SearchFacetsOut.fromJson(decoded);
   }
 
   Future<AssistantMessageResponse> sendAssistantMessage(

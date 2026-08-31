@@ -11,6 +11,9 @@ def collect_object_ids_from_bounded_tool(
     if tool_name == "search_objects":
         for obj in bounded.get("objects", []):
             _append_uuid(candidate_ids, obj.get("id"))
+    elif tool_name == "query_objects":
+        for row in bounded.get("objects", []):
+            _append_uuid(candidate_ids, row.get("object_id"))
     elif tool_name == "retrieve":
         for hit in bounded.get("hits", []):
             _append_uuid(candidate_ids, hit.get("object_id"))
@@ -46,6 +49,9 @@ def collect_seen_object_ids_from_bounded_tool(
     if tool_name == "search_objects":
         for obj in bounded.get("objects", []):
             _append_uuid(seen_ids, obj.get("id"))
+    elif tool_name == "query_objects":
+        for row in bounded.get("objects", []):
+            _append_uuid(seen_ids, row.get("object_id"))
     elif tool_name == "retrieve":
         for hit in bounded.get("hits", []):
             _append_uuid(seen_ids, hit.get("object_id"))

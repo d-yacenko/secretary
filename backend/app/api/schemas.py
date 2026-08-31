@@ -307,6 +307,16 @@ class TaskStatusResponse(BaseModel):
     new_status: str
 
 
+class SearchFacetValueOut(BaseModel):
+    value: str
+    count: int
+
+
+class SearchFacetsOut(BaseModel):
+    kinds: list[SearchFacetValueOut]
+    providers: list[SearchFacetValueOut]
+
+
 class GraphWorkspaceOut(BaseModel):
     root_id: UUID | None
     seed_ids: list[UUID]

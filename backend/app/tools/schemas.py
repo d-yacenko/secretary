@@ -23,6 +23,51 @@ class ToolResult(BaseModel):
     error: str | None = None
 
 
+QuerySortBy = Literal[
+    "due_at",
+    "start_at",
+    "occurred_at",
+    "created_at",
+    "updated_at",
+    "title",
+]
+QuerySortOrder = Literal["asc", "desc"]
+
+
+class QueryObjectsInput(BaseModel):
+    kinds: list[str] = Field(default_factory=list, max_length=8)
+    providers: list[str] = Field(default_factory=list, max_length=8)
+    statuses: list[str] = Field(default_factory=list, max_length=8)
+    states: list[str] = Field(default_factory=list, max_length=4)
+    due_from: datetime | None = None
+    due_to: datetime | None = None
+    start_from: datetime | None = None
+    start_to: datetime | None = None
+    occurred_from: datetime | None = None
+    occurred_to: datetime | None = None
+    sort_by: QuerySortBy = "created_at"
+    sort_order: QuerySortOrder = "desc"
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class QueryObjectItemOut(BaseModel):
+    object_id: UUID
+    title: str
+    kind: str
+    provider: str | None = None
+    state: str
+    status: str | None = None
+    due_at: datetime | None = None
+    start_at: datetime | None = None
+    occurred_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class QueryObjectsOutput(BaseModel):
+    objects: list[QueryObjectItemOut]
+
+
 class SearchObjectsInput(BaseModel):
     query: str = Field(min_length=1)
     kind: str | None = None

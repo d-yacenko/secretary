@@ -48,11 +48,22 @@ PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **ac
 
 PHASE 26 remains **open** until PHASE 26C is accepted.
 
-Next planned subphase: PHASE 26C — Graph Topology & Search Ordering.
+PHASE 26C — Structured Query, Search UX & Topology-Aware Graph: **implementation complete, awaiting architect review** (branch `review/phase-26c-query-search-graph`).
 
-**ARCHITECT CONTEXT REFRESH CHECKPOINT** required before starting PHASE 26C.
+Architect context refresh checkpoint: **completed** at `114608d`.
 
-Do not start PHASE 26C until architect context refresh is complete.
+Next planned subphase after PHASE 26 closes: **PHASE 27 — Safe External Actions**.
+
+## PHASE 26C verification (awaiting architect review)
+
+- full `ruff check .`: 53 known pre-existing findings, 0 new PHASE 26C findings
+- `pytest`: 749 passed, 3 skipped
+- `flutter analyze`: 48 info/warning, 0 errors
+- `flutter test`: 256 passed
+- Android APK: PASS
+- Linux build: PASS
+- Android `minSdk`: 23
+- migrations: none
 
 ## PHASE 26A verification (accepted)
 

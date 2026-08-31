@@ -150,3 +150,13 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 - Android: system file picker without broad storage permission; persistent reopen best-effort.
 - Yandex Mail open-target: mailbox URL when exact message browser link unavailable from IMAP.
 
+## PHASE 26C — Structured query, search ordering & topology graph (awaiting architect review)
+
+- `query_objects` is the general structured READ primitive; `retrieve` remains semantic discovery only.
+- `ObjectQueryService`: bounded filters, inclusive date ranges, `NULLS LAST` nullable date sorts, max limit 50, default visibility excludes rejected/deleted tasks; `proposed` objects remain visible.
+- Search newest/oldest: bounded qualified candidate pool (≤100), primary date helper aligned with Flutter semantics, sort before display limit.
+- `GET /search/facets` drives dynamic kind/provider filter options (no hardcoded connector lists in UI).
+- Flutter: shared `object_presentation.dart`; compact icon filters on Search and Graph; topology-aware layout uses visible edges (undirected for placement), incremental expansion preserves existing positions.
+- No specialized deadline/urgency tools; Secretary combines atomic tools.
+- Deferred: Mattermost, Google Drive, Yandex Disk connectors; manual drag; persisted layout; curved edges.
+

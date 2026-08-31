@@ -319,6 +319,7 @@ class RetrievalService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         limit: int = DEFAULT_FINAL_HITS,
+        hits_cap: int | None = None,
     ) -> RetrievalResult:
         normalized_query = query.strip()
         if not normalized_query:
@@ -332,7 +333,7 @@ class RetrievalService:
         if date_from is not None and date_to is not None and date_from > date_to:
             raise ValidationError("date_from must be before or equal to date_to")
 
-        final_limit = max(1, min(limit, MAX_FINAL_HITS))
+        final_limit = max(1, min(limit, hits_cap if hits_cap is not None else MAX_FINAL_HITS))
         now = datetime.now(UTC)
         recency_cutoff = now - RECENCY_WINDOW
         explicit_dates = date_from is not None or date_to is not None

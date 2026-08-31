@@ -34,6 +34,7 @@ class GraphWorkspaceController extends ChangeNotifier {
   String? selectedEdgeId;
   String? searchQuery;
   String? searchKindFilter;
+  String? searchProviderFilter;
   bool shouldFitAfterLayout = false;
 
   final Map<String, SecretaryObject> _nodes = {};
@@ -69,6 +70,7 @@ class GraphWorkspaceController extends ChangeNotifier {
     selectedEdgeId = null;
     searchQuery = null;
     searchKindFilter = null;
+    searchProviderFilter = null;
     shouldFitAfterLayout = false;
     _nodes.clear();
     _edges.clear();
@@ -296,6 +298,7 @@ class GraphWorkspaceController extends ChangeNotifier {
       layoutNodes.add(target);
       final computed = GraphLayout.computePositions(
         nodes: layoutNodes,
+        edges: _edges,
         rootId: sourceId,
         existing: _positions,
         freshRoot: false,
@@ -432,6 +435,7 @@ class GraphWorkspaceController extends ChangeNotifier {
     }
     final computed = GraphLayout.computePositions(
       nodes: workspace.nodes,
+      edges: workspace.edges,
       rootId: expandAround,
       existing: _positions,
       freshRoot: false,
@@ -458,6 +462,7 @@ class GraphWorkspaceController extends ChangeNotifier {
     }
     final computed = GraphLayout.computePositions(
       nodes: workspace.nodes,
+      edges: workspace.edges,
       rootId: layoutRoot,
       existing: _positions,
       freshRoot: freshRoot,

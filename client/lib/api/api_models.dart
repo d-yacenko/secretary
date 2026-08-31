@@ -953,3 +953,35 @@ class RelationDecisionResponse {
     );
   }
 }
+
+class SearchFacetValue {
+  SearchFacetValue({required this.value, required this.count});
+
+  final String value;
+  final int count;
+
+  factory SearchFacetValue.fromJson(Map<String, dynamic> json) {
+    return SearchFacetValue(
+      value: json['value'] as String,
+      count: json['count'] as int,
+    );
+  }
+}
+
+class SearchFacetsOut {
+  SearchFacetsOut({required this.kinds, required this.providers});
+
+  final List<SearchFacetValue> kinds;
+  final List<SearchFacetValue> providers;
+
+  factory SearchFacetsOut.fromJson(Map<String, dynamic> json) {
+    return SearchFacetsOut(
+      kinds: (json['kinds'] as List<dynamic>)
+          .map((row) => SearchFacetValue.fromJson(row as Map<String, dynamic>))
+          .toList(),
+      providers: (json['providers'] as List<dynamic>)
+          .map((row) => SearchFacetValue.fromJson(row as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}

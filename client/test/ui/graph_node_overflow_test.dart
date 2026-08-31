@@ -20,6 +20,7 @@ void main() {
     );
     final positions = GraphLayout.computePositions(
       nodes: [node],
+      edges: [],
       rootId: null,
       existing: {},
       freshRoot: true,

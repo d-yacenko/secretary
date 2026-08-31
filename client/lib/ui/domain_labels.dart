@@ -1,17 +1,7 @@
 import '../api/api_models.dart';
+import 'object_presentation.dart' show objectKindLabel;
 
-const Map<String, String> _objectKindLabels = {
-  'task': 'Задача',
-  'email': 'Письмо',
-  'calendar_event': 'Событие',
-  'event': 'Событие',
-  'project': 'Проект',
-  'note': 'Заметка',
-  'file': 'Файл',
-  'folder': 'Папка',
-  'chat': 'Чат',
-  'message': 'Сообщение',
-};
+export 'object_presentation.dart' show objectKindLabel;
 
 const Map<String, String> _taskStatusLabels = {
   'open': 'Открыта',
@@ -50,9 +40,6 @@ const Map<String, String> _neighborDirectionLabels = {
 };
 
 String _fallback(String value) => value;
-
-String objectKindLabel(String kind) =>
-    _objectKindLabels[kind] ?? _fallback(kind);
 
 String taskStatusLabel(String? status) {
   if (status == null || status.trim().isEmpty) {

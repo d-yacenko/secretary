@@ -14,12 +14,15 @@ from app.api.schemas import (
     ObjectOut,
     ObjectUpdate,
     OpenTargetOut,
+    SearchFacetValueOut,
+    SearchFacetsOut,
 )
 from app.core.current_user import CurrentUserContext
 from app.llm.embedding_service import EmbeddingService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.open_target_service import OpenTargetService
+from app.services.search_facet_service import SearchFacetService
 from app.services.search_service import SearchService
 
 router = APIRouter()
@@ -171,6 +174,7 @@ def search_objects(
     provider: str | None = None,
     project_id: UUID | None = None,
     limit: int = Query(default=20, ge=1, le=100),
+    sort: str = Query(default="relevance"),
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> list[ObjectOut]:
@@ -181,4 +185,17 @@ def search_objects(
         provider=provider,
         project_id=project_id,
         limit=limit,
+        sort=sort,
+    )
+
+
+@router.get("/search/facets", response_model=SearchFacetsOut)
+def search_facets(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> SearchFacetsOut:
+    data = SearchFacetService(session, current_user.user_id).facets()
+    return SearchFacetsOut(
+        kinds=[SearchFacetValueOut(**row) for row in data["kinds"]],
+        providers=[SearchFacetValueOut(**row) for row in data["providers"]],
     )

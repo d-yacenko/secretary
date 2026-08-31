@@ -1,42 +1,29 @@
-# Current task — PHASE 26B closed; wait for architect context refresh
+# Current task — PHASE 26C awaiting architect review
 
 ## Status
 
-PHASE 26B — Source Navigation, Attachments & Client-assisted File Intake: **accepted / closed** (`be6bdfa`)
+PHASE 26C — Structured Query, Search UX & Topology-Aware Graph: **implementation complete, awaiting architect review**
 
-PHASE 26 remains **open**.
+Architect context refresh checkpoint: **completed** at `114608d`
 
-**Do not start PHASE 26C** until architect context refresh checkpoint is complete.
+PHASE 26 remains **open** (not closed until PHASE 26C acceptance).
 
-## PHASE 26B accepted decisions
+Do **not** merge, deploy, or start PHASE 27.
 
-- Local-device mechanical extraction happens client-side where practical
-- Semantic understanding remains backend-side
-- Local raw files are not uploaded by default
-- `.txt` / `.md` / `.csv` are client-indexable
-- Unsupported formats (PDF, DOCX, XLSX, PPTX, Parquet, images, archives) are metadata-only for client-assisted intake
-- Metadata-only downgrade removes old indexed content
-- Gmail / Yandex attachments are canonical file objects
-- `open-target` is the canonical source-navigation abstraction
-- Local open actions are device-aware
-- Android persistent local reopen remains deferred
-- Yandex Mail uses truthful mailbox-level fallback when exact deep link cannot be derived
+## PHASE 26C delivered
 
-## PHASE 26B verification (accepted)
+- `query_objects` structured READ primitive (Assistant + MCP)
+- `ObjectQueryService` deterministic SQL filtering/ordering
+- Search `sort=relevance|newest|oldest`, bounded candidate pool, `GET /search/facets`
+- Shared `object_presentation.dart` registry; compact Search/Graph icon filters
+- Topology-aware Graph layout (BFS rooted layers, overview components, incremental stability)
 
-- full Ruff snapshot: 51 existing findings, exit 1
-- `pytest`: 733 passed, 3 skipped
-- `flutter analyze`: 48 info/warning, 0 errors
-- `flutter test`: 249 passed
-- Android APK: PASS
-- Linux build: PASS
-- Android `minSdk`: 23
-- migrations: none
-- final focused Ruff: PASS
-- final focused pytest: 30 passed
+## Deferred (not PHASE 26C)
 
-## Next subphase (after architect context refresh)
+- Mattermost / Google Drive / Yandex Disk connectors
+- Manual Graph node drag, persisted positions, curved edges
+- Labels/tags, workflow intelligence, external writes, proactive Secretary
 
-PHASE 26C — Graph Topology & Search Ordering
+## Next major phase (after PHASE 26 closes)
 
-**ARCHITECT CONTEXT REFRESH CHECKPOINT** required before implementation.
+PHASE 27 — Safe External Actions

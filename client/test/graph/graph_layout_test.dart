@@ -44,6 +44,49 @@ void _expectNoOverlaps(Map<String, Offset> positions, {String? reason}) {
   }
 }
 
+SecretaryObject _topologyNode(String id, {String? title, String kind = 'task'}) {
+  return SecretaryObject(
+    id: id,
+    kind: kind,
+    title: title ?? id,
+    metadata: {},
+    origin: 'user',
+    state: 'confirmed',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  );
+}
+
+SecretaryEdge _topologyEdge(String source, String target) {
+  return SecretaryEdge(
+    id: 'e-$source-$target',
+    sourceId: source,
+    targetId: target,
+    type: 'related_to',
+    origin: 'user',
+    state: 'confirmed',
+    metadata: {},
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  );
+}
+
+Offset _topologyCenter(Map<String, Offset> positions, String id) {
+  final topLeft = positions[id]!;
+  return Offset(
+    topLeft.dx + kGraphNodeWidth / 2,
+    topLeft.dy + kGraphNodeHeight / 2,
+  );
+}
+
+double _topologyDistance(Offset a, Offset b) => (a - b).distance;
+
+double _topologyMinCenterSeparation() {
+  final sepW = kGraphNodeWidth + kGraphNodeHorizontalGap;
+  final sepH = kGraphNodeHeight + kGraphNodeVerticalGap;
+  return math.sqrt(sepW * sepW + sepH * sepH);
+}
+
 void main() {
   test('fresh root centers even when existing is empty', () {
     final root = SecretaryObject(
@@ -77,7 +120,7 @@ void main() {
       updatedAt: '2026-01-01T00:00:00Z',
     );
 
-    final positions = GraphLayout.computePositions(
+    final positions = GraphLayout.computePositions(edges: [], 
       nodes: [root, a, b],
       rootId: 'root',
       existing: {},
@@ -114,7 +157,7 @@ void main() {
     );
     final existing = {'root': const Offset(42, 17)};
 
-    final positions = GraphLayout.computePositions(
+    final positions = GraphLayout.computePositions(edges: [], 
       nodes: [root, newcomer],
       rootId: 'root',
       existing: existing,
@@ -234,7 +277,7 @@ void main() {
         updatedAt: '2026-01-01T00:00:00Z',
       ),
     );
-    final positions = GraphLayout.computePositions(
+    final positions = GraphLayout.computePositions(edges: [], 
       nodes: nodes,
       rootId: null,
       existing: {},
@@ -278,7 +321,7 @@ void main() {
           updatedAt: '2026-01-01T00:00:00Z',
         ),
       );
-      final positions = GraphLayout.computePositions(
+      final positions = GraphLayout.computePositions(edges: [], 
         nodes: [root, ...ring],
         rootId: 'root',
         existing: {},
@@ -302,7 +345,7 @@ void main() {
     final a = _ringObject('a', 'A');
     final b = _ringObject('b', 'B');
 
-    final initial = GraphLayout.computePositions(
+    final initial = GraphLayout.computePositions(edges: [], 
       nodes: [root, a],
       rootId: 'root',
       existing: {},
@@ -311,7 +354,7 @@ void main() {
     final rootPos = initial['root']!;
     final aPos = initial['a']!;
 
-    final expanded = GraphLayout.computePositions(
+    final expanded = GraphLayout.computePositions(edges: [], 
       nodes: [root, a, b],
       rootId: 'root',
       existing: initial,
@@ -333,7 +376,7 @@ void main() {
 
   test('incremental neighbor addition up to 24 preserves positions and avoids overlap', () {
     final root = _rootObject();
-    var positions = GraphLayout.computePositions(
+    var positions = GraphLayout.computePositions(edges: [], 
       nodes: [root],
       rootId: 'root',
       existing: {},
@@ -345,7 +388,7 @@ void main() {
       final neighbor = _ringObject('n-$index', 'Neighbor $index');
       neighbors.add(neighbor);
       final before = Map<String, Offset>.from(positions);
-      positions = GraphLayout.computePositions(
+      positions = GraphLayout.computePositions(edges: [], 
         nodes: [root, ...neighbors],
         rootId: 'root',
         existing: positions,
@@ -360,5 +403,194 @@ void main() {
       }
       _expectNoOverlaps(positions, reason: 'index=$index');
     }
+  });
+
+  test('star overview places hub centered with non-overlapping leaves', () {
+    final hub = _topologyNode('hub', title: 'Hub');
+    final leaves = List.generate(
+      5,
+      (index) => _topologyNode('leaf-$index', title: 'Leaf $index', kind: 'email'),
+    );
+    final edges = leaves.map((leaf) => _topologyEdge('hub', leaf.id)).toList();
+    final positions = GraphLayout.computePositions(
+      nodes: [hub, ...leaves],
+      edges: edges,
+      rootId: null,
+      existing: {},
+      freshRoot: true,
+    );
+    expect(positions['hub'], isNotNull);
+    final hubCenter = _topologyCenter(positions, 'hub');
+    var leafCx = 0.0;
+    var leafCy = 0.0;
+    for (final leaf in leaves) {
+      final center = _topologyCenter(positions, leaf.id);
+      leafCx += center.dx;
+      leafCy += center.dy;
+    }
+    leafCx /= leaves.length;
+    leafCy /= leaves.length;
+    expect(
+      _topologyDistance(hubCenter, Offset(leafCx, leafCy)),
+      lessThan(kGraphNodeWidth),
+    );
+    _expectNoOverlaps(positions, reason: 'star');
+  });
+
+  test('rooted chain reflects graph distance in layers', () {
+    final a = _topologyNode('a', title: 'A');
+    final b = _topologyNode('b', title: 'B');
+    final c = _topologyNode('c', title: 'C');
+    final d = _topologyNode('d', title: 'D');
+    final edges = [
+      _topologyEdge('a', 'b'),
+      _topologyEdge('b', 'c'),
+      _topologyEdge('c', 'd'),
+    ];
+    final positions = GraphLayout.computePositions(
+      nodes: [a, b, c, d],
+      edges: edges,
+      rootId: 'a',
+      existing: {},
+      freshRoot: true,
+    );
+    final rootCenter = _topologyCenter(positions, 'a');
+    final distB = _topologyDistance(rootCenter, _topologyCenter(positions, 'b'));
+    final distD = _topologyDistance(rootCenter, _topologyCenter(positions, 'd'));
+    expect(distB, lessThan(distD));
+    _expectNoOverlaps(positions, reason: 'chain');
+  });
+
+  test('two disconnected components do not overlap', () {
+    final h1 = _topologyNode('h1', title: 'Hub 1');
+    final l1 = _topologyNode('l1', title: 'Leaf 1', kind: 'email');
+    final h2 = _topologyNode('h2', title: 'Hub 2');
+    final l2 = _topologyNode('l2', title: 'Leaf 2', kind: 'email');
+    final edges = [
+      _topologyEdge('h1', 'l1'),
+      _topologyEdge('h2', 'l2'),
+    ];
+    final positions = GraphLayout.computePositions(
+      nodes: [h1, l1, h2, l2],
+      edges: edges,
+      rootId: null,
+      existing: {},
+      freshRoot: true,
+    );
+    final bounds1 = GraphLayout.computeBounds({
+      'h1': positions['h1']!,
+      'l1': positions['l1']!,
+    });
+    final bounds2 = GraphLayout.computeBounds({
+      'h2': positions['h2']!,
+      'l2': positions['l2']!,
+    });
+    expect(bounds1.overlaps(bounds2), isFalse);
+    _expectNoOverlaps(positions, reason: 'two-components');
+  });
+
+  test('shuffled input order yields identical positions', () {
+    final nodes = [
+      _topologyNode('a'),
+      _topologyNode('b'),
+      _topologyNode('c'),
+    ];
+    final edges = [_topologyEdge('a', 'b'), _topologyEdge('b', 'c')];
+    final ordered = GraphLayout.computePositions(
+      nodes: nodes,
+      edges: edges,
+      rootId: 'a',
+      existing: {},
+      freshRoot: true,
+    );
+    final shuffled = GraphLayout.computePositions(
+      nodes: [nodes[2], nodes[0], nodes[1]],
+      edges: edges,
+      rootId: 'a',
+      existing: {},
+      freshRoot: true,
+    );
+    for (final id in ordered.keys) {
+      expect(shuffled[id], ordered[id], reason: 'position mismatch for $id');
+    }
+  });
+
+  test('fresh rooted 30 nodes have no overlap', () {
+    final root = _topologyNode('root', title: 'Root');
+    final spokes = List.generate(29, (index) => _topologyNode('n-$index'));
+    final edges = spokes.map((node) => _topologyEdge('root', node.id)).toList();
+    final positions = GraphLayout.computePositions(
+      nodes: [root, ...spokes],
+      edges: edges,
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    _expectNoOverlaps(positions, reason: '30-rooted');
+  });
+
+  test('incremental expansion preserves all existing positions', () {
+    final root = _topologyNode('root');
+    final first = _topologyNode('first', kind: 'email');
+    final initial = GraphLayout.computePositions(
+      nodes: [root, first],
+      edges: [_topologyEdge('root', 'first')],
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final second = _topologyNode('second', kind: 'email');
+    final expanded = GraphLayout.computePositions(
+      nodes: [root, first, second],
+      edges: [
+        _topologyEdge('root', 'first'),
+        _topologyEdge('root', 'second'),
+      ],
+      rootId: 'root',
+      existing: initial,
+      freshRoot: false,
+    );
+    expect(expanded['root'], initial['root']);
+    expect(expanded['first'], initial['first']);
+    _expectNoOverlaps(expanded, reason: 'incremental');
+  });
+
+  test('new node with two positioned neighbors anchors near centroid', () {
+    final root = _topologyNode('root');
+    final left = _topologyNode('left', kind: 'email');
+    final right = _topologyNode('right', kind: 'email');
+    final initial = GraphLayout.computePositions(
+      nodes: [root, left, right],
+      edges: [
+        _topologyEdge('root', 'left'),
+        _topologyEdge('root', 'right'),
+      ],
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final newcomer = _topologyNode('new', kind: 'email');
+    final expanded = GraphLayout.computePositions(
+      nodes: [root, left, right, newcomer],
+      edges: [
+        _topologyEdge('root', 'left'),
+        _topologyEdge('root', 'right'),
+        _topologyEdge('left', 'new'),
+        _topologyEdge('right', 'new'),
+      ],
+      rootId: 'root',
+      existing: initial,
+      freshRoot: false,
+    );
+    final anchor = Offset(
+      (_topologyCenter(initial, 'left').dx + _topologyCenter(initial, 'right').dx) / 2,
+      (_topologyCenter(initial, 'left').dy + _topologyCenter(initial, 'right').dy) / 2,
+    );
+    final newcomerCenter = _topologyCenter(expanded, 'new');
+    expect(
+      _topologyDistance(anchor, newcomerCenter),
+      lessThan(_topologyMinCenterSeparation() * 3),
+    );
+    _expectNoOverlaps(expanded, reason: 'two-neighbor anchor');
   });
 }
