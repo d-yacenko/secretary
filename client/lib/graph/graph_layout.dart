@@ -103,6 +103,177 @@ class GraphLayout {
     return distances;
   }
 
+  static Map<String, List<String>> _buildTreeChildren(
+    String hubId,
+    Map<String, int> distances,
+    Map<String, Set<String>> adjacency,
+    Set<String> nodeIds,
+  ) {
+    final children = <String, List<String>>{};
+    for (final id in nodeIds) {
+      if (id == hubId) {
+        continue;
+      }
+      final layer = distances[id] ?? 9999;
+      if (layer <= 0 || layer >= 9999) {
+        continue;
+      }
+      final parents = adjacency[id]!
+          .where((neighbor) => distances[neighbor] == layer - 1)
+          .toList()
+        ..sort();
+      if (parents.isEmpty) {
+        continue;
+      }
+      children.putIfAbsent(parents.first, () => <String>[]).add(id);
+    }
+    for (final entry in children.entries) {
+      entry.value.sort();
+    }
+    return children;
+  }
+
+  static void _assignAngleSectors(
+    String nodeId,
+    double startAngle,
+    double endAngle,
+    Map<String, List<String>> children,
+    Map<String, (double, double)> sectors,
+  ) {
+    sectors[nodeId] = (startAngle, endAngle);
+    final kids = children[nodeId] ?? const <String>[];
+    if (kids.isEmpty) {
+      return;
+    }
+    final step = (endAngle - startAngle) / kids.length;
+    for (var index = 0; index < kids.length; index++) {
+      _assignAngleSectors(
+        kids[index],
+        startAngle + step * index,
+        startAngle + step * (index + 1),
+        children,
+        sectors,
+      );
+    }
+  }
+
+  static Map<int, double> _computeCumulativeLayerRadii(
+    Map<int, List<String>> layers,
+    int maxLayer,
+  ) {
+    final layerStep = _minCenterSeparation();
+    final radii = <int, double>{0: 0.0};
+    for (var layer = 1; layer <= maxLayer; layer++) {
+      final count = layers[layer]?.length ?? 0;
+      final ringRadius = _ringRadiusForCount(count);
+      final minRadius = (radii[layer - 1] ?? 0) + layerStep;
+      radii[layer] = math.max(ringRadius, minRadius);
+    }
+    return radii;
+  }
+
+  static void _layoutFreshHubTree({
+    required String hubId,
+    required Set<String> nodeIds,
+    required Map<String, Set<String>> adjacency,
+    required Map<String, Offset> positions,
+    required Offset hubTopLeft,
+  }) {
+    positions[hubId] = hubTopLeft;
+    final hubCenter = _nodeCenter(hubTopLeft);
+    final distances = _bfsDistances(hubId, adjacency, nodeIds);
+    final layers = <int, List<String>>{};
+    var maxLayer = 0;
+    for (final id in nodeIds) {
+      if (id == hubId) {
+        continue;
+      }
+      final layer = distances[id] ?? 9999;
+      if (layer <= 0 || layer >= 9999) {
+        continue;
+      }
+      maxLayer = math.max(maxLayer, layer);
+      layers.putIfAbsent(layer, () => <String>[]).add(id);
+    }
+    for (final entry in layers.entries) {
+      entry.value.sort();
+    }
+    final children = _buildTreeChildren(hubId, distances, adjacency, nodeIds);
+    final sectors = <String, (double, double)>{};
+    _assignAngleSectors(hubId, -math.pi, math.pi, children, sectors);
+    final radii = _computeCumulativeLayerRadii(layers, maxLayer);
+
+    for (final id in nodeIds) {
+      if (id == hubId) {
+        continue;
+      }
+      final layer = distances[id] ?? 9999;
+      if (layer <= 0 || layer >= 9999) {
+        continue;
+      }
+      final sector = sectors[id];
+      final angle = sector != null ? (sector.$1 + sector.$2) / 2 : -math.pi / 2;
+      final radius = radii[layer] ?? _minCenterSeparation();
+      final center = Offset(
+        hubCenter.dx + math.cos(angle) * radius,
+        hubCenter.dy + math.sin(angle) * radius,
+      );
+      positions[id] = Offset(
+        center.dx - kGraphNodeWidth / 2,
+        center.dy - kGraphNodeHeight / 2,
+      );
+    }
+
+    for (final id in nodeIds) {
+      if (id == hubId || positions.containsKey(id)) {
+        continue;
+      }
+      positions[id] = _findIncrementalNearCenter(
+        anchor: hubCenter,
+        occupied: positions,
+      );
+    }
+  }
+
+  static void _layoutIsolatedGrid(
+    List<String> nodeIds,
+    Map<String, Offset> local,
+  ) {
+    final sorted = List<String>.from(nodeIds)..sort();
+    for (var index = 0; index < sorted.length; index++) {
+      final col = index % kGraphOverviewColumns;
+      final row = index ~/ kGraphOverviewColumns;
+      local[sorted[index]] = Offset(
+        col * overviewColumnStep,
+        row * overviewRowStep,
+      );
+    }
+  }
+
+  static void _packLocalMaps2D({
+    required List<Map<String, Offset>> locals,
+    required Map<String, Offset> positions,
+  }) {
+    var cursorX = 0.0;
+    var cursorY = 0.0;
+    var rowHeight = 0.0;
+    final maxRowWidth = overviewColumnStep * kGraphOverviewColumns;
+    for (final local in locals) {
+      final bounds = computeBounds(local);
+      if (cursorX > 0 && cursorX + bounds.width > maxRowWidth) {
+        cursorX = 0.0;
+        cursorY += rowHeight + overviewRowStep;
+        rowHeight = 0.0;
+      }
+      final translate = Offset(cursorX - bounds.left, cursorY - bounds.top);
+      for (final entry in local.entries) {
+        positions[entry.key] = entry.value + translate;
+      }
+      cursorX += bounds.width + kGraphNodeHorizontalGap;
+      rowHeight = math.max(rowHeight, bounds.height);
+    }
+  }
+
   static void _layoutRooted({
     required String rootId,
     required List<SecretaryObject> sorted,
@@ -122,41 +293,16 @@ class GraphLayout {
     }
     final rootCenter = _nodeCenter(positions[rootId]!);
     if (freshRoot) {
-      final distances = _bfsDistances(rootId, adjacency, nodeIds);
-      final layers = <int, List<String>>{};
-      for (final id in nodeIds) {
-        if (id == rootId) {
-          continue;
-        }
-        final layer = distances[id] ?? 9999;
-        layers.putIfAbsent(layer, () => <String>[]).add(id);
-      }
-      final layerKeys = layers.keys.where((layer) => layer > 0 && layer < 9999).toList()
-        ..sort();
-      final layerStep = _minCenterSeparation();
-      for (final layer in layerKeys) {
-        final members = layers[layer]!..sort();
-        final radius = _ringRadiusForCount(members.length) + (layer - 1) * layerStep;
-        final step = (2 * math.pi) / members.length;
-        for (var index = 0; index < members.length; index++) {
-          final angle = step * index - math.pi / 2;
-          final ringCenter = Offset(
-            rootCenter.dx + math.cos(angle) * radius,
-            rootCenter.dy + math.sin(angle) * radius,
-          );
-          positions[members[index]] = Offset(
-            ringCenter.dx - kGraphNodeWidth / 2,
-            ringCenter.dy - kGraphNodeHeight / 2,
-          );
-        }
-      }
-      for (final newcomer in newcomers) {
-        if (!positions.containsKey(newcomer.id)) {
-          positions[newcomer.id] = _findIncrementalRingPosition(
-            rootCenter: rootCenter,
-            occupied: positions,
-          );
-        }
+      final fresh = <String, Offset>{};
+      _layoutFreshHubTree(
+        hubId: rootId,
+        nodeIds: nodeIds,
+        adjacency: adjacency,
+        positions: fresh,
+        hubTopLeft: positions[rootId]!,
+      );
+      for (final entry in fresh.entries) {
+        positions[entry.key] = entry.value;
       }
       return;
     }
@@ -239,86 +385,68 @@ class GraphLayout {
     required bool freshRoot,
   }) {
     final components = _connectedComponents(nodeIds, adjacency);
-    var offsetX = 0.0;
-    for (final component in components) {
-      final componentNodes = sorted.where((node) => component.contains(node.id)).toList();
-      final local = <String, Offset>{};
-      for (final node in componentNodes) {
-        if (positions.containsKey(node.id)) {
-          local[node.id] = positions[node.id]!;
-        }
-      }
-      final newcomers = componentNodes.where((node) => !local.containsKey(node.id)).toList();
-      if (freshRoot || local.isEmpty) {
-        final hub = _pickHub(component, adjacency);
-        local[hub] = const Offset(0, 0);
-        final distances = _bfsDistances(hub, adjacency, component);
-        final layers = <int, List<String>>{};
-        for (final id in component) {
-          if (id == hub) {
-            continue;
-          }
-          layers.putIfAbsent(distances[id] ?? 9999, () => <String>[]).add(id);
-        }
-        final hubCenter = _nodeCenter(local[hub]!);
-        final layerKeys = layers.keys.where((layer) => layer > 0 && layer < 9999).toList()
-          ..sort();
-        final layerStep = _minCenterSeparation();
-        for (final layer in layerKeys) {
-          final members = layers[layer]!..sort();
-          final radius = _ringRadiusForCount(members.length) + (layer - 1) * layerStep;
-          final step = (2 * math.pi) / members.length;
-          for (var index = 0; index < members.length; index++) {
-            final angle = step * index - math.pi / 2;
-            final ringCenter = Offset(
-              hubCenter.dx + math.cos(angle) * radius,
-              hubCenter.dy + math.sin(angle) * radius,
-            );
-            local[members[index]] = Offset(
-              ringCenter.dx - kGraphNodeWidth / 2,
-              ringCenter.dy - kGraphNodeHeight / 2,
-            );
-          }
-        }
-        for (final node in componentNodes) {
-          if (!local.containsKey(node.id)) {
-            local[node.id] = _findIncrementalNearCenter(
-              anchor: hubCenter,
-              occupied: local,
-            );
-          }
-        }
-      } else {
+
+    if (!freshRoot && positions.isNotEmpty) {
+      for (final component in components) {
+        final componentNodes =
+            sorted.where((node) => component.contains(node.id)).toList();
+        final newcomers =
+            componentNodes.where((node) => !positions.containsKey(node.id)).toList();
         for (final newcomer in newcomers) {
           final neighbors = adjacency[newcomer.id] ?? const <String>{};
-          final anchored = neighbors.where((id) => local.containsKey(id)).toList()..sort();
+          final anchored =
+              neighbors.where((id) => positions.containsKey(id)).toList()..sort();
           if (anchored.isNotEmpty) {
             var cx = 0.0;
             var cy = 0.0;
             for (final id in anchored) {
-              final center = _nodeCenter(local[id]!);
+              final center = _nodeCenter(positions[id]!);
               cx += center.dx;
               cy += center.dy;
             }
-            local[newcomer.id] = _findIncrementalNearCenter(
+            positions[newcomer.id] = _findIncrementalNearCenter(
               anchor: Offset(cx / anchored.length, cy / anchored.length),
-              occupied: local,
+              occupied: positions,
             );
-          } else {
-            local[newcomer.id] = _findIncrementalNearCenter(
-              anchor: _nodeCenter(local.values.first),
-              occupied: local,
+          } else if (positions.isNotEmpty) {
+            positions[newcomer.id] = _findIncrementalNearCenter(
+              anchor: _nodeCenter(positions.values.first),
+              occupied: positions,
             );
           }
         }
       }
-      final bounds = computeBounds(local);
-      final translate = Offset(offsetX - bounds.left, -bounds.top);
-      for (final entry in local.entries) {
-        positions[entry.key] = entry.value + translate;
-      }
-      offsetX += bounds.width + overviewColumnStep;
+      return;
     }
+
+    final multiLocals = <Map<String, Offset>>[];
+    final isolatedIds = <String>[];
+
+    for (final component in components) {
+      if (component.length == 1) {
+        isolatedIds.add(component.first);
+        continue;
+      }
+      final hub = _pickHub(component, adjacency);
+      final local = <String, Offset>{};
+      _layoutFreshHubTree(
+        hubId: hub,
+        nodeIds: component,
+        adjacency: adjacency,
+        positions: local,
+        hubTopLeft: const Offset(0, 0),
+      );
+      multiLocals.add(local);
+    }
+
+    if (isolatedIds.isNotEmpty) {
+      final gridLocal = <String, Offset>{};
+      _layoutIsolatedGrid(isolatedIds, gridLocal);
+      multiLocals.add(gridLocal);
+    }
+
+    positions.clear();
+    _packLocalMaps2D(locals: multiLocals, positions: positions);
   }
 
   static double _minCenterSeparation() {

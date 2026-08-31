@@ -633,4 +633,150 @@ void main() {
     expect(graphCalls, graphCallsBeforeAsk);
     expect(find.byType(GraphWorkspaceScreen), findsNothing);
   });
+
+  testWidgets('desktop graph type filter uses anchored menu and sends kind=task', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? searchKind;
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          return http.Response(
+            jsonEncode(
+              graphWorkspaceJson(
+                nodes: [graphObjectJson(id: 'task-1', title: 'Graph task')],
+              ),
+            ),
+            200,
+          );
+        }
+        if (request.url.path == '/search/facets') {
+          return http.Response(
+            jsonEncode({
+              'kinds': [
+                {'value': 'task', 'count': 1},
+                {'value': 'email', 'count': 1},
+              ],
+              'providers': [
+                {'value': 'gmail', 'count': 1},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/search') {
+          searchKind = request.url.queryParameters['kind'];
+          expect(request.url.queryParameters['sort'], 'relevance');
+          return http.Response('[]', 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    await tester.enterText(find.byType(TextField), 'graph');
+    await tester.tap(find.bySemanticsLabel('Фильтр типа: Все типы'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.tap(find.ancestor(
+      of: find.text('Задача'),
+      matching: find.byType(MenuItemButton),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(searchKind, 'task');
+  });
+
+  testWidgets('desktop graph provider filter uses anchored menu and sends provider=gmail', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? searchProvider;
+    final harness = GraphTestHarness(
+      MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return http.Response(jsonEncode({'notifications': []}), 200);
+        }
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [],
+              'calendar_events': [],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/graph/workspace') {
+          return http.Response(
+            jsonEncode(
+              graphWorkspaceJson(
+                nodes: [graphObjectJson(id: 'task-1', title: 'Graph task')],
+              ),
+            ),
+            200,
+          );
+        }
+        if (request.url.path == '/search/facets') {
+          return http.Response(
+            jsonEncode({
+              'kinds': [
+                {'value': 'task', 'count': 1},
+              ],
+              'providers': [
+                {'value': 'gmail', 'count': 1},
+                {'value': 'local_device', 'count': 1},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/search') {
+          searchProvider = request.url.queryParameters['provider'];
+          expect(request.url.queryParameters['sort'], 'relevance');
+          return http.Response('[]', 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    harness.configure();
+    await openGraph(tester, harness);
+
+    await tester.enterText(find.byType(TextField), 'mail');
+    await tester.tap(find.bySemanticsLabel('Фильтр источника: Все источники'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.tap(find.ancestor(
+      of: find.text('Gmail'),
+      matching: find.byType(MenuItemButton),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(searchProvider, 'gmail');
+  });
 }

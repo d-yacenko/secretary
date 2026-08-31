@@ -57,9 +57,9 @@ Next planned subphase after PHASE 26 closes: **PHASE 27 — Safe External Action
 ## PHASE 26C verification (awaiting architect review)
 
 - full `ruff check .`: 53 known pre-existing findings, 0 new PHASE 26C findings
-- `pytest`: 749 passed, 3 skipped
-- `flutter analyze`: 48 info/warning, 0 errors
-- `flutter test`: 256 passed
+- `pytest`: 764 passed, 3 skipped
+- `flutter analyze`: 49 info/warning, 0 errors
+- `flutter test`: 263 passed
 - Android APK: PASS
 - Linux build: PASS
 - Android `minSdk`: 23

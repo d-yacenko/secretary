@@ -100,6 +100,11 @@ void main() {
   });
 
   testWidgets('search provider filter sends canonical provider value', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       buildSearch(MockClient((request) async {
         if (request.url.path == '/search/facets') {
@@ -117,7 +122,67 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'mail');
     await tester.tap(find.byIcon(Icons.storage_outlined));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('G').last);
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.tap(find.text('Gmail').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('desktop type filter uses anchored menu', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
+        if (request.url.path == '/search') {
+          expect(request.url.queryParameters['kind'], 'task');
+          return http.Response('[]', 200);
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'alpha');
+    await tester.tap(find.byIcon(Icons.category_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.tap(find.text('Задача').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('desktop sort filter sends newest', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      buildSearch(MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return facetsResponse();
+        }
+        if (request.url.path == '/search') {
+          expect(request.url.queryParameters['sort'], 'newest');
+          return http.Response('[]', 200);
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'alpha');
+    await tester.tap(find.byIcon(Icons.sort));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сначала новые').last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
     await tester.pumpAndSettle();

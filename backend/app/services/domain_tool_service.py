@@ -15,6 +15,11 @@ from app.api.schemas import (
 )
 from app.core.config import settings
 from app.db.models import Edge, Object
+from app.domain.task_lifecycle import (
+    TASK_STATUS_DELETED,
+    TASK_STATUS_OPEN,
+    canonical_task_status_for_model,
+)
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
@@ -22,10 +27,6 @@ from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
-from app.domain.task_lifecycle import (
-    TASK_STATUS_DELETED,
-    TASK_STATUS_OPEN,
-)
 from app.services.domain_write_mode import DomainWriteMode
 from app.services.provenance import (
     AGENT_ORIGIN,
@@ -165,7 +166,11 @@ class DomainToolService:
                     kind=obj.kind,
                     provider=obj.provider,
                     state=obj.state,
-                    status=obj.status,
+                    status=(
+                        canonical_task_status_for_model(obj.status)
+                        if obj.kind == "task"
+                        else obj.status
+                    ),
                     due_at=obj.due_at,
                     start_at=obj.start_at,
                     occurred_at=obj.occurred_at,

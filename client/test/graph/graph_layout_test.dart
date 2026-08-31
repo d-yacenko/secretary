@@ -593,4 +593,85 @@ void main() {
     );
     _expectNoOverlaps(expanded, reason: 'two-neighbor anchor');
   });
+
+  test('branch affinity keeps subtrees in parent sectors', () {
+    final root = _topologyNode('root');
+    final a = _topologyNode('a');
+    final b = _topologyNode('b');
+    final a1 = _topologyNode('a1');
+    final a2 = _topologyNode('a2');
+    final b1 = _topologyNode('b1');
+    final b2 = _topologyNode('b2');
+    final edges = [
+      _topologyEdge('root', 'a'),
+      _topologyEdge('root', 'b'),
+      _topologyEdge('a', 'a1'),
+      _topologyEdge('a', 'a2'),
+      _topologyEdge('b', 'b1'),
+      _topologyEdge('b', 'b2'),
+    ];
+    final positions = GraphLayout.computePositions(
+      nodes: [root, a, b, a1, a2, b1, b2],
+      edges: edges,
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final rootCenter = _topologyCenter(positions, 'root');
+    final aCenter = _topologyCenter(positions, 'a');
+    final bCenter = _topologyCenter(positions, 'b');
+    final a1Center = _topologyCenter(positions, 'a1');
+    final b1Center = _topologyCenter(positions, 'b1');
+    expect(_topologyDistance(a1Center, aCenter), lessThan(_topologyDistance(a1Center, bCenter)));
+    expect(_topologyDistance(b1Center, bCenter), lessThan(_topologyDistance(b1Center, aCenter)));
+    expect(_topologyDistance(rootCenter, aCenter), lessThan(_topologyDistance(rootCenter, a1Center)));
+    _expectNoOverlaps(positions, reason: 'branch-affinity');
+  });
+
+  test('wide first layer keeps second hop outside first layer', () {
+    final root = _topologyNode('root');
+    final spokes = List.generate(20, (index) => _topologyNode('s-$index'));
+    final branch = spokes[3];
+    final child = _topologyNode('child');
+    final edges = [
+      for (final spoke in spokes) _topologyEdge('root', spoke.id),
+      _topologyEdge(branch.id, 'child'),
+    ];
+    final positions = GraphLayout.computePositions(
+      nodes: [root, ...spokes, child],
+      edges: edges,
+      rootId: 'root',
+      existing: {},
+      freshRoot: true,
+    );
+    final rootCenter = _topologyCenter(positions, 'root');
+    final childCenter = _topologyCenter(positions, 'child');
+    var maxFirstHop = 0.0;
+    for (final spoke in spokes) {
+      maxFirstHop = math.max(
+        maxFirstHop,
+        _topologyDistance(rootCenter, _topologyCenter(positions, spoke.id)),
+      );
+    }
+    expect(
+      _topologyDistance(rootCenter, childCenter),
+      greaterThan(maxFirstHop),
+    );
+    _expectNoOverlaps(positions, reason: 'wide-layer');
+  });
+
+  test('16 isolated nodes pack compactly in grid', () {
+    final nodes = List.generate(16, (index) => _topologyNode('iso-$index'));
+    final positions = GraphLayout.computePositions(
+      nodes: nodes,
+      edges: [],
+      rootId: null,
+      existing: {},
+      freshRoot: true,
+    );
+    final bounds = GraphLayout.computeBounds(positions);
+    expect(bounds.height, greaterThan(GraphLayout.overviewRowStep));
+    expect(bounds.width, lessThan(16 * GraphLayout.overviewColumnStep));
+    _expectNoOverlaps(positions, reason: 'isolated-grid');
+  });
 }

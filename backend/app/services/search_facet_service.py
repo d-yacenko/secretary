@@ -7,6 +7,8 @@ from app.db.models import Object
 from app.domain.task_lifecycle import TASK_STATUS_DELETED
 from app.services.provenance import REJECTED_STATE
 
+MAX_SEARCH_FACETS_PER_DIMENSION = 64
+
 
 class SearchFacetService:
     def __init__(self, session: Session, user_id: UUID) -> None:
@@ -30,13 +32,19 @@ class SearchFacetService:
             select(Object.kind, func.count())
             .where(*base)
             .group_by(Object.kind)
-            .order_by(Object.kind.asc())
+            .order_by(func.count().desc(), Object.kind.asc())
+            .limit(MAX_SEARCH_FACETS_PER_DIMENSION)
         ).all()
         provider_rows = self._session.execute(
             select(Object.provider, func.count())
-            .where(*base, Object.provider.is_not(None))
+            .where(
+                *base,
+                Object.provider.is_not(None),
+                Object.provider != "",
+            )
             .group_by(Object.provider)
-            .order_by(Object.provider.asc())
+            .order_by(func.count().desc(), Object.provider.asc())
+            .limit(MAX_SEARCH_FACETS_PER_DIMENSION)
         ).all()
         return {
             "kinds": [

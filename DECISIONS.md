@@ -153,10 +153,11 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 ## PHASE 26C — Structured query, search ordering & topology graph (awaiting architect review)
 
 - `query_objects` is the general structured READ primitive; `retrieve` remains semantic discovery only.
-- `ObjectQueryService`: bounded filters, inclusive date ranges, `NULLS LAST` nullable date sorts, max limit 50, default visibility excludes rejected/deleted tasks; `proposed` objects remain visible.
-- Search newest/oldest: bounded qualified candidate pool (≤100), primary date helper aligned with Flutter semantics, sort before display limit.
-- `GET /search/facets` drives dynamic kind/provider filter options (no hardcoded connector lists in UI).
-- Flutter: shared `object_presentation.dart`; compact icon filters on Search and Graph; topology-aware layout uses visible edges (undirected for placement), incremental expansion preserves existing positions.
+- `ObjectQueryService`: bounded filters, inclusive date ranges, `NULLS LAST` nullable date sorts, max limit 50, default visibility excludes rejected/deleted tasks; `proposed` objects remain visible; legacy task `status NULL→open`, `completed→done` on read/filter; model-visible normalization `NULL→open`, `completed→done`.
+- Assistant `query_objects` tool output: ordered-prefix truncation to `MAX_ASSISTANT_TOOL_OUTPUT_CHARS` (not empty `truncated-only` payload); grounding IDs match exposed rows only.
+- Search newest/oldest: bounded qualified candidate pool (≤100), primary date helper aligned with Flutter semantics (UTC-aware; naive `metadata.modified_at` falls back), sort before display limit.
+- `GET /search/facets`: capped per dimension (`MAX_SEARCH_FACETS_PER_DIMENSION=64`), count DESC / value ASC, no empty provider values.
+- Flutter: shared `object_presentation.dart`; compact icon filters on Search and Graph; desktop uses anchored menus (`MenuAnchor`), mobile may use bottom sheet; topology-aware layout uses visible edges (undirected for placement), cumulative BFS radii, branch sectors, isolated grid packing, incremental expansion preserves existing positions.
 - No specialized deadline/urgency tools; Secretary combines atomic tools.
 - Deferred: Mattermost, Google Drive, Yandex Disk connectors; manual drag; persisted layout; curved edges.
 

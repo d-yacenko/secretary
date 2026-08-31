@@ -7,7 +7,12 @@ from sqlalchemy import nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
-from app.domain.task_lifecycle import TASK_STATUS_DELETED
+from app.domain.task_lifecycle import (
+    LEGACY_TASK_STATUS_COMPLETED,
+    TASK_STATUS_DELETED,
+    TASK_STATUS_DONE,
+    TASK_STATUS_OPEN,
+)
 from app.services.errors import ValidationError
 from app.services.provenance import REJECTED_STATE
 from app.tools.datetime_utils import normalize_tool_datetime
@@ -18,6 +23,30 @@ DEFAULT_QUERY_OBJECTS_LIMIT = 20
 ALLOWED_SORT_FIELDS = frozenset(
     {"due_at", "start_at", "occurred_at", "created_at", "updated_at", "title"}
 )
+
+
+def _task_status_filter(statuses: list[str]) -> object | None:
+    parts: list[object] = []
+    exact: list[str] = []
+    for status in statuses:
+        if status == TASK_STATUS_OPEN:
+            parts.append(
+                or_(Object.status == TASK_STATUS_OPEN, Object.status.is_(None))
+            )
+        elif status == TASK_STATUS_DONE:
+            parts.append(
+                or_(
+                    Object.status == TASK_STATUS_DONE,
+                    Object.status == LEGACY_TASK_STATUS_COMPLETED,
+                )
+            )
+        else:
+            exact.append(status)
+    if exact:
+        parts.append(Object.status.in_(exact))
+    if not parts:
+        return None
+    return or_(*parts)
 
 
 class ObjectQueryService:
@@ -64,7 +93,9 @@ class ObjectQueryService:
         if providers:
             stmt = stmt.where(Object.provider.in_(providers))
         if statuses:
-            stmt = stmt.where(Object.status.in_(statuses))
+            status_clause = _task_status_filter(statuses)
+            if status_clause is not None:
+                stmt = stmt.where(status_clause)
         if states:
             stmt = stmt.where(Object.state.in_(states))
 

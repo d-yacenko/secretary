@@ -5,6 +5,10 @@ import 'object_presentation.dart';
 
 typedef FilterChanged = void Function();
 
+bool _isDesktopFilterContext(BuildContext context) {
+  return MediaQuery.sizeOf(context).width >= 600;
+}
+
 class CompactObjectFilters extends StatelessWidget {
   const CompactObjectFilters({
     super.key,
@@ -71,25 +75,78 @@ class _KindFilterButton extends StatelessWidget {
     final icon = selectedKind == null
         ? Icons.category_outlined
         : iconForObjectKind(selectedKind!);
-    return Semantics(
-      label: 'Фильтр типа: $label',
-      button: true,
-      child: Tooltip(
-        message: label,
-        child: IconButton(
-          icon: Icon(icon),
-          style: IconButton.styleFrom(
-            backgroundColor: selectedKind != null
-                ? Theme.of(context).colorScheme.primaryContainer
-                : null,
+
+    if (!_isDesktopFilterContext(context)) {
+      return Semantics(
+        label: 'Фильтр типа: $label',
+        button: true,
+        child: Tooltip(
+          message: label,
+          child: IconButton(
+            icon: Icon(icon),
+            style: IconButton.styleFrom(
+              backgroundColor: selectedKind != null
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : null,
+            ),
+            onPressed: () => _showKindBottomSheet(context),
           ),
-          onPressed: () => _showKindMenu(context),
         ),
-      ),
+      );
+    }
+
+    return MenuAnchor(
+      builder: (context, controller, child) {
+        return Semantics(
+          label: 'Фильтр типа: $label',
+          button: true,
+          child: Tooltip(
+            message: label,
+            child: IconButton(
+              icon: Icon(icon),
+              style: IconButton.styleFrom(
+                backgroundColor: selectedKind != null
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : null,
+              ),
+              onPressed: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+            ),
+          ),
+        );
+      },
+      menuChildren: _kindMenuItems(context),
     );
   }
 
-  void _showKindMenu(BuildContext context) {
+  List<Widget> _kindMenuItems(BuildContext context) {
+    final kinds = facets?.kinds ?? [];
+    return [
+      MenuItemButton(
+        onPressed: () => onChanged(null),
+        child: const Text('Все типы'),
+      ),
+      for (final facet in kinds)
+        MenuItemButton(
+          onPressed: () => onChanged(facet.value),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(iconForObjectKind(facet.value), size: 18),
+              const SizedBox(width: 8),
+              Text(objectKindLabel(facet.value)),
+            ],
+          ),
+        ),
+    ];
+  }
+
+  void _showKindBottomSheet(BuildContext context) {
     final kinds = facets?.kinds ?? [];
     showModalBottomSheet<void>(
       context: context,
@@ -144,27 +201,82 @@ class _ProviderFilterButton extends StatelessWidget {
     final label = selectedProvider == null
         ? 'Все источники'
         : providerLabel(selectedProvider);
-    return Semantics(
-      label: 'Фильтр источника: $label',
-      button: true,
-      child: Tooltip(
-        message: label,
-        child: IconButton(
-          icon: selectedProvider == null
-              ? const Icon(Icons.storage_outlined)
-              : providerCompactIcon(selectedProvider),
-          style: IconButton.styleFrom(
-            backgroundColor: selectedProvider != null
-                ? Theme.of(context).colorScheme.primaryContainer
-                : null,
+
+    if (!_isDesktopFilterContext(context)) {
+      return Semantics(
+        label: 'Фильтр источника: $label',
+        button: true,
+        child: Tooltip(
+          message: label,
+          child: IconButton(
+            icon: selectedProvider == null
+                ? const Icon(Icons.storage_outlined)
+                : providerCompactIcon(selectedProvider),
+            style: IconButton.styleFrom(
+              backgroundColor: selectedProvider != null
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : null,
+            ),
+            onPressed: () => _showProviderBottomSheet(context),
           ),
-          onPressed: () => _showProviderMenu(context),
         ),
-      ),
+      );
+    }
+
+    return MenuAnchor(
+      builder: (context, controller, child) {
+        return Semantics(
+          label: 'Фильтр источника: $label',
+          button: true,
+          child: Tooltip(
+            message: label,
+            child: IconButton(
+              icon: selectedProvider == null
+                  ? const Icon(Icons.storage_outlined)
+                  : providerCompactIcon(selectedProvider),
+              style: IconButton.styleFrom(
+                backgroundColor: selectedProvider != null
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : null,
+              ),
+              onPressed: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+            ),
+          ),
+        );
+      },
+      menuChildren: _providerMenuItems(context),
     );
   }
 
-  void _showProviderMenu(BuildContext context) {
+  List<Widget> _providerMenuItems(BuildContext context) {
+    final providers = facets?.providers ?? [];
+    return [
+      MenuItemButton(
+        onPressed: () => onChanged(null),
+        child: const Text('Все источники'),
+      ),
+      for (final facet in providers)
+        MenuItemButton(
+          onPressed: () => onChanged(facet.value),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              providerCompactIcon(facet.value),
+              const SizedBox(width: 8),
+              Text(providerLabel(facet.value)),
+            ],
+          ),
+        ),
+    ];
+  }
+
+  void _showProviderBottomSheet(BuildContext context) {
     final providers = facets?.providers ?? [];
     showModalBottomSheet<void>(
       context: context,
@@ -226,25 +338,69 @@ class _SortFilterButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = _label(selectedSort);
-    return Semantics(
-      label: 'Сортировка: $label',
-      button: true,
-      child: Tooltip(
-        message: label,
-        child: IconButton(
-          icon: const Icon(Icons.sort),
-          style: IconButton.styleFrom(
-            backgroundColor: selectedSort != 'relevance'
-                ? Theme.of(context).colorScheme.primaryContainer
-                : null,
+
+    if (!_isDesktopFilterContext(context)) {
+      return Semantics(
+        label: 'Сортировка: $label',
+        button: true,
+        child: Tooltip(
+          message: label,
+          child: IconButton(
+            icon: const Icon(Icons.sort),
+            style: IconButton.styleFrom(
+              backgroundColor: selectedSort != 'relevance'
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : null,
+            ),
+            onPressed: () => _showSortBottomSheet(context),
           ),
-          onPressed: () => _showSortMenu(context),
         ),
-      ),
+      );
+    }
+
+    return MenuAnchor(
+      builder: (context, controller, child) {
+        return Semantics(
+          label: 'Сортировка: $label',
+          button: true,
+          child: Tooltip(
+            message: label,
+            child: IconButton(
+              icon: const Icon(Icons.sort),
+              style: IconButton.styleFrom(
+                backgroundColor: selectedSort != 'relevance'
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : null,
+              ),
+              onPressed: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+            ),
+          ),
+        );
+      },
+      menuChildren: [
+        MenuItemButton(
+          onPressed: () => onChanged('relevance'),
+          child: const Text('Релевантность'),
+        ),
+        MenuItemButton(
+          onPressed: () => onChanged('newest'),
+          child: const Text('Сначала новые'),
+        ),
+        MenuItemButton(
+          onPressed: () => onChanged('oldest'),
+          child: const Text('Сначала старые'),
+        ),
+      ],
     );
   }
 
-  void _showSortMenu(BuildContext context) {
+  void _showSortBottomSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,

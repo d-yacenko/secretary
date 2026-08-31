@@ -8,6 +8,7 @@ from app.assistant.constants import (
     MAX_ASSISTANT_CONTEXT_CHARS,
     MAX_ASSISTANT_LIST_RESULTS,
     MAX_ASSISTANT_NEIGHBOR_RESULTS,
+    MAX_ASSISTANT_QUERY_OBJECT_TITLE_CHARS,
     MAX_ASSISTANT_QUERY_OBJECTS_RESULTS,
     MAX_ASSISTANT_RETRIEVE_EXCERPT,
     MAX_ASSISTANT_RETRIEVE_RESULTS,
@@ -23,6 +24,31 @@ def bounded_body_excerpt(body: str | None) -> str | None:
     if len(normalized) <= MAX_ASSISTANT_BODY_EXCERPT:
         return normalized
     return normalized[:MAX_ASSISTANT_BODY_EXCERPT] + "… [truncated]"
+
+
+def _bounded_query_title(title: str | None) -> str:
+    if not title:
+        return ""
+    normalized = title.replace("\n", " ").strip()
+    if len(normalized) <= MAX_ASSISTANT_QUERY_OBJECT_TITLE_CHARS:
+        return normalized
+    return normalized[:MAX_ASSISTANT_QUERY_OBJECT_TITLE_CHARS] + "…"
+
+
+def _bounded_query_object_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "object_id": row.get("object_id"),
+        "title": _bounded_query_title(row.get("title")),
+        "kind": row.get("kind"),
+        "provider": row.get("provider"),
+        "state": row.get("state"),
+        "status": row.get("status"),
+        "due_at": row.get("due_at"),
+        "start_at": row.get("start_at"),
+        "occurred_at": row.get("occurred_at"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
 
 
 def _bounded_object(obj: dict[str, Any]) -> dict[str, Any]:
@@ -79,26 +105,12 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
         return payload
 
     if tool_name == "query_objects":
-        objects = raw_output.get("objects", [])[:MAX_ASSISTANT_QUERY_OBJECTS_RESULTS]
+        objects = [
+            _bounded_query_object_row(row)
+            for row in raw_output.get("objects", [])[:MAX_ASSISTANT_QUERY_OBJECTS_RESULTS]
+        ]
         truncated = len(raw_output.get("objects", [])) > len(objects)
-        payload: dict[str, Any] = {
-            "objects": [
-                {
-                    "object_id": row.get("object_id"),
-                    "title": row.get("title"),
-                    "kind": row.get("kind"),
-                    "provider": row.get("provider"),
-                    "state": row.get("state"),
-                    "status": row.get("status"),
-                    "due_at": row.get("due_at"),
-                    "start_at": row.get("start_at"),
-                    "occurred_at": row.get("occurred_at"),
-                    "created_at": row.get("created_at"),
-                    "updated_at": row.get("updated_at"),
-                }
-                for row in objects
-            ],
-        }
+        payload: dict[str, Any] = {"objects": objects}
         if truncated:
             payload["truncated"] = True
         return payload
@@ -249,6 +261,26 @@ def serialize_tool_output_for_assistant(
         while objects:
             candidate = dict(bounded)
             candidate["objects"] = objects
+            text = json.dumps(candidate, ensure_ascii=False)
+            if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
+                return AssistantToolModelOutput(text, candidate)
+            objects.pop()
+        fallback = {"objects": [], "truncated": True}
+        return AssistantToolModelOutput(
+            json.dumps(fallback, ensure_ascii=False),
+            fallback,
+        )
+
+    if tool_name == "query_objects":
+        objects = list(bounded.get("objects", []))
+        truncated_by_count = bounded.get("truncated", False)
+        while objects:
+            candidate = dict(bounded)
+            candidate["objects"] = objects
+            if truncated_by_count or len(objects) < len(
+                raw_output.get("objects", [])
+            ):
+                candidate["truncated"] = True
             text = json.dumps(candidate, ensure_ascii=False)
             if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
                 return AssistantToolModelOutput(text, candidate)

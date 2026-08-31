@@ -67,3 +67,12 @@ def is_hidden_from_retrieval(status: str | None) -> bool:
     if status is None:
         return False
     return status in HIDDEN_FROM_RETRIEVAL_STATUSES
+
+
+def canonical_task_status_for_model(status: str | None) -> str | None:
+    """Normalize legacy task statuses for model-visible structured reads."""
+    if status is None:
+        return TASK_STATUS_OPEN
+    if status == LEGACY_TASK_STATUS_COMPLETED:
+        return TASK_STATUS_DONE
+    return status
