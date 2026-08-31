@@ -98,6 +98,8 @@ class SourceStatusService:
             return "syncing"
         if job.status == JOB_STATUS_FAILED:
             return "error"
+        if job.last_error:
+            return "error"
         now = utcnow()
         if job.status == JOB_STATUS_PENDING and job.run_after > now:
             return "scheduled"

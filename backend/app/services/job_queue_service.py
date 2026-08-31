@@ -5,6 +5,8 @@ from uuid import UUID
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.connectors.google.api_errors import format_google_api_error
+from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.db.models import Job
 from app.jobs.constants import (
     JOB_STATUS_DONE,
@@ -29,9 +31,23 @@ def utcnow() -> datetime:
 
 
 def sanitize_job_error(exc: BaseException) -> str:
+    if isinstance(exc, GoogleApiError):
+        return format_google_api_error(exc)
     message = str(exc).strip() or type(exc).__name__
     first_line = message.splitlines()[0]
+    lowered = first_line.lower()
+    for needle in ("bearer ", "authorization:", "access_token", "refresh_token"):
+        if needle in lowered:
+            return type(exc).__name__
     return first_line[:MAX_LAST_ERROR_LENGTH]
+
+
+def is_job_error_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, GoogleApiError):
+        return exc.retryable
+    if isinstance(exc, GoogleConnectorError):
+        return exc.retryable
+    return True
 
 
 @dataclass(frozen=True)
@@ -130,10 +146,16 @@ class JobQueueService:
         job.updated_at = utcnow()
         self._apply_recurring_failure_cooldown(job)
 
-    def mark_retry(self, job_id: UUID, error: str) -> None:
+    def mark_retry(self, job_id: UUID, error: str, *, retryable: bool = True) -> None:
         job = self._require_job(job_id)
         job.last_error = error[:MAX_LAST_ERROR_LENGTH]
         job.updated_at = utcnow()
+        if not retryable and job.type in RECURRING_SOURCE_JOB_TYPES:
+            job.status = JOB_STATUS_PENDING
+            job.attempts = 0
+            job.locked_at = None
+            self._apply_recurring_failure_cooldown(job)
+            return
         if job.attempts >= MAX_JOB_ATTEMPTS:
             job.status = JOB_STATUS_FAILED
             job.locked_at = None

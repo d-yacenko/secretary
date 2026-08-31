@@ -3,7 +3,11 @@ import logging
 from app.db.session import SessionLocal
 from app.jobs.handlers import get_handler
 from app.llm.embedding_service import EmbeddingService
-from app.services.job_queue_service import JobQueueService, sanitize_job_error
+from app.services.job_queue_service import (
+    JobQueueService,
+    is_job_error_retryable,
+    sanitize_job_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +59,11 @@ def process_one_job(embedding_service: EmbeddingService) -> bool:
         logger.warning("job %s (%s) failed: %s", claimed.id, claimed.type, type(exc).__name__)
         session = SessionLocal()
         try:
-            JobQueueService(session).mark_retry(claimed.id, sanitize_job_error(exc))
+            JobQueueService(session).mark_retry(
+                claimed.id,
+                sanitize_job_error(exc),
+                retryable=is_job_error_retryable(exc),
+            )
             session.commit()
         except Exception:
             session.rollback()

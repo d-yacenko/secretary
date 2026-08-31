@@ -10,6 +10,7 @@ import '../inbox/notification_labels.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
+import '../ui/object_presentation.dart';
 
 enum TodayLoadState { loading, ready, error }
 
@@ -265,18 +266,25 @@ class _TaskRow extends StatelessWidget {
     final overdue = today.isTaskOverdue(task);
     final dueAt = formatUserDateTime(task.dueAt);
     final when = dueAt.isEmpty ? 'Нет срока' : dueAt;
+    final trailing = overdue ? 'Просрочено • $when' : when;
     return ListTile(
-      title: Row(
-        children: [
-          Expanded(child: Text(task.title)),
-          if (task.state == 'proposed')
-            Text(
-              'Предложено',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-        ],
+      title: ObjectCompactHeaderRow(
+        title: task.title,
+        kind: task.kind,
+        provider: task.provider,
+        trailingText: trailing,
+        trailingBadges: task.state == 'proposed'
+            ? [
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    'Предложено',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+              ]
+            : const [],
       ),
-      subtitle: Text(overdue ? 'Просрочено • $when' : when),
       onTap: onTap,
     );
   }
@@ -292,10 +300,11 @@ class _EventRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final time = formatUserTime(event.startAt);
     return ListTile(
-      title: Text(event.title),
-      subtitle: Text(
-        '${time.isEmpty ? 'Нет времени начала' : time}'
-        '${event.provider != null ? ' • ${event.provider}' : ''}',
+      title: ObjectCompactHeaderRow(
+        title: event.title,
+        kind: event.kind,
+        provider: event.provider,
+        trailingText: time.isEmpty ? 'Нет времени' : time,
       ),
       onTap: onTap,
     );

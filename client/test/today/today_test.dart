@@ -380,4 +380,92 @@ void main() {
     expect(find.text('Proposed today'), findsOneWidget);
     expect(find.text('Предложено'), findsOneWidget);
   });
+
+  testWidgets('calendar events use compact metadata without raw provider names', (tester) async {
+    await tester.pumpWidget(
+      buildToday(MockClient((request) async {
+        if (request.url.path == '/today') {
+          return http.Response(
+            jsonEncode({
+              'date': '2026-08-31',
+              'timezone': 'Europe/Moscow',
+              'day_start': '2026-08-31T00:00:00+03:00',
+              'tasks': [
+                {
+                  'id': 'task-proposed',
+                  'kind': 'task',
+                  'title': 'Proposed today',
+                  'body': null,
+                  'provider': null,
+                  'external_id': null,
+                  'canonical_uri': null,
+                  'status': 'open',
+                  'start_at': null,
+                  'due_at': '2026-08-31T14:00:00+03:00',
+                  'metadata': {},
+                  'origin': 'agent',
+                  'state': 'proposed',
+                  'confidence': 0.9,
+                  'created_at': '2026-08-31T08:00:00Z',
+                  'updated_at': '2026-08-31T08:00:00Z',
+                },
+              ],
+              'calendar_events': [
+                {
+                  'id': 'event-yandex',
+                  'kind': 'event',
+                  'title': 'Yandex standup',
+                  'body': null,
+                  'provider': 'yandex_calendar',
+                  'external_id': 'ycal-1',
+                  'canonical_uri': null,
+                  'status': null,
+                  'start_at': '2026-08-31T18:00:00+03:00',
+                  'due_at': '2026-08-31T19:00:00+03:00',
+                  'metadata': {},
+                  'origin': 'source',
+                  'state': 'observed',
+                  'confidence': null,
+                  'created_at': '2026-08-31T08:00:00Z',
+                  'updated_at': '2026-08-31T08:00:00Z',
+                },
+                {
+                  'id': 'event-google',
+                  'kind': 'event',
+                  'title': 'Weekly sync',
+                  'body': null,
+                  'provider': 'google_calendar',
+                  'external_id': 'primary:evt-g',
+                  'canonical_uri': null,
+                  'status': null,
+                  'start_at': '2026-08-31T15:30:00+03:00',
+                  'due_at': '2026-08-31T16:30:00+03:00',
+                  'metadata': {},
+                  'origin': 'source',
+                  'state': 'observed',
+                  'confidence': null,
+                  'created_at': '2026-08-31T08:00:00Z',
+                  'updated_at': '2026-08-31T08:00:00Z',
+                },
+              ],
+              'notifications': [],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Yandex standup'), findsOneWidget);
+    expect(find.text('Weekly sync'), findsOneWidget);
+    expect(find.text('Предложено'), findsOneWidget);
+    expect(find.textContaining('yandex_calendar'), findsNothing);
+    expect(find.textContaining('google_calendar'), findsNothing);
+    expect(find.textContaining('Яндекс Календарь'), findsNothing);
+    expect(find.textContaining('Google Календарь'), findsNothing);
+    expect(find.text('Я'), findsOneWidget);
+    expect(find.text('G'), findsOneWidget);
+  });
 }

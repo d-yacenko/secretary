@@ -1,4 +1,6 @@
 class GoogleConnectorError(Exception):
+    retryable: bool = False
+
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
@@ -13,4 +15,17 @@ class GoogleOAuthError(GoogleConnectorError):
 
 
 class GoogleApiError(GoogleConnectorError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str | None = None,
+        status_code: int | None = None,
+        reason: str | None = None,
+        retryable: bool = False,
+    ) -> None:
+        self.operation = operation
+        self.status_code = status_code
+        self.reason = reason
+        self.retryable = retryable
+        super().__init__(message)

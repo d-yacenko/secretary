@@ -110,3 +110,66 @@ Widget providerCompactIcon(String? provider, {double size = 18}) {
   }
   return Icon(Icons.storage_outlined, size: size);
 }
+
+/// Compact title + kind icon + provider glyph + trailing metadata on one row.
+class ObjectCompactHeaderRow extends StatelessWidget {
+  const ObjectCompactHeaderRow({
+    super.key,
+    required this.title,
+    required this.kind,
+    this.provider,
+    required this.trailingText,
+    this.trailingBadges = const [],
+    this.semanticsLabel,
+  });
+
+  final String title;
+  final String kind;
+  final String? provider;
+  final String trailingText;
+  final List<Widget> trailingBadges;
+  final String? semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final kindLabel = objectKindLabel(kind);
+    final providerName = providerLabel(provider);
+    final label = semanticsLabel ?? '$kindLabel, $providerName';
+    return Semantics(
+      label: label,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(iconForKind(kind), size: 16),
+              const SizedBox(width: 4),
+              providerCompactIcon(provider, size: 14),
+              ...trailingBadges,
+              if (trailingText.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    trailingText,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}

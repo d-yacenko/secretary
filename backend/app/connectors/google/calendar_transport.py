@@ -4,8 +4,8 @@ from urllib.parse import quote
 
 import httpx
 
+from app.connectors.google.api_errors import raise_for_google_response
 from app.connectors.google.constants import CALENDAR_API_BASE
-from app.connectors.google.errors import GoogleApiError
 
 
 class CalendarTransport:
@@ -22,8 +22,7 @@ class CalendarTransport:
             params={"maxResults": max_results},
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        if response.status_code >= 400:
-            raise GoogleApiError("failed to list google calendars")
+        raise_for_google_response(response, "list_calendars")
         payload = response.json()
         return list(payload.get("items", []))
 
@@ -47,8 +46,7 @@ class CalendarTransport:
             },
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        if response.status_code >= 400:
-            raise GoogleApiError(f"failed to list calendar events for {calendar_id}")
+        raise_for_google_response(response, "list_events")
         payload = response.json()
         return list(payload.get("items", []))
 
