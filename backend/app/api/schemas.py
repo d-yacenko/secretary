@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -326,3 +326,13 @@ class RelationCreateRequest(BaseModel):
 class RelationCreateResponse(BaseModel):
     edge: EdgeOut
     created: bool
+
+
+class RelationDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["confirm", "reject"]
+
+
+class RelationDecisionResponse(BaseModel):
+    edge: EdgeOut

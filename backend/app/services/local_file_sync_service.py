@@ -33,6 +33,8 @@ from app.resources.constants import (
     REVISION_METADATA_KEYS,
 )
 from app.services.errors import NotFoundError, ValidationError
+from app.services.folder_containment_service import FolderContainmentService
+from app.services.folder_object_service import FolderObjectService
 from app.services.job_queue_service import JobQueueService
 from app.services.local_device_service import LocalDeviceService
 
@@ -71,6 +73,8 @@ class LocalFileSyncService:
         self._job_queue = job_queue
         self._upload_root = upload_root
         self._device_service = LocalDeviceService(session, user_id, path_resolver)
+        self._folder_objects = FolderObjectService(session, user_id)
+        self._containment = FolderContainmentService(session, user_id)
 
     def scan_root(self, root_id: UUID) -> LocalSyncResult:
         root = self._device_service.get_root_for_user(root_id)
@@ -95,7 +99,7 @@ class LocalFileSyncService:
             rel = file_path.relative_to(root_resolved).as_posix()
             reports.append(_file_report_from_path(file_path, rel, root_resolved))
 
-        result = self._apply_reports(device, root, reports)
+        result = self._apply_reports(device, root, reports, prune_stale=not walk.truncated)
         return LocalSyncResult(
             objects_created=result.objects_created,
             objects_updated=result.objects_updated,
@@ -129,7 +133,7 @@ class LocalFileSyncService:
             if item.policy is not None and item.policy not in LOCAL_POLICIES:
                 raise ValidationError(f"unsupported local policy: {item.policy}")
 
-        result = self._apply_reports(device, root, files)
+        result = self._apply_reports(device, root, files, prune_stale=False)
         return LocalSyncResult(
             objects_created=result.objects_created,
             objects_updated=result.objects_updated,
@@ -160,11 +164,14 @@ class LocalFileSyncService:
         device: LocalDevice,
         root: LocalRoot,
         reports: list[LocalFileReport],
+        prune_stale: bool = False,
     ) -> LocalSyncResult:
+        folder_obj = self._folder_objects.ensure_folder_for_root(device, root)
         created = 0
         updated = 0
         unchanged = 0
         ingest_jobs = 0
+        file_object_ids: list[UUID] = []
 
         for item in reports:
             normalized_rel = normalize_relative_path(item.relative_path)
@@ -231,16 +238,19 @@ class LocalFileSyncService:
                 if prior_revision == revision:
                     if not _needs_ingest(merged, revision, policy):
                         unchanged += 1
+                        file_object_ids.append(obj.id)
                         continue
                     if self._job_queue.has_pending_ingest_job(
                         obj.id, revision, policy, self._user_id
                     ):
                         unchanged += 1
+                        file_object_ids.append(obj.id)
                         continue
                 else:
                     updated += 1
 
             if policy == POLICY_METADATA_ONLY:
+                file_object_ids.append(obj.id)
                 continue
 
             self._job_queue.enqueue(
@@ -253,6 +263,11 @@ class LocalFileSyncService:
                 user_id=self._user_id,
             )
             ingest_jobs += 1
+            file_object_ids.append(obj.id)
+
+        self._containment.link_files_to_folder(folder_obj.id, file_object_ids)
+        if prune_stale:
+            self._containment.prune_stale_containment(folder_obj.id, set(file_object_ids))
 
         self._session.flush()
         return LocalSyncResult(

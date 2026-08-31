@@ -15,6 +15,7 @@ USEFUL_METADATA_KEYS = frozenset(
         "category",
         "author",
         "source",
+        "semantic_summary",
     }
 )
 

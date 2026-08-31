@@ -860,3 +860,15 @@ class RelationCreateResponse {
     );
   }
 }
+
+class RelationDecisionResponse {
+  RelationDecisionResponse({required this.edge});
+
+  final SecretaryEdge edge;
+
+  factory RelationDecisionResponse.fromJson(Map<String, dynamic> json) {
+    return RelationDecisionResponse(
+      edge: SecretaryEdge.fromJson(json['edge'] as Map<String, dynamic>),
+    );
+  }
+}

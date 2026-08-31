@@ -42,9 +42,11 @@ PHASE 25 manual UI verification: **PASS** (2026-08-30).
 
 PHASE 25.1 — UX Baseline: **accepted / closed** (`4c40b93`).
 
-Next planned product phase: PHASE 26 — Personal Data Correlation.
+PHASE 26A — Correlation Core & Semantic Resource Context: **implementation complete, awaiting architect review** (branch `review/phase-26a-correlation-core`).
 
-Do not start PHASE 26 until architect context refresh / next phase task.
+Next planned subphase: PHASE 26B — Source Navigation, Attachments & File Intake.
+
+Do not start PHASE 26B until PHASE 26A architect review is recorded.
 
 ## Deferred UX / data backlog (not PHASE 25.1)
 
@@ -132,4 +134,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-PHASE 26 — Personal Data Correlation (playbook). Do not start until architect context refresh / next phase task.
+PHASE 26B — Source Navigation, Attachments & File Intake. Do not start until PHASE 26A architect review is recorded.

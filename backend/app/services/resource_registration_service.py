@@ -268,10 +268,13 @@ class ResourceRegistrationService:
 
         jobs_enqueued = 0
         if content_changed:
-            self._job_queue.enqueue(
-                "embed_object",
-                {"object_id": str(obj.id)},
-                user_id=self._user_id,
+            from app.services.pipeline_enqueue import enqueue_summarize_resource
+
+            enqueue_summarize_resource(
+                self._session,
+                obj.id,
+                self._user_id,
+                revision,
             )
             jobs_enqueued = 1
 

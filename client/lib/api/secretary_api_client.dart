@@ -181,6 +181,19 @@ class SecretaryApiClient {
     );
   }
 
+  Future<RelationDecisionResponse> decideRelation({
+    required String edgeId,
+    required String decision,
+  }) async {
+    final body = await _request(
+      'POST',
+      '/relations/$edgeId/decision',
+      jsonBody: {'decision': decision},
+      successStatuses: {200},
+    );
+    return RelationDecisionResponse.fromJson(body);
+  }
+
   Future<List<SecretaryObject>> searchObjects({
     required String query,
     String? kind,

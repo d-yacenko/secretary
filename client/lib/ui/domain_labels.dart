@@ -8,6 +8,7 @@ const Map<String, String> _objectKindLabels = {
   'project': 'Проект',
   'note': 'Заметка',
   'file': 'Файл',
+  'folder': 'Папка',
   'chat': 'Чат',
   'message': 'Сообщение',
 };
@@ -34,6 +35,7 @@ const Map<String, String> _relationTypeLabels = {
   'related_to': 'Связано с',
   'references': 'Ссылается на',
   'depends_on': 'Зависит от',
+  'contains': 'Содержит',
 };
 
 const Map<String, String> _originLabels = {

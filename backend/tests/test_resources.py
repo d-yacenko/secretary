@@ -12,7 +12,7 @@ from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import EdgeCreate, ObjectCreate, ResourceRegisterRequest
 from app.core.config import settings
 from app.db.models import Job, Object, Representation, User
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_SUMMARIZE_RESOURCE
 from app.llm.embedding_service import FakeEmbeddingService
 from app.main import app
 from app.resources.constants import (
@@ -120,7 +120,7 @@ def test_register_same_revision_skips_reprocessing(db_session, upload_root) -> N
     assert second.jobs_enqueued == 0
 
     job_count = db_session.scalar(
-        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
     )
     assert job_count == 0
 
@@ -167,7 +167,7 @@ def test_register_same_revision_metadata_change_no_reingest(db_session, upload_r
     assert obj.metadata_[CONTENT_INGESTED_REVISION_KEY] is not None
 
     job_count = db_session.scalar(
-        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
     )
     assert job_count == 1
 
@@ -284,7 +284,7 @@ def test_register_new_revision_ingests_when_requested(db_session, upload_root) -
     assert second.representations_created == 1
 
     job_count = db_session.scalar(
-        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
     )
     assert job_count == 2
 
@@ -381,7 +381,7 @@ def test_register_changed_resource_one_embed_job_no_sync_embedding(
     mock_refresh.assert_not_called()
     assert result.jobs_enqueued == 1
     job_count = db_session.scalar(
-        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+        select(func.count()).select_from(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
     )
     assert job_count == 1
 

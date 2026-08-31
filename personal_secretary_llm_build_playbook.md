@@ -1464,6 +1464,8 @@ The same task appears in:
 - another freeform view;
 without duplicating the task object.
 
+> **Legacy numbering note (2026-08):** The legacy Secretary correlation pipeline below is being implemented as the current **PHASE 26A — Correlation Core & Semantic Resource Context** (see `CURRENT_TASK.md`). Legacy **PHASE 26 — action permissions** is already implemented in PHASE 23C–23E. Always follow `CURRENT_TASK.md` for active phase instructions.
+
 ---
 
 # PHASE 25 — Secretary correlation pipeline

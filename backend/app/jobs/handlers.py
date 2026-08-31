@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.models import Object
 from app.db.session import SessionLocal
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_INGEST_LOCAL_FILE
+from app.jobs.constants import (
+    JOB_TYPE_CORRELATE_OBJECT,
+    JOB_TYPE_EMBED_OBJECT,
+    JOB_TYPE_INGEST_LOCAL_FILE,
+    JOB_TYPE_SUMMARIZE_RESOURCE,
+)
 from app.jobs.types import JobHandler
 from app.llm.embedding_text import build_embedding_text
 from app.local.constants import POLICY_UPLOAD_COPY
@@ -16,7 +21,11 @@ from app.resources.constants import (
     CONTENT_INGESTED_POLICY_KEY,
     CONTENT_INGESTED_REVISION_KEY,
 )
-from app.services.job_queue_service import JobQueueService
+from app.llm.correlation_judge import create_correlation_judge
+from app.llm.openai_summarizer import create_openai_summarizer
+from app.services.correlation_service import CorrelationService
+from app.services.pipeline_enqueue import enqueue_correlate_object, enqueue_embed_object, enqueue_summarize_resource
+from app.services.semantic_summary_service import SemanticSummaryService
 from app.services.local_file_sync_service import copy_local_file_to_upload
 from app.services.representation_embedding_worker import (
     load_unembedded_chunk_targets,
@@ -104,6 +113,61 @@ def handle_embed_object(
             for target in chunk_targets
         ]
         store_representation_embeddings(object_id, user_id, chunk_embeddings)
+
+    lookup_session = SessionLocal()
+    try:
+        obj = lookup_session.scalar(
+            select(Object).where(Object.id == object_id, Object.user_id == user_id)
+        )
+        if obj is not None:
+            enqueue_correlate_object(lookup_session, object_id, user_id, obj.kind)
+            lookup_session.commit()
+    finally:
+        lookup_session.close()
+
+
+def handle_summarize_resource(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    object_id = UUID(str(payload["object_id"]))
+    expected_revision = payload.get("expected_revision")
+    lookup_session = SessionLocal()
+    try:
+        obj = lookup_session.scalar(
+            select(Object).where(Object.id == object_id, Object.user_id == user_id)
+        )
+        if obj is None:
+            raise ValueError(f"object ownership mismatch: {object_id}")
+        metadata = obj.metadata_ or {}
+        if expected_revision is not None and metadata.get("content_revision") != expected_revision:
+            return
+        summarizer = create_openai_summarizer()
+        SemanticSummaryService(lookup_session, user_id, summarizer=summarizer).update_summary_for_object(
+            object_id
+        )
+        enqueue_embed_object(lookup_session, object_id, user_id)
+        lookup_session.commit()
+    finally:
+        lookup_session.close()
+
+
+def handle_correlate_object(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    object_id = UUID(str(payload["object_id"]))
+    work_session = SessionLocal()
+    try:
+        judge = create_correlation_judge()
+        CorrelationService(work_session, user_id, judge).run_correlation(object_id)
+        work_session.commit()
+    finally:
+        work_session.close()
 
 
 def handle_ingest_local_file(
@@ -200,12 +264,8 @@ def handle_ingest_local_file(
         obj.metadata_ = merged
         ingest_session.flush()
 
-        job_queue = JobQueueService(ingest_session)
-        job_queue.enqueue(
-            JOB_TYPE_EMBED_OBJECT,
-            {"object_id": str(object_id)},
-            user_id=user_id,
-        )
+        revision = merged.get("content_revision")
+        enqueue_summarize_resource(ingest_session, obj.id, user_id, revision)
         ingest_session.commit()
     except Exception:
         ingest_session.rollback()
@@ -217,6 +277,8 @@ def handle_ingest_local_file(
 HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_EMBED_OBJECT: handle_embed_object,
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
+    JOB_TYPE_SUMMARIZE_RESOURCE: handle_summarize_resource,
+    JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
 }
 
 

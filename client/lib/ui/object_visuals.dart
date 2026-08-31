@@ -43,6 +43,8 @@ IconData iconForKind(String kind) {
       return Icons.table_chart_outlined;
     case 'note':
       return Icons.sticky_note_2_outlined;
+    case 'folder':
+      return Icons.folder_outlined;
     case 'chat':
     case 'message':
       return Icons.chat_bubble_outline;

@@ -366,6 +366,12 @@ class GraphWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void upsertEdge(SecretaryEdge edge) {
+    _edges.removeWhere((item) => item.id == edge.id);
+    _edges.add(edge);
+    notifyListeners();
+  }
+
   void clearFitRequest() {
     shouldFitAfterLayout = false;
   }

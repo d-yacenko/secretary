@@ -10,6 +10,7 @@ from app.api.schemas import ContextBuildResult, ContextItem
 from app.db.models import Edge, Object, Representation
 from app.llm.embedding_service import EmbeddingService
 from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
+from app.services.correlation_constants import EDGE_TYPE_CONTAINS, FOLDER_KIND, SEMANTIC_SUMMARY_METADATA_KEY
 from app.services.graph_service import GraphService
 from app.services.representation_service import (
     KIND_CHUNK,
@@ -28,6 +29,7 @@ DEFAULT_MAX_CHARS = 8000
 MAX_NEIGHBORS = 10
 MAX_SEMANTIC_CANDIDATES = 10
 MAX_CHUNKS = 8
+MAX_FOLDER_CONTAINED = 12
 PINNED_BODY_EXCERPT_MAX = 1800
 
 USEFUL_REPRESENTATION_KINDS = frozenset(
@@ -157,6 +159,16 @@ class ContextService:
                             edge=edge,
                             why_included="user-pinned context",
                         ),
+                    )
+                )
+
+            if target.kind == FOLDER_KIND:
+                slots.extend(
+                    self._folder_contained_slots(
+                        folder=target,
+                        query=query,
+                        included_object_ids=included_object_ids,
+                        representation_object_ids=representation_object_ids,
                     )
                 )
 
@@ -482,6 +494,78 @@ class ContextService:
         if obj.body and len(obj.body) <= 500:
             return f"{obj.title}\n{obj.body}"
         return obj.title
+
+    def _folder_contained_slots(
+        self,
+        folder: Object,
+        query: str | None,
+        included_object_ids: set[UUID],
+        representation_object_ids: set[UUID],
+    ) -> list[_Slot]:
+        contained_edges = self._session.scalars(
+            select(Edge).where(
+                Edge.user_id == self._user_id,
+                Edge.source_id == folder.id,
+                Edge.type == EDGE_TYPE_CONTAINS,
+                Edge.state != "rejected",
+            )
+        ).all()
+        contained_ids = [edge.target_id for edge in contained_edges]
+        if not contained_ids:
+            return []
+
+        objects = list(
+            self._session.scalars(
+                select(Object).where(
+                    Object.user_id == self._user_id,
+                    Object.id.in_(contained_ids),
+                    Object.state != "rejected",
+                )
+            ).all()
+        )
+        if query:
+            ranked = self._search.search(query=query, limit=MAX_FOLDER_CONTAINED)
+            rank_order = {hit.id: index for index, hit in enumerate(ranked)}
+            objects.sort(
+                key=lambda obj: (
+                    rank_order.get(obj.id, MAX_FOLDER_CONTAINED + 1),
+                    str(obj.id),
+                )
+            )
+        else:
+            objects.sort(
+                key=lambda obj: (
+                    -(obj.updated_at.timestamp() if obj.updated_at else 0),
+                    str(obj.id),
+                )
+            )
+        objects = objects[:MAX_FOLDER_CONTAINED]
+
+        slots: list[_Slot] = []
+        for obj in objects:
+            if obj.id in included_object_ids:
+                continue
+            included_object_ids.add(obj.id)
+            representation_object_ids.add(obj.id)
+            meta = obj.metadata_ or {}
+            summary = meta.get(SEMANTIC_SUMMARY_METADATA_KEY)
+            content = (
+                str(summary)[:500]
+                if isinstance(summary, str) and summary.strip()
+                else self._neighbor_reference_content(obj)
+            )
+            slots.append(
+                _Slot(
+                    sort_key=(2, str(obj.id), "", -1),
+                    trim_order=_TRIM_NEIGHBOR,
+                    item=self._object_item(
+                        obj,
+                        content=content,
+                        why_included="folder-contained resource",
+                    ),
+                )
+            )
+        return slots
 
 
 def _bounded_body_excerpt(body: str, max_len: int) -> tuple[str, bool]:

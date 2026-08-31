@@ -10,6 +10,8 @@ JOB_STATUS_FAILED = "failed"
 
 JOB_TYPE_EMBED_OBJECT = "embed_object"
 JOB_TYPE_INGEST_LOCAL_FILE = "ingest_local_file"
+JOB_TYPE_SUMMARIZE_RESOURCE = "summarize_resource"
+JOB_TYPE_CORRELATE_OBJECT = "correlate_object"
 
 RETRY_BACKOFF_SECONDS = {
     1: 10,

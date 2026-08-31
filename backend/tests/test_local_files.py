@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.api.deps import get_db
 from app.db.models import Job, Object, Representation, User
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_INGEST_LOCAL_FILE
+from app.jobs.constants import JOB_TYPE_INGEST_LOCAL_FILE, JOB_TYPE_SUMMARIZE_RESOURCE
 from app.jobs.handlers import handle_ingest_local_file
 from app.local.constants import (
     CHEAP_HASH_MAX_BYTES,
@@ -123,6 +123,7 @@ def test_scan_registers_local_files_and_skips_unchanged_rescan(
         select(Object).where(
             Object.user_id == BOOTSTRAP_USER_ID,
             Object.provider == PROVIDER_LOCAL_DEVICE,
+            Object.kind != "folder",
         )
     )
     assert obj is not None
@@ -342,8 +343,9 @@ def test_same_device_different_roots_create_distinct_objects(
     sync.scan_root(root_b.root_id)
 
     objs = db_session.scalars(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE)).all()
-    assert len(objs) == 2
-    external_ids = {obj.external_id for obj in objs}
+    file_objs = [obj for obj in objs if obj.kind != "folder"]
+    assert len(file_objs) == 2
+    external_ids = {obj.external_id for obj in file_objs}
     assert external_ids == {"desk-4:root-a/readme.md", "desk-4:root-b/readme.md"}
 
 
@@ -396,7 +398,12 @@ def test_policy_change_to_index_text_enqueues_single_ingest(
     ).all()
     assert len(jobs) == 1
 
-    obj = db_session.scalar(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE))
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.provider == PROVIDER_LOCAL_DEVICE,
+            Object.kind != "folder",
+        )
+    )
     assert obj is not None
     payload = jobs[0].payload
     with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
@@ -405,10 +412,10 @@ def test_policy_change_to_index_text_enqueues_single_ingest(
         handle_ingest_local_file(db_session, None, payload, BOOTSTRAP_USER_ID)
         handle_ingest_local_file(db_session, None, payload, BOOTSTRAP_USER_ID)
 
-    embed_jobs = db_session.scalars(
-        select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+    summarize_jobs = db_session.scalars(
+        select(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
     ).all()
-    assert len(embed_jobs) == 1
+    assert len(summarize_jobs) == 1
 
 
 def test_large_csv_stats_are_bounded_and_marked_sampled(
@@ -511,7 +518,12 @@ def test_large_upload_copy_streams_full_hash_and_updates_revision(
     ):
         handle_ingest_local_file(db_session, None, job.payload, BOOTSTRAP_USER_ID)
 
-    obj = db_session.scalar(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE))
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.provider == PROVIDER_LOCAL_DEVICE,
+            Object.kind != "folder",
+        )
+    )
     assert obj is not None
     revision_a_sig = obj.metadata_["content_revision"]
     upload_path = Path(obj.metadata_["upload_path"])
@@ -574,7 +586,12 @@ def test_stale_ingest_job_skips_representations_and_embed(
 
     sync = _sync_service(db_session, local_mirror, upload_root)
     sync.scan_root(root.root_id)
-    obj = db_session.scalar(select(Object).where(Object.provider == PROVIDER_LOCAL_DEVICE))
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.provider == PROVIDER_LOCAL_DEVICE,
+            Object.kind != "folder",
+        )
+    )
     assert obj is not None
     revision_a = obj.metadata_["content_revision"]
     payload = {
@@ -625,13 +642,13 @@ def test_stale_ingest_job_skips_representations_and_embed(
             select(Representation).where(Representation.object_id == object_id)
         ).all()
     )
-    embed_jobs = db_session.scalars(
-        select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)
+    summarize_jobs = db_session.scalars(
+        select(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
     ).all()
 
     obj = db_session.scalar(select(Object).where(Object.id == object_id))
     assert obj is not None
     assert reps_after == reps_before
-    assert len(embed_jobs) == 0
+    assert len(summarize_jobs) == 0
     assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) != revision_a
     assert obj.metadata_.get(CONTENT_INGESTED_REVISION_KEY) != revision_b

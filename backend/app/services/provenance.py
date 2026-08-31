@@ -11,6 +11,7 @@ PROPOSED_STATE = "proposed"
 CONFIRMED_STATE = "confirmed"
 REJECTED_STATE = "rejected"
 SOURCE_ORIGIN = "source"
+SYSTEM_ORIGIN = "system"
 OBSERVED_STATE = "observed"
 
 

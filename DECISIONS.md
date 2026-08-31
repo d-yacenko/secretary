@@ -131,3 +131,11 @@ Flutter blocks normal send/voice while a pending plan is unresolved and drives a
 
 PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 409 decoding, resume validates plan before provider construction, bounded untrusted finalization context, and truthful completed-affected-object labels.
 
+## PHASE 26A — Bounded personal data correlation (in review)
+
+- Correlation pipeline: deterministic source relations → bounded candidates → `CorrelationJudge` → `agent/proposed` edges (min confidence 0.80, max 5 per run).
+- Worker pipeline: `summarize_resource` → `embed_object` → `correlate_object`; OpenAI summary uses `OPENAI_ASSISTANT_MODEL` in worker only.
+- Semantic summaries in `Representation(kind=summary)` + `metadata.semantic_summary`.
+- Local roots map to `folder` objects with `system/confirmed contains` edges.
+- Proposed correlation review via `POST /relations/{edge_id}/decision`; not a Pending Action Plan.
+

@@ -511,14 +511,12 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               }
             },
             title: Text(relationTypeLabel(edge.type)),
-            subtitle: Text(other?.title ?? otherId),
-            trailing: edge.origin == 'user'
-                ? IconButton(
-                    tooltip: 'Удалить связь',
-                    icon: const Icon(Icons.link_off_outlined),
-                    onPressed: () => _removeRelation(context, edge),
-                  )
-                : null,
+            subtitle: Text(
+              edge.origin == 'agent' && edge.state == 'proposed'
+                  ? '${provenanceStateLabel(edge.state)} • ${other?.title ?? otherId}'
+                  : other?.title ?? otherId,
+            ),
+            trailing: _relationTrailing(context, edge),
           );
         }),
       ],
@@ -698,6 +696,58 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     try {
       await widget.apiClient.deleteRelation(edge.id);
       widget.controller.removeEdge(edge.id);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    }
+  }
+
+  Widget? _relationTrailing(BuildContext context, SecretaryEdge edge) {
+    if (edge.origin == 'agent' && edge.state == 'proposed') {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Подтвердить',
+            icon: const Icon(Icons.check_circle_outline),
+            onPressed: () => _decideRelation(context, edge, 'confirm'),
+          ),
+          IconButton(
+            tooltip: 'Отклонить',
+            icon: const Icon(Icons.cancel_outlined),
+            onPressed: () => _decideRelation(context, edge, 'reject'),
+          ),
+        ],
+      );
+    }
+    if (edge.origin == 'user') {
+      return IconButton(
+        tooltip: 'Удалить связь',
+        icon: const Icon(Icons.link_off_outlined),
+        onPressed: () => _removeRelation(context, edge),
+      );
+    }
+    return null;
+  }
+
+  Future<void> _decideRelation(
+    BuildContext context,
+    SecretaryEdge edge,
+    String decision,
+  ) async {
+    try {
+      final response = await widget.apiClient.decideRelation(
+        edgeId: edge.id,
+        decision: decision,
+      );
+      if (response.edge.state == 'rejected') {
+        widget.controller.removeEdge(edge.id);
+      } else {
+        widget.controller.upsertEdge(response.edge);
+      }
     } on ApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

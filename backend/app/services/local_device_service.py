@@ -9,6 +9,7 @@ from app.local.constants import DEFAULT_LOCAL_POLICY, LOCAL_POLICIES
 from app.local.device_keys import validate_device_key
 from app.local.paths import LocalPathResolver, normalize_relative_path
 from app.services.errors import NotFoundError, ValidationError
+from app.services.folder_object_service import FolderObjectService
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,7 @@ class LocalDeviceService:
             if existing.default_policy != default_policy:
                 existing.default_policy = default_policy
                 self._session.flush()
+            FolderObjectService(self._session, self._user_id).ensure_folder_for_root(device, existing)
             return LocalRootResult(
                 root_id=existing.id,
                 device_key=device.device_key,
@@ -116,6 +118,7 @@ class LocalDeviceService:
         )
         self._session.add(root)
         self._session.flush()
+        FolderObjectService(self._session, self._user_id).ensure_folder_for_root(device, root)
         return LocalRootResult(
             root_id=root.id,
             device_key=device.device_key,

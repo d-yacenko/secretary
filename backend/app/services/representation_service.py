@@ -22,6 +22,11 @@ from app.services.bounded_chunks import (
     chunk_text,
     select_bounded_chunks,
 )
+from app.services.correlation_constants import (
+    SEMANTIC_SUMMARY_MAX_CHARS,
+    SEMANTIC_SUMMARY_METADATA_KEY,
+    SEMANTIC_SUMMARY_REVISION_KEY,
+)
 from app.services.errors import NotFoundError
 from app.services.representation_embedding import refresh_representation_embedding
 
@@ -64,7 +69,11 @@ class RepresentationService:
     def ingest_text_content(self, object_id: UUID, text: str) -> list[Representation]:
         obj = self._get_object(object_id)
         reps = self._build_text_representations(obj, text)
-        return self._replace_representations(object_id, reps)
+        result = self._replace_representations(object_id, reps)
+        stripped = text.strip()
+        if len(stripped) <= SMALL_TEXT_MAX_CHARS:
+            self._mirror_small_text_summary(obj, stripped)
+        return result
 
     def ingest_file(self, object_id: UUID, path: Path) -> list[Representation]:
         obj = self._get_object(object_id)
@@ -87,6 +96,16 @@ class RepresentationService:
         if obj is None:
             raise NotFoundError("object", object_id)
         return obj
+
+    def _mirror_small_text_summary(self, obj: Object, text: str) -> None:
+        metadata = dict(obj.metadata_ or {})
+        revision = metadata.get("content_revision")
+        if revision is None:
+            return
+        metadata[SEMANTIC_SUMMARY_METADATA_KEY] = text[:SEMANTIC_SUMMARY_MAX_CHARS]
+        metadata[SEMANTIC_SUMMARY_REVISION_KEY] = revision
+        obj.metadata_ = metadata
+        self._session.flush()
 
     def _replace_representations(
         self, object_id: UUID, reps: list[Representation]
