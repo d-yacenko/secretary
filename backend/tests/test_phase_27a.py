@@ -37,7 +37,10 @@ from app.jobs.worker import process_one_job
 from app.llm.embedding_service import FakeEmbeddingService
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService, utcnow
-from app.services.recent_source_service import RecentSourceService
+from app.services.recent_source_service import (
+    RECENT_SOURCE_RESERVED_PER_PROVIDER,
+    RecentSourceService,
+)
 from app.services.search_service import SearchService
 from app.services.source_sync_scheduler import SourceSyncScheduler
 from app.services.today_service import TodayService
@@ -955,6 +958,221 @@ def test_inbox_recent_unchanged_repeat_sync_does_not_reorder(db_session) -> None
     excerpt = RecentSourceService.excerpt("Строка 1\\nСтрока 2")
     assert excerpt == "Строка 1 Строка 2"
     assert "\\n" not in excerpt
+
+
+def _create_recent_source(
+    graph: GraphService,
+    db_session: Session,
+    *,
+    kind: str,
+    title: str,
+    provider: str,
+    updated_at: datetime,
+    external_id: str | None = None,
+) -> Object:
+    graph.create_object(
+        ObjectCreate(
+            kind=kind,
+            title=title,
+            origin="source",
+            state="observed",
+            provider=provider,
+            external_id=external_id or f"ext-{uuid.uuid4()}",
+            occurred_at=updated_at,
+        )
+    )
+    obj = db_session.scalar(select(Object).where(Object.title == title))
+    obj.updated_at = updated_at
+    return obj
+
+
+def test_recent_source_feed_balances_google_calendar_backfill(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    newest = utcnow()
+    older = newest - timedelta(hours=2)
+
+    for index in range(100):
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="event",
+            title=f"GC backfill {index}",
+            provider="google_calendar",
+            updated_at=newest - timedelta(seconds=index),
+        )
+    for index in range(5):
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="email",
+            title=f"Gmail feed {index}",
+            provider="gmail",
+            updated_at=older - timedelta(minutes=index),
+        )
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="email",
+            title=f"Yandex mail feed {index}",
+            provider="yandex_mail",
+            updated_at=older - timedelta(minutes=index),
+        )
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="event",
+            title=f"Yandex cal feed {index}",
+            provider="yandex_calendar",
+            updated_at=older - timedelta(minutes=index),
+        )
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=30)
+    providers = {row.provider for row in rows}
+    assert "google_calendar" in providers
+    assert "gmail" in providers
+    assert "yandex_mail" in providers
+    assert "yandex_calendar" in providers
+    provider_counts = {provider: 0 for provider in providers}
+    for row in rows:
+        provider_counts[row.provider] += 1
+    for provider in ("gmail", "yandex_mail", "yandex_calendar"):
+        assert provider_counts[provider] >= RECENT_SOURCE_RESERVED_PER_PROVIDER
+
+
+def test_recent_source_feed_single_provider_fills_limit(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    base = utcnow()
+    for index in range(40):
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="email",
+            title=f"Gmail only {index}",
+            provider="gmail",
+            updated_at=base - timedelta(minutes=index),
+        )
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=30)
+    assert len(rows) == 30
+    assert all(row.provider == "gmail" for row in rows)
+
+
+def test_recent_source_feed_fresh_email_wins_after_calendar_backfill(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    newest = utcnow()
+    older = newest - timedelta(hours=3)
+
+    for index in range(50):
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="event",
+            title=f"GC dominance {index}",
+            provider="google_calendar",
+            updated_at=newest - timedelta(seconds=index),
+        )
+    for index in range(5):
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="email",
+            title=f"Older gmail {index}",
+            provider="gmail",
+            updated_at=older - timedelta(minutes=index),
+        )
+    _create_recent_source(
+        graph,
+        db_session,
+        kind="email",
+        title="Fresh arrival gmail",
+        provider="gmail",
+        updated_at=newest + timedelta(minutes=1),
+    )
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=30)
+    titles = [row.title for row in rows]
+    assert titles[0] == "Fresh arrival gmail"
+
+
+def test_google_calendar_resync_unchanged_preserves_updated_at(
+    db_session,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=[CALENDAR_READONLY_SCOPE],
+        access_token="access-token",
+        refresh_token="refresh-token",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+
+    fake_http = CalendarFakeHttpClient(
+        _calendar_handlers(events=[_sample_calendar_event("evt-updated-at")])
+    )
+    sync_service = build_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost:18080/auth/google/callback",
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        http_client=fake_http,
+    )
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.provider == "google_calendar",
+            Object.external_id == "primary:evt-updated-at",
+        )
+    )
+    updated_before = obj.updated_at
+    sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    db_session.refresh(obj)
+    assert obj.updated_at == updated_before
+
+
+def test_recent_source_feed_cross_user_isolation(db_session) -> None:
+    other_user_id = uuid.uuid4()
+    db_session.add(User(id=other_user_id, display_name="Other"))
+    db_session.flush()
+
+    other_graph = GraphService(db_session, other_user_id)
+    other_graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title="Other user secret email",
+            origin="source",
+            state="observed",
+            provider="gmail",
+            external_id=f"other-{uuid.uuid4()}",
+            occurred_at=utcnow(),
+        )
+    )
+
+    bootstrap_graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    _create_recent_source(
+        bootstrap_graph,
+        db_session,
+        kind="email",
+        title="Bootstrap visible email",
+        provider="gmail",
+        updated_at=utcnow() - timedelta(days=1),
+    )
+    db_session.commit()
+
+    titles = {row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()}
+    assert "Bootstrap visible email" in titles
+    assert "Other user secret email" not in titles
 
 
 def test_recurring_success_uses_configured_yandex_calendar_interval(
