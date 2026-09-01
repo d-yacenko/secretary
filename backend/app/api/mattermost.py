@@ -19,6 +19,8 @@ from app.connectors.mattermost.normalize import (
 from app.connectors.mattermost.transport import MattermostHttpTransport
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
+from app.jobs.constants import JOB_TYPE_SYNC_MATTERMOST
+from app.services.job_queue_service import JobQueueService
 
 router = APIRouter(tags=["mattermost"])
 
@@ -71,6 +73,17 @@ def mattermost_connect(
             access_token=body.access_token,
             display_name=display_name,
             email=email,
+        )
+        queue = JobQueueService(session)
+        queue.ensure_recurring_source_job(
+            JOB_TYPE_SYNC_MATTERMOST,
+            account.id,
+            current_user.user_id,
+        )
+        queue.trigger_recurring_source_job(
+            current_user.user_id,
+            JOB_TYPE_SYNC_MATTERMOST,
+            account.id,
         )
         session.commit()
     except MattermostConfigurationError as exc:

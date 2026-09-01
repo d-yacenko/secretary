@@ -63,6 +63,17 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
+  Future<void> _showConnectMattermostDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _MattermostConnectDialog(
+        apiClient: widget.apiClient,
+        authController: widget.authController,
+        onConnected: _loadConnections,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = widget.authController.user;
@@ -84,7 +95,10 @@ class _AccountScreenState extends State<AccountScreen> {
           else if (_error != null)
             Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))
           else if (_connections != null)
-            _ConnectionsList(connections: _connections!),
+            _ConnectionsList(
+              connections: _connections!,
+              onConnectMattermost: _showConnectMattermostDialog,
+            ),
           const SizedBox(height: 16),
           Text('Локальные файлы', style: Theme.of(context).textTheme.titleSmall),
           buildAddFileButton(actions: _intakeActions, context: context),
@@ -105,9 +119,13 @@ class _AccountScreenState extends State<AccountScreen> {
 }
 
 class _ConnectionsList extends StatelessWidget {
-  const _ConnectionsList({required this.connections});
+  const _ConnectionsList({
+    required this.connections,
+    required this.onConnectMattermost,
+  });
 
   final Connections connections;
+  final VoidCallback onConnectMattermost;
 
   @override
   Widget build(BuildContext context) {
@@ -136,6 +154,163 @@ class _ConnectionsList extends StatelessWidget {
           label: 'Яндекс Календарь',
           connected: connections.yandexCalendar.connected,
           detail: connections.yandexCalendar.email,
+        ),
+        for (final account in connections.mattermost)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(mattermostConnectionLabel(account)),
+          ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: onConnectMattermost,
+          child: const Text('Подключить Mattermost'),
+        ),
+      ],
+    );
+  }
+}
+
+String mattermostConnectionLabel(MattermostConnection account) {
+  final displayName = account.displayName?.trim();
+  final name = displayName != null && displayName.isNotEmpty
+      ? displayName
+      : account.username;
+  final host = account.serverUrl.replaceFirst(RegExp(r'^https?://'), '');
+  return 'Mattermost: $name @ $host';
+}
+
+class _MattermostConnectDialog extends StatefulWidget {
+  const _MattermostConnectDialog({
+    required this.apiClient,
+    required this.authController,
+    required this.onConnected,
+  });
+
+  final SecretaryApiClient apiClient;
+  final AuthController authController;
+  final Future<void> Function() onConnected;
+
+  @override
+  State<_MattermostConnectDialog> createState() => _MattermostConnectDialogState();
+}
+
+class _MattermostConnectDialogState extends State<_MattermostConnectDialog> {
+  final _serverController = TextEditingController();
+  final _patController = TextEditingController();
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _serverController.dispose();
+    _patController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) {
+      return;
+    }
+    final serverUrl = _serverController.text.trim();
+    final accessToken = _patController.text.trim();
+    if (serverUrl.isEmpty || accessToken.isEmpty) {
+      setState(() {
+        _error = 'Укажите URL сервера и Personal Access Token';
+      });
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    try {
+      await widget.apiClient.connectMattermost(
+        serverUrl: serverUrl,
+        accessToken: accessToken,
+      );
+      _patController.clear();
+      await widget.onConnected();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } on ApiException catch (e) {
+      _patController.clear();
+      if (mounted) {
+        setState(() {
+          _error = e.message;
+          _submitting = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Подключить Mattermost'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _serverController,
+              decoration: const InputDecoration(
+                labelText: 'Server URL',
+                hintText: 'https://mattermost.example.com',
+              ),
+              enabled: !_submitting,
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _patController,
+              decoration: const InputDecoration(
+                labelText: 'Personal Access Token',
+              ),
+              enabled: !_submitting,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+            ),
+            if (_submitting) ...[
+              const SizedBox(height: 16),
+              const Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: _submitting ? null : _submit,
+          child: const Text('Подключить'),
         ),
       ],
     );

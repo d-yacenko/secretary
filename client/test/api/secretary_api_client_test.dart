@@ -85,6 +85,7 @@ void main() {
               },
               'yandex_mail': {'connected': false, 'email': null},
               'yandex_calendar': {'connected': false, 'email': null},
+              'mattermost': [],
             }),
             200,
           );
@@ -95,6 +96,38 @@ void main() {
       expect(connections.google.connected, isTrue);
       expect(connections.google.gmailAvailable, isTrue);
       expect(connections.yandexMail.connected, isFalse);
+      expect(connections.mattermost, isEmpty);
+    });
+
+    test('connectMattermost parses non-secret response', () async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          expect(request.url.path, endsWith('/connectors/mattermost/connect'));
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['server_url'], 'https://mm.example.com');
+          expect(body['access_token'], 'pat-secret-value');
+          return http.Response(
+            jsonEncode({
+              'status': 'connected',
+              'account_id': 'mm-1',
+              'server_url': 'https://mm.example.com',
+              'remote_user_id': 'remote-1',
+              'username': 'alice',
+              'display_name': 'Alice',
+              'email': null,
+            }),
+            200,
+          );
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      final result = await client.connectMattermost(
+        serverUrl: 'https://mm.example.com',
+        accessToken: 'pat-secret-value',
+      );
+      expect(result.status, 'connected');
+      expect(result.username, 'alice');
+      expect(result.accountId, 'mm-1');
     });
 
     test('capture serialization includes text and title', () async {
@@ -219,6 +252,7 @@ void main() {
             },
             'yandex_mail': {'connected': false},
             'yandex_calendar': {'connected': false},
+            'mattermost': [],
           };
 
       Future<Uri> captureRequestUri(String base, String endpoint) async {

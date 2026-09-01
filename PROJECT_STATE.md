@@ -60,11 +60,13 @@ PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
 
 PHASE 27B-A — Mattermost Secure Connector & Sync Core: **accepted / closed** (`87b16cb`).
 
-PHASE 27B-B — Mattermost Operational Backend Integration: **implementation complete, awaiting architect review**.
+PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed** (`96a5249`).
+
+PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **implementation complete, awaiting architect review + user matched-version E2E**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next planned subphase: **PHASE 27B-C** — Flutter Mattermost UX + matched-version E2E + Mattermost closure (after 27B-B review).
+Next: **user matched-version manual E2E** on same branch SHA; then PHASE 27B closure. PHASE 27C (Drive/Disk) not started.
 
 Safe External Actions follow Source Completion (PHASE 27B/27C).
 
@@ -74,12 +76,18 @@ Safe External Actions follow Source Completion (PHASE 27B/27C).
 - Mattermost connect + bounded read-only sync core; fake-transport tests
 - Scheduler / `/sources/status` / operational integration deferred to 27B-B
 
-## PHASE 27B-B verification (awaiting architect review)
+## PHASE 27B-B verification (accepted at `96a5249`)
 
 - Recurring `sync_mattermost` job wired into PHASE 27A lifecycle (scheduler, worker, manual sync, status, connections, OpenTarget)
 - Alembic head remains `0019` (no new migration)
 - Focused tests: `test_phase_27b_operational.py` + PHASE 27A regression
 - No Flutter / deploy in this subphase
+
+## PHASE 27B-C verification (awaiting architect + user E2E)
+
+- Flutter Mattermost connect UX on Account → Подключения; typed API models; provider `M` / Mattermost
+- Connect ensures recurring `sync_mattermost` row runnable immediately (no inline message sync on HTTP connect)
+- Matched-version manual E2E checklist prepared; production deploy deferred
 
 ## PHASE 26C verification (accepted)
 

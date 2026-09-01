@@ -65,18 +65,82 @@ class YandexCalendarConnection {
   }
 }
 
+class MattermostConnection {
+  MattermostConnection({
+    required this.accountId,
+    required this.serverUrl,
+    required this.remoteUserId,
+    required this.username,
+    this.displayName,
+    this.email,
+  });
+
+  final String accountId;
+  final String serverUrl;
+  final String remoteUserId;
+  final String username;
+  final String? displayName;
+  final String? email;
+
+  factory MattermostConnection.fromJson(Map<String, dynamic> json) {
+    return MattermostConnection(
+      accountId: json['account_id'] as String,
+      serverUrl: json['server_url'] as String,
+      remoteUserId: json['remote_user_id'] as String,
+      username: json['username'] as String,
+      displayName: json['display_name'] as String?,
+      email: json['email'] as String?,
+    );
+  }
+}
+
+class MattermostConnectResult {
+  MattermostConnectResult({
+    required this.status,
+    required this.accountId,
+    required this.serverUrl,
+    required this.remoteUserId,
+    required this.username,
+    this.displayName,
+    this.email,
+  });
+
+  final String status;
+  final String accountId;
+  final String serverUrl;
+  final String remoteUserId;
+  final String username;
+  final String? displayName;
+  final String? email;
+
+  factory MattermostConnectResult.fromJson(Map<String, dynamic> json) {
+    return MattermostConnectResult(
+      status: json['status'] as String,
+      accountId: json['account_id'] as String,
+      serverUrl: json['server_url'] as String,
+      remoteUserId: json['remote_user_id'] as String,
+      username: json['username'] as String,
+      displayName: json['display_name'] as String?,
+      email: json['email'] as String?,
+    );
+  }
+}
+
 class Connections {
   Connections({
     required this.google,
     required this.yandexMail,
     required this.yandexCalendar,
+    required this.mattermost,
   });
 
   final GoogleConnection google;
   final YandexMailConnection yandexMail;
   final YandexCalendarConnection yandexCalendar;
+  final List<MattermostConnection> mattermost;
 
   factory Connections.fromJson(Map<String, dynamic> json) {
+    final mattermostRaw = json['mattermost'];
     return Connections(
       google: GoogleConnection.fromJson(json['google'] as Map<String, dynamic>),
       yandexMail:
@@ -84,6 +148,11 @@ class Connections {
       yandexCalendar: YandexCalendarConnection.fromJson(
         json['yandex_calendar'] as Map<String, dynamic>,
       ),
+      mattermost: mattermostRaw is List<dynamic>
+          ? mattermostRaw
+              .map((e) => MattermostConnection.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : const [],
     );
   }
 }

@@ -24,10 +24,11 @@ void main() {
     expect(providerLabel(null), 'Источник');
   });
 
-  test('provider compact glyphs', () {
+    test('provider compact glyphs', () {
     expect(providerCompactGlyph('yandex_calendar'), 'Я');
     expect(providerCompactGlyph('google_calendar'), 'G');
     expect(providerCompactGlyph('yandex_mail'), 'Я');
     expect(providerCompactGlyph('gmail'), 'G');
+    expect(providerCompactGlyph('mattermost'), 'M');
   });
 }

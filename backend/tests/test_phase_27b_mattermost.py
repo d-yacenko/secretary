@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import get_db
 from app.connectors.mattermost.credentials import MattermostAccountStore
@@ -18,7 +18,7 @@ from app.connectors.mattermost.normalize import (
 from app.connectors.mattermost.sync import build_mattermost_sync_service
 from app.connectors.mattermost.transport import FakeMattermostTransport, MattermostHttpTransport
 from app.db.models import Job, MattermostAccount, Object, User
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_SYNC_MATTERMOST
 from app.main import app
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -247,6 +247,66 @@ def test_mattermost_connect_verifies_pat_and_upserts_account(
         MattermostAccountStore.build_encryption(credential_key),
     )
     assert store.get_access_token(account) == PAT
+
+
+def test_mattermost_connect_ensures_single_recurring_job_runnable_now(
+    client,
+    db_session,
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeMattermostTransport()
+    monkeypatch.setattr(
+        "app.api.mattermost.MattermostHttpTransport",
+        lambda **kwargs: fake,
+    )
+
+    response = client.post(
+        "/connectors/mattermost/connect",
+        json={"server_url": ALLOWED_URL, "access_token": PAT},
+    )
+    assert response.status_code == 200
+    account_id = response.json()["account_id"]
+
+    jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_SYNC_MATTERMOST))
+    )
+    assert len(jobs) == 1
+    assert jobs[0].payload == {"account_id": account_id}
+    assert jobs[0].run_after <= utcnow() + timedelta(seconds=1)
+
+    repeat = client.post(
+        "/connectors/mattermost/connect",
+        json={"server_url": ALLOWED_URL, "access_token": PAT},
+    )
+    assert repeat.status_code == 200
+    jobs_after = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_SYNC_MATTERMOST))
+    )
+    assert len(jobs_after) == 1
+    assert set(jobs_after[0].payload.keys()) == {"account_id"}
+
+
+def test_mattermost_connect_does_not_inline_sync_messages(
+    client,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeMattermostTransport()
+    monkeypatch.setattr(
+        "app.api.mattermost.MattermostHttpTransport",
+        lambda **kwargs: fake,
+    )
+
+    response = client.post(
+        "/connectors/mattermost/connect",
+        json={"server_url": ALLOWED_URL, "access_token": PAT},
+    )
+    assert response.status_code == 200
+    count = db_session.scalar(
+        select(func.count()).select_from(Object).where(Object.provider == "mattermost")
+    )
+    assert count == 0
 
 
 def test_mattermost_connect_rejects_unauthorized(

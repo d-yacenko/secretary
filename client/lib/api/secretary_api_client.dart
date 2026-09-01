@@ -56,6 +56,26 @@ class SecretaryApiClient {
     return Connections.fromJson(body);
   }
 
+  Future<MattermostConnectResult> connectMattermost({
+    required String serverUrl,
+    required String accessToken,
+  }) async {
+    try {
+      final body = await _request(
+        'POST',
+        '/connectors/mattermost/connect',
+        jsonBody: {
+          'server_url': serverUrl,
+          'access_token': accessToken,
+        },
+      );
+      return MattermostConnectResult.fromJson(body);
+    } on AuthenticationException catch (e) {
+      // Mattermost PAT failures use HTTP 401; treat as connect error, not session logout.
+      throw ServerException(e.message);
+    }
+  }
+
   Future<CaptureTaskResponse> captureTask(CaptureTaskRequest request) async {
     final body = await _request(
       'POST',

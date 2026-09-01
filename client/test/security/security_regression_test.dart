@@ -60,7 +60,10 @@ void main() {
     for (final entity in libDir.listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
       final content = entity.readAsStringSync();
-      if (content.contains('user_id') || content.contains('userId')) {
+      final scrubbed = content
+          .replaceAll('remote_user_id', '')
+          .replaceAll('remoteUserId', '');
+      if (scrubbed.contains('user_id') || scrubbed.contains('userId')) {
         violations.add(entity.path);
       }
       if (RegExp(r'user\s*selector', caseSensitive: false).hasMatch(content)) {

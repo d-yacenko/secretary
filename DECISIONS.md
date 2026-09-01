@@ -174,7 +174,7 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 Major phase reordered before Safe External Actions.
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
-- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A accepted (`87b16cb`); 27B-B operational backend awaiting review
+- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A accepted (`87b16cb`); 27B-B accepted (`96a5249`); 27B-C Flutter UX awaiting E2E
 - **27C** Google Drive, Yandex Disk, registered-folder local refresh — not started
 
 ## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
@@ -190,7 +190,7 @@ Major phase reordered before Safe External Actions.
 - `MattermostHttpTransport` closes owned `httpx.Client` on `close()`; connect and sync close production transport; injected factory/external transports are caller-owned.
 - Deferred in 27B-A: scheduler job, `/sources/status`, Flutter, deploy (delivered in 27B-B for scheduler/status/connections/OpenTarget; Flutter still deferred).
 
-## PHASE 27B-B — Mattermost operational backend integration (awaiting architect review)
+## PHASE 27B-B — Mattermost operational backend integration (accepted at `96a5249`)
 
 - Recurring job `sync_mattermost` in existing `RECURRING_SOURCE_JOB_TYPES`; payload `{"account_id": "<uuid>"}` only; default interval 120s (`SOURCE_SYNC_MATTERMOST_INTERVAL_SECONDS`, min 60s).
 - Worker handler: `account_id` from payload + claimed `user_id` → `build_mattermost_sync_service` → `sync_account`; PAT only via user-owned `MattermostAccount`.
@@ -202,6 +202,16 @@ Major phase reordered before Safe External Actions.
 - `sanitize_job_error` strengthened: Authorization, Bearer, access_token, refresh_token, PAT/token material never in `Job.last_error`.
 - `chat_message` continues through generic Object pipelines (embed, correlate, retrieval); no Mattermost-specific LLM tools.
 - Deferred in 27B-B: Flutter UX (27B-C), disconnect flow, production deploy.
+
+## PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep (awaiting architect + user E2E)
+
+- Flutter: `MattermostConnection` model; `Connections.mattermost[]`; `connectMattermost(serverUrl, accessToken)`; PAT not stored/logged in client state after connect.
+- Account → Подключения: list connected Mattermost accounts; «Подключить Mattermost» dialog (Server URL + obscured PAT); success reloads `/connections`; sanitized errors without PAT.
+- Provider presentation: glyph `M`, label `Mattermost`; `chat_message` uses existing Inbox/Search/Graph/Object detail pipelines.
+- OpenTarget: client uses backend trusted URL only; label «Открыть в Mattermost»; no client-built Mattermost URLs.
+- Backend connect tweak: after upsert, `ensure_recurring_source_job(sync_mattermost)` + trigger row runnable now; payload `account_id` only; no inline message sync on HTTP connect.
+- Matched-version manual E2E checklist for user validation on same branch SHA; no production deploy until acceptance.
+- Deferred: Mattermost disconnect; PHASE 27B full closure pending user E2E.
 
 ## PHASE 27A — Live source sync & daily workspace (accepted)
 
