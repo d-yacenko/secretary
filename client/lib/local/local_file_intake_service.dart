@@ -18,7 +18,10 @@ class LocalFileIntakeService {
   final ClientDeviceStore _deviceStore;
   final LocalResourceExtractor _extractor;
 
-  Future<ClientFileIntakeResult> registerFile(File file) async {
+  Future<ClientFileIntakeResult> registerFile(
+    File file, {
+    String? intakeMode,
+  }) async {
     final device = await _deviceStore.loadOrCreate();
     await _apiClient.registerLocalDevice(
       deviceKey: device.deviceKey,
@@ -35,11 +38,15 @@ class LocalFileIntakeService {
       representations: extraction.representations,
       contentHash: extraction.contentHash,
       metadataOnly: extraction.metadataOnly,
+      intakeMode: intakeMode,
     );
   }
 
-  Future<SecretaryObject> registerFileAndFetch(File file) async {
-    final result = await registerFile(file);
+  Future<SecretaryObject> registerFileAndFetch(
+    File file, {
+    String? intakeMode,
+  }) async {
+    final result = await registerFile(file, intakeMode: intakeMode);
     return _apiClient.getObject(result.objectId);
   }
 

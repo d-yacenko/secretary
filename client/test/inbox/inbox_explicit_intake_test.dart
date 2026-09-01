@@ -329,6 +329,7 @@ void main() {
     );
 
     int clientIntakeCalls = 0;
+    String? clientIntakeBody;
     await tester.pumpWidget(
       buildInbox(MockClient((request) async {
         if (request.url.path == '/inbox') {
@@ -347,6 +348,7 @@ void main() {
         }
         if (request.url.path == '/local/files/client-intake') {
           clientIntakeCalls++;
+          clientIntakeBody = request.body;
           return http.Response(
             jsonEncode({
               'object_id': 'local-file-1',
@@ -390,6 +392,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(clientIntakeCalls, 1);
+    final pickerDecoded = jsonDecode(clientIntakeBody!) as Map<String, dynamic>;
+    expect(pickerDecoded['intake_mode'], 'explicit_local');
     tempDir.deleteSync(recursive: true);
   });
 
@@ -452,6 +456,7 @@ void main() {
     file.writeAsStringSync('drop-content');
 
     int clientIntakeCalls = 0;
+    String? clientIntakeBody;
     await tester.pumpWidget(
       buildInbox(
         MockClient((request) async {
@@ -471,6 +476,7 @@ void main() {
           }
           if (request.url.path == '/local/files/client-intake') {
             clientIntakeCalls++;
+            clientIntakeBody = request.body;
             return http.Response(
               jsonEncode({
                 'object_id': 'local-file-2',
@@ -516,6 +522,53 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(clientIntakeCalls, 1);
+    final decoded = jsonDecode(clientIntakeBody!) as Map<String, dynamic>;
+    expect(decoded['intake_mode'], 'explicit_local');
+    tempDir.deleteSync(recursive: true);
+  });
+
+  testWidgets('failed local file intake does not refresh inbox', (tester) async {
+    final inboxKey = GlobalKey<InboxScreenState>();
+    final tempDir = Directory.systemTemp.createTempSync('inbox-fail-file-');
+    final file = File('${tempDir.path}/failed.txt');
+    file.writeAsStringSync('fail-content');
+
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            return http.Response(jsonEncode(inboxJson()), 200);
+          }
+          if (request.url.path == '/local/devices/register') {
+            return http.Response(
+              jsonEncode({
+                'device_id': 'device-1',
+                'device_key': 'device-key-1',
+                'display_name': 'Test device',
+                'created': true,
+              }),
+              201,
+            );
+          }
+          if (request.url.path == '/local/files/client-intake') {
+            return http.Response(
+              jsonEncode({'detail': 'intake failed'}),
+              400,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        inboxKey: inboxKey,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    inboxKey.currentState!.handleDroppedPaths([file.path]);
+    await tester.pumpAndSettle();
+
+    expect(inboxCalls, 1);
     tempDir.deleteSync(recursive: true);
   });
 

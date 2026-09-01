@@ -39,6 +39,10 @@ class LocalIntakeActions {
   final LocalFileIntakeService _intakeService;
   bool _busy = false;
 
+  static const _explicitLocalIntakeMode = 'explicit_local';
+
+  String? get _inboxIntakeMode => forInbox ? _explicitLocalIntakeMode : null;
+
   Future<void> pickAndRegisterFile(BuildContext context) async {
     if (_busy) {
       return;
@@ -114,9 +118,14 @@ class LocalIntakeActions {
       }
     }
 
+    var intakeSucceeded = false;
+
     for (final directory in directories) {
       try {
-        await _registerFolder(context, directory, notifySuccess: false);
+        final ok = await _registerFolder(context, directory, notifySuccess: false);
+        if (ok) {
+          intakeSucceeded = true;
+        }
       } on AuthenticationException {
         authController.handleAuthenticationFailure();
         return;
@@ -126,8 +135,6 @@ class LocalIntakeActions {
         errors.add('Не удалось зарегистрировать папку: ${directory.path}');
       }
     }
-
-    var intakeSucceeded = directories.isNotEmpty && errors.length < directories.length;
 
     if (files.isEmpty) {
       if (errors.isNotEmpty) {
@@ -160,7 +167,12 @@ class LocalIntakeActions {
     final objects = <SecretaryObject>[];
     for (final file in files) {
       try {
-        objects.add(await _intakeService.registerFileAndFetch(file));
+        objects.add(
+          await _intakeService.registerFileAndFetch(
+            file,
+            intakeMode: _inboxIntakeMode,
+          ),
+        );
       } on AuthenticationException {
         authController.handleAuthenticationFailure();
         return;
@@ -206,7 +218,10 @@ class LocalIntakeActions {
     bool notifySuccess = true,
   }) async {
     try {
-      final object = await _intakeService.registerFileAndFetch(file);
+      final object = await _intakeService.registerFileAndFetch(
+        file,
+        intakeMode: _inboxIntakeMode,
+      );
       if (!forInbox) {
         onIntakeObject?.call(object);
         _attachObject(object);
@@ -278,7 +293,7 @@ class LocalIntakeActions {
     );
   }
 
-  Future<void> _registerFolder(
+  Future<bool> _registerFolder(
     BuildContext context,
     Directory root, {
     bool notifySuccess = true,
@@ -289,6 +304,7 @@ class LocalIntakeActions {
       if (notifySuccess) {
         _notifyIntakeSuccess();
       }
+      return true;
     } on AuthenticationException {
       authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -296,6 +312,7 @@ class LocalIntakeActions {
     } catch (_) {
       _showMessage(context, 'Не удалось зарегистрировать источник');
     }
+    return false;
   }
 
   void _notifyIntakeSuccess() {

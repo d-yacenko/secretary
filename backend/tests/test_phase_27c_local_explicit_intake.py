@@ -356,6 +356,9 @@ def test_existing_local_single_file_intake_regression(
     obj = db_session.get(Object, uuid.UUID(body["object_id"]))
     assert obj is not None
     assert obj.kind in {"file", "document"}
+    assert obj.origin == "user"
+    assert obj.state == "confirmed"
+    assert "intake_mode" not in (obj.metadata_ or {})
 
 
 def test_folder_external_id_matches_canonical_identity(
@@ -527,3 +530,118 @@ def test_repeated_explicit_intake_preserves_root_and_object(
     assert root is not None
     assert root.default_policy == POLICY_INDEX_TEXT
     assert len(_folder_objects(db_session)) == 1
+
+
+def _intake_file(client, **overrides) -> dict:
+    resp = client.post("/local/files/client-intake", json=_file_intake_payload(**overrides))
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _file_objects(db_session) -> list[Object]:
+    return list(
+        db_session.scalars(
+            select(Object).where(
+                Object.user_id == BOOTSTRAP_USER_ID,
+                Object.provider == PROVIDER_LOCAL_DEVICE,
+                Object.kind.in_(("file", "document", "dataset")),
+            )
+        )
+    )
+
+
+def test_default_local_file_intake_keeps_user_confirmed(
+    phase27c_local_client, db_session
+) -> None:
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    body = _intake_file(phase27c_local_client)
+    obj = db_session.get(Object, uuid.UUID(body["object_id"]))
+    assert obj is not None
+    assert obj.origin == "user"
+    assert obj.state == "confirmed"
+    assert "intake_mode" not in (obj.metadata_ or {})
+
+
+def test_explicit_local_file_intake_creates_source_observed(
+    phase27c_local_client, db_session
+) -> None:
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    body = _intake_file(phase27c_local_client, intake_mode=EXPLICIT_LOCAL_INTAKE_MODE)
+    obj = db_session.get(Object, uuid.UUID(body["object_id"]))
+    assert obj is not None
+    assert obj.origin == "source"
+    assert obj.state == "observed"
+    assert obj.metadata_["intake_mode"] == EXPLICIT_LOCAL_INTAKE_MODE
+
+
+def test_explicit_local_file_appears_in_recent_source_service(
+    phase27c_local_client, db_session
+) -> None:
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    body = _intake_file(phase27c_local_client, intake_mode=EXPLICIT_LOCAL_INTAKE_MODE)
+    obj = db_session.get(Object, uuid.UUID(body["object_id"]))
+    assert obj is not None
+
+    titles = {row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()}
+    assert obj.title in titles
+
+
+def test_default_then_explicit_local_file_promotes_same_object(
+    phase27c_local_client, db_session
+) -> None:
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    first = _intake_file(phase27c_local_client)
+    first_obj = db_session.get(Object, uuid.UUID(first["object_id"]))
+    assert first_obj is not None
+    assert first_obj.origin == "user"
+    assert first_obj.state == "confirmed"
+
+    second = _intake_file(
+        phase27c_local_client,
+        intake_mode=EXPLICIT_LOCAL_INTAKE_MODE,
+    )
+    assert second["object_id"] == first["object_id"]
+
+    promoted = db_session.get(Object, uuid.UUID(second["object_id"]))
+    assert promoted is not None
+    assert promoted.origin == "source"
+    assert promoted.state == "observed"
+    assert promoted.metadata_["intake_mode"] == EXPLICIT_LOCAL_INTAKE_MODE
+    assert len(_file_objects(db_session)) == 1
+
+
+def test_repeated_explicit_local_file_intake_same_object(
+    phase27c_local_client, db_session
+) -> None:
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    first = _intake_file(phase27c_local_client, intake_mode=EXPLICIT_LOCAL_INTAKE_MODE)
+    second = _intake_file(phase27c_local_client, intake_mode=EXPLICIT_LOCAL_INTAKE_MODE)
+    assert second["object_id"] == first["object_id"]
+    assert len(_file_objects(db_session)) == 1
+
+
+def test_invalid_local_file_intake_mode_rejected(phase27c_local_client) -> None:
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    resp = phase27c_local_client.post(
+        "/local/files/client-intake",
+        json=_file_intake_payload(intake_mode="bogus"),
+    )
+    assert resp.status_code == 422

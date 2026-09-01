@@ -240,6 +240,7 @@ class SecretaryApiClient {
     bool metadataOnly = false,
     String? rootPath,
     String? clientAbsolutePath,
+    String? intakeMode,
   }) async {
     final body = await _request(
       'POST',
@@ -256,6 +257,7 @@ class SecretaryApiClient {
         'metadata_only': metadataOnly,
         if (rootPath != null) 'root_path': rootPath,
         if (clientAbsolutePath != null) 'client_absolute_path': clientAbsolutePath,
+        if (intakeMode != null) 'intake_mode': intakeMode,
       },
       successStatuses: {201},
     );

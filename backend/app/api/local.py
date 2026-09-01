@@ -144,6 +144,7 @@ class ClientFileIntakeRequest(BaseModel):
     metadata_only: bool = False
     root_path: str | None = Field(default=None, max_length=512)
     client_absolute_path: str | None = Field(default=None, max_length=1024)
+    intake_mode: str | None = Field(default=None, max_length=32)
 
 
 class ClientFileIntakeOut(BaseModel):
@@ -317,6 +318,7 @@ async def client_file_intake(
             metadata_only=data.metadata_only,
             root_path=data.root_path,
             client_absolute_path=data.client_absolute_path,
+            intake_mode=data.intake_mode,
         )
     except ValidationError as exc:
         status_code = (

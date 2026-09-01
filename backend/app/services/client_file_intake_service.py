@@ -32,7 +32,7 @@ from app.services.client_intake_constants import (
 from app.services.client_representation_service import ClientRepresentationPersistence
 from app.services.errors import NotFoundError, ValidationError
 from app.services.folder_containment_service import FolderContainmentService
-from app.services.folder_object_service import FolderObjectService
+from app.services.folder_object_service import EXPLICIT_LOCAL_INTAKE_MODE, FolderObjectService
 from app.services.local_device_service import LocalDeviceService
 from app.services.pipeline_enqueue import enqueue_embed_object, enqueue_summarize_resource
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
@@ -74,7 +74,12 @@ class ClientFileIntakeService:
         metadata_only: bool = False,
         root_path: str | None = None,
         client_absolute_path: str | None = None,
+        intake_mode: str | None = None,
     ) -> ClientFileIntakeResult:
+        if intake_mode is not None and intake_mode != EXPLICIT_LOCAL_INTAKE_MODE:
+            raise ValidationError(f"unsupported intake mode: {intake_mode}")
+
+        is_explicit = intake_mode == EXPLICIT_LOCAL_INTAKE_MODE
         device = self._devices.get_device_for_user(device_key)
         if device is None:
             raise NotFoundError("local_device", device_key)
@@ -159,6 +164,8 @@ class ClientFileIntakeService:
             metadata["local_relative_path"] = normalized_rel
         if content_hash:
             metadata["content_hash"] = content_hash
+        if is_explicit:
+            metadata["intake_mode"] = EXPLICIT_LOCAL_INTAKE_MODE
         if prior_registered_at:
             metadata["registered_at"] = prior_registered_at
         else:
@@ -169,8 +176,8 @@ class ClientFileIntakeService:
                 user_id=self._user_id,
                 kind=kind,
                 title=filename_value,
-                origin="user",
-                state="confirmed",
+                origin="source" if is_explicit else "user",
+                state="observed" if is_explicit else "confirmed",
                 provider=PROVIDER_LOCAL_DEVICE,
                 external_id=external_id,
                 canonical_uri=build_personal_file_uri(device_key, external_id),
@@ -187,6 +194,9 @@ class ClientFileIntakeService:
             existing.title = filename_value
             existing.kind = kind
             existing.metadata_ = merged
+            if is_explicit:
+                existing.origin = "source"
+                existing.state = "observed"
             existing.canonical_uri = build_personal_file_uri(device_key, str(existing.id))
             obj = existing
 
