@@ -1,37 +1,44 @@
-# Current task — PHASE 27A awaiting architect review
+# Current task — PHASE 27B-A awaiting architect review
 
 ## Status
 
-PHASE 27 — Source Completion: **in progress** (27A implementation complete, awaiting architect review).
+PHASE 27 — Source Completion: **in progress**.
 
-PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **implementation complete, awaiting architect review**.
+PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted / closed** (`f92ca0c`).
 
-PHASE 26 — Personal Data Correlation: **accepted / closed** (`5c4ffc40`).
+PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
 
-Do **not** merge, deploy to production `main`, or start PHASE 27B until architect review.
+PHASE 27B-A — Mattermost Secure Connector & Sync Core: **implementation complete, awaiting architect review**.
 
-## PHASE 27A delivered
+Do **not** merge, deploy to production `main`, or start scheduler/UI integration until architect review.
 
-- Recurring source sync jobs (`sync_google_gmail`, `sync_google_calendar`, `sync_yandex_mail`, `sync_yandex_calendar`) with same-row reschedule
-- `SourceSyncScheduler` worker maintenance (≈60s) without duplicate schedules
-- `GET /sources/status`, `POST /sources/sync`, `GET /inbox` aggregate snapshot
-- Inbox Flutter: «Требует внимания» + «Последние из источников»
-- Today includes active proposed tasks with «Предложено» marker
-- Assistant Markdown rendering via `flutter_markdown`
-- Compact `Я` badge for `yandex_calendar`, `G` for `google_calendar`
-- Passive Inbox/Today snapshot refresh (30s GET only; manual Refresh still syncs sources)
-- Gmail provider-side noise filtering; noisy legacy Gmail rows hidden from recent Inbox feed
+## PHASE 27B-A delivered (backend only)
+
+- `MattermostAccount` + migration `0019_mattermost_accounts`
+- SSRF allowlist `MATTERMOST_ALLOWED_BASE_URLS`; HTTPS-only normalized base URLs; redirect rejection
+- `POST /connectors/mattermost/connect` (PAT verify, encrypt at rest, no token in response; no initial sync in connect)
+- Read-only Mattermost transport + bounded `MattermostSyncService`
+- Normalized `Object(provider=mattermost, kind=chat_message)` → existing `embed_object` pipeline
+- Focused fake-transport tests
+
+## Not in 27B-A (next short 27B steps)
+
+- Flutter / Inbox UI for Mattermost
+- `GET /sources/status` Mattermost row
+- Scheduler recurring `sync_mattermost` job
+- Search/Graph UI polish
+- Production deploy
 
 ## Roadmap — PHASE 27 Source Completion
 
-- **27A** Live Source Sync, Inbox/Today & Assistant Presentation (this phase)
-- **27B** Mattermost connector (not started)
-- **27C** Google Drive / Yandex Disk / Local Source Refresh (not started)
+- **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
+- **27B** Mattermost connector — in progress (27B-A backend core done)
+- **27C** Google Drive / Yandex Disk / Local Source Refresh — not started
 
 Safe External Actions follow Source Completion.
 
 ## Deferred
 
-- Mattermost, Google Drive, Yandex Disk connectors (27B/27C)
+- Google Drive, Yandex Disk connectors (27C)
 - Local registered-folder automatic refresh (27C)
 - External writes / Safe External Actions (after Source Completion)

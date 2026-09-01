@@ -10,8 +10,8 @@ from app.api.capture import router as capture_router
 from app.api.connections import router as connections_router
 from app.api.google import router as google_router
 from app.api.inbox import router as inbox_router
-from app.api.sources import router as sources_router
 from app.api.local import router as local_router
+from app.api.mattermost import router as mattermost_router
 from app.api.me import router as me_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.graph_workspace import router as graph_workspace_router
@@ -19,6 +19,7 @@ from app.api.routes.notifications import router as notifications_router
 from app.api.routes.relations import router as relations_router
 from app.api.routes.resources import router as resources_router
 from app.api.routes.tasks import router as tasks_router
+from app.api.sources import router as sources_router
 from app.api.today import router as today_router
 from app.api.yandex import router as yandex_router
 from app.core.config import settings
@@ -84,6 +85,7 @@ app.include_router(google_router)
 app.include_router(inbox_router)
 app.include_router(sources_router)
 app.include_router(yandex_router)
+app.include_router(mattermost_router)
 app.include_router(today_router)
 
 

@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     yandex_mail_sync_days: int = 30
     yandex_mail_sync_default_limit: int = 50
     yandex_mail_sync_max_limit: int = 100
+    mattermost_allowed_base_urls: str = ""
+    mattermost_sync_days: int = 14
+    mattermost_sync_max_channels: int = 50
+    mattermost_sync_initial_posts_per_channel: int = 100
+    mattermost_sync_max_posts_per_run: int = 500
+    mattermost_sync_overlap_seconds: int = 300
     source_sync_gmail_interval_seconds: int = 120
     source_sync_yandex_mail_interval_seconds: int = 120
     source_sync_google_calendar_interval_seconds: int = 300

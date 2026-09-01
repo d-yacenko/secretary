@@ -54,21 +54,23 @@ PHASE 26C manual matched-version Linux E2E: **PASS** (2026-08-31).
 
 PHASE 27 — Source Completion: **in progress**.
 
-PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **implementation complete, awaiting architect review**.
+PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted / closed** (`f92ca0c`).
+
+PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
+
+PHASE 27B-A — Mattermost Secure Connector & Sync Core: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next planned subphase: **PHASE 27B — Mattermost** (not started).
+Next planned subphase: **PHASE 27B** scheduler/UI integration (after 27B-A review).
 
 Safe External Actions follow Source Completion (PHASE 27B/27C).
 
-## PHASE 27A verification (awaiting architect review)
+## PHASE 27B-A verification (awaiting architect review)
 
-- migrations: none expected
-- recurring source sync via existing DB job queue + worker scheduler maintenance
-- default mail interval: 120s; calendar: 300s; scheduler maintenance: 60s
-- passive UI snapshot refresh: 30s (`GET /inbox`, `GET /today` only; no timer `POST /sources/sync`)
-- Gmail list query: `includeSpamTrash=false`; excludes spam/trash/promotions/social/forums at provider list stage
+- Alembic head: `0019`
+- Mattermost connect + bounded read-only sync core; fake-transport tests
+- no scheduler / `/sources/status` / Flutter / deploy in this subphase
 
 ## PHASE 26C verification (accepted)
 

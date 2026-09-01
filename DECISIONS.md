@@ -173,11 +173,21 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 
 Major phase reordered before Safe External Actions.
 
-- **27A** Live Source Sync, Inbox/Today & Assistant Presentation — awaiting architect review
-- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — not started
+- **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
+- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A backend core awaiting review
 - **27C** Google Drive, Yandex Disk, registered-folder local refresh — not started
 
-## PHASE 27A — Live source sync & daily workspace (awaiting architect review)
+## PHASE 27B-A — Mattermost secure connector & sync core (awaiting architect review)
+
+- Read-only Mattermost PAT connector with SSRF allowlist (`MATTERMOST_ALLOWED_BASE_URLS`), HTTPS-only normalized URLs, `follow_redirects=false`, no userinfo/query/fragment.
+- `MattermostAccount` encrypted PAT at rest; `POST /connectors/mattermost/connect` verifies `/api/v4/users/me`, no token in API response, no initial sync in connect.
+- Channel discovery: `GET /api/v4/users/me/channels` with teams+per-team channels fallback on 404; sorted by `last_post_at`, bounded `max_channels`.
+- Per-channel `sync_state` cursors (`last_processed_post_id`, `last_processed_create_at_ms`); incremental new posts via `after=<post_id>`; separate bounded edit sweep via `since=` with overlap; no false watermark advance on provider `since` saturation (max 1000).
+- Bootstrap bounds: 14 days, 50 channels, 100 initial posts/channel, 500 posts/run, 300s overlap (server-side config).
+- Normalized `chat_message` objects with server-namespaced `external_id`; `embed_object` on create/semantic update only.
+- Deferred in 27B-A: scheduler job, `/sources/status`, Flutter, deploy.
+
+## PHASE 27A — Live source sync & daily workspace (accepted)
 
 - Recurring DB jobs: `sync_google_gmail`, `sync_google_calendar`, `sync_yandex_mail`, `sync_yandex_calendar`; payload `account_id` only; same-row reschedule on success.
 - `SourceSyncScheduler`: enumerate connected accounts, scope-aware scheduling, repair missing jobs, re-arm failed after cooldown; worker maintenance ≈60s.

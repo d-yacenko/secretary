@@ -513,6 +513,48 @@ class YandexCalendarAccount(Base):
     )
 
 
+class MattermostAccount(Base):
+    __tablename__ = "mattermost_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    server_url: Mapped[str] = mapped_column(nullable=False)
+    remote_user_id: Mapped[str] = mapped_column(nullable=False)
+    username: Mapped[str] = mapped_column(nullable=False)
+    display_name: Mapped[str | None] = mapped_column(nullable=True)
+    email: Mapped[str | None] = mapped_column(nullable=True)
+    access_token_encrypted: Mapped[str] = mapped_column(nullable=False)
+    sync_state: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_mattermost_accounts_user_id", "user_id"),
+        sa.UniqueConstraint(
+            "user_id",
+            "server_url",
+            "remote_user_id",
+            name="uq_mattermost_accounts_user_server_remote_user",
+        ),
+    )
+
+
 class LocalDevice(Base):
     __tablename__ = "local_devices"
 
