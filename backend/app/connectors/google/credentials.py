@@ -121,5 +121,11 @@ class GoogleAccountStore:
         self._session.flush()
         return account
 
+    def update_drive_sync_state(self, account: GoogleAccount, state: dict) -> GoogleAccount:
+        account.drive_sync_state = state
+        account.updated_at = utcnow()
+        self._session.flush()
+        return account
+
     def build_encryption(key: str) -> CredentialEncryption:
         return CredentialEncryption(key)

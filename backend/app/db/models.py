@@ -404,6 +404,11 @@ class GoogleAccount(Base):
     access_token_encrypted: Mapped[str | None] = mapped_column(nullable=True)
     refresh_token_encrypted: Mapped[str | None] = mapped_column(nullable=True)
     token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    drive_sync_state: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.connectors.google.calendar_sync import build_calendar_sync_service
-from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import GOOGLE_OAUTH_SCOPES
 from app.connectors.google.credentials import GoogleAccountStore
+from app.connectors.google.drive_sync import build_drive_sync_service
 from app.connectors.google.errors import (
     GoogleConfigurationError,
     GoogleConnectorError,
@@ -76,7 +77,7 @@ def google_oauth_callback(
         scopes = (
             str(granted_scope).split()
             if granted_scope
-            else [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE]
+            else list(GOOGLE_OAUTH_SCOPES)
         )
 
         gmail_transport = GmailTransport()
@@ -177,6 +178,41 @@ def calendar_sync(
             account.id,
             user_id=current_user.user_id,
             limit=limit,
+        )
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+    except GoogleConnectorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+
+    return result
+
+
+@router.post("/connectors/google/drive/sync")
+def drive_sync(
+    account_id: str | None = Query(default=None),
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        account_store = _account_store(session)
+        if account_id:
+            account = account_store.get_by_id_for_user(UUID(account_id), current_user.user_id)
+        else:
+            accounts = account_store.list_accounts(current_user.user_id)
+            account = accounts[0] if accounts else None
+        if account is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="google account not found")
+
+        sync_service = build_drive_sync_service(
+            session=session,
+            credential_key=settings.secretary_credential_key,
+            client_file=settings.google_oauth_client_file,
+            redirect_uri=settings.google_redirect_uri,
+            max_items_per_run=settings.google_drive_max_items_per_run,
+        )
+        result = sync_service.sync_account(
+            account.id,
+            user_id=current_user.user_id,
         )
     except GoogleConfigurationError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)

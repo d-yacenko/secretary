@@ -3,7 +3,11 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import (
+    CALENDAR_READONLY_SCOPE,
+    DRIVE_READONLY_SCOPE,
+    GMAIL_READONLY_SCOPE,
+)
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
@@ -18,6 +22,7 @@ class GoogleConnectionStatus:
     email: str | None = None
     gmail_available: bool = False
     calendar_available: bool = False
+    drive_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +87,7 @@ class ConnectionStatusService:
             email=account.email,
             gmail_available=GMAIL_READONLY_SCOPE in scopes,
             calendar_available=CALENDAR_READONLY_SCOPE in scopes,
+            drive_available=DRIVE_READONLY_SCOPE in scopes,
         )
 
     def _yandex_mail_status(self) -> YandexMailConnectionStatus:

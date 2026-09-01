@@ -174,8 +174,25 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 Major phase reordered before Safe External Actions.
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
-- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A accepted (`87b16cb`); 27B-B accepted (`96a5249`); 27B-C Flutter UX awaiting E2E
-- **27C** Google Drive, Yandex Disk, registered-folder local refresh — not started
+- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — accepted (`1dc493d`; user E2E accepted)
+- **27C** Google Drive, Yandex Disk, registered-folder local refresh — in progress; 27C-A Drive foundation awaiting architect review
+
+## PHASE 27C-A — Google Drive read-only foundation (awaiting architect review)
+
+- OAuth scope `drive.readonly` added alongside gmail/calendar readonly; existing accounts without Drive scope keep Gmail/Calendar; `drive_available=false`; Drive sync fails with `google drive scope not granted` before any Drive API call.
+- `GoogleAccount.drive_sync_state` JSONB (migration `0020`): `bootstrap_complete`, `bootstrap_start_page_token`, `bootstrap_page_token`, `changes_page_token`.
+- Bounded bootstrap: `startPageToken` boundary → `files.list` (`trashed=false`, `spaces=drive`); max 500 items/run; resumable page cursor; on completion `changes_page_token` = bootstrap start token.
+- Incremental: `changes.list` with `includeRemoved=true`; cursor never skips unprocessed changes; `newStartPageToken` after full catch-up.
+- Objects: `provider=google_drive`, `kind=file|folder`, `external_id=file id`, canonical URI from file id only; `status=deleted` soft-hide; restore clears status.
+- `embed_object` on create/title change only; metadata-only updates without new embedding.
+- Manual `POST /connectors/google/drive/sync`; no recurring scheduler in 27C-A.
+- Deferred: Flutter, recurring sync, `/sources/status`, file content download, Docs export, OpenTarget UI, graph parent edges, Yandex Disk.
+
+## PHASE 27B-C — Mattermost Flutter UX (accepted at `1dc493d`)
+
+- Flutter connect UX; compose passes `MATTERMOST_ALLOWED_BASE_URLS` to api/worker containers.
+- User Mattermost E2E accepted: new message in Inbox.
+- Deferred: Mattermost disconnect; PHASE 27C.
 
 ## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
 
@@ -203,15 +220,14 @@ Major phase reordered before Safe External Actions.
 - `chat_message` continues through generic Object pipelines (embed, correlate, retrieval); no Mattermost-specific LLM tools.
 - Deferred in 27B-B: Flutter UX (27B-C), disconnect flow, production deploy.
 
-## PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep (awaiting architect + user E2E)
+## PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep (accepted at `1dc493d`)
 
 - Flutter: `MattermostConnection` model; `Connections.mattermost[]`; `connectMattermost(serverUrl, accessToken)`; PAT not stored/logged in client state after connect.
-- Account → Подключения: list connected Mattermost accounts; «Подключить Mattermost» dialog (Server URL + obscured PAT); success reloads `/connections`; sanitized errors without PAT.
+- Account → Подключения: list connected Mattermost accounts; connect dialog (Server URL + obscured PAT).
 - Provider presentation: glyph `M`, label `Mattermost`; `chat_message` uses existing Inbox/Search/Graph/Object detail pipelines.
-- OpenTarget: client uses backend trusted URL only; label «Открыть в Mattermost»; no client-built Mattermost URLs.
-- Backend connect tweak: after upsert, `ensure_recurring_source_job(sync_mattermost)` + trigger row runnable now; payload `account_id` only; no inline message sync on HTTP connect.
-- Matched-version manual E2E checklist for user validation on same branch SHA; no production deploy until acceptance.
-- Deferred: Mattermost disconnect; PHASE 27B full closure pending user E2E.
+- Backend connect: `ensure_recurring_source_job(sync_mattermost)` + trigger row runnable now; no inline message sync on HTTP connect.
+- User Mattermost E2E accepted at application SHA `1dc493d`.
+- Deferred: Mattermost disconnect.
 
 ## PHASE 27A — Live source sync & daily workspace (accepted)
 

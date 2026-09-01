@@ -27,6 +27,7 @@ def get_connections(
             email=snapshot.google.email,
             gmail_available=snapshot.google.gmail_available,
             calendar_available=snapshot.google.calendar_available,
+            drive_available=snapshot.google.drive_available,
         ),
         yandex_mail=YandexMailConnectionOut(
             connected=snapshot.yandex_mail.connected,

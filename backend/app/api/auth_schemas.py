@@ -24,6 +24,7 @@ class GoogleConnectionOut(BaseModel):
     email: str | None = None
     gmail_available: bool = False
     calendar_available: bool = False
+    drive_available: bool = False
 
 
 class YandexMailConnectionOut(BaseModel):

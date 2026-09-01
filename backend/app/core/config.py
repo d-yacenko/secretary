@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     calendar_sync_default_limit: int = 100
     calendar_sync_max_limit: int = 100
     calendar_sync_max_calendars: int = 10
+    google_drive_max_items_per_run: int = 500
     yandex_mail_sync_days: int = 30
     yandex_mail_sync_default_limit: int = 50
     yandex_mail_sync_max_limit: int = 100

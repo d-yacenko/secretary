@@ -56,19 +56,21 @@ PHASE 27 — Source Completion: **in progress**.
 
 PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted / closed** (`f92ca0c`).
 
-PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
+PHASE 27B — Mattermost Read-Only Source Connector: **accepted / closed** (`1dc493d`; user Mattermost E2E accepted).
 
 PHASE 27B-A — Mattermost Secure Connector & Sync Core: **accepted / closed** (`87b16cb`).
 
 PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed** (`96a5249`).
 
-PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **implementation complete, awaiting architect review + user matched-version E2E**.
+PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / closed** (`1dc493d`).
 
-Architect context refresh checkpoint: **completed** at `114608d`.
+PHASE 27C — Google Drive / Yandex Disk / Local Source Refresh: **in progress**.
 
-Next: **user matched-version manual E2E** on same branch SHA; then PHASE 27B closure. PHASE 27C (Drive/Disk) not started.
+PHASE 27C-A — Google Drive Read-Only Foundation: **implementation complete, awaiting architect review**.
 
-Safe External Actions follow Source Completion (PHASE 27B/27C).
+Next: architect review of PHASE 27C-A; then 27C-B (scheduler/status/Flutter/OpenTarget as scoped).
+
+Safe External Actions follow Source Completion (PHASE 27C).
 
 ## PHASE 27B-A verification (accepted at `87b16cb`)
 
@@ -83,13 +85,21 @@ Safe External Actions follow Source Completion (PHASE 27B/27C).
 - Focused tests: `test_phase_27b_operational.py` + PHASE 27A regression
 - No Flutter / deploy in this subphase
 
-## PHASE 27B-C verification (awaiting architect + user E2E)
+## PHASE 27B-C verification (accepted at `1dc493d`)
 
-- Flutter Mattermost connect UX on Account → Подключения; typed API models; provider `M` / Mattermost
-- Connect ensures recurring `sync_mattermost` row runnable immediately (no inline message sync on HTTP connect)
-- Matched-version manual E2E checklist prepared; production deploy deferred
+- Flutter Mattermost connect UX; recurring `sync_mattermost` on connect; compose env for `MATTERMOST_ALLOWED_BASE_URLS`
+- User Mattermost E2E accepted: new message appeared in Inbox
 
-## PHASE 26C verification (accepted)
+## PHASE 27C-A verification (awaiting architect review)
+
+- Alembic head: `0020`
+- OAuth includes `drive.readonly`; old accounts without scope: `drive_available=false`, Drive sync fails before API
+- Bounded bootstrap + incremental Changes cursor sync; manual `POST /connectors/google/drive/sync`
+- Focused tests: `test_phase_27c_google_drive.py` (18 passed)
+- Full pytest: 893 passed, 3 skipped
+- Deferred: recurring scheduler, `/sources/status`, Flutter, content download, OpenTarget UI, graph edges
+
+## PHASE 27B-B verification (accepted at `96a5249`)
 
 - full `ruff check .`: 49 known pre-existing findings (exit 1), 0 new PHASE 26C findings
 - `pytest`: 779 passed, 3 skipped
