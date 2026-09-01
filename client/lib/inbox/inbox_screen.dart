@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../api/api_error.dart';
@@ -6,6 +10,7 @@ import '../api/secretary_api_client.dart';
 import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
+import '../local/local_intake_actions.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
@@ -38,24 +43,36 @@ class InboxScreen extends StatefulWidget {
   final Duration passiveRefreshInterval;
 
   @override
-  State<InboxScreen> createState() => _InboxScreenState();
+  State<InboxScreen> createState() => InboxScreenState();
 }
 
-class _InboxScreenState extends State<InboxScreen> {
+class InboxScreenState extends State<InboxScreen> {
   InboxLoadState _loadState = InboxLoadState.loading;
   InboxOut? _inbox;
   String? _errorMessage;
   String? _mutatingNotificationId;
   String? _refreshStatusMessage;
+  String? _intakeErrorMessage;
   bool _isSourceRefreshing = false;
+  bool _isLinkIntakePending = false;
+  bool _isDragHovering = false;
+
+  final TextEditingController _linkController = TextEditingController();
 
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
   late final PassiveSnapshotRefresh _passiveRefresh;
+  late final LocalIntakeActions _localIntakeActions;
 
   @override
   void initState() {
     super.initState();
+    _localIntakeActions = LocalIntakeActions(
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      forInbox: true,
+      onIntakeSuccess: _onLocalIntakeSuccess,
+    );
     _passiveRefresh = PassiveSnapshotRefresh(
       interval: widget.passiveRefreshInterval,
       isPaused: () => _isSourceRefreshing,
@@ -67,8 +84,22 @@ class _InboxScreenState extends State<InboxScreen> {
 
   @override
   void dispose() {
+    _linkController.dispose();
     _passiveRefresh.dispose();
     super.dispose();
+  }
+
+  bool get isIntakePending => _isLinkIntakePending;
+
+  Future<void> handleDroppedPaths(List<String> paths) async {
+    if (_isLinkIntakePending || paths.isEmpty) {
+      return;
+    }
+    await _localIntakeActions.registerDroppedFiles(context, paths);
+  }
+
+  Future<void> _onLocalIntakeSuccess() async {
+    await _loadInbox(showFullLoader: false);
   }
 
   Future<void> _loadInbox({bool showFullLoader = true, bool passive = false}) async {
@@ -132,6 +163,58 @@ class _InboxScreenState extends State<InboxScreen> {
         _refreshStatusMessage = 'Синхронизация источников продолжается';
       }
     });
+  }
+
+  Future<void> _submitLinkIntake() async {
+    if (_isLinkIntakePending) {
+      return;
+    }
+    final url = _linkController.text.trim();
+    if (url.isEmpty) {
+      return;
+    }
+    setState(() {
+      _isLinkIntakePending = true;
+      _intakeErrorMessage = null;
+    });
+    try {
+      final result = await widget.apiClient.intakeLink(url);
+      if (!mounted) {
+        return;
+      }
+      _linkController.clear();
+      await _loadInbox(showFullLoader: false);
+      if (!mounted) {
+        return;
+      }
+      _showIntakeSnackBar(_linkIntakeSuccessMessage(result.status));
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _intakeErrorMessage = e.message);
+    } finally {
+      if (mounted) {
+        setState(() => _isLinkIntakePending = false);
+      }
+    }
+  }
+
+  String _linkIntakeSuccessMessage(String status) {
+    switch (status) {
+      case 'updated':
+        return 'Обновлено';
+      case 'unchanged':
+        return 'Уже добавлено';
+      default:
+        return 'Добавлено';
+    }
+  }
+
+  void _showIntakeSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _accept(NotificationOut notification) async {
@@ -217,24 +300,126 @@ class _InboxScreenState extends State<InboxScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            tooltip: 'Обновить',
-            onPressed: _isSourceRefreshing ? null : _refreshWithSources,
-            icon: _isSourceRefreshing
+    return _wrapDropTarget(
+      Column(
+        children: [
+          _buildIntakeBar(),
+          if (_intakeErrorMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _intakeErrorMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              tooltip: 'Обновить',
+              onPressed: _isSourceRefreshing ? null : _refreshWithSources,
+              icon: _isSourceRefreshing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                _buildBody(),
+                if (_isDragHovering) const _DropOverlay(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIntakeBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              key: const Key('inbox_link_input'),
+              controller: _linkController,
+              enabled: !_isLinkIntakePending,
+              decoration: const InputDecoration(
+                hintText: 'Вставьте ссылку Google Drive или Яндекс.Диска',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => _submitLinkIntake(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            key: const Key('inbox_link_add_button'),
+            onPressed: _isLinkIntakePending ? null : _submitLinkIntake,
+            child: _isLinkIntakePending
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh),
+                : const Text('Добавить'),
           ),
-        ),
-        Expanded(child: _buildBody()),
-      ],
+          IconButton(
+            key: const Key('inbox_add_file_button'),
+            tooltip: 'Добавить файл',
+            onPressed: _isLinkIntakePending
+                ? null
+                : () => _localIntakeActions.pickAndRegisterFile(context),
+            icon: const Icon(Icons.insert_drive_file_outlined),
+          ),
+          IconButton(
+            key: const Key('inbox_add_folder_button'),
+            tooltip: 'Добавить папку',
+            onPressed: _isLinkIntakePending
+                ? null
+                : () => _localIntakeActions.pickAndRegisterFolder(context),
+            icon: const Icon(Icons.folder_outlined),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _wrapDropTarget(Widget child) {
+    if (kIsWeb || !Platform.isLinux) {
+      return child;
+    }
+    return DropTarget(
+      onDragEntered: (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _isDragHovering = true);
+      },
+      onDragExited: (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _isDragHovering = false);
+      },
+      onDragDone: (detail) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _isDragHovering = false);
+        final paths = detail.files
+            .map((file) => file.path)
+            .where((path) => path != null)
+            .cast<String>()
+            .toList();
+        handleDroppedPaths(paths);
+      },
+      child: child,
     );
   }
 
@@ -359,6 +544,36 @@ class _InboxScreenState extends State<InboxScreen> {
           ],
         );
     }
+  }
+}
+
+class _DropOverlay extends StatelessWidget {
+  const _DropOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Container(
+          alignment: Alignment.center,
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Перетащите файл или папку сюда',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -49,6 +49,16 @@ void main() {
       if (request.url.path.endsWith('/me')) {
         return http.Response(userMeJson('user-1', 'Alice'), 200);
       }
+      if (request.url.path == '/inbox') {
+        return http.Response(
+          jsonEncode({
+            'unresolved_notifications': [],
+            'recent_source_objects': [],
+            'source_sync_status': [],
+          }),
+          200,
+        );
+      }
       if (request.url.path.endsWith('/capture/task')) {
         return http.Response(jsonEncode({'detail': 'invalid token'}), 401);
       }
@@ -67,7 +77,7 @@ void main() {
 
     await pumpNarrowApp(tester, auth);
 
-    await tester.tap(find.text('Добавить'));
+    await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
     expect(find.text('Создание задачи'), findsOneWidget);

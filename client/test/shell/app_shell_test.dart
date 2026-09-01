@@ -116,7 +116,7 @@ void main() {
     for (final label in ['Входящие', 'Сегодня', 'Граф', 'Поиск', 'Секретарь']) {
       expect(find.text(label), findsWidgets);
     }
-    expect(find.text('Добавить'), findsOneWidget);
+    expect(find.text('Добавить'), findsWidgets);
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byType(PlaceholderScreen), findsNothing);
   });
@@ -155,7 +155,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.text('Добавить'), findsOneWidget);
+    expect(find.text('Добавить'), findsWidgets);
     expect(find.byType(FloatingActionButton), findsNothing);
   });
 

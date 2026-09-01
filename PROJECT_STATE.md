@@ -68,11 +68,13 @@ PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepte
 
 PHASE 27C-R2 — Yandex Disk explicit share-link intake: **accepted / closed** (`374db8aa4bf4b05e922812414e723c7f8a2c4731`).
 
-PHASE 27C-R3 — Local explicit file/folder semantics: **implementation complete, awaiting architect review**.
+PHASE 27C-R3 — Local explicit file/folder semantics: **accepted / closed** (`8d64f2cd907bb02f2edc1c223bba93185324d5d0`).
+
+PHASE 27C-R4A — Inbox Explicit Intake UI: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next: **architect review of PHASE 27C-R3** on branch `review/phase-27c-local-explicit-intake`.
+Next: **architect review of PHASE 27C-R4A** on branch `review/phase-27c-inbox-explicit-intake`.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -111,12 +113,21 @@ Safe External Actions follow Source Completion (PHASE 27C explicit intake track)
 - OpenTarget with re-validated Yandex share URLs only
 - No Yandex Disk OAuth, no migration beyond `0019`
 
-## PHASE 27C-R3 verification (awaiting architect review)
+## PHASE 27C-R3 verification (accepted at `8d64f2cd907bb02f2edc1c223bba93185324d5d0`)
 
 - `POST /local/folders/client-intake` — explicit local folder → one folder Object
 - No bounded walk / child import on explicit folder path; single-file client intake preserved
 - `folder` in `RECENT_SOURCE_KINDS`; local folder OpenTarget via `client_source_path`
 - Flutter folder pick/drop aligned; no indexing-policy dialog
+- Preserves device display name and existing root policy on repeat intake
+- No migration beyond Alembic `0019`
+
+## PHASE 27C-R4A verification (awaiting architect review)
+
+- Inbox intake bar: cloud link paste + Add; local file/folder icon buttons
+- `SecretaryApiClient.intakeLink()`; explicit intake refreshes Inbox without `/sources/sync`
+- Linux local drag/drop via `DropTarget`; browser cloud-link drag/drop deferred to R4B
+- Flutter widget tests: `test/inbox/inbox_explicit_intake_test.dart`
 - No migration beyond Alembic `0019`
 
 ## PHASE 26C verification (accepted)

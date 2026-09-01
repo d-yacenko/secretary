@@ -177,12 +177,13 @@ Major phase reordered before Safe External Actions.
 - **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — accepted (`1dc493d`)
 - **27C-R1** Explicit Intake + Google Drive link — accepted (`467332c`)
 - **27C-R2** Yandex Disk public share-link intake — accepted (`374db8a`)
-- **27C-R3** Local explicit file/folder semantics — awaiting architect review
+- **27C-R3** Local explicit file/folder semantics — accepted (`8d64f2c`)
+- **27C-R4A** Inbox Explicit Intake UI — awaiting architect review
 - Superseded after product clarification (not for merge/deploy): 27C-A full-drive sync (`review/phase-27c-google-drive`), 27C-B Drive ops (`review/phase-27c-google-drive-ops`)
 
-## Explicit intake product decision (PHASE 27C-R1 / R2 / R3)
+## Explicit intake product decision (PHASE 27C-R1 / R2 / R3 / R4A)
 
-Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected. **Folders are Objects themselves; selecting a folder does not imply importing its children.**
+Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected. **Folders are Objects themselves; selecting a folder does not imply importing its children.** **Inbox is the primary explicit-intake boundary for cloud links and local resources.**
 
 ## PHASE 27C-R1 — Explicit Intake foundation + Google Drive link (accepted at `467332c`)
 
@@ -206,7 +207,7 @@ Cloud/local file sources are **explicit-intake** resources. User pastes/drops/se
 - No Yandex Disk OAuth; Alembic head remains `0019`
 - Deferred: Flutter paste/drop, local alignment (delivered in 27C-R3), content download, private Disk OAuth
 
-## PHASE 27C-R3 — Local explicit file/folder semantics (awaiting architect review)
+## PHASE 27C-R3 — Local explicit file/folder semantics (accepted at `8d64f2cd907bb02f2edc1c223bba93185324d5d0`)
 
 - `POST /local/folders/client-intake` with `device_key`, `root_path`, `client_source_path`
 - One selected/dropped local folder → one folder Object via `FolderObjectService`; no `_boundedWalk` / child `clientFileIntake`
@@ -216,7 +217,18 @@ Cloud/local file sources are **explicit-intake** resources. User pastes/drops/se
 - `folder` added to `RECENT_SOURCE_KINDS`; explicit folder Objects use `origin=source` for Inbox eligibility
 - OpenTarget: existing `local_folder` action via `client_source_path`
 - Flutter: folder pick/drop registers folder Object only; removed «Как индексировать содержимое папки?» dialog
-- Deferred: Inbox link paste/drop, folder child import action, content summarization
+- Repeat intake preserves device display name and existing root `default_policy`
+- Deferred: Inbox link paste/drop (delivered in 27C-R4A), folder child import action, content summarization
+
+## PHASE 27C-R4A — Inbox Explicit Intake UI (awaiting architect review)
+
+- Inbox intake bar: paste Google Drive / Yandex Disk link + «Добавить»; file/folder icon buttons
+- `SecretaryApiClient.intakeLink()` → `POST /intake/link`; backend remains URL authority
+- Local pickers and Linux drag/drop reuse `LocalIntakeActions` in inbox mode (no Assistant context attach)
+- Successful explicit intake calls `_loadInbox(showFullLoader: false)`; does not trigger `/sources/sync`
+- Intake errors shown inline; existing Inbox list remains visible
+- Browser cloud-link drag/drop deferred to R4B (`desktop_drop` not upgraded in R4A)
+- Deferred: R4B browser link drag/drop, folder child import, content summarization
 
 ## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
 

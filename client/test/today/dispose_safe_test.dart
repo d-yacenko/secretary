@@ -87,6 +87,16 @@ void main() {
             200,
           );
         }
+        if (request.url.path == '/inbox') {
+          return http.Response(
+            jsonEncode({
+              'unresolved_notifications': [],
+              'recent_source_objects': [],
+              'source_sync_status': [],
+            }),
+            200,
+          );
+        }
         return http.Response('{}', 404);
       }),
     );
@@ -148,10 +158,12 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: InboxScreen(
-          apiClient: apiClient,
-          authController: controllers.auth,
-          captureController: controllers.capture,
+        home: Scaffold(
+          body: InboxScreen(
+            apiClient: apiClient,
+            authController: controllers.auth,
+            captureController: controllers.capture,
+          ),
         ),
       ),
     );

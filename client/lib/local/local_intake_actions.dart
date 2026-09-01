@@ -22,7 +22,9 @@ class LocalIntakeActions {
     this.captureController,
     this.assistantController,
     this.onIntakeObject,
+    this.onIntakeSuccess,
     this.attachToCapture = false,
+    this.forInbox = false,
   })  : _intakeService = LocalFileIntakeService(apiClient: apiClient);
 
   final SecretaryApiClient apiClient;
@@ -30,11 +32,17 @@ class LocalIntakeActions {
   final CaptureController? captureController;
   final AssistantController? assistantController;
   final IntakeObjectHandler? onIntakeObject;
+  final VoidCallback? onIntakeSuccess;
   final bool attachToCapture;
+  final bool forInbox;
 
   final LocalFileIntakeService _intakeService;
+  bool _busy = false;
 
   Future<void> pickAndRegisterFile(BuildContext context) async {
+    if (_busy) {
+      return;
+    }
     if (kIsWeb) {
       _showMessage(context, 'Выбор файла недоступен в этой среде');
       return;
@@ -48,10 +56,18 @@ class LocalIntakeActions {
       _showMessage(context, 'Не удалось прочитать файл');
       return;
     }
-    await _registerPaths(context, [path]);
+    _busy = true;
+    try {
+      await _registerPaths(context, [path]);
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<void> pickAndRegisterFolder(BuildContext context) async {
+    if (_busy) {
+      return;
+    }
     if (kIsWeb) {
       return;
     }
@@ -59,17 +75,27 @@ class LocalIntakeActions {
     if (path == null) {
       return;
     }
-    await _registerFolder(context, Directory(path));
+    _busy = true;
+    try {
+      await _registerFolder(context, Directory(path));
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<void> registerDroppedFiles(
     BuildContext context,
     List<String> paths,
   ) async {
-    if (paths.isEmpty) {
+    if (paths.isEmpty || _busy) {
       return;
     }
-    await _registerPaths(context, paths.take(10).toList());
+    _busy = true;
+    try {
+      await _registerPaths(context, paths.take(10).toList());
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<void> _registerPaths(BuildContext context, List<String> paths) async {
@@ -90,7 +116,7 @@ class LocalIntakeActions {
 
     for (final directory in directories) {
       try {
-        await _registerFolder(context, directory);
+        await _registerFolder(context, directory, notifySuccess: false);
       } on AuthenticationException {
         authController.handleAuthenticationFailure();
         return;
@@ -101,17 +127,32 @@ class LocalIntakeActions {
       }
     }
 
+    var intakeSucceeded = directories.isNotEmpty && errors.length < directories.length;
+
     if (files.isEmpty) {
       if (errors.isNotEmpty) {
         _showMessage(context, errors.join('\n'));
+      }
+      if (intakeSucceeded) {
+        _notifyIntakeSuccess();
       }
       return;
     }
 
     if (files.length == 1) {
-      await _registerSingleFile(context, files.first);
+      final succeeded = await _registerSingleFile(
+        context,
+        files.first,
+        notifySuccess: false,
+      );
+      if (succeeded) {
+        intakeSucceeded = true;
+      }
       if (errors.isNotEmpty) {
         _showMessage(context, errors.join('\n'));
+      }
+      if (intakeSucceeded) {
+        _notifyIntakeSuccess();
       }
       return;
     }
@@ -137,6 +178,15 @@ class LocalIntakeActions {
       return;
     }
 
+    if (forInbox) {
+      _showMessage(context, 'Добавлено файлов: ${objects.length}');
+      _notifyIntakeSuccess();
+      if (errors.isNotEmpty) {
+        _showMessage(context, errors.join('\n'));
+      }
+      return;
+    }
+
     final chosen = await _askActiveContext(context, objects);
     if (chosen != null) {
       _attachObject(chosen);
@@ -150,17 +200,29 @@ class LocalIntakeActions {
     }
   }
 
-  Future<void> _registerSingleFile(BuildContext context, File file) async {
+  Future<bool> _registerSingleFile(
+    BuildContext context,
+    File file, {
+    bool notifySuccess = true,
+  }) async {
     try {
       final object = await _intakeService.registerFileAndFetch(file);
-      onIntakeObject?.call(object);
-      _attachObject(object);
+      if (!forInbox) {
+        onIntakeObject?.call(object);
+        _attachObject(object);
+      }
       _showMessage(
         context,
-        object.metadata['indexing_policy'] == 'metadata_only'
-            ? 'Формат пока индексируется только по метаданным: ${object.title}'
-            : 'Файл добавлен: ${object.title}',
+        forInbox
+            ? 'Файл добавлен: ${object.title}'
+            : object.metadata['indexing_policy'] == 'metadata_only'
+                ? 'Формат пока индексируется только по метаданным: ${object.title}'
+                : 'Файл добавлен: ${object.title}',
       );
+      if (notifySuccess) {
+        _notifyIntakeSuccess();
+      }
+      return true;
     } on AuthenticationException {
       authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -168,9 +230,13 @@ class LocalIntakeActions {
     } catch (_) {
       _showMessage(context, 'Не удалось зарегистрировать источник');
     }
+    return false;
   }
 
   void _attachObject(SecretaryObject object) {
+    if (forInbox) {
+      return;
+    }
     if (attachToCapture && captureController != null) {
       captureController!.attachObjectContext(object);
       return;
@@ -214,11 +280,15 @@ class LocalIntakeActions {
 
   Future<void> _registerFolder(
     BuildContext context,
-    Directory root,
-  ) async {
+    Directory root, {
+    bool notifySuccess = true,
+  }) async {
     try {
       await _intakeService.registerFolder(root);
       _showMessage(context, 'Папка добавлена: ${p.basename(root.path)}');
+      if (notifySuccess) {
+        _notifyIntakeSuccess();
+      }
     } on AuthenticationException {
       authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -226,6 +296,10 @@ class LocalIntakeActions {
     } catch (_) {
       _showMessage(context, 'Не удалось зарегистрировать источник');
     }
+  }
+
+  void _notifyIntakeSuccess() {
+    onIntakeSuccess?.call();
   }
 
   void _showMessage(BuildContext context, String message) {

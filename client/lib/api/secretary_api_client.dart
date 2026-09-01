@@ -121,6 +121,21 @@ class SecretaryApiClient {
     return InboxOut.fromJson(body);
   }
 
+  Future<IntakeLinkResult> intakeLink(
+    String url, {
+    String? accountId,
+  }) async {
+    final body = await _request(
+      'POST',
+      '/intake/link',
+      jsonBody: {
+        'url': url,
+        if (accountId != null) 'account_id': accountId,
+      },
+    );
+    return IntakeLinkResult.fromJson(body);
+  }
+
   Future<List<SourceSyncStatusOut>> getSourceStatus() async {
     final body = await _request('GET', '/sources/status');
     return (body['sources'] as List<dynamic>)

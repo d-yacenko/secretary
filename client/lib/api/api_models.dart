@@ -1035,6 +1035,29 @@ class ClientFolderIntakeResult {
   }
 }
 
+class IntakeLinkResult {
+  IntakeLinkResult({
+    required this.objectId,
+    required this.provider,
+    required this.kind,
+    required this.status,
+  });
+
+  final String objectId;
+  final String provider;
+  final String kind;
+  final String status;
+
+  factory IntakeLinkResult.fromJson(Map<String, dynamic> json) {
+    return IntakeLinkResult(
+      objectId: json['object_id'] as String,
+      provider: json['provider'] as String,
+      kind: json['kind'] as String,
+      status: json['status'] as String,
+    );
+  }
+}
+
 class LocalDeviceRegisterResult {
   LocalDeviceRegisterResult({
     required this.deviceId,
