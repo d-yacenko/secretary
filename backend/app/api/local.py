@@ -22,6 +22,7 @@ from app.services.errors import NotFoundError, ValidationError
 from app.services.job_queue_service import JobQueueService
 from app.services.local_device_service import LocalDeviceService
 from app.services.local_file_sync_service import LocalFileReport, LocalFileSyncService
+from app.services.local_folder_intake_service import LocalFolderIntakeService
 
 router = APIRouter(tags=["local"])
 
@@ -151,6 +152,19 @@ class ClientFileIntakeOut(BaseModel):
     jobs_enqueued: int
     representations_created: int
     metadata_only: bool
+
+
+class ClientFolderIntakeRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    device_key: str = Field(min_length=1, max_length=128)
+    root_path: str = Field(min_length=1, max_length=512)
+    client_source_path: str = Field(min_length=1, max_length=1024)
+
+
+class ClientFolderIntakeOut(BaseModel):
+    object_id: UUID
+    status: str
 
 
 def _http_error(exc: Exception) -> HTTPException:
@@ -320,6 +334,30 @@ async def client_file_intake(
         representations_created=result.representations_created,
         metadata_only=result.metadata_only,
     )
+
+
+@router.post("/local/folders/client-intake", status_code=status.HTTP_201_CREATED, response_model=ClientFolderIntakeOut)
+def client_folder_intake(
+    body: ClientFolderIntakeRequest,
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> ClientFolderIntakeOut:
+    device_service = LocalDeviceService(
+        session, current_user.user_id, _path_resolver()
+    )
+    folder_service = LocalFolderIntakeService(
+        session, current_user.user_id, device_service
+    )
+    try:
+        result = folder_service.intake_folder(
+            device_key=body.device_key,
+            root_path=body.root_path,
+            client_source_path=body.client_source_path,
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    return ClientFolderIntakeOut(object_id=result.object_id, status=result.status)
 
 
 @router.get("/datasets/{object_id}/schema")

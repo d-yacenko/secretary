@@ -1018,6 +1018,23 @@ class ClientFileIntakeResult {
   }
 }
 
+class ClientFolderIntakeResult {
+  ClientFolderIntakeResult({
+    required this.objectId,
+    required this.status,
+  });
+
+  final String objectId;
+  final String status;
+
+  factory ClientFolderIntakeResult.fromJson(Map<String, dynamic> json) {
+    return ClientFolderIntakeResult(
+      objectId: json['object_id'] as String,
+      status: json['status'] as String,
+    );
+  }
+}
+
 class LocalDeviceRegisterResult {
   LocalDeviceRegisterResult({
     required this.deviceId,

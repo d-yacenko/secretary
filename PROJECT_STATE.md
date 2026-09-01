@@ -66,11 +66,13 @@ PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / c
 
 PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`).
 
-PHASE 27C-R2 — Yandex Disk explicit share-link intake: **implementation complete, awaiting architect review**.
+PHASE 27C-R2 — Yandex Disk explicit share-link intake: **accepted / closed** (`374db8aa4bf4b05e922812414e723c7f8a2c4731`).
+
+PHASE 27C-R3 — Local explicit file/folder semantics: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next: **architect review of PHASE 27C-R2** on branch `review/phase-27c-explicit-intake-yandex`.
+Next: **architect review of PHASE 27C-R3** on branch `review/phase-27c-local-explicit-intake`.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -101,13 +103,21 @@ Safe External Actions follow Source Completion (PHASE 27C explicit intake track)
 - No full-drive sync, no migration beyond Alembic `0019`
 - Superseded experiments `review/phase-27c-google-drive` and `review/phase-27c-google-drive-ops` — not for merge/deploy
 
-## PHASE 27C-R2 verification (awaiting architect review)
+## PHASE 27C-R2 verification (accepted at `374db8aa4bf4b05e922812414e723c7f8a2c4731`)
 
 - Yandex Disk public/share links via same `POST /intake/link`
 - Provider dispatch by URL host; fixed `cloud-api.yandex.net` public resources API only
 - Folder share URL → one folder Object; no `_embedded` child import
 - OpenTarget with re-validated Yandex share URLs only
 - No Yandex Disk OAuth, no migration beyond `0019`
+
+## PHASE 27C-R3 verification (awaiting architect review)
+
+- `POST /local/folders/client-intake` — explicit local folder → one folder Object
+- No bounded walk / child import on explicit folder path; single-file client intake preserved
+- `folder` in `RECENT_SOURCE_KINDS`; local folder OpenTarget via `client_source_path`
+- Flutter folder pick/drop aligned; no indexing-policy dialog
+- No migration beyond Alembic `0019`
 
 ## PHASE 26C verification (accepted)
 

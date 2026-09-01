@@ -176,12 +176,13 @@ Major phase reordered before Safe External Actions.
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
 - **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — accepted (`1dc493d`)
 - **27C-R1** Explicit Intake + Google Drive link — accepted (`467332c`)
-- **27C-R2** Yandex Disk public share-link intake — awaiting architect review
+- **27C-R2** Yandex Disk public share-link intake — accepted (`374db8a`)
+- **27C-R3** Local explicit file/folder semantics — awaiting architect review
 - Superseded after product clarification (not for merge/deploy): 27C-A full-drive sync (`review/phase-27c-google-drive`), 27C-B Drive ops (`review/phase-27c-google-drive-ops`)
 
-## Explicit intake product decision (PHASE 27C-R1 / R2)
+## Explicit intake product decision (PHASE 27C-R1 / R2 / R3)
 
-Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected. **Folders are Objects themselves; children are not automatically imported.**
+Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected. **Folders are Objects themselves; selecting a folder does not imply importing its children.**
 
 ## PHASE 27C-R1 — Explicit Intake foundation + Google Drive link (accepted at `467332c`)
 
@@ -195,7 +196,7 @@ Cloud/local file sources are **explicit-intake** resources. User pastes/drops/se
 - OpenTarget: backend-built canonical URL; ignores tampered `web_view_link` / `canonical_uri`
 - Deferred: Flutter paste/drop, content download/export, full-drive recurring sync (Yandex share-link delivered in 27C-R2)
 
-## PHASE 27C-R2 — Yandex Disk explicit share-link intake (awaiting architect review)
+## PHASE 27C-R2 — Yandex Disk explicit share-link intake (accepted at `374db8aa4bf4b05e922812414e723c7f8a2c4731`)
 
 - Same `POST /intake/link`; provider dispatch by validated URL host (Google vs Yandex)
 - Yandex public/share URLs on allowlisted hosts; rejects private `/client/` browser links
@@ -203,7 +204,19 @@ Cloud/local file sources are **explicit-intake** resources. User pastes/drops/se
 - Object: `provider=yandex_disk`, `external_id=resource_id`; folder share → one folder Object (no child import)
 - OpenTarget: «Открыть в Яндекс.Диске»; destination from re-validated `public_url` or `intake_url` only
 - No Yandex Disk OAuth; Alembic head remains `0019`
-- Deferred: Flutter paste/drop, local alignment, content download, private Disk OAuth
+- Deferred: Flutter paste/drop, local alignment (delivered in 27C-R3), content download, private Disk OAuth
+
+## PHASE 27C-R3 — Local explicit file/folder semantics (awaiting architect review)
+
+- `POST /local/folders/client-intake` with `device_key`, `root_path`, `client_source_path`
+- One selected/dropped local folder → one folder Object via `FolderObjectService`; no `_boundedWalk` / child `clientFileIntake`
+- Preserved `POST /local/files/client-intake` for single explicit files
+- Canonical identity: `provider=local_device`, `kind=folder`, `external_id=folder:<device_key>:<normalized-root>`
+- Metadata: `device_key`, normalized root, `client_source_path`, `intake_mode=explicit_local`; no child file metadata
+- `folder` added to `RECENT_SOURCE_KINDS`; explicit folder Objects use `origin=source` for Inbox eligibility
+- OpenTarget: existing `local_folder` action via `client_source_path`
+- Flutter: folder pick/drop registers folder Object only; removed «Как индексировать содержимое папки?» dialog
+- Deferred: Inbox link paste/drop, folder child import action, content summarization
 
 ## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
 

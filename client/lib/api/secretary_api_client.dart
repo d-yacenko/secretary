@@ -247,6 +247,24 @@ class SecretaryApiClient {
     return ClientFileIntakeResult.fromJson(body);
   }
 
+  Future<ClientFolderIntakeResult> clientFolderIntake({
+    required String deviceKey,
+    required String rootPath,
+    required String clientSourcePath,
+  }) async {
+    final body = await _request(
+      'POST',
+      '/local/folders/client-intake',
+      jsonBody: {
+        'device_key': deviceKey,
+        'root_path': rootPath,
+        'client_source_path': clientSourcePath,
+      },
+      successStatuses: {201},
+    );
+    return ClientFolderIntakeResult.fromJson(body);
+  }
+
   Future<GraphWorkspaceOut> getGraphWorkspace({
     String? rootId,
     int? seedLimit,

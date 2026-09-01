@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../api/api_error.dart';
 import '../api/api_models.dart';
@@ -58,11 +59,7 @@ class LocalIntakeActions {
     if (path == null) {
       return;
     }
-    final indexing = await _askFolderIndexingPolicy(context);
-    if (indexing == null) {
-      return;
-    }
-    await _registerFolder(context, Directory(path), indexSupported: indexing);
+    await _registerFolder(context, Directory(path));
   }
 
   Future<void> registerDroppedFiles(
@@ -93,11 +90,7 @@ class LocalIntakeActions {
 
     for (final directory in directories) {
       try {
-        final indexing = await _askFolderIndexingPolicy(context);
-        if (indexing == null) {
-          continue;
-        }
-        await _registerFolder(context, directory, indexSupported: indexing);
+        await _registerFolder(context, directory);
       } on AuthenticationException {
         authController.handleAuthenticationFailure();
         return;
@@ -221,12 +214,11 @@ class LocalIntakeActions {
 
   Future<void> _registerFolder(
     BuildContext context,
-    Directory root, {
-    required bool indexSupported,
-  }) async {
+    Directory root,
+  ) async {
     try {
-      await _intakeService.registerFolder(root, indexSupported: indexSupported);
-      _showMessage(context, 'Папка добавлена: ${root.path}');
+      await _intakeService.registerFolder(root);
+      _showMessage(context, 'Папка добавлена: ${p.basename(root.path)}');
     } on AuthenticationException {
       authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -234,26 +226,6 @@ class LocalIntakeActions {
     } catch (_) {
       _showMessage(context, 'Не удалось зарегистрировать источник');
     }
-  }
-
-  Future<bool?> _askFolderIndexingPolicy(BuildContext context) async {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Добавить папку'),
-        content: const Text('Как индексировать содержимое папки?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Только имена и метаданные'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Индексировать поддерживаемые файлы'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showMessage(BuildContext context, String message) {

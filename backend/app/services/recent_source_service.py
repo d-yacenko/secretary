@@ -16,6 +16,7 @@ RECENT_SOURCE_KINDS = frozenset(
         "file",
         "document",
         "dataset",
+        "folder",
     }
 )
 

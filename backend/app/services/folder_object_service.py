@@ -14,6 +14,8 @@ from app.services.correlation_constants import FOLDER_KIND
 from app.services.graph_service import GraphService
 from app.services.provenance import CONFIRMED_STATE
 
+EXPLICIT_LOCAL_INTAKE_MODE = "explicit_local"
+
 
 def build_folder_external_id(device_key: str, root_path: str) -> str:
     normalized = normalize_relative_path(root_path)
@@ -38,6 +40,34 @@ class FolderObjectService:
         root: LocalRoot,
         client_source_path: str | None = None,
     ) -> Object:
+        obj, _ = self._upsert_folder_object(
+            device,
+            root,
+            client_source_path=client_source_path,
+            intake_mode=None,
+        )
+        return obj
+
+    def ensure_folder_for_explicit_intake(
+        self,
+        device: LocalDevice,
+        root: LocalRoot,
+        client_source_path: str,
+    ) -> tuple[Object, str]:
+        return self._upsert_folder_object(
+            device,
+            root,
+            client_source_path=client_source_path,
+            intake_mode=EXPLICIT_LOCAL_INTAKE_MODE,
+        )
+
+    def _upsert_folder_object(
+        self,
+        device: LocalDevice,
+        root: LocalRoot,
+        client_source_path: str | None,
+        intake_mode: str | None,
+    ) -> tuple[Object, str]:
         external_id = build_folder_external_id(device.device_key, root.root_path)
         existing = self._session.scalar(
             select(Object).where(
@@ -46,33 +76,56 @@ class FolderObjectService:
                 Object.external_id == external_id,
             )
         )
-        folder_meta_update = {
+        title = folder_title_from_root_path(root.root_path)
+        folder_meta_update: dict[str, object] = {
             "device_key": device.device_key,
             "local_root_path": root.root_path,
             "default_policy": root.default_policy,
         }
         if client_source_path:
             folder_meta_update["client_source_path"] = client_source_path
+        if intake_mode is not None:
+            folder_meta_update["intake_mode"] = intake_mode
+
+        is_explicit = intake_mode == EXPLICIT_LOCAL_INTAKE_MODE
+        explicit_origin = "source"
+        explicit_state = "observed"
+
         if existing is not None:
             metadata = dict(existing.metadata_ or {})
-            metadata.update(folder_meta_update)
-            existing.title = folder_title_from_root_path(root.root_path)
-            existing.metadata_ = metadata
-            self._session.flush()
-            return existing
+            new_metadata = dict(metadata)
+            new_metadata.update(folder_meta_update)
+            changed = (
+                existing.title != title
+                or existing.metadata_ != new_metadata
+            )
+            if is_explicit and (
+                existing.origin != explicit_origin or existing.state != explicit_state
+            ):
+                changed = True
+            if changed:
+                existing.title = title
+                existing.metadata_ = new_metadata
+                if is_explicit:
+                    existing.origin = explicit_origin
+                    existing.state = explicit_state
+                self._session.flush()
+                return existing, "updated"
+            return existing, "unchanged"
 
         metadata = dict(folder_meta_update)
-        return self._graph.create_object(
+        obj = self._graph.create_object(
             ObjectCreate(
                 kind=FOLDER_KIND,
-                title=folder_title_from_root_path(root.root_path),
-                origin="user",
-                state=CONFIRMED_STATE,
+                title=title,
+                origin=explicit_origin if is_explicit else "user",
+                state=explicit_state if is_explicit else CONFIRMED_STATE,
                 provider=PROVIDER_LOCAL_DEVICE,
                 external_id=external_id,
                 metadata=metadata,
             )
         )
+        return obj, "created"
 
     def get_folder_for_root(self, device_key: str, root_path: str) -> Object | None:
         external_id = build_folder_external_id(device_key, root_path)
