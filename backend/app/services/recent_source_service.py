@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import String, and_, func, or_, select
+from sqlalchemy.dialects.postgresql import ARRAY, array
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
@@ -24,11 +25,31 @@ RECENT_SOURCE_RESERVED_PER_PROVIDER = 3
 RECENT_SOURCE_MAX_RESERVED_PROVIDERS = 8
 RECENT_SOURCE_EXCERPT_CHARS = 160
 
+GMAIL_NOISE_LABELS = (
+    "SPAM",
+    "TRASH",
+    "CATEGORY_PROMOTIONS",
+    "CATEGORY_SOCIAL",
+    "CATEGORY_FORUMS",
+)
+
 
 class RecentSourceService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
         self._user_id = user_id
+
+    @staticmethod
+    def _gmail_feed_eligible_clause() -> object:
+        labels = Object.metadata_["labels"]
+        noise_any = labels.op("?|")(
+            array(GMAIL_NOISE_LABELS, type_=ARRAY(String)),
+        )
+        return or_(
+            Object.provider != "gmail",
+            labels.is_(None),
+            ~noise_any,
+        )
 
     def _eligible_filters(self) -> object:
         return and_(
@@ -37,6 +58,7 @@ class RecentSourceService:
             Object.state != "rejected",
             or_(Object.status.is_(None), Object.status != "deleted"),
             Object.kind.in_(tuple(RECENT_SOURCE_KINDS)),
+            self._gmail_feed_eligible_clause(),
         )
 
     def list_recent(self, limit: int = RECENT_SOURCE_DEFAULT_LIMIT) -> list[Object]:

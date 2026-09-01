@@ -16,6 +16,7 @@ from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READO
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.gmail_sync import build_gmail_sync_service
+from app.connectors.google.gmail_transport import GmailTransport
 from app.connectors.yandex.caldav_transport import CalDavCalendar, FakeCalDavTransport
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
@@ -1173,6 +1174,193 @@ def test_recent_source_feed_cross_user_isolation(db_session) -> None:
     titles = {row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()}
     assert "Bootstrap visible email" in titles
     assert "Other user secret email" not in titles
+
+
+def _create_gmail_with_labels(
+    graph: GraphService,
+    db_session: Session,
+    title: str,
+    labels: list[str],
+    updated_at: datetime,
+) -> Object:
+    graph.create_object(
+        ObjectCreate(
+            kind="email",
+            title=title,
+            origin="source",
+            state="observed",
+            provider="gmail",
+            external_id=f"ext-{uuid.uuid4()}",
+            occurred_at=updated_at,
+            metadata={"labels": labels},
+        )
+    )
+    obj = db_session.scalar(select(Object).where(Object.title == title))
+    obj.updated_at = updated_at
+    return obj
+
+
+def test_gmail_list_query_excludes_spam_and_low_value_categories() -> None:
+    from app.connectors.google.constants import build_gmail_list_query
+
+    query = build_gmail_list_query("2026/08/01")
+    assert "after:2026/08/01" in query
+    assert "-in:spam" in query
+    assert "-in:trash" in query
+    assert "-category:promotions" in query
+    assert "-category:social" in query
+    assert "-category:forums" in query
+
+
+def test_gmail_transport_list_message_ids_sets_includeSpamTrash_false() -> None:
+    captured: dict[str, object] = {}
+
+    def list_handler(params, headers):
+        captured.update(params)
+        return httpx.Response(200, json={"messages": []})
+
+    transport = GmailTransport(
+        http_client=FakeHttpClient(
+            {
+                (
+                    "GET",
+                    "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+                ): list_handler,
+            }
+        )
+    )
+    transport.list_message_ids("token", "me", "after:2026/01/01", 10)
+    assert captured.get("includeSpamTrash") is False
+
+
+def test_recent_source_feed_excludes_gmail_noise_labels(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    now = utcnow()
+
+    visible_titles = {
+        "Gmail primary mail",
+        "Yandex normal mail",
+        "Google cal event",
+        "Yandex cal event",
+    }
+    _create_gmail_with_labels(
+        graph,
+        db_session,
+        "Gmail primary mail",
+        ["INBOX", "CATEGORY_PERSONAL"],
+        now,
+    )
+    _create_gmail_with_labels(
+        graph,
+        db_session,
+        "Gmail promotions mail",
+        ["CATEGORY_PROMOTIONS"],
+        now - timedelta(minutes=1),
+    )
+    _create_gmail_with_labels(
+        graph,
+        db_session,
+        "Gmail social mail",
+        ["CATEGORY_SOCIAL"],
+        now - timedelta(minutes=2),
+    )
+    _create_gmail_with_labels(
+        graph,
+        db_session,
+        "Gmail forums mail",
+        ["CATEGORY_FORUMS"],
+        now - timedelta(minutes=3),
+    )
+    _create_gmail_with_labels(
+        graph,
+        db_session,
+        "Gmail spam mail",
+        ["SPAM"],
+        now - timedelta(minutes=4),
+    )
+    _create_gmail_with_labels(
+        graph,
+        db_session,
+        "Gmail trash mail",
+        ["TRASH"],
+        now - timedelta(minutes=5),
+    )
+    _create_recent_source(
+        graph,
+        db_session,
+        kind="email",
+        title="Yandex normal mail",
+        provider="yandex_mail",
+        updated_at=now - timedelta(minutes=10),
+    )
+    _create_recent_source(
+        graph,
+        db_session,
+        kind="event",
+        title="Google cal event",
+        provider="google_calendar",
+        updated_at=now - timedelta(minutes=11),
+    )
+    _create_recent_source(
+        graph,
+        db_session,
+        kind="event",
+        title="Yandex cal event",
+        provider="yandex_calendar",
+        updated_at=now - timedelta(minutes=12),
+    )
+    db_session.commit()
+
+    titles = {row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()}
+    assert visible_titles <= titles
+    assert "Gmail promotions mail" not in titles
+    assert "Gmail social mail" not in titles
+    assert "Gmail forums mail" not in titles
+    assert "Gmail spam mail" not in titles
+    assert "Gmail trash mail" not in titles
+
+
+def test_gmail_noise_objects_do_not_consume_reserved_feed_slots(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    newest = utcnow()
+    older = newest - timedelta(hours=2)
+
+    for index in range(10):
+        _create_gmail_with_labels(
+            graph,
+            db_session,
+            f"Noise promo {index}",
+            ["CATEGORY_PROMOTIONS"],
+            newest - timedelta(seconds=index),
+        )
+    for index in range(3):
+        _create_gmail_with_labels(
+            graph,
+            db_session,
+            f"Primary gmail {index}",
+            ["CATEGORY_PERSONAL"],
+            older - timedelta(minutes=index),
+        )
+    for index in range(5):
+        _create_recent_source(
+            graph,
+            db_session,
+            kind="email",
+            title=f"Yandex visible {index}",
+            provider="yandex_mail",
+            updated_at=older - timedelta(minutes=index),
+        )
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=30)
+    titles = {row.title for row in rows}
+    assert not any(title.startswith("Noise promo") for title in titles)
+    assert any(title.startswith("Primary gmail") for title in titles)
+    assert any(title.startswith("Yandex visible") for title in titles)
+    gmail_count = sum(1 for row in rows if row.provider == "gmail")
+    yandex_count = sum(1 for row in rows if row.provider == "yandex_mail")
+    assert gmail_count >= RECENT_SOURCE_RESERVED_PER_PROVIDER
+    assert yandex_count >= RECENT_SOURCE_RESERVED_PER_PROVIDER
 
 
 def test_recurring_success_uses_configured_yandex_calendar_interval(

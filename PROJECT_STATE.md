@@ -67,6 +67,8 @@ Safe External Actions follow Source Completion (PHASE 27B/27C).
 - migrations: none expected
 - recurring source sync via existing DB job queue + worker scheduler maintenance
 - default mail interval: 120s; calendar: 300s; scheduler maintenance: 60s
+- passive UI snapshot refresh: 30s (`GET /inbox`, `GET /today` only; no timer `POST /sources/sync`)
+- Gmail list query: `includeSpamTrash=false`; excludes spam/trash/promotions/social/forums at provider list stage
 
 ## PHASE 26C verification (accepted)
 

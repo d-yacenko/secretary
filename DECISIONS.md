@@ -186,9 +186,17 @@ Major phase reordered before Safe External Actions.
 - Today includes active proposed tasks (`state != rejected`, non-terminal); «Предложено» in Flutter.
 - Assistant Markdown rendering (`flutter_markdown`); user messages remain plain text.
 - Provider compact badges: `yandex_calendar` → `Я`, `google_calendar` → `G`.
+- Inbox/Today passive snapshot refresh: GET `/inbox` / `/today` every 30s while screen open; manual Refresh still triggers `POST /sources/sync`.
+- `ObjectCompactHeaderRow`: kind icon + provider glyph before title; date/time trailing right.
+- Gmail intake hygiene: provider-side `includeSpamTrash=false` and query exclusions for spam/trash/promotions/social/forums; existing noisy Gmail objects excluded from recent Inbox feed (no DB delete).
 - Local files unchanged; VDS does not poll user filesystem (27C).
 
-## PHASE 26 — Personal data correlation (accepted / closed)
+## Gmail noise filtering (PHASE 27A closure)
+
+- Secretary trusts Gmail provider classification; no custom spam/LLM classifier.
+- `messages.list` uses `includeSpamTrash=false` and query excludes spam/trash plus `category:promotions`, `category:social`, `category:forums`; `category:updates` remains allowed.
+- Filter applies at list time before `messages.get` / attachment / embedding work.
+- Already-imported Gmail objects with noise labels are hidden from recent Inbox feed only; objects are not deleted from the graph.
 
 PHASE 26A + 26B + 26C accepted as one major phase. Full PHASE 26 closed at `5c4ffc40`.
 

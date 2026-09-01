@@ -9,8 +9,8 @@ from app.connectors.google.constants import (
     DEFAULT_SYNC_DAYS,
     DEFAULT_SYNC_LIMIT,
     MAX_SYNC_LIMIT,
+    build_gmail_list_query,
 )
-from app.services.client_intake_constants import MAX_EMAIL_ATTACHMENT_BYTES
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.connectors.google.gmail_normalize import (
@@ -20,6 +20,7 @@ from app.connectors.google.gmail_normalize import (
 from app.connectors.google.gmail_transport import GmailTransport, GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.db.models import Object
+from app.services.client_intake_constants import MAX_EMAIL_ATTACHMENT_BYTES
 from app.services.email_attachment_service import EmailAttachmentService
 from app.services.job_queue_service import JobQueueService
 
@@ -69,7 +70,7 @@ class GmailSyncService:
         self._session.commit()
 
         after_date = (utcnow() - timedelta(days=self._sync_days)).strftime("%Y/%m/%d")
-        query = f"after:{after_date}"
+        query = build_gmail_list_query(after_date)
         message_ids = self._transport.list_message_ids(
             access_token=access_token,
             user_id="me",

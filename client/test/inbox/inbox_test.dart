@@ -62,7 +62,10 @@ void main() {
     };
   }
 
-  Widget buildInbox(MockClient mock) {
+  Widget buildInbox(
+    MockClient mock, {
+    Duration passiveRefreshInterval = const Duration(seconds: 30),
+  }) {
     final apiClient = SecretaryApiClient(httpClient: mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -78,6 +81,7 @@ void main() {
           apiClient: apiClient,
           authController: auth,
           captureController: capture,
+          passiveRefreshInterval: passiveRefreshInterval,
         ),
       ),
     );
@@ -316,9 +320,150 @@ void main() {
 
     expect(find.text('Дима — Синхронизация'), findsOneWidget);
     expect(find.text('Я'), findsOneWidget);
-    expect(find.text('·'), findsOneWidget);
     expect(find.textContaining('02.09.2026'), findsOneWidget);
     expect(find.textContaining('Событие •'), findsNothing);
+  });
+
+  testWidgets('passive refresh loads newer inbox snapshot without navigation', (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            final sources = inboxCalls == 1
+                ? [
+                    {
+                      'id': 'email-a',
+                      'title': 'Snapshot email A',
+                      'kind': 'email',
+                      'provider': 'gmail',
+                      'state': 'observed',
+                      'status': null,
+                      'primary_at': '2026-08-31T10:00:00Z',
+                      'excerpt': 'first',
+                    },
+                  ]
+                : [
+                    {
+                      'id': 'email-a',
+                      'title': 'Snapshot email A',
+                      'kind': 'email',
+                      'provider': 'gmail',
+                      'state': 'observed',
+                      'status': null,
+                      'primary_at': '2026-08-31T10:00:00Z',
+                      'excerpt': 'first',
+                    },
+                    {
+                      'id': 'email-b',
+                      'title': 'Snapshot email B',
+                      'kind': 'email',
+                      'provider': 'gmail',
+                      'state': 'observed',
+                      'status': null,
+                      'primary_at': '2026-08-31T11:00:00Z',
+                      'excerpt': 'second',
+                    },
+                  ];
+            return http.Response(jsonEncode(inboxJson(recentSources: sources)), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Snapshot email A').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+
+    expect(inboxCalls, 1);
+    expect(find.text('Snapshot email A'), findsOneWidget);
+    expect(find.text('Snapshot email B'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(inboxCalls, 2);
+    expect(find.text('Snapshot email B'), findsOneWidget);
+  });
+
+  testWidgets('passive refresh does not call sources sync', (tester) async {
+    int inboxCalls = 0;
+    int syncCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            return http.Response(jsonEncode(inboxJson()), 200);
+          }
+          if (request.url.path == '/sources/sync') {
+            syncCalls++;
+            return http.Response('{"triggered":[],"count":0}', 200);
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(inboxCalls, greaterThan(1));
+    expect(syncCalls, 0);
+  });
+
+  testWidgets('passive refresh preserves snapshot on transient error', (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            if (inboxCalls >= 2) {
+              return http.Response('server error', 500);
+            }
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: [
+                  {
+                    'id': 'email-stable',
+                    'title': 'Stable inbox row',
+                    'kind': 'email',
+                    'provider': 'gmail',
+                    'state': 'observed',
+                    'status': null,
+                    'primary_at': '2026-08-31T10:00:00Z',
+                    'excerpt': 'stable',
+                  },
+                ],
+              )),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Stable inbox row').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.text('Stable inbox row'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(find.text('Stable inbox row'), findsOneWidget);
+    expect(find.text('Ошибка загрузки'), findsNothing);
   });
 }
 

@@ -11,6 +11,7 @@ import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
 import '../ui/object_presentation.dart';
+import '../ui/passive_snapshot_refresh.dart';
 
 enum TodayLoadState { loading, ready, error }
 
@@ -23,6 +24,7 @@ class TodayScreen extends StatefulWidget {
     this.assistantController,
     this.onAskSecretary,
     this.onShowInGraph,
+    this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
   });
 
   final SecretaryApiClient apiClient;
@@ -31,6 +33,7 @@ class TodayScreen extends StatefulWidget {
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
   final ShowInGraphHandler? onShowInGraph;
+  final Duration passiveRefreshInterval;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -45,18 +48,34 @@ class _TodayScreenState extends State<TodayScreen> {
 
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
+  late final PassiveSnapshotRefresh _passiveRefresh;
 
   @override
   void initState() {
     super.initState();
+    _passiveRefresh = PassiveSnapshotRefresh(
+      interval: widget.passiveRefreshInterval,
+      isPaused: () => _isSourceRefreshing,
+      onRefresh: () => _loadToday(showFullLoader: false, passive: true),
+    );
+    _passiveRefresh.attach();
     _loadToday();
   }
 
-  Future<void> _loadToday({bool showFullLoader = true}) async {
+  @override
+  void dispose() {
+    _passiveRefresh.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadToday({bool showFullLoader = true, bool passive = false}) async {
     if (!mounted) {
       return;
     }
-    if (showFullLoader) {
+    if (passive && _isSourceRefreshing) {
+      return;
+    }
+    if (showFullLoader && !passive) {
       setState(() {
         _loadState = TodayLoadState.loading;
         _errorMessage = null;
@@ -76,6 +95,9 @@ class _TodayScreenState extends State<TodayScreen> {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
       if (!mounted) {
+        return;
+      }
+      if (passive && _today != null) {
         return;
       }
       setState(() {

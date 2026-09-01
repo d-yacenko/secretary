@@ -17,7 +17,11 @@ void main() {
   const baseUrl = 'https://secretary.example';
   const token = 'today-token';
 
-  Map<String, dynamic> todayPayload({List<Map<String, dynamic>>? tasks}) {
+  Map<String, dynamic> todayPayload({
+    List<Map<String, dynamic>>? tasks,
+    List<Map<String, dynamic>>? calendarEvents,
+    List<Map<String, dynamic>>? notifications,
+  }) {
     return {
       'date': '2026-08-28',
       'timezone': 'Europe/Amsterdam',
@@ -43,7 +47,8 @@ void main() {
           'updated_at': '2026-08-28T08:00:00Z',
         },
       ],
-      'calendar_events': [
+      'calendar_events': calendarEvents ??
+          [
         {
           'id': 'event-1',
           'kind': 'event',
@@ -63,7 +68,8 @@ void main() {
           'updated_at': '2026-08-28T08:00:00Z',
         },
       ],
-      'notifications': [
+      'notifications': notifications ??
+          [
         {
           'id': 'n-urgent',
           'title': 'Urgent follow-up',
@@ -86,7 +92,10 @@ void main() {
     };
   }
 
-  Widget buildToday(MockClient mock) {
+  Widget buildToday(
+    MockClient mock, {
+    Duration passiveRefreshInterval = const Duration(seconds: 30),
+  }) {
     final apiClient = SecretaryApiClient(httpClient: mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -102,6 +111,7 @@ void main() {
           apiClient: apiClient,
           authController: auth,
           captureController: capture,
+          passiveRefreshInterval: passiveRefreshInterval,
         ),
       ),
     );
@@ -467,7 +477,99 @@ void main() {
     expect(find.textContaining('Google Календарь'), findsNothing);
     expect(find.text('Я'), findsOneWidget);
     expect(find.text('G'), findsOneWidget);
-    expect(find.text('·'), findsWidgets);
   });
 
+  testWidgets('passive refresh loads newer today snapshot without navigation', (tester) async {
+    int todayCalls = 0;
+    await tester.pumpWidget(
+      buildToday(
+        MockClient((request) async {
+          if (request.url.path == '/today') {
+            todayCalls++;
+            final events = todayCalls == 1
+                ? [
+                    {
+                      'id': 'event-a',
+                      'kind': 'event',
+                      'title': 'Morning standup',
+                      'body': null,
+                      'provider': 'google_calendar',
+                      'external_id': null,
+                      'canonical_uri': null,
+                      'status': null,
+                      'start_at': '2026-08-28T09:00:00+02:00',
+                      'due_at': '2026-08-28T09:30:00+02:00',
+                      'metadata': {},
+                      'origin': 'source',
+                      'state': 'observed',
+                      'confidence': null,
+                      'created_at': '2026-08-28T08:00:00Z',
+                      'updated_at': '2026-08-28T08:00:00Z',
+                    },
+                  ]
+                : [
+                    {
+                      'id': 'event-a',
+                      'kind': 'event',
+                      'title': 'Morning standup',
+                      'body': null,
+                      'provider': 'google_calendar',
+                      'external_id': null,
+                      'canonical_uri': null,
+                      'status': null,
+                      'start_at': '2026-08-28T09:00:00+02:00',
+                      'due_at': '2026-08-28T09:30:00+02:00',
+                      'metadata': {},
+                      'origin': 'source',
+                      'state': 'observed',
+                      'confidence': null,
+                      'created_at': '2026-08-28T08:00:00Z',
+                      'updated_at': '2026-08-28T08:00:00Z',
+                    },
+                    {
+                      'id': 'event-b',
+                      'kind': 'event',
+                      'title': 'Afternoon review',
+                      'body': null,
+                      'provider': 'yandex_calendar',
+                      'external_id': null,
+                      'canonical_uri': null,
+                      'status': null,
+                      'start_at': '2026-08-28T15:00:00+02:00',
+                      'due_at': '2026-08-28T16:00:00+02:00',
+                      'metadata': {},
+                      'origin': 'source',
+                      'state': 'observed',
+                      'confidence': null,
+                      'created_at': '2026-08-28T08:00:00Z',
+                      'updated_at': '2026-08-28T08:00:00Z',
+                    },
+                  ];
+            return http.Response(
+              jsonEncode(todayPayload(calendarEvents: events, notifications: [])),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    for (var i = 0; i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Morning standup').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+
+    expect(todayCalls, 1);
+    expect(find.text('Morning standup'), findsOneWidget);
+    expect(find.text('Afternoon review'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(todayCalls, 2);
+    expect(find.text('Afternoon review'), findsOneWidget);
+  });
 }

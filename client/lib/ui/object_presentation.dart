@@ -158,6 +158,12 @@ class ObjectCompactHeaderRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          Icon(iconForKind(kind), size: 16),
+          if (providerGlyph != null) ...[
+            const SizedBox(width: 6),
+            providerGlyph,
+          ],
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               title,
@@ -166,34 +172,21 @@ class ObjectCompactHeaderRow extends StatelessWidget {
               maxLines: 2,
             ),
           ),
-          const SizedBox(width: 12),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(iconForKind(kind), size: 16),
-              if (providerGlyph != null) ...[
-                const SizedBox(width: 6),
-                providerGlyph,
-              ],
-              ...trailingBadges.map(
-                (badge) => Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: badge,
-                ),
-              ),
-              if (trailingText.isNotEmpty) ...[
-                const SizedBox(width: 6),
-                Text('·', style: metadataStyle),
-                const SizedBox(width: 6),
-                Text(
-                  trailingText,
-                  style: metadataStyle,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 2,
-                ),
-              ],
-            ],
+          ...trailingBadges.map(
+            (badge) => Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: badge,
+            ),
           ),
+          if (trailingText.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text(
+              trailingText,
+              style: metadataStyle,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ],
         ],
       ),
     );

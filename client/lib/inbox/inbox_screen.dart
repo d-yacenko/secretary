@@ -10,6 +10,7 @@ import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
 import '../ui/object_presentation.dart';
+import '../ui/passive_snapshot_refresh.dart';
 import 'notification_labels.dart';
 
 enum InboxLoadState { loading, ready, error }
@@ -24,6 +25,7 @@ class InboxScreen extends StatefulWidget {
     this.onAskSecretary,
     this.onAskSecretaryAboutNotification,
     this.onShowInGraph,
+    this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
   });
 
   final SecretaryApiClient apiClient;
@@ -33,6 +35,7 @@ class InboxScreen extends StatefulWidget {
   final AskSecretaryHandler? onAskSecretary;
   final void Function(NotificationOut notification)? onAskSecretaryAboutNotification;
   final ShowInGraphHandler? onShowInGraph;
+  final Duration passiveRefreshInterval;
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
@@ -48,18 +51,34 @@ class _InboxScreenState extends State<InboxScreen> {
 
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
+  late final PassiveSnapshotRefresh _passiveRefresh;
 
   @override
   void initState() {
     super.initState();
+    _passiveRefresh = PassiveSnapshotRefresh(
+      interval: widget.passiveRefreshInterval,
+      isPaused: () => _isSourceRefreshing,
+      onRefresh: () => _loadInbox(showFullLoader: false, passive: true),
+    );
+    _passiveRefresh.attach();
     _loadInbox();
   }
 
-  Future<void> _loadInbox({bool showFullLoader = true}) async {
+  @override
+  void dispose() {
+    _passiveRefresh.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadInbox({bool showFullLoader = true, bool passive = false}) async {
     if (!mounted) {
       return;
     }
-    if (showFullLoader) {
+    if (passive && _isSourceRefreshing) {
+      return;
+    }
+    if (showFullLoader && !passive) {
       setState(() {
         _loadState = InboxLoadState.loading;
         _errorMessage = null;
@@ -79,6 +98,9 @@ class _InboxScreenState extends State<InboxScreen> {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
       if (!mounted) {
+        return;
+      }
+      if (passive && _inbox != null) {
         return;
       }
       setState(() {

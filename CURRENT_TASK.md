@@ -19,6 +19,8 @@ Do **not** merge, deploy to production `main`, or start PHASE 27B until architec
 - Today includes active proposed tasks with «Предложено» marker
 - Assistant Markdown rendering via `flutter_markdown`
 - Compact `Я` badge for `yandex_calendar`, `G` for `google_calendar`
+- Passive Inbox/Today snapshot refresh (30s GET only; manual Refresh still syncs sources)
+- Gmail provider-side noise filtering; noisy legacy Gmail rows hidden from recent Inbox feed
 
 ## Roadmap — PHASE 27 Source Completion
 

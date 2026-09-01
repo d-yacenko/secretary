@@ -29,7 +29,11 @@ class GmailTransport:
     ) -> list[str]:
         response = self._http.get(
             f"{GMAIL_API_BASE}/users/{user_id}/messages",
-            params={"q": query, "maxResults": max_results},
+            params={
+                "q": query,
+                "maxResults": max_results,
+                "includeSpamTrash": False,
+            },
             headers={"Authorization": f"Bearer {access_token}"},
         )
         if response.status_code >= 400:
