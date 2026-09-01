@@ -7,7 +7,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.connectors.mattermost.normalize import parse_allowed_base_urls
+from app.connectors.mattermost.errors import MattermostSecurityError
+from app.connectors.mattermost.normalize import (
+    build_external_id,
+    normalize_server_url,
+    parse_allowed_base_urls,
+)
 from app.core.config import settings
 from app.db.models import MattermostAccount, Object
 from app.local.constants import PROVIDER_LOCAL_DEVICE
@@ -126,7 +131,8 @@ class OpenTargetService:
         label = "Открыть в Mattermost"
         raw_account_id = meta.get("account_id")
         post_id = str(meta.get("post_id") or "").strip()
-        if not raw_account_id or not post_id:
+        raw_meta_server = meta.get("server_url")
+        if not raw_account_id or not post_id or not raw_meta_server:
             return OpenTarget(
                 available=False,
                 action="unavailable",
@@ -157,6 +163,24 @@ class OpenTargetService:
                 reason="mattermost_metadata_tampered",
             )
 
+        try:
+            meta_server = normalize_server_url(str(raw_meta_server))
+        except MattermostSecurityError:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_metadata_tampered",
+            )
+
+        if meta_server != account.server_url:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_metadata_tampered",
+            )
+
         allowed_urls = parse_allowed_base_urls(settings.mattermost_allowed_base_urls)
         if account.server_url not in allowed_urls:
             return OpenTarget(
@@ -164,6 +188,15 @@ class OpenTargetService:
                 action="unavailable",
                 label=label,
                 reason="mattermost_server_not_allowlisted",
+            )
+
+        expected_external_id = build_external_id(account.server_url, post_id)
+        if obj.external_id != expected_external_id:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_metadata_tampered",
             )
 
         server_base = account.server_url.rstrip("/")

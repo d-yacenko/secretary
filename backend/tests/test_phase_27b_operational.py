@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.api.schemas import ObjectCreate
 from app.connectors.mattermost.credentials import MattermostAccountStore
+from app.connectors.mattermost.normalize import build_external_id
 from app.connectors.mattermost.sync import build_mattermost_sync_service
 from app.connectors.mattermost.transport import FakeMattermostTransport
 from app.db.engine import engine
@@ -33,6 +34,7 @@ from app.services.source_sync_scheduler import SourceSyncScheduler
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 ALLOWED_URL = "https://mm.example.com"
+ALLOWED_URL_B = "https://mm2.example.com"
 PAT = "mattermost-personal-access-token"
 
 
@@ -461,6 +463,183 @@ def test_open_target_rejects_tampered_mattermost_account_id(
     assert target.available is False
     assert target.reason == "mattermost_metadata_tampered"
     assert account.id != uuid.UUID(obj.metadata_["account_id"])
+
+
+def test_open_target_rejects_metadata_server_url_mismatch(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    account = _mattermost_account(db_session, credential_key)
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="chat_message",
+        provider="mattermost",
+        external_id=build_external_id(ALLOWED_URL, "post-1"),
+        origin="source",
+        state="observed",
+        title="Mismatch",
+        body="x",
+        metadata_={
+            "account_id": str(account.id),
+            "post_id": "post-1",
+            "team_name": "team-alpha",
+            "server_url": ALLOWED_URL_B,
+        },
+    )
+    db_session.add(obj)
+    db_session.commit()
+
+    target = OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(obj.id)
+    assert target.available is False
+    assert target.reason == "mattermost_metadata_tampered"
+
+
+def test_open_target_rejects_same_user_cross_account_metadata_substitution(
+    db_session,
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    monkeypatch.setattr(
+        "app.core.config.settings.mattermost_allowed_base_urls",
+        f"{ALLOWED_URL},{ALLOWED_URL_B}",
+    )
+    store = MattermostAccountStore(
+        db_session,
+        MattermostAccountStore.build_encryption(credential_key),
+    )
+    account_a = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        normalized_server_url=ALLOWED_URL,
+        remote_user_id="user-a",
+        username="alice",
+        access_token=PAT,
+    )
+    account_b = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        normalized_server_url=ALLOWED_URL_B,
+        remote_user_id="user-b",
+        username="bob",
+        access_token=PAT,
+    )
+    db_session.commit()
+
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="chat_message",
+        provider="mattermost",
+        external_id=build_external_id(ALLOWED_URL, "cross-post"),
+        origin="source",
+        state="observed",
+        title="Cross account",
+        body="x",
+        metadata_={
+            "account_id": str(account_b.id),
+            "post_id": "cross-post",
+            "team_name": "team-alpha",
+            "server_url": ALLOWED_URL_B,
+        },
+    )
+    db_session.add(obj)
+    db_session.commit()
+
+    target = OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(obj.id)
+    assert target.available is False
+    assert target.reason == "mattermost_metadata_tampered"
+    assert account_a.server_url != account_b.server_url
+
+
+def test_open_target_rejects_external_id_server_prefix_mismatch(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    account = _mattermost_account(db_session, credential_key)
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="chat_message",
+        provider="mattermost",
+        external_id=build_external_id(ALLOWED_URL_B, "post-1"),
+        origin="source",
+        state="observed",
+        title="Wrong server prefix",
+        body="x",
+        metadata_={
+            "account_id": str(account.id),
+            "post_id": "post-1",
+            "team_name": "team-alpha",
+            "server_url": ALLOWED_URL,
+        },
+    )
+    db_session.add(obj)
+    db_session.commit()
+
+    target = OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(obj.id)
+    assert target.available is False
+    assert target.reason == "mattermost_metadata_tampered"
+
+
+def test_open_target_rejects_external_id_post_id_mismatch(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    account = _mattermost_account(db_session, credential_key)
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="chat_message",
+        provider="mattermost",
+        external_id=build_external_id(ALLOWED_URL, "other-post"),
+        origin="source",
+        state="observed",
+        title="Wrong post id",
+        body="x",
+        metadata_={
+            "account_id": str(account.id),
+            "post_id": "post-1",
+            "team_name": "team-alpha",
+            "server_url": ALLOWED_URL,
+        },
+    )
+    db_session.add(obj)
+    db_session.commit()
+
+    target = OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(obj.id)
+    assert target.available is False
+    assert target.reason == "mattermost_metadata_tampered"
+
+
+def test_open_target_ignores_malicious_canonical_uri_with_valid_provenance(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    account = _mattermost_account(db_session, credential_key)
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="chat_message",
+        provider="mattermost",
+        external_id=build_external_id(ALLOWED_URL, "post-safe"),
+        canonical_uri="https://evil.example/phish",
+        origin="source",
+        state="observed",
+        title="Canonical ignored",
+        body="x",
+        metadata_={
+            "account_id": str(account.id),
+            "post_id": "post-safe",
+            "team_name": "team-alpha",
+            "server_url": ALLOWED_URL,
+        },
+    )
+    db_session.add(obj)
+    db_session.commit()
+
+    target = OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(obj.id)
+    assert target.available is True
+    assert target.url == f"{ALLOWED_URL}/team-alpha/pl/post-safe"
+    assert "evil.example" not in (target.url or "")
 
 
 def test_mattermost_chat_message_visible_in_recent_source_feed(
