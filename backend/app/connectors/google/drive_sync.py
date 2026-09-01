@@ -16,7 +16,7 @@ from app.connectors.google.drive_transport import DriveTransport
 from app.connectors.google.errors import GoogleConnectorError
 from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
-from app.db.models import GoogleAccount, Object
+from app.db.models import Object
 from app.services.job_queue_service import JobQueueService
 
 DEFAULT_DRIVE_SYNC_STATE: dict[str, Any] = {
@@ -86,7 +86,8 @@ class DriveSyncService:
             if not sync_state["bootstrap_complete"]:
                 items_budget, sync_state, batch = self._run_bootstrap(
                     access_token=access_token,
-                    account=account,
+                    account_id=account_id,
+                    user_id=user_id,
                     sync_state=sync_state,
                     owner_user_id=owner_user_id,
                     items_budget=items_budget,
@@ -97,7 +98,8 @@ class DriveSyncService:
                 if changes_token:
                     items_budget, sync_state, batch = self._run_incremental(
                         access_token=access_token,
-                        account=account,
+                        account_id=account_id,
+                        user_id=user_id,
                         sync_state=sync_state,
                         owner_user_id=owner_user_id,
                         items_budget=items_budget,
@@ -105,11 +107,7 @@ class DriveSyncService:
                     )
                     self._merge_totals(totals, batch)
 
-            account = self._account_store.get_by_id_for_user(account_id, user_id)
-            if account is None:
-                raise GoogleConnectorError("google account not found")
-            self._account_store.update_drive_sync_state(account, sync_state)
-            self._session.commit()
+            self._persist_sync_state(account_id, user_id, sync_state)
 
             return {
                 "account_email": account_email,
@@ -124,10 +122,23 @@ class DriveSyncService:
             if owns_transport:
                 self._transport.close()
 
+    def _persist_sync_state(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        state: dict[str, Any],
+    ) -> None:
+        account = self._account_store.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise GoogleConnectorError("google account not found")
+        self._account_store.update_drive_sync_state(account, state)
+        self._session.commit()
+
     def _run_bootstrap(
         self,
         access_token: str,
-        account: GoogleAccount,
+        account_id: UUID,
+        user_id: UUID,
         sync_state: dict[str, Any],
         owner_user_id: UUID,
         items_budget: int,
@@ -137,7 +148,11 @@ class DriveSyncService:
 
         if state.get("bootstrap_start_page_token") is None:
             start_token = self._transport.get_start_page_token(access_token)
+            state["bootstrap_complete"] = False
             state["bootstrap_start_page_token"] = start_token
+            state["bootstrap_page_token"] = None
+            state["changes_page_token"] = None
+            self._persist_sync_state(account_id, user_id, state)
 
         page_token = state.get("bootstrap_page_token")
         if page_token is not None:
@@ -156,6 +171,7 @@ class DriveSyncService:
                     state["changes_page_token"] = state.get("bootstrap_start_page_token")
                     state["bootstrap_page_token"] = None
                     state["bootstrap_start_page_token"] = None
+                    self._persist_sync_state(account_id, user_id, state)
                 break
 
             processed_all = True
@@ -163,7 +179,7 @@ class DriveSyncService:
                 if items_budget <= 0:
                     processed_all = False
                     break
-                change = self._upsert_file(owner_user_id, account.id, file_item)
+                change = self._upsert_file(owner_user_id, account_id, file_item)
                 totals.synchronized += 1
                 if change == "created":
                     totals.created += 1
@@ -179,8 +195,7 @@ class DriveSyncService:
                     totals.updated += 1
                 else:
                     totals.unchanged += 1
-                if change != "unchanged":
-                    items_budget -= 1
+                items_budget -= 1
                 self._session.commit()
 
             if not processed_all:
@@ -191,17 +206,20 @@ class DriveSyncService:
                 state["changes_page_token"] = state.get("bootstrap_start_page_token")
                 state["bootstrap_page_token"] = None
                 state["bootstrap_start_page_token"] = None
+                self._persist_sync_state(account_id, user_id, state)
                 break
 
             page_token = page.next_page_token
             state["bootstrap_page_token"] = page_token
+            self._persist_sync_state(account_id, user_id, state)
 
         return items_budget, state, totals
 
     def _run_incremental(
         self,
         access_token: str,
-        account: GoogleAccount,
+        account_id: UUID,
+        user_id: UUID,
         sync_state: dict[str, Any],
         owner_user_id: UUID,
         items_budget: int,
@@ -224,7 +242,10 @@ class DriveSyncService:
                 if page.next_page_token is None:
                     if page.new_start_page_token is not None:
                         state["changes_page_token"] = page.new_start_page_token
+                        self._persist_sync_state(account_id, user_id, state)
                     break
+                state["changes_page_token"] = page.next_page_token
+                self._persist_sync_state(account_id, user_id, state)
                 page_token = page.next_page_token
                 if page.new_start_page_token is not None:
                     pending_new_start = page.new_start_page_token
@@ -237,7 +258,7 @@ class DriveSyncService:
                     break
                 change_result = self._process_change(
                     owner_user_id=owner_user_id,
-                    account_id=account.id,
+                    account_id=account_id,
                     change=change,
                 )
                 totals.synchronized += 1
@@ -255,8 +276,7 @@ class DriveSyncService:
                     totals.updated += 1
                 else:
                     totals.unchanged += 1
-                if change_result != "unchanged":
-                    items_budget -= 1
+                items_budget -= 1
                 self._session.commit()
 
             if not processed_all:
@@ -265,12 +285,15 @@ class DriveSyncService:
             if page.next_page_token is None:
                 if page.new_start_page_token is not None:
                     state["changes_page_token"] = page.new_start_page_token
+                    self._persist_sync_state(account_id, user_id, state)
                 elif pending_new_start is not None:
                     state["changes_page_token"] = pending_new_start
+                    self._persist_sync_state(account_id, user_id, state)
                 break
 
             page_token = page.next_page_token
             state["changes_page_token"] = page_token
+            self._persist_sync_state(account_id, user_id, state)
             if page.new_start_page_token is not None:
                 pending_new_start = page.new_start_page_token
 

@@ -25,7 +25,7 @@ from app.connectors.google.drive_normalize import build_canonical_uri, normalize
 from app.connectors.google.drive_sync import DriveSyncService, normalize_drive_sync_state
 from app.connectors.google.drive_transport import DriveChangesPage, DriveFilesPage, DriveTransport
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.google.errors import GoogleConnectorError
+from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.db.models import GoogleAccount, Job, Object, User
@@ -116,10 +116,17 @@ class FakeDriveTransport:
         start_page_token: str = "bootstrap-start-token",
         file_pages: list[tuple[list[dict], str | None]] | None = None,
         change_pages: list[tuple[list[dict], str | None, str | None]] | None = None,
+        file_page_failures: dict[int, BaseException] | None = None,
+        change_page_failures: dict[int, BaseException] | None = None,
+        fail_list_files_once: bool = False,
     ) -> None:
         self.start_page_token = start_page_token
         self.file_pages = file_pages or []
         self.change_pages = change_pages or []
+        self.file_page_failures = file_page_failures or {}
+        self.change_page_failures = change_page_failures or {}
+        self.fail_list_files_once = fail_list_files_once
+        self._list_files_failed = False
         self.file_page_index = 0
         self.change_page_index = 0
         self.calls: list[tuple] = []
@@ -136,6 +143,12 @@ class FakeDriveTransport:
         page_size: int,
     ) -> DriveFilesPage:
         self.calls.append(("list_files", access_token, page_token, page_size))
+        if self.fail_list_files_once and not self._list_files_failed:
+            self._list_files_failed = True
+            raise GoogleApiError("list failed", operation="list_files")
+        page_index = self.file_page_index
+        if page_index in self.file_page_failures:
+            raise self.file_page_failures[page_index]
         if self.file_page_index >= len(self.file_pages):
             return DriveFilesPage(files=[], next_page_token=None)
         files, next_token = self.file_pages[self.file_page_index]
@@ -149,6 +162,9 @@ class FakeDriveTransport:
         page_size: int,
     ) -> DriveChangesPage:
         self.calls.append(("list_changes", access_token, page_token, page_size))
+        page_index = self.change_page_index
+        if page_index in self.change_page_failures:
+            raise self.change_page_failures[page_index]
         if self.change_page_index >= len(self.change_pages):
             return DriveChangesPage(changes=[], next_page_token=None, new_start_page_token=None)
         changes, next_token, new_start = self.change_pages[self.change_page_index]
@@ -207,6 +223,32 @@ def _build_sync_service(
         job_queue=job_queue,
         max_items_per_run=max_items_per_run,
     )
+
+
+def _prefill_drive_object(
+    db_session,
+    account_id: uuid.UUID,
+    file_id: str,
+    name: str = "Existing",
+    file_item: dict | None = None,
+) -> Object:
+    source = file_item if file_item is not None else _drive_file(file_id, name=name)
+    normalized = normalize_drive_file(source, account_id)
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind=normalized["kind"],
+        provider=normalized["provider"],
+        external_id=normalized["external_id"],
+        origin=normalized["origin"],
+        state=normalized["state"],
+        title=normalized["title"],
+        metadata_=normalized["metadata"],
+        canonical_uri=normalized["canonical_uri"],
+        occurred_at=normalized.get("occurred_at"),
+    )
+    db_session.add(obj)
+    db_session.commit()
+    return obj
 
 
 def _embed_jobs_for_object(db_session, object_id: uuid.UUID) -> list[Job]:
@@ -369,7 +411,6 @@ def test_bootstrap_interruption_does_not_skip_unprocessed_items(
                 ],
                 "page-2",
             ),
-            ([_drive_file("file-3")], None),
         ],
     )
     service = _build_sync_service(
@@ -384,26 +425,289 @@ def test_bootstrap_interruption_does_not_skip_unprocessed_items(
     db_session.refresh(account)
     interrupted_state = normalize_drive_sync_state(account.drive_sync_state)
     assert interrupted_state["bootstrap_page_token"] is None
+    list_files_calls = [call for call in transport.calls if call[0] == "list_files"]
+    assert len(list_files_calls) == 1
 
-    transport.file_page_index = 0
-    second = service.sync_account(account.id, BOOTSTRAP_USER_ID)
-    assert second["created"] == 1
-    assert second["unchanged"] >= 2
 
-    file_ids = {
-        obj.external_id
-        for obj in db_session.scalars(
-            select(Object).where(
-                Object.provider == GOOGLE_DRIVE_PROVIDER,
-                Object.user_id == BOOTSTRAP_USER_ID,
-            )
-        )
-    }
-    assert {"file-1", "file-2", "file-3"} <= file_ids
+def test_unchanged_bootstrap_consumes_budget(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _create_account(
+        db_session,
+        credential_key,
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE],
+    )
+    for file_id in ("unch-1", "unch-2", "unch-3", "unch-4"):
+        _prefill_drive_object(db_session, account.id, file_id, file_item=_drive_file(file_id))
+
+    unchanged_files = [
+        _drive_file("unch-1"),
+        _drive_file("unch-2"),
+        _drive_file("unch-3"),
+        _drive_file("unch-4"),
+    ]
+    transport = FakeDriveTransport(
+        file_pages=[
+            (
+                unchanged_files,
+                "page-2",
+            ),
+        ],
+    )
+    service = _build_sync_service(
+        db_session,
+        credential_key,
+        oauth_client_file,
+        transport,
+        max_items_per_run=2,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 2
+    assert result["unchanged"] == 2
+    list_files_calls = [call for call in transport.calls if call[0] == "list_files"]
+    assert len(list_files_calls) == 1
+    assert list_files_calls[0][3] == 2
+
+
+def test_unchanged_incremental_consumes_budget(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _create_account(
+        db_session,
+        credential_key,
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE],
+    )
+    for file_id in ("inc-1", "inc-2", "inc-3"):
+        _prefill_drive_object(db_session, account.id, file_id, file_item=_drive_file(file_id))
+
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    store.update_drive_sync_state(
+        account,
+        {
+            "bootstrap_complete": True,
+            "bootstrap_start_page_token": None,
+            "bootstrap_page_token": None,
+            "changes_page_token": "changes-token-1",
+        },
+    )
+    db_session.commit()
+
+    def _unchanged_change(file_id: str) -> dict:
+        return {
+            "fileId": file_id,
+            "removed": False,
+            "file": _drive_file(file_id),
+        }
+
+    transport = FakeDriveTransport(
+        change_pages=[
+            (
+                [_unchanged_change("inc-1"), _unchanged_change("inc-2"), _unchanged_change("inc-3")],
+                "changes-token-2",
+                None,
+            ),
+        ],
+    )
+    service = _build_sync_service(
+        db_session,
+        credential_key,
+        oauth_client_file,
+        transport,
+        max_items_per_run=2,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 2
+    assert result["unchanged"] == 2
+    list_changes_calls = [call for call in transport.calls if call[0] == "list_changes"]
+    assert len(list_changes_calls) == 1
+    assert list_changes_calls[0][3] == 2
+
+
+def test_removed_unknown_item_consumes_budget(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _create_account(
+        db_session,
+        credential_key,
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE],
+    )
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    store.update_drive_sync_state(
+        account,
+        {
+            "bootstrap_complete": True,
+            "changes_page_token": "changes-token-1",
+            "bootstrap_start_page_token": None,
+            "bootstrap_page_token": None,
+        },
+    )
+    db_session.commit()
+
+    transport = FakeDriveTransport(
+        change_pages=[
+            (
+                [
+                    {"fileId": "missing-1", "removed": True},
+                    {"fileId": "missing-2", "removed": True},
+                    {"fileId": "missing-3", "removed": True},
+                ],
+                "changes-token-2",
+                None,
+            ),
+        ],
+    )
+    service = _build_sync_service(
+        db_session,
+        credential_key,
+        oauth_client_file,
+        transport,
+        max_items_per_run=2,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 2
+    assert result["unchanged"] == 2
+    list_changes_calls = [call for call in transport.calls if call[0] == "list_changes"]
+    assert len(list_changes_calls) == 1
+
+
+def test_bootstrap_start_token_survives_list_files_failure(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _create_account(
+        db_session,
+        credential_key,
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE],
+    )
+    transport = FakeDriveTransport(
+        start_page_token="T1",
+        file_pages=[([_drive_file("survive-1")], None)],
+        fail_list_files_once=True,
+    )
+    service = _build_sync_service(db_session, credential_key, oauth_client_file, transport)
+    with pytest.raises(GoogleApiError):
+        service.sync_account(account.id, BOOTSTRAP_USER_ID)
 
     db_session.refresh(account)
-    completed_state = normalize_drive_sync_state(account.drive_sync_state)
-    assert completed_state["bootstrap_complete"] is True
+    state = normalize_drive_sync_state(account.drive_sync_state)
+    assert state["bootstrap_start_page_token"] == "T1"
+    assert state["bootstrap_page_token"] is None
+
+    transport.file_page_index = 0
+    transport._list_files_failed = False
+    transport.fail_list_files_once = False
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["created"] == 1
+    start_token_calls = [call for call in transport.calls if call[0] == "get_start_page_token"]
+    assert len(start_token_calls) == 1
+
+
+def test_bootstrap_page_cursor_survives_later_failure(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _create_account(
+        db_session,
+        credential_key,
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE],
+    )
+    transport = FakeDriveTransport(
+        file_pages=[
+            ([_drive_file("page-1a"), _drive_file("page-1b")], "P2"),
+            ([_drive_file("page-2a")], None),
+        ],
+        file_page_failures={1: GoogleApiError("page 2 failed", operation="list_files")},
+    )
+    service = _build_sync_service(db_session, credential_key, oauth_client_file, transport)
+    with pytest.raises(GoogleApiError):
+        service.sync_account(account.id, BOOTSTRAP_USER_ID)
+
+    db_session.refresh(account)
+    state = normalize_drive_sync_state(account.drive_sync_state)
+    assert state["bootstrap_page_token"] == "P2"
+
+    transport.file_page_index = 1
+    transport.file_page_failures = {}
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["created"] == 1
+    list_files_calls = [call for call in transport.calls if call[0] == "list_files"]
+    assert any(call[2] == "P2" for call in list_files_calls)
+
+
+def test_incremental_page_cursor_survives_later_failure(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _create_account(
+        db_session,
+        credential_key,
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE],
+    )
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    store.update_drive_sync_state(
+        account,
+        {
+            "bootstrap_complete": True,
+            "bootstrap_start_page_token": None,
+            "bootstrap_page_token": None,
+            "changes_page_token": "C1",
+        },
+    )
+    db_session.commit()
+
+    transport = FakeDriveTransport(
+        change_pages=[
+            (
+                [
+                    {
+                        "fileId": "chg-1",
+                        "removed": False,
+                        "file": _drive_file("chg-1"),
+                    },
+                ],
+                "C2",
+                None,
+            ),
+            (
+                [
+                    {
+                        "fileId": "chg-2",
+                        "removed": False,
+                        "file": _drive_file("chg-2"),
+                    },
+                ],
+                None,
+                "new-start",
+            ),
+        ],
+        change_page_failures={1: GoogleApiError("changes page 2 failed", operation="list_changes")},
+    )
+    service = _build_sync_service(db_session, credential_key, oauth_client_file, transport)
+    with pytest.raises(GoogleApiError):
+        service.sync_account(account.id, BOOTSTRAP_USER_ID)
+
+    db_session.refresh(account)
+    state = normalize_drive_sync_state(account.drive_sync_state)
+    assert state["changes_page_token"] == "C2"
+
+    transport.change_page_index = 1
+    transport.change_page_failures = {}
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["created"] == 1
+    list_changes_calls = [call for call in transport.calls if call[0] == "list_changes"]
+    assert any(call[2] == "C2" for call in list_changes_calls)
 
 
 def test_incremental_changes_update_cursor_after_full_page(
