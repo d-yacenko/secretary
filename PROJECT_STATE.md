@@ -56,19 +56,21 @@ PHASE 27 — Source Completion: **in progress**.
 
 PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted / closed** (`f92ca0c`).
 
-PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
+PHASE 27B — Mattermost Read-Only Source Connector: **accepted / closed** (`1dc493d`).
 
 PHASE 27B-A — Mattermost Secure Connector & Sync Core: **accepted / closed** (`87b16cb`).
 
 PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed** (`96a5249`).
 
-PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **implementation complete, awaiting architect review + user matched-version E2E**.
+PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / closed** (part of 27B closure).
+
+PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next: **user matched-version manual E2E** on same branch SHA; then PHASE 27B closure. PHASE 27C (Drive/Disk) not started.
+Next: **architect review of PHASE 27C-R1** on branch `review/phase-27c-explicit-intake-google`. Superseded 27C-A/B full-drive experiments are not for merge/deploy.
 
-Safe External Actions follow Source Completion (PHASE 27B/27C).
+Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
 ## PHASE 27B-A verification (accepted at `87b16cb`)
 
@@ -83,11 +85,19 @@ Safe External Actions follow Source Completion (PHASE 27B/27C).
 - Focused tests: `test_phase_27b_operational.py` + PHASE 27A regression
 - No Flutter / deploy in this subphase
 
-## PHASE 27B-C verification (awaiting architect + user E2E)
+## PHASE 27B-C verification (accepted as part of 27B closure at `1dc493d`)
 
 - Flutter Mattermost connect UX on Account → Подключения; typed API models; provider `M` / Mattermost
 - Connect ensures recurring `sync_mattermost` row runnable immediately (no inline message sync on HTTP connect)
-- Matched-version manual E2E checklist prepared; production deploy deferred
+- Matched-version manual E2E completed; production deploy deferred until broader release policy
+
+## PHASE 27C-R1 verification (awaiting architect review)
+
+- Shared `POST /intake/link` explicit-link intake API
+- Google Drive: URL parser, single-file metadata lookup, Object upsert, OpenTarget
+- OAuth `drive.readonly` scope; `drive_available` in connection snapshot
+- No full-drive sync, no migration beyond Alembic `0019`
+- Superseded experiments `review/phase-27c-google-drive` and `review/phase-27c-google-drive-ops` — not for merge/deploy
 
 ## PHASE 26C verification (accepted)
 

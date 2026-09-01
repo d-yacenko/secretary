@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.connectors.google.calendar_sync import build_calendar_sync_service
-from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import (
+    CALENDAR_READONLY_SCOPE,
+    DRIVE_READONLY_SCOPE,
+    GMAIL_READONLY_SCOPE,
+)
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import (
     GoogleConfigurationError,
@@ -76,7 +80,7 @@ def google_oauth_callback(
         scopes = (
             str(granted_scope).split()
             if granted_scope
-            else [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE]
+            else [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE, DRIVE_READONLY_SCOPE]
         )
 
         gmail_transport = GmailTransport()

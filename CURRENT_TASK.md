@@ -1,51 +1,66 @@
-# Current task — PHASE 27B-C awaiting architect + user E2E
+# Current task — PHASE 27C-R1 awaiting architect review
 
 ## Status
 
-PHASE 27 — Source Completion: **in progress** (until manual matched-version E2E acceptance).
+PHASE 27 — Source Completion: **in progress**.
 
 PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted / closed** (`f92ca0c`).
 
-PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
+PHASE 27B — Mattermost Read-Only Source Connector: **accepted / closed** (`1dc493d`).
 
 PHASE 27B-A — Mattermost Secure Connector & Sync Core: **accepted / closed** (`87b16cb`).
 
 PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed** (`96a5249`).
 
-PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **implementation complete, awaiting architect review + user matched-version E2E**.
+PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / closed** (part of 27B closure).
 
-Do **not** merge, deploy to production `main`, or start PHASE 27C until 27B manual E2E acceptance.
+PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **implementation complete, awaiting architect review**.
 
-## PHASE 27B-C delivered
+Do **not** merge, deploy to production `main`, or start Yandex Disk / Flutter paste-drop until 27C-R1 review.
 
-- Flutter `MattermostConnection` model + `Connections.mattermost[]`
-- `SecretaryApiClient.connectMattermost(serverUrl, accessToken)` — PAT not stored/logged
-- Account → Подключения: list Mattermost accounts, connect dialog (Server URL + obscured PAT)
-- Provider presentation: glyph `M`, label `Mattermost` for `chat_message` in existing Inbox/Search/Graph UI
-- Generic source status + backend OpenTarget flow unchanged (trusted server from backend)
-- Backend connect: `ensure_recurring_source_job(sync_mattermost)` + trigger runnable now (no inline sync)
-- Focused Flutter + backend tests
+## Superseded experiments (do not merge / deploy)
 
-## Manual E2E (user, matched-version build)
+Previous technical branches treated as superseded after product-intent clarification:
 
-1. Аккаунт → Подключения → Подключить Mattermost
-2. Allowlisted server + PAT → account in list
-3. Mattermost in source status
-4. First read-only sync → messages in Inbox/recent
-5. Search known phrase → Open in Mattermost
-6. Assistant query with Mattermost evidence
-7. PAT not visible in UI/status/errors
+- `review/phase-27c-google-drive` (27C-A full-drive metadata sync)
+- `review/phase-27c-google-drive-ops` (27C-B recurring Drive sync / scheduler)
 
-## Not in 27B-C
+They implemented whole-drive crawl, not explicit user-selected resources.
 
-- Mattermost disconnect
+## PHASE 27C-R1 delivered
+
+- Shared `POST /intake/link` explicit-link intake contract
+- Google Drive URL parser (known hosts only; ID extraction; no arbitrary HTTP fetch)
+- Single-resource Drive metadata lookup (`GET /drive/v3/files/{id}` only)
+- Google OAuth `drive.readonly` scope + `drive_available` connection snapshot
+- Canonical `google_drive` Object upsert with idempotency
+- Trusted OpenTarget for `google_drive` file/folder
+- Focused backend tests
+
+## Product model (explicit intake)
+
+```text
+user explicitly pastes/drops/selects one resource
+→ Secretary resolves exactly that resource
+→ creates/refreshes exactly one Inbox Object
+→ later bounded content extraction/summarization (not in 27C-R1)
+```
+
+Cloud/local file sources are explicit-intake resources. Secretary does not crawl an entire cloud drive merely because an account is connected.
+
+## Not in 27C-R1
+
+- Yandex Disk explicit intake
+- Flutter paste/drop UX
+- Drive content download / export / summarization
+- Full-drive sync, `drive_sync_state`, migration `0020`, recurring `sync_google_drive`
 - Production deploy
-- PHASE 27C (Drive/Disk/local refresh)
 
 ## Roadmap — PHASE 27 Source Completion
 
 - **27A** — accepted (`f92ca0c`)
-- **27B** Mattermost — in progress (27B-C done, E2E pending)
-- **27C** Google Drive / Yandex Disk / Local Source Refresh — not started
+- **27B** Mattermost — accepted (`1dc493d`)
+- **27C-R1** Explicit Intake + Google Drive link — awaiting review
+- **27C-R2+** Yandex Disk link, Flutter paste/drop, local explicit intake alignment — not started
 
 Safe External Actions follow Source Completion.

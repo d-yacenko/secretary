@@ -10,6 +10,7 @@ from app.api.capture import router as capture_router
 from app.api.connections import router as connections_router
 from app.api.google import router as google_router
 from app.api.inbox import router as inbox_router
+from app.api.intake import router as intake_router
 from app.api.local import router as local_router
 from app.api.mattermost import router as mattermost_router
 from app.api.me import router as me_router
@@ -83,6 +84,7 @@ app.include_router(local_router)
 app.include_router(notifications_router)
 app.include_router(google_router)
 app.include_router(inbox_router)
+app.include_router(intake_router)
 app.include_router(sources_router)
 app.include_router(yandex_router)
 app.include_router(mattermost_router)

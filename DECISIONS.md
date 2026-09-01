@@ -174,8 +174,29 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 Major phase reordered before Safe External Actions.
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
-- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A accepted (`87b16cb`); 27B-B accepted (`96a5249`); 27B-C Flutter UX awaiting E2E
-- **27C** Google Drive, Yandex Disk, registered-folder local refresh — not started
+- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — accepted (`1dc493d`)
+- **27C-R1** Explicit Intake foundation + Google Drive link — awaiting architect review
+- Superseded after product clarification (not for merge/deploy): 27C-A full-drive sync (`review/phase-27c-google-drive`), 27C-B Drive ops (`review/phase-27c-google-drive-ops`)
+
+## Explicit intake product decision (PHASE 27C-R1)
+
+Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected.
+
+## PHASE 27B closure (accepted at `1dc493d`)
+
+PHASE 27B Mattermost connector accepted end-to-end including Flutter UX and matched-version E2E.
+
+## PHASE 27C-R1 — Explicit Intake foundation + Google Drive link (awaiting architect review)
+
+- `POST /intake/link` with bounded URL; response `object_id`, `provider`, `kind`, `status`
+- Google Drive URL parser: known `drive.google.com` / `docs.google.com` hosts only; extract file ID; no arbitrary HTTP fetch
+- Drive API: `GET /drive/v3/files/{id}` metadata only; no `files.list`, `changes.list`, `startPageToken`
+- OAuth: `drive.readonly` added to Google scopes; `drive_available` from stored scopes; intake fails before Drive API if scope missing
+- Object: `provider=google_drive`, `external_id=file_id`, canonical URI `https://drive.google.com/open?id=<id>`
+- Metadata: `account_id`, `file_id`, bounded provider fields, `intake_mode=explicit_link`; no tokens
+- Idempotent upsert; title change → embed; metadata-only → no extra embed
+- OpenTarget: backend-built canonical URL; ignores tampered `web_view_link` / `canonical_uri`
+- Deferred: Yandex Disk link, Flutter paste/drop, content download/export, full-drive recurring sync
 
 ## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
 
@@ -203,7 +224,7 @@ Major phase reordered before Safe External Actions.
 - `chat_message` continues through generic Object pipelines (embed, correlate, retrieval); no Mattermost-specific LLM tools.
 - Deferred in 27B-B: Flutter UX (27B-C), disconnect flow, production deploy.
 
-## PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep (awaiting architect + user E2E)
+## PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep (accepted as part of 27B closure)
 
 - Flutter: `MattermostConnection` model; `Connections.mattermost[]`; `connectMattermost(serverUrl, accessToken)`; PAT not stored/logged in client state after connect.
 - Account → Подключения: list connected Mattermost accounts; «Подключить Mattermost» dialog (Server URL + obscured PAT); success reloads `/connections`; sanitized errors without PAT.
