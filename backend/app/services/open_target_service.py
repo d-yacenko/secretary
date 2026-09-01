@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.connectors.google.drive_normalize import build_canonical_uri
 from app.connectors.mattermost.errors import MattermostSecurityError
 from app.connectors.mattermost.normalize import (
     build_external_id,
@@ -14,7 +15,7 @@ from app.connectors.mattermost.normalize import (
     parse_allowed_base_urls,
 )
 from app.core.config import settings
-from app.db.models import MattermostAccount, Object
+from app.db.models import GoogleAccount, MattermostAccount, Object
 from app.local.constants import PROVIDER_LOCAL_DEVICE
 from app.services.errors import NotFoundError
 
@@ -55,6 +56,8 @@ class OpenTargetService:
             return self._calendar_target(obj, meta)
         if provider == "mattermost" and obj.kind == "chat_message":
             return self._mattermost_target(obj, meta)
+        if provider == "google_drive" and obj.kind in {"file", "folder"}:
+            return self._google_drive_target(obj, meta)
         if obj.kind == "web_page":
             return self._web_target(obj)
         if provider == PROVIDER_LOCAL_DEVICE:
@@ -226,6 +229,64 @@ class OpenTargetService:
             action="unavailable",
             label=label,
             reason="mattermost_server_unsafe",
+        )
+
+    def _google_drive_target(self, obj: Object, meta: dict) -> OpenTarget:
+        label = "Открыть в Google Drive"
+        raw_account_id = meta.get("account_id")
+        file_id = str(meta.get("file_id") or "").strip()
+        if not raw_account_id or not file_id:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="google_drive_metadata_tampered",
+            )
+        try:
+            account_id = UUID(str(raw_account_id))
+        except ValueError:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="google_drive_metadata_tampered",
+            )
+
+        account = self._session.scalar(
+            select(GoogleAccount).where(
+                GoogleAccount.id == account_id,
+                GoogleAccount.user_id == self._user_id,
+            )
+        )
+        if account is None:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="google_drive_metadata_tampered",
+            )
+
+        if obj.external_id != file_id:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="google_drive_metadata_tampered",
+            )
+
+        url = build_canonical_uri(file_id)
+        if not self._is_safe_web_url(url):
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="google_drive_metadata_tampered",
+            )
+        return OpenTarget(
+            available=True,
+            action="web_url",
+            label=label,
+            url=url,
         )
 
     def _web_target(self, obj: Object) -> OpenTarget:

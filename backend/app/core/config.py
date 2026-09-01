@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     source_sync_gmail_interval_seconds: int = 120
     source_sync_yandex_mail_interval_seconds: int = 120
     source_sync_google_calendar_interval_seconds: int = 300
+    source_sync_google_drive_interval_seconds: int = 300
     source_sync_yandex_calendar_interval_seconds: int = 300
     source_sync_mattermost_interval_seconds: int = 120
     source_sync_scheduler_interval_seconds: int = 60
@@ -59,6 +60,7 @@ class Settings(BaseSettings):
         "source_sync_gmail_interval_seconds",
         "source_sync_yandex_mail_interval_seconds",
         "source_sync_google_calendar_interval_seconds",
+        "source_sync_google_drive_interval_seconds",
         "source_sync_yandex_calendar_interval_seconds",
         "source_sync_mattermost_interval_seconds",
     )

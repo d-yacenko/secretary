@@ -17,6 +17,7 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_DRIVE,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
     JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
@@ -28,6 +29,7 @@ from app.services.job_queue_service import utcnow
 SOURCE_TYPE_LABELS = {
     JOB_TYPE_SYNC_GOOGLE_GMAIL: ("gmail", "Gmail"),
     JOB_TYPE_SYNC_GOOGLE_CALENDAR: ("google_calendar", "Google Calendar"),
+    JOB_TYPE_SYNC_GOOGLE_DRIVE: ("google_drive", "Google Drive"),
     JOB_TYPE_SYNC_YANDEX_MAIL: ("yandex_mail", "Yandex Mail"),
     JOB_TYPE_SYNC_YANDEX_CALENDAR: ("yandex_calendar", "Yandex Calendar"),
     JOB_TYPE_SYNC_MATTERMOST: ("mattermost", "Mattermost"),

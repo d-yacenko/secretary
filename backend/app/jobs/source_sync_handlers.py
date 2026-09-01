@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.connectors.google.calendar_sync import build_calendar_sync_service
+from app.connectors.google.drive_sync import build_drive_sync_service
 from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.mattermost.sync import build_mattermost_sync_service
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
@@ -70,6 +71,16 @@ def _mattermost_sync_service(session: Session):
     )
 
 
+def _google_drive_sync_service(session: Session):
+    return build_drive_sync_service(
+        session=session,
+        credential_key=settings.secretary_credential_key,
+        client_file=settings.google_oauth_client_file,
+        redirect_uri=settings.google_redirect_uri,
+        max_items_per_run=settings.google_drive_max_items_per_run,
+    )
+
+
 def handle_sync_google_gmail(
     session: Session,
     _embedding_service,
@@ -118,3 +129,13 @@ def handle_sync_mattermost(
 ) -> None:
     account_id = UUID(str(payload["account_id"]))
     _mattermost_sync_service(session).sync_account(account_id, user_id=user_id)
+
+
+def handle_sync_google_drive(
+    session: Session,
+    _embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    account_id = UUID(str(payload["account_id"]))
+    _google_drive_sync_service(session).sync_account(account_id, user_id=user_id)

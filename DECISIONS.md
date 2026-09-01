@@ -175,18 +175,22 @@ Major phase reordered before Safe External Actions.
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
 - **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — accepted (`1dc493d`; user E2E accepted)
-- **27C** Google Drive, Yandex Disk, registered-folder local refresh — in progress; 27C-A Drive foundation awaiting architect review
+- **27C** Google Drive, Yandex Disk, registered-folder local refresh — in progress; 27C-A accepted (`2a4145f`); 27C-B operational sync + OpenTarget awaiting review
 
-## PHASE 27C-A — Google Drive read-only foundation (awaiting architect review)
+## PHASE 27C-B — Google Drive recurring sync + trusted OpenTarget (awaiting architect review)
 
-- OAuth scope `drive.readonly` added alongside gmail/calendar readonly; existing accounts without Drive scope keep Gmail/Calendar; `drive_available=false`; Drive sync fails with `google drive scope not granted` before any Drive API call.
-- `GoogleAccount.drive_sync_state` JSONB (migration `0020`): `bootstrap_complete`, `bootstrap_start_page_token`, `bootstrap_page_token`, `changes_page_token`.
-- Bounded bootstrap: `startPageToken` boundary → `files.list` (`trashed=false`, `spaces=drive`); max 500 items/run; resumable page cursor; on completion `changes_page_token` = bootstrap start token.
-- Incremental: `changes.list` with `includeRemoved=true`; cursor never skips unprocessed changes; `newStartPageToken` after full catch-up.
-- Objects: `provider=google_drive`, `kind=file|folder`, `external_id=file id`, canonical URI from file id only; `status=deleted` soft-hide; restore clears status.
-- `embed_object` on create/title change only; metadata-only updates without new embedding.
-- Manual `POST /connectors/google/drive/sync`; no recurring scheduler in 27C-A.
-- Deferred: Flutter, recurring sync, `/sources/status`, file content download, Docs export, OpenTarget UI, graph parent edges, Yandex Disk.
+- Recurring job `sync_google_drive` in `RECURRING_SOURCE_JOB_TYPES`; payload `{"account_id": "<uuid>"}` only; default interval 300s (`SOURCE_SYNC_GOOGLE_DRIVE_INTERVAL_SECONDS`, min 60s).
+- Worker handler: `handle_sync_google_drive` → `build_drive_sync_service` → `sync_account(account_id, user_id)`; no tokens/cursors in Job.payload.
+- `SourceSyncScheduler`: Drive row only when `drive.readonly` in account scopes; Gmail/Calendar rows unchanged for legacy accounts; maintenance, trigger, stale retirement, failed rearm.
+- `POST /sources/sync` triggers Drive recurring row; `GET /sources/status` shows `google_drive` with Google account email label.
+- `OpenTargetService`: explicit branch for `provider=google_drive`, `kind=file|folder`; provenance `account_id` + `file_id` + `external_id` match; URL only `https://drive.google.com/open?id=<file_id>`; ignores `canonical_uri` and `web_view_link`.
+- `POST /connectors/google/drive/sync` retained as direct connector/debug path.
+- Deferred: content download/export, Flutter, Yandex Disk, merge, production deploy.
+
+## PHASE 27C-A — Google Drive read-only foundation (accepted at `2a4145f`)
+
+- OAuth scope `drive.readonly`; `GoogleAccount.drive_sync_state` (migration `0020`); bounded bootstrap + incremental Changes sync; hard budget + durable cursors (`2a4145f`).
+- Objects `provider=google_drive`; manual `POST /connectors/google/drive/sync`; operational integration in 27C-B.
 
 ## PHASE 27B-C — Mattermost Flutter UX (accepted at `1dc493d`)
 

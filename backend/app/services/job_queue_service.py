@@ -15,6 +15,7 @@ from app.jobs.constants import (
     JOB_STATUS_RUNNING,
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_DRIVE,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
     JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
@@ -278,6 +279,7 @@ class JobQueueService:
             JOB_TYPE_SYNC_GOOGLE_GMAIL: settings.source_sync_gmail_interval_seconds,
             JOB_TYPE_SYNC_YANDEX_MAIL: settings.source_sync_yandex_mail_interval_seconds,
             JOB_TYPE_SYNC_GOOGLE_CALENDAR: settings.source_sync_google_calendar_interval_seconds,
+            JOB_TYPE_SYNC_GOOGLE_DRIVE: settings.source_sync_google_drive_interval_seconds,
             JOB_TYPE_SYNC_YANDEX_CALENDAR: settings.source_sync_yandex_calendar_interval_seconds,
             JOB_TYPE_SYNC_MATTERMOST: settings.source_sync_mattermost_interval_seconds,
         }

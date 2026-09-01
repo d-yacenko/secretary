@@ -66,9 +66,11 @@ PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / c
 
 PHASE 27C — Google Drive / Yandex Disk / Local Source Refresh: **in progress**.
 
-PHASE 27C-A — Google Drive Read-Only Foundation: **implementation complete, awaiting architect review**.
+PHASE 27C-A — Google Drive Read-Only Foundation: **accepted / closed** (`2a4145f`).
 
-Next: architect review of PHASE 27C-A; then 27C-B (scheduler/status/Flutter/OpenTarget as scoped).
+PHASE 27C-B — Google Drive Recurring Sync + Trusted OpenTarget: **implementation complete, awaiting architect review**.
+
+Next: architect review of PHASE 27C-B; then content ingestion (separate phase). No merge/deploy until review.
 
 Safe External Actions follow Source Completion (PHASE 27C).
 
@@ -90,14 +92,20 @@ Safe External Actions follow Source Completion (PHASE 27C).
 - Flutter Mattermost connect UX; recurring `sync_mattermost` on connect; compose env for `MATTERMOST_ALLOWED_BASE_URLS`
 - User Mattermost E2E accepted: new message appeared in Inbox
 
-## PHASE 27C-A verification (awaiting architect review)
+## PHASE 27C-A verification (accepted at `2a4145f`)
 
 - Alembic head: `0020`
-- OAuth includes `drive.readonly`; old accounts without scope: `drive_available=false`, Drive sync fails before API
-- Bounded bootstrap + incremental Changes cursor sync; manual `POST /connectors/google/drive/sync`
-- Focused tests: `test_phase_27c_google_drive.py` (18 passed)
-- Full pytest: 893 passed, 3 skipped
-- Deferred: recurring scheduler, `/sources/status`, Flutter, content download, OpenTarget UI, graph edges
+- OAuth `drive.readonly`; bounded bootstrap/incremental sync; manual `POST /connectors/google/drive/sync`
+- Budget/cursor corrective at `2a4145f`
+- Focused tests: `test_phase_27c_google_drive.py` (24 passed)
+
+## PHASE 27C-B verification (awaiting architect review)
+
+- Recurring `sync_google_drive` in scheduler/worker; interval 300s (`SOURCE_SYNC_GOOGLE_DRIVE_INTERVAL_SECONDS`)
+- `POST /sources/sync`, `GET /sources/status` for `google_drive`
+- Trusted OpenTarget for `google_drive` file/folder
+- Focused tests: `test_phase_27c_operational.py`
+- Alembic head remains `0020`; no merge/deploy in this subphase
 
 ## PHASE 27B-B verification (accepted at `96a5249`)
 

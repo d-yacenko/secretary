@@ -1,4 +1,4 @@
-# Current task — PHASE 27C-A awaiting architect review
+# Current task — PHASE 27C-B awaiting architect review
 
 ## Status
 
@@ -6,38 +6,35 @@ PHASE 27 — Source Completion: **in progress**.
 
 PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted / closed** (`f92ca0c`).
 
-PHASE 27B — Mattermost Read-Only Source Connector: **accepted / closed** (application SHA `1dc493d`; user Mattermost E2E accepted).
+PHASE 27B — Mattermost Read-Only Source Connector: **accepted / closed** (`1dc493d`).
 
-PHASE 27C — Google Drive / Yandex Disk / Local Source Refresh: **started**.
+PHASE 27C — Google Drive / Yandex Disk / Local Source Refresh: **in progress**.
 
-PHASE 27C-A — Google Drive Read-Only Foundation: **implementation complete, awaiting architect review**.
+PHASE 27C-A — Google Drive Read-Only Foundation: **accepted / closed** (`2a4145f`).
 
-Do **not** merge, deploy to production `main`, or start PHASE 27C-B until architect review.
+PHASE 27C-B — Google Drive Recurring Sync + Trusted OpenTarget: **implementation complete, awaiting architect review**.
 
-## PHASE 27C-A delivered
+Do **not** merge, deploy to production `main`, or start content ingestion until architect review.
 
-- OAuth: `drive.readonly` added to `GOOGLE_OAUTH_SCOPES` (with existing `prompt=consent`)
-- `drive_available` on Google connection snapshot (`/connections`)
-- Migration `0020`: `GoogleAccount.drive_sync_state` JSONB for provider cursors
-- Drive connector: transport (`files.list`, `changes.list`, `startPageToken`), normalize, bounded bootstrap + incremental sync
-- Canonical Objects: `provider=google_drive`, `kind=file|folder`, soft-delete via `status=deleted`
-- Manual endpoint: `POST /connectors/google/drive/sync` (optional `account_id`)
-- Focused tests: `test_phase_27c_google_drive.py`
+## PHASE 27C-B delivered
 
-## Not in 27C-A
+- Recurring job `sync_google_drive` (300s default) in existing scheduler/worker lifecycle
+- `POST /sources/sync` triggers Drive row; `GET /sources/status` shows `google_drive`
+- Trusted OpenTarget: `Открыть в Google Drive` from verified `account_id` + `file_id` only
+- Focused tests: `test_phase_27c_operational.py`
+- `POST /connectors/google/drive/sync` retained as direct connector/debug path (27C-A)
 
+## Not in 27C-B
+
+- Drive content download / export / Docs indexing
 - Flutter Drive UI
-- Recurring `sync_google_drive` scheduler / `/sources/status`
-- Drive file content download / Google Docs export
-- OpenTarget UI for Drive
 - Yandex Disk
-- Local folder refresh
-- Graph parent edges (only `metadata.parents`)
+- Merge to `main`, production deploy
 
 ## Roadmap — PHASE 27 Source Completion
 
 - **27A** — accepted (`f92ca0c`)
 - **27B** Mattermost — accepted (`1dc493d`)
-- **27C** Drive/Disk/local refresh — in progress (27C-A done, awaiting review)
+- **27C** Drive/Disk/local refresh — in progress (27C-A closed, 27C-B awaiting review)
 
 Safe External Actions follow Source Completion.

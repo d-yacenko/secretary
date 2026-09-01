@@ -3,7 +3,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
+from app.connectors.google.constants import (
+    CALENDAR_READONLY_SCOPE,
+    DRIVE_READONLY_SCOPE,
+    GMAIL_READONLY_SCOPE,
+)
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
@@ -22,6 +26,7 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_DRIVE,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
     JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
@@ -69,6 +74,10 @@ class SourceSyncScheduler:
                 user_id, JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id
             ):
                 triggered.append(f"google_calendar:{account.id}")
+            if DRIVE_READONLY_SCOPE in scopes and self._queue.trigger_recurring_source_job(
+                user_id, JOB_TYPE_SYNC_GOOGLE_DRIVE, account.id
+            ):
+                triggered.append(f"google_drive:{account.id}")
         yandex_mail_store = YandexMailAccountStore(self._session, encryption)
         for account in yandex_mail_store.list_accounts(user_id):
             if self._queue.trigger_recurring_source_job(
@@ -103,6 +112,12 @@ class SourceSyncScheduler:
             if CALENDAR_READONLY_SCOPE in scopes:
                 self._queue.ensure_recurring_source_job(
                     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+                    account.id,
+                    user_id,
+                )
+            if DRIVE_READONLY_SCOPE in scopes:
+                self._queue.ensure_recurring_source_job(
+                    JOB_TYPE_SYNC_GOOGLE_DRIVE,
                     account.id,
                     user_id,
                 )
@@ -149,6 +164,10 @@ class SourceSyncScheduler:
                 expected.add(
                     (JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id, account.user_id)
                 )
+            if DRIVE_READONLY_SCOPE in scopes:
+                expected.add(
+                    (JOB_TYPE_SYNC_GOOGLE_DRIVE, account.id, account.user_id)
+                )
         for account in self._session.scalars(select(YandexMailAccount)):
             expected.add((JOB_TYPE_SYNC_YANDEX_MAIL, account.id, account.user_id))
         for account in self._session.scalars(select(YandexCalendarAccount)):
@@ -194,6 +213,7 @@ class SourceSyncScheduler:
                         (
                             JOB_TYPE_SYNC_GOOGLE_GMAIL,
                             JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+                            JOB_TYPE_SYNC_GOOGLE_DRIVE,
                             JOB_TYPE_SYNC_YANDEX_MAIL,
                             JOB_TYPE_SYNC_YANDEX_CALENDAR,
                             JOB_TYPE_SYNC_MATTERMOST,

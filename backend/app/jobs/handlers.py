@@ -13,6 +13,7 @@ from app.jobs.constants import (
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_GOOGLE_DRIVE,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
     JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
@@ -20,6 +21,7 @@ from app.jobs.constants import (
 )
 from app.jobs.source_sync_handlers import (
     handle_sync_google_calendar,
+    handle_sync_google_drive,
     handle_sync_google_gmail,
     handle_sync_mattermost,
     handle_sync_yandex_calendar,
@@ -298,6 +300,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
     JOB_TYPE_SYNC_GOOGLE_GMAIL: handle_sync_google_gmail,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR: handle_sync_google_calendar,
+    JOB_TYPE_SYNC_GOOGLE_DRIVE: handle_sync_google_drive,
     JOB_TYPE_SYNC_YANDEX_MAIL: handle_sync_yandex_mail,
     JOB_TYPE_SYNC_YANDEX_CALENDAR: handle_sync_yandex_calendar,
     JOB_TYPE_SYNC_MATTERMOST: handle_sync_mattermost,
