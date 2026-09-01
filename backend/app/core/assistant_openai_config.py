@@ -20,24 +20,59 @@ class AssistantOpenAIConfigError(ValueError):
     pass
 
 
+def validate_assistant_reasoning_effort(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in ALLOWED_ASSISTANT_REASONING_EFFORTS:
+        allowed = ", ".join(sorted(ALLOWED_ASSISTANT_REASONING_EFFORTS))
+        raise AssistantOpenAIConfigError(
+            f"assistant_reasoning_effort must be one of: {allowed}"
+        )
+    return normalized
+
+
+def validate_assistant_verbosity(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in ALLOWED_ASSISTANT_VERBOSITY:
+        allowed = ", ".join(sorted(ALLOWED_ASSISTANT_VERBOSITY))
+        raise AssistantOpenAIConfigError(
+            f"assistant_verbosity must be one of: {allowed}"
+        )
+    return normalized
+
+
+def validate_assistant_model(value: str, allowed_models: list[str]) -> str:
+    model = value.strip()
+    if not model:
+        raise AssistantOpenAIConfigError("assistant_model cannot be blank")
+    if model not in allowed_models:
+        allowed = ", ".join(allowed_models)
+        raise AssistantOpenAIConfigError(
+            f"assistant_model must be one of: {allowed}"
+        )
+    return model
+
+
 def validated_assistant_openai_settings(settings: Settings) -> AssistantOpenAISettings:
     model = settings.openai_assistant_model.strip()
     if not model:
         raise AssistantOpenAIConfigError("OPENAI_ASSISTANT_MODEL cannot be blank")
 
-    reasoning_effort = settings.openai_assistant_reasoning_effort.strip().lower()
-    if reasoning_effort not in ALLOWED_ASSISTANT_REASONING_EFFORTS:
-        allowed = ", ".join(sorted(ALLOWED_ASSISTANT_REASONING_EFFORTS))
-        raise AssistantOpenAIConfigError(
-            f"OPENAI_ASSISTANT_REASONING_EFFORT must be one of: {allowed}"
+    try:
+        reasoning_effort = validate_assistant_reasoning_effort(
+            settings.openai_assistant_reasoning_effort
         )
+    except AssistantOpenAIConfigError as exc:
+        message = str(exc).replace(
+            "assistant_reasoning_effort",
+            "OPENAI_ASSISTANT_REASONING_EFFORT",
+        )
+        raise AssistantOpenAIConfigError(message) from exc
 
-    verbosity = settings.openai_assistant_verbosity.strip().lower()
-    if verbosity not in ALLOWED_ASSISTANT_VERBOSITY:
-        allowed = ", ".join(sorted(ALLOWED_ASSISTANT_VERBOSITY))
-        raise AssistantOpenAIConfigError(
-            f"OPENAI_ASSISTANT_VERBOSITY must be one of: {allowed}"
-        )
+    try:
+        verbosity = validate_assistant_verbosity(settings.openai_assistant_verbosity)
+    except AssistantOpenAIConfigError as exc:
+        message = str(exc).replace("assistant_verbosity", "OPENAI_ASSISTANT_VERBOSITY")
+        raise AssistantOpenAIConfigError(message) from exc
 
     max_output_tokens = settings.openai_assistant_max_output_tokens
     if not MIN_ASSISTANT_MAX_OUTPUT_TOKENS <= max_output_tokens <= MAX_ASSISTANT_MAX_OUTPUT_TOKENS:

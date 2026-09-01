@@ -70,11 +70,15 @@ PHASE 27C-R2 — Yandex Disk explicit share-link intake: **accepted / closed** (
 
 PHASE 27C-R3 — Local explicit file/folder semantics: **accepted / closed** (`8d64f2cd907bb02f2edc1c223bba93185324d5d0`).
 
-PHASE 27C-R4A — Inbox Explicit Intake UI: **implementation complete, awaiting architect review**.
+PHASE 27C-R4A — Inbox Explicit Intake UI: **accepted / closed** (`70117058ce6472f2d1e3d11015a09137f8a2d047`).
+
+PHASE 27C — Yandex Account UX corrective: **accepted / closed** (`70117058ce6472f2d1e3d11015a09137f8a2d047`).
+
+PHASE 28A — User Profile & Per-User Settings Foundation: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next: **architect review of PHASE 27C-R4A** on branch `review/phase-27c-inbox-explicit-intake`.
+Next: **architect review of PHASE 28A** on branch `review/phase-28a-user-profile-settings`.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -122,7 +126,20 @@ Safe External Actions follow Source Completion (PHASE 27C explicit intake track)
 - Preserves device display name and existing root policy on repeat intake
 - No migration beyond Alembic `0019`
 
-## PHASE 27C-R4A verification (awaiting architect review)
+## PHASE 28A verification (awaiting architect review)
+
+- Migration `0020_user_settings`: `user_settings`, `user_openai_credentials`; Alembic head `0020`
+- `EffectiveUserSettingsService` + encrypted per-user OpenAI credential (`SECRETARY_CREDENTIAL_KEY`)
+- APIs: `GET/PATCH /me`, `GET/PATCH /me/settings`, `PUT/DELETE /me/credentials/openai`
+- Assistant `POST /assistant/message` uses effective per-user AI settings/key
+- Account UI: **Профиль** / **ИИ** / **Подключения**; local intake controls removed from Account only
+- `ruff check` on changed backend files: PASS
+- `pytest`: 965 passed, 3 skipped
+- `flutter test test/account/`: 32 passed
+- `flutter test test/inbox/inbox_explicit_intake_test.dart`: 14 passed
+- `flutter analyze`: 0 errors (pre-existing warnings)
+
+## PHASE 27C-R4A verification (accepted at `70117058ce6472f2d1e3d11015a09137f8a2d047`)
 
 - Inbox intake bar: cloud link paste + Add; local file/folder icon buttons
 - `SecretaryApiClient.intakeLink()`; explicit intake refreshes Inbox without `/sources/sync`

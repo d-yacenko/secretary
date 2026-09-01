@@ -14,6 +14,37 @@ class UserMe {
   }
 }
 
+class UserSettings {
+  UserSettings({
+    required this.timezone,
+    required this.assistantModel,
+    required this.assistantReasoningEffort,
+    required this.assistantVerbosity,
+    required this.openaiKeyConfigured,
+    required this.allowedAssistantModels,
+  });
+
+  final String timezone;
+  final String assistantModel;
+  final String assistantReasoningEffort;
+  final String assistantVerbosity;
+  final bool openaiKeyConfigured;
+  final List<String> allowedAssistantModels;
+
+  factory UserSettings.fromJson(Map<String, dynamic> json) {
+    return UserSettings(
+      timezone: json['timezone'] as String,
+      assistantModel: json['assistant_model'] as String,
+      assistantReasoningEffort: json['assistant_reasoning_effort'] as String,
+      assistantVerbosity: json['assistant_verbosity'] as String,
+      openaiKeyConfigured: json['openai_key_configured'] as bool,
+      allowedAssistantModels: (json['allowed_assistant_models'] as List<dynamic>)
+          .map((item) => item as String)
+          .toList(),
+    );
+  }
+}
+
 class GoogleConnection {
   GoogleConnection({
     required this.connected,

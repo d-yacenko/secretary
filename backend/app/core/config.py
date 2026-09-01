@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     openai_assistant_reasoning_effort: str = "low"
     openai_assistant_verbosity: str = "low"
     openai_assistant_max_output_tokens: int = 1600
+    openai_allowed_assistant_models: str = ""
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
     secretary_timezone: str = "Europe/Amsterdam"
     mcp_enabled: bool = False
@@ -68,6 +69,16 @@ class Settings(BaseSettings):
                 f"source sync interval must be >= {MIN_SOURCE_SYNC_INTERVAL_SECONDS} seconds"
             )
         return value
+
+    @property
+    def allowed_assistant_models(self) -> list[str]:
+        raw = self.openai_allowed_assistant_models.strip()
+        if raw:
+            models = [item.strip() for item in raw.split(",") if item.strip()]
+            if models:
+                return models
+        default_model = self.openai_assistant_model.strip()
+        return [default_model] if default_model else []
 
     @property
     def database_url(self) -> str:

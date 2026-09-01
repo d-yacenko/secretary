@@ -27,7 +27,7 @@ from app.core.assistant_openai_config import (
 )
 from app.core.client_timezone import (
     clear_request_timezone,
-    resolve_client_timezone,
+    resolve_assistant_request_timezone,
     set_request_timezone,
 )
 from app.core.config import settings
@@ -39,6 +39,7 @@ from app.llm.openai_assistant_provider import (
     OpenAIAssistantProvider,
 )
 from app.services.action_plan_service import ActionPlanService, PendingActionPlanView
+from app.services.effective_user_settings_service import EffectiveUserSettings
 from app.services.errors import NotFoundError, ValidationError
 from app.services.notification_service import NotificationService
 from app.services.secretary_service import normalize_reference_datetime
@@ -128,9 +129,15 @@ class AssistantProvider:
 
 
 class AssistantService:
-    def __init__(self, user_id: UUID, provider: AssistantProvider) -> None:
+    def __init__(
+        self,
+        user_id: UUID,
+        provider: AssistantProvider,
+        user_timezone: str | None = None,
+    ) -> None:
         self._user_id = user_id
         self._provider = provider
+        self._user_timezone = user_timezone or settings.secretary_timezone
 
     def send_message(
         self,
@@ -150,7 +157,11 @@ class AssistantService:
         self._validate_context_ids(context_object_id, context_notification_id)
         ui_context_result = self._build_ui_context(context_object_id, context_notification_id)
         try:
-            tz_name = resolve_client_timezone(client_timezone_id, client_utc_offset_minutes)
+            tz_name = resolve_assistant_request_timezone(
+                client_timezone_id,
+                client_utc_offset_minutes,
+                self._user_timezone,
+            )
         except ValidationError as exc:
             raise AssistantValidationError(exc.message) from exc
         set_request_timezone(tz_name)
@@ -629,6 +640,24 @@ def _normalize_history(history: list[AssistantHistoryMessage]) -> list[Assistant
             raise AssistantValidationError("history exceeds maximum total length")
         normalized.append(AssistantHistoryMessage(role=role, content=content))
     return normalized
+
+
+def create_assistant_provider_from_effective(
+    effective: EffectiveUserSettings,
+) -> OpenAIAssistantProvider:
+    if not effective.openai_api_key:
+        raise AssistantConfigurationError("OpenAI API key is not configured")
+    try:
+        deployment_settings = validated_assistant_openai_settings(settings)
+    except AssistantOpenAIConfigError as exc:
+        raise AssistantConfigurationError(str(exc)) from exc
+    return OpenAIAssistantProvider(
+        api_key=effective.openai_api_key,
+        model=effective.assistant_model,
+        reasoning_effort=effective.assistant_reasoning_effort,
+        verbosity=effective.assistant_verbosity,
+        max_output_tokens=deployment_settings.max_output_tokens,
+    )
 
 
 def create_assistant_provider() -> OpenAIAssistantProvider:

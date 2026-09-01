@@ -289,3 +289,40 @@ Cloud/local file sources are **explicit-intake** resources. User pastes/drops/se
 
 PHASE 26A + 26B + 26C accepted as one major phase. Full PHASE 26 closed at `5c4ffc40`.
 
+## PHASE 28A — Configuration ownership (deployment vs user profile)
+
+Starting PHASE 28A, configuration is split explicitly:
+
+**DEPLOYMENT ONLY (.env / server operator policy):**
+
+- `postgres_*` connection
+- API host/port
+- filesystem/resource roots
+- `SECRETARY_CREDENTIAL_KEY`
+- Google OAuth application client/config
+- public OAuth callback URL
+- global SSRF/domain allowlists
+- hard safety/cost limits
+- scheduler internal limits
+
+**USER OWNED (database / profile APIs):**
+
+- display name
+- timezone
+- OpenAI Assistant API key (encrypted `user_openai_credentials`)
+- Assistant model, reasoning effort, verbosity (`user_settings`)
+- provider connections (typed credential stores: Google, Yandex, Mattermost, …)
+
+**USER OWNED LATER (not 28A):**
+
+- per-source enabled/disabled preferences
+- per-source sync cadence/preferences
+- sync history depth within server limits
+- background AI / embedding / transcription preferences
+
+**Precedence:** deployment hard policy → user preference → deployment default → application default. For credentials: user-specific credential → deployment fallback (where explicitly allowed).
+
+Legacy env defaults (`OPENAI_API_KEY`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ASSISTANT_REASONING_EFFORT`, `OPENAI_ASSISTANT_VERBOSITY`, `SECRETARY_TIMEZONE`) remain as migration fallbacks until all consumers are moved (28B+).
+
+Provider connection credentials stay in typed encrypted tables, not a generic JSON settings blob.
+

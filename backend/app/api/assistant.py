@@ -10,6 +10,7 @@ from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_FAILED,
 )
 from app.assistant.transcription_constants import AUDIO_TOO_LARGE
+from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.current_user import CurrentUserContext
 from app.llm.assistant_models import AssistantHistoryMessage
 from app.llm.openai_assistant_provider import AssistantProviderError
@@ -25,7 +26,9 @@ from app.services.assistant_service import (
     AssistantService,
     AssistantValidationError,
     create_assistant_provider,
+    create_assistant_provider_from_effective,
 )
+from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.errors import NotFoundError, ValidationError
 from app.services.transcription_service import (
     TranscriptionConfigurationError,
@@ -110,10 +113,15 @@ class AssistantTranscribeResponse(BaseModel):
     text: str
 
 
-def get_assistant_provider() -> AssistantProvider:
+def get_assistant_provider(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> AssistantProvider:
     try:
-        return create_assistant_provider()
-    except AssistantConfigurationError as exc:
+        settings_service = EffectiveUserSettingsService.build(session)
+        effective = settings_service.get_effective_settings(current_user.user_id)
+        return create_assistant_provider_from_effective(effective)
+    except (AssistantConfigurationError, AssistantOpenAIConfigError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=ASSISTANT_PROVIDER_UNAVAILABLE,
@@ -121,10 +129,23 @@ def get_assistant_provider() -> AssistantProvider:
 
 
 def get_assistant_service(
+    session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
     provider: AssistantProvider = Depends(get_assistant_provider),
 ) -> AssistantService:
-    return AssistantService(current_user.user_id, provider)
+    try:
+        settings_service = EffectiveUserSettingsService.build(session)
+        effective = settings_service.get_effective_settings(current_user.user_id)
+    except AssistantOpenAIConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+        ) from exc
+    return AssistantService(
+        current_user.user_id,
+        provider,
+        user_timezone=effective.timezone,
+    )
 
 
 def get_transcription_provider() -> TranscriptionProvider:

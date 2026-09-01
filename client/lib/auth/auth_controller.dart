@@ -161,6 +161,11 @@ class AuthController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> refreshUser() async {
+    user = await _apiClient.getMe();
+    notifyListeners();
+  }
 }
 
 /// Pops authenticated routes when the session ends so Auth Setup is visible.

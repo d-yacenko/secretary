@@ -1,41 +1,33 @@
-# Current task — PHASE 27C-R4A awaiting architect review
+# Current task — PHASE 28A awaiting architect review
 
 ## Status
 
-PHASE 27 — Source Completion: **in progress**.
+PHASE 28A — User Profile & Per-User Settings Foundation: **implementation complete, awaiting architect review**.
 
-PHASE 27A — accepted / closed (`f92ca0c`).
+Yandex Account UX corrective: **accepted / closed** at `70117058ce6472f2d1e3d11015a09137f8a2d047`.
 
-PHASE 27B — accepted / closed (`1dc493d`).
+Do **not** merge, deploy, or start 28B until review.
 
-PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`).
+## PHASE 28A delivered
 
-PHASE 27C-R2 — Yandex Disk explicit share-link intake: **accepted / closed** (`374db8a`).
+- Migration `0020_user_settings`: `user_settings` + `user_openai_credentials`
+- `EffectiveUserSettingsService`: typed effective settings with deployment fallbacks
+- Profile/settings APIs: `GET/PATCH /me`, `GET/PATCH /me/settings`, `PUT/DELETE /me/credentials/openai`
+- Assistant message path uses per-user AI settings and OpenAI credential (deployment fallback)
+- Account UI: sections **Профиль**, **ИИ**, **Подключения**; local file/folder intake removed from Account (Inbox only)
+- `OPENAI_ALLOWED_ASSISTANT_MODELS` deployment policy for Assistant model choice
 
-PHASE 27C-R3 — Local explicit file/folder semantics: **accepted / closed** (`8d64f2c`).
+## Architectural rule (from 28A)
 
-PHASE 27C-R4A — Inbox Explicit Intake UI: **implementation complete, awaiting architect review**.
-
-Do **not** merge, deploy, or start R4B until review.
-
-## PHASE 27C-R4A delivered
-
-- Inbox intake bar: cloud link paste + Add; file/folder icon buttons
-- `SecretaryApiClient.intakeLink()` for `POST /intake/link`
-- Local file/folder pickers and Linux drag/drop via existing `LocalIntakeActions` (inbox mode)
-- Explicit intake refreshes Inbox without `/sources/sync`
-- Browser cloud-link drag/drop deferred to R4B
-
-## Product model
-
-Inbox is the primary explicit-intake boundary for cloud links and local resources. Selecting a folder does not imply importing its children.
+`.env` describes deployment. User Profile (database) describes the user. Provider connection credentials remain typed encrypted DB records, not a generic JSON settings blob.
 
 ## Branch
 
-`review/phase-27c-inbox-explicit-intake` from `8d64f2cd907bb02f2edc1c223bba93185324d5d0`.
+`review/phase-28a-user-profile-settings` from `70117058ce6472f2d1e3d11015a09137f8a2d047`.
 
-## Not in R4A
+## Not in 28A
 
-- Browser cloud-link drag/drop (R4B)
-- Folder child import
-- Content summarization
+- Embedding / transcription / background AI migration (28B)
+- Source sync preferences (28C)
+- Scheduler interval / sync depth migration
+- Google Drive 403 corrective

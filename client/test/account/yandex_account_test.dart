@@ -11,6 +11,8 @@ import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 
+import 'account_test_helpers.dart';
+
 const _baseUrl = 'https://secretary.example';
 const _token = 'opaque-test-token';
 const _appPassword = 'yandex-app-password-secret';
@@ -57,13 +59,7 @@ AuthController _buildAuth(SecretaryApiClient apiClient) {
 }
 
 Future<void> _pumpAccountReady(WidgetTester tester, Widget child) async {
-  await tester.pumpWidget(MaterialApp(home: child));
-  for (var i = 0; i < 40; i++) {
-    await tester.pump(const Duration(milliseconds: 50));
-    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
-      break;
-    }
-  }
+  await pumpAccountReady(tester, child);
 }
 
 void main() {
@@ -99,6 +95,12 @@ void main() {
           if (request.url.path.endsWith('/connections')) {
             return http.Response(jsonEncode(_connectionsJson()), 200);
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -106,7 +108,7 @@ void main() {
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: client, authController: _buildAuth(client)),
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
       );
 
       expect(find.text('Подключить Яндекс'), findsOneWidget);
@@ -118,6 +120,12 @@ void main() {
           if (request.url.path.endsWith('/connections')) {
             return http.Response(jsonEncode(_connectionsJson()), 200);
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -127,7 +135,7 @@ void main() {
         tester,
         AccountScreen(apiClient: client, authController: _buildAuth(client)),
       );
-      await tester.tap(find.text('Подключить Яндекс'));
+      await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
       expect(find.widgetWithText(TextField, 'Email'), findsOneWidget);
@@ -190,6 +198,9 @@ void main() {
               200,
             );
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -199,7 +210,7 @@ void main() {
         tester,
         AccountScreen(apiClient: client, authController: _buildAuth(client)),
       );
-      await tester.tap(find.text('Подключить Яндекс'));
+      await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
       await tester.enterText(find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
@@ -235,6 +246,9 @@ void main() {
           if (request.url.path.endsWith('/connectors/yandex/calendar/connect')) {
             return http.Response(jsonEncode({'detail': 'calendar failed'}), 400);
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -244,7 +258,7 @@ void main() {
         tester,
         AccountScreen(apiClient: client, authController: _buildAuth(client)),
       );
-      await tester.tap(find.text('Подключить Яндекс'));
+      await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
       await tester.enterText(find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
@@ -295,6 +309,9 @@ void main() {
           if (request.url.path.endsWith('/connectors/yandex/calendar/connect')) {
             return http.Response(jsonEncode({'detail': 'calendar unauthorized'}), 401);
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -305,7 +322,7 @@ void main() {
         tester,
         AccountScreen(apiClient: client, authController: auth),
       );
-      await tester.tap(find.text('Подключить Яндекс'));
+      await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
       await tester.enterText(find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');

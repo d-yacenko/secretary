@@ -13,6 +13,8 @@ import 'package:personal_secretary/auth/token_store.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import 'account_test_helpers.dart';
+
 const _baseUrl = 'https://secretary.example';
 const _token = 'opaque-test-token';
 
@@ -53,13 +55,7 @@ AuthController _buildAuth(SecretaryApiClient apiClient) {
 }
 
 Future<void> _pumpAccountReady(WidgetTester tester, Widget child) async {
-  await tester.pumpWidget(MaterialApp(home: child));
-  for (var i = 0; i < 40; i++) {
-    await tester.pump(const Duration(milliseconds: 50));
-    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
-      break;
-    }
-  }
+  await pumpAccountReady(tester, child);
 }
 
 class _RecordingUrlLauncher extends UrlLauncherPlatform {
@@ -130,14 +126,12 @@ void main() {
   });
 
   group('Account Google OAuth UI', () {
-    late _RecordingUrlLauncher launcher;
-
-    setUp(() {
-      launcher = _RecordingUrlLauncher();
-      UrlLauncherPlatform.instance = launcher;
+    test('connections json with drive available parses', () {
+      final connections = Connections.fromJson(_connectionsJson(driveAvailable: true));
+      expect(connections.google.driveAvailable, isTrue);
     });
 
-    testWidgets('shows Google Drive availability', (tester) async {
+    test('mock client returns connections', () async {
       final mock = MockClient((request) async {
         if (request.url.path.endsWith('/connections')) {
           return http.Response(
@@ -149,11 +143,31 @@ void main() {
       });
       final apiClient = SecretaryApiClient(httpClient: mock);
       apiClient.configure(baseUrl: _baseUrl, token: _token);
+      final connections = await apiClient.getConnections();
+      expect(connections.google.driveAvailable, isTrue);
+    });
 
-      await _pumpAccountReady(
-        tester,
-        AccountScreen(apiClient: apiClient, authController: _buildAuth(apiClient)),
+    late _RecordingUrlLauncher launcher;
+
+    setUp(() {
+      launcher = _RecordingUrlLauncher();
+      UrlLauncherPlatform.instance = launcher;
+    });
+
+    testWidgets('shows Google Drive availability', (tester) async {
+      final apiClient = buildAccountApiClient();
+      apiClient.configure(baseUrl: _baseUrl, token: _token);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: buildAccountScreen(
+            apiClient: apiClient,
+            authController: _buildAuth(apiClient),
+            connectionsJson: _connectionsJson(driveAvailable: true),
+          ),
+        ),
       );
+      await tester.pump();
 
       expect(find.text('Google Drive доступен: подключено'), findsOneWidget);
       expect(find.text('Gmail доступен: подключено'), findsOneWidget);
@@ -161,18 +175,15 @@ void main() {
     });
 
     testWidgets('missing Drive scope shows allow button', (tester) async {
-      final mock = MockClient((request) async {
-        if (request.url.path.endsWith('/connections')) {
-          return http.Response(jsonEncode(_connectionsJson()), 200);
-        }
-        return http.Response('{}', 404);
-      });
-      final apiClient = SecretaryApiClient(httpClient: mock);
+      final apiClient = buildAccountApiClient();
       apiClient.configure(baseUrl: _baseUrl, token: _token);
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: apiClient, authController: _buildAuth(apiClient)),
+        buildAccountScreen(
+          apiClient: apiClient,
+          authController: _buildAuth(apiClient),
+        ),
       );
 
       expect(find.text('Google Drive доступен: не подключено'), findsOneWidget);
@@ -196,18 +207,32 @@ void main() {
             200,
           );
         }
+        if (isAccountSettingsRequest(request.url)) {
+          return http.Response(jsonEncode(accountSettingsJson()), 200);
+        }
         return http.Response('{}', 404);
       });
-      final apiClient = SecretaryApiClient(httpClient: mock);
+      final apiClient = buildAccountApiClient(
+        connectionsJson: _connectionsJson(),
+        httpClient: mock,
+      );
       apiClient.configure(baseUrl: _baseUrl, token: _token);
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: apiClient, authController: _buildAuth(apiClient)),
+        buildAccountScreen(
+          apiClient: apiClient,
+          authController: _buildAuth(apiClient),
+        ),
       );
 
-      await tester.tap(find.text('Разрешить Google Drive'));
-      await tester.pumpAndSettle();
+      await tapAccountText(tester, 'Разрешить Google Drive');
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (authPath != null) {
+          break;
+        }
+      }
 
       expect(authPath, isNotNull);
       expect(authPath!.contains('/auth/google/start'), isFalse);
@@ -226,6 +251,9 @@ void main() {
             200,
           );
         }
+        if (isAccountSettingsRequest(request.url)) {
+          return http.Response(jsonEncode(accountSettingsJson()), 200);
+        }
         return http.Response('{}', 404);
       });
       final apiClient = SecretaryApiClient(httpClient: mock);
@@ -233,17 +261,26 @@ void main() {
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: apiClient, authController: _buildAuth(apiClient)),
+        AccountScreen(
+          apiClient: apiClient,
+          authController: _buildAuth(apiClient),
+          initialSettings: UserSettings.fromJson(accountSettingsJson()),
+        ),
       );
+
       expect(find.text('Google Drive доступен: не подключено'), findsOneWidget);
 
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
+      final binding = tester.binding;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
       for (var i = 0; i < 40; i++) {
         await tester.pump(const Duration(milliseconds: 50));
-        if (find.text('Google Drive доступен: доступен').evaluate().isNotEmpty) {
+        if (find.text('Google Drive доступен: подключено').evaluate().isNotEmpty) {
           break;
         }
       }

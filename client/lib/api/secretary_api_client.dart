@@ -51,6 +51,47 @@ class SecretaryApiClient {
     return UserMe.fromJson(body);
   }
 
+  Future<UserMe> patchMe({required String displayName}) async {
+    final body = await _request('PATCH', '/me', jsonBody: {'display_name': displayName});
+    return UserMe.fromJson(body);
+  }
+
+  Future<UserSettings> getSettings() async {
+    final body = await _request('GET', '/me/settings');
+    return UserSettings.fromJson(body);
+  }
+
+  Future<UserSettings> patchSettings({
+    String? timezone,
+    String? assistantModel,
+    String? assistantReasoningEffort,
+    String? assistantVerbosity,
+  }) async {
+    final jsonBody = <String, dynamic>{};
+    if (timezone != null) {
+      jsonBody['timezone'] = timezone;
+    }
+    if (assistantModel != null) {
+      jsonBody['assistant_model'] = assistantModel;
+    }
+    if (assistantReasoningEffort != null) {
+      jsonBody['assistant_reasoning_effort'] = assistantReasoningEffort;
+    }
+    if (assistantVerbosity != null) {
+      jsonBody['assistant_verbosity'] = assistantVerbosity;
+    }
+    final body = await _request('PATCH', '/me/settings', jsonBody: jsonBody);
+    return UserSettings.fromJson(body);
+  }
+
+  Future<void> putOpenaiCredential(String apiKey) async {
+    await _request('PUT', '/me/credentials/openai', jsonBody: {'api_key': apiKey});
+  }
+
+  Future<void> deleteOpenaiCredential() async {
+    await _request('DELETE', '/me/credentials/openai');
+  }
+
   Future<Connections> getConnections() async {
     final body = await _request('GET', '/connections');
     return Connections.fromJson(body);

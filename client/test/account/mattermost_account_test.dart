@@ -10,6 +10,8 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
+
+import 'account_test_helpers.dart';
 import 'package:personal_secretary/ui/object_presentation.dart';
 
 const _baseUrl = 'https://secretary.example';
@@ -64,13 +66,7 @@ AuthController _buildAuth(SecretaryApiClient apiClient) {
 }
 
 Future<void> _pumpAccountReady(WidgetTester tester, Widget child) async {
-  await tester.pumpWidget(MaterialApp(home: child));
-  for (var i = 0; i < 40; i++) {
-    await tester.pump(const Duration(milliseconds: 50));
-    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
-      break;
-    }
-  }
+  await pumpAccountReady(tester, child);
 }
 
 void main() {
@@ -150,22 +146,19 @@ void main() {
 
   group('AccountScreen Mattermost UX', () {
     testWidgets('renders connected Mattermost account', (tester) async {
-      final client = SecretaryApiClient(
-        httpClient: MockClient((request) async {
-          return http.Response(
-            jsonEncode(
-              _connectionsJson(mattermost: [_mattermostAccountJson()]),
-            ),
-            200,
-          );
-        }),
-      );
+      final client = buildAccountApiClient();
       client.configure(baseUrl: _baseUrl, token: _token);
       final auth = _buildAuth(client);
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: client, authController: auth),
+        buildAccountScreen(
+          apiClient: client,
+          authController: auth,
+          connectionsJson: accountConnectionsJson(
+            mattermost: [_mattermostAccountJson()],
+          ),
+        ),
       );
 
       expect(find.textContaining('Mattermost: Alice @ mm.example.com'), findsOneWidget);
@@ -174,20 +167,16 @@ void main() {
     });
 
     testWidgets('connect button opens server and obscured PAT form', (tester) async {
-      final client = SecretaryApiClient(
-        httpClient: MockClient((request) async {
-          return http.Response(jsonEncode(_connectionsJson()), 200);
-        }),
-      );
+      final client = buildAccountApiClient();
       client.configure(baseUrl: _baseUrl, token: _token);
       final auth = _buildAuth(client);
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: client, authController: auth),
+        buildAccountScreen(apiClient: client, authController: auth),
       );
 
-      await tester.tap(find.text('Подключить Mattermost'));
+      await tapAccountText(tester, 'Подключить Mattermost');
       await tester.pumpAndSettle();
 
       expect(find.text('Подключить Mattermost'), findsWidgets);
@@ -219,6 +208,9 @@ void main() {
               200,
             );
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -229,7 +221,7 @@ void main() {
         tester,
         AccountScreen(apiClient: client, authController: auth),
       );
-      await tester.tap(find.text('Подключить Mattermost'));
+      await tapAccountText(tester, 'Подключить Mattermost');
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -267,6 +259,9 @@ void main() {
               headers: {'content-type': 'application/json'},
             );
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -275,9 +270,9 @@ void main() {
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: client, authController: auth),
+        buildAccountScreen(apiClient: client, authController: auth),
       );
-      await tester.tap(find.text('Подключить Mattermost'));
+      await tapAccountText(tester, 'Подключить Mattermost');
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -317,6 +312,9 @@ void main() {
               200,
             );
           }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
           return http.Response('{}', 404);
         }),
       );
@@ -325,9 +323,9 @@ void main() {
 
       await _pumpAccountReady(
         tester,
-        AccountScreen(apiClient: client, authController: auth),
+        buildAccountScreen(apiClient: client, authController: auth),
       );
-      await tester.tap(find.text('Подключить Mattermost'));
+      await tapAccountText(tester, 'Подключить Mattermost');
       await tester.pumpAndSettle();
 
       await tester.enterText(

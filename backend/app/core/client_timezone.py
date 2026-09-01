@@ -22,6 +22,25 @@ def get_request_timezone() -> str:
     return active if active is not None else settings.secretary_timezone
 
 
+def resolve_assistant_request_timezone(
+    zone_id: str | None,
+    utc_offset_minutes: int | None,
+    user_timezone: str,
+) -> str:
+    """Resolve timezone for Assistant requests: client IANA → user preference → server default."""
+    if zone_id is not None:
+        text = zone_id.strip()
+        if text:
+            try:
+                ZoneInfo(text)
+            except (ZoneInfoNotFoundError, ValueError) as exc:
+                raise ValidationError(f"invalid client timezone: {zone_id}") from exc
+            return text
+    if user_timezone:
+        return user_timezone
+    return settings.secretary_timezone
+
+
 def resolve_client_timezone(
     zone_id: str | None,
     utc_offset_minutes: int | None = None,
