@@ -174,10 +174,10 @@ PHASE 23D-B closure: recoverable approve/reject errors, structured-vs-generic 40
 Major phase reordered before Safe External Actions.
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
-- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A backend core awaiting review
+- **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — in progress; 27B-A accepted (`87b16cb`); 27B-B operational backend awaiting review
 - **27C** Google Drive, Yandex Disk, registered-folder local refresh — not started
 
-## PHASE 27B-A — Mattermost secure connector & sync core (awaiting architect review)
+## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
 
 - Read-only Mattermost PAT connector with SSRF allowlist (`MATTERMOST_ALLOWED_BASE_URLS`), HTTPS-only normalized URLs, `follow_redirects=false`, no userinfo/query/fragment.
 - `MattermostAccount` encrypted PAT at rest; `POST /connectors/mattermost/connect` verifies `/api/v4/users/me`, no token in API response, no initial sync in connect.
@@ -188,7 +188,20 @@ Major phase reordered before Safe External Actions.
 - Mattermost object metadata contract: `server_url`, `account_id`, `post_id`, channel/team/author provenance fields, `create_at`/`update_at` ms timestamps; `author_user_id` canonical author id; no PAT in metadata.
 - Semantic embedding rule: `embed_object` only when `title` or `body` changes; metadata-only provider updates refresh Object metadata without a new embedding job.
 - `MattermostHttpTransport` closes owned `httpx.Client` on `close()`; connect and sync close production transport; injected factory/external transports are caller-owned.
-- Deferred in 27B-A: scheduler job, `/sources/status`, Flutter, deploy.
+- Deferred in 27B-A: scheduler job, `/sources/status`, Flutter, deploy (delivered in 27B-B for scheduler/status/connections/OpenTarget; Flutter still deferred).
+
+## PHASE 27B-B — Mattermost operational backend integration (awaiting architect review)
+
+- Recurring job `sync_mattermost` in existing `RECURRING_SOURCE_JOB_TYPES`; payload `{"account_id": "<uuid>"}` only; default interval 120s (`SOURCE_SYNC_MATTERMOST_INTERVAL_SECONDS`, min 60s).
+- Worker handler: `account_id` from payload + claimed `user_id` → `build_mattermost_sync_service` → `sync_account`; PAT only via user-owned `MattermostAccount`.
+- `SourceSyncScheduler`: one recurring row per Mattermost account; stale retirement when account removed; failed-job rearm; `trigger_all_for_user` scoped to user; no network in scheduler maintenance.
+- `POST /sources/sync` re-arms existing Mattermost recurring rows without inline network sync.
+- `GET /sources/status`: provider `mattermost`; label from display_name/username @ server; sanitized job errors; no PAT.
+- `GET /connections`: list of Mattermost accounts (`account_id`, `server_url`, `remote_user_id`, `username`, `display_name`, `email`); no PAT/encrypted token.
+- `OpenTargetService`: explicit branch for `provider=mattermost`, `kind=chat_message`; trust via user-owned account + allowlist + bounded metadata (`account_id`, `post_id`, `team_name`); deep link `server/team/pl/post_id` or server-base fallback with `mattermost_exact_post_link_unavailable`; rejects tampered/cross-user metadata; never opens `canonical_uri` or arbitrary URLs.
+- `sanitize_job_error` strengthened: Authorization, Bearer, access_token, refresh_token, PAT/token material never in `Job.last_error`.
+- `chat_message` continues through generic Object pipelines (embed, correlate, retrieval); no Mattermost-specific LLM tools.
+- Deferred in 27B-B: Flutter UX (27B-C), disconnect flow, production deploy.
 
 ## PHASE 27A — Live source sync & daily workspace (accepted)
 

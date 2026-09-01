@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     source_sync_yandex_mail_interval_seconds: int = 120
     source_sync_google_calendar_interval_seconds: int = 300
     source_sync_yandex_calendar_interval_seconds: int = 300
+    source_sync_mattermost_interval_seconds: int = 120
     source_sync_scheduler_interval_seconds: int = 60
     source_sync_failed_rearm_seconds: int = 3600
     resource_upload_root: str = "/var/lib/secretary/resources"
@@ -58,6 +59,7 @@ class Settings(BaseSettings):
         "source_sync_yandex_mail_interval_seconds",
         "source_sync_google_calendar_interval_seconds",
         "source_sync_yandex_calendar_interval_seconds",
+        "source_sync_mattermost_interval_seconds",
     )
     @classmethod
     def _validate_source_sync_interval(cls, value: int) -> int:

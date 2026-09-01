@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.connectors.google.calendar_sync import build_calendar_sync_service
 from app.connectors.google.gmail_sync import build_gmail_sync_service
+from app.connectors.mattermost.sync import build_mattermost_sync_service
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
@@ -57,6 +58,18 @@ def _yandex_calendar_sync_service(session: Session):
     )
 
 
+def _mattermost_sync_service(session: Session):
+    return build_mattermost_sync_service(
+        session=session,
+        credential_key=settings.secretary_credential_key,
+        sync_days=settings.mattermost_sync_days,
+        max_channels=settings.mattermost_sync_max_channels,
+        initial_posts_per_channel=settings.mattermost_sync_initial_posts_per_channel,
+        max_posts_per_run=settings.mattermost_sync_max_posts_per_run,
+        overlap_seconds=settings.mattermost_sync_overlap_seconds,
+    )
+
+
 def handle_sync_google_gmail(
     session: Session,
     _embedding_service,
@@ -95,3 +108,13 @@ def handle_sync_yandex_calendar(
 ) -> None:
     account_id = UUID(str(payload["account_id"]))
     _yandex_calendar_sync_service(session).sync_account(account_id, user_id=user_id)
+
+
+def handle_sync_mattermost(
+    session: Session,
+    _embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    account_id = UUID(str(payload["account_id"]))
+    _mattermost_sync_service(session).sync_account(account_id, user_id=user_id)

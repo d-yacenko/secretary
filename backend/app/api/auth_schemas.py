@@ -36,10 +36,20 @@ class YandexCalendarConnectionOut(BaseModel):
     email: str | None = None
 
 
+class MattermostConnectionOut(BaseModel):
+    account_id: UUID
+    server_url: str
+    remote_user_id: str
+    username: str
+    display_name: str | None = None
+    email: str | None = None
+
+
 class ConnectionsOut(BaseModel):
     google: GoogleConnectionOut
     yandex_mail: YandexMailConnectionOut
     yandex_calendar: YandexCalendarConnectionOut
+    mattermost: list[MattermostConnectionOut] = Field(default_factory=list)
 
 
 class CaptureTaskRequest(BaseModel):

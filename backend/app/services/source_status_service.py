@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
+from app.connectors.mattermost.credentials import MattermostAccountStore
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
@@ -17,6 +18,7 @@ from app.jobs.constants import (
     JOB_STATUS_RUNNING,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_YANDEX_MAIL,
     RECURRING_SOURCE_JOB_TYPES,
@@ -28,6 +30,7 @@ SOURCE_TYPE_LABELS = {
     JOB_TYPE_SYNC_GOOGLE_CALENDAR: ("google_calendar", "Google Calendar"),
     JOB_TYPE_SYNC_YANDEX_MAIL: ("yandex_mail", "Yandex Mail"),
     JOB_TYPE_SYNC_YANDEX_CALENDAR: ("yandex_calendar", "Yandex Calendar"),
+    JOB_TYPE_SYNC_MATTERMOST: ("mattermost", "Mattermost"),
 }
 
 
@@ -119,4 +122,22 @@ class SourceStatusService:
         yandex_calendar_store = YandexCalendarAccountStore(self._session, encryption)
         for account in yandex_calendar_store.list_accounts(self._user_id):
             labels[account.id] = account.email
+        mattermost_store = MattermostAccountStore(self._session, encryption)
+        for account in mattermost_store.list_accounts(self._user_id):
+            labels[account.id] = self._mattermost_account_label(account)
         return labels
+
+    @staticmethod
+    def _mattermost_account_label(account) -> str:
+        display_name = (account.display_name or "").strip()
+        username = (account.username or "").strip()
+        server = (account.server_url or "").strip()
+        if display_name and server:
+            return f"{display_name} @ {server}"
+        if username and server:
+            return f"{username} @ {server}"
+        if display_name:
+            return display_name
+        if username:
+            return username
+        return server or str(account.id)

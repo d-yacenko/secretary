@@ -1,13 +1,15 @@
 """Trusted source navigation targets for objects."""
 
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Object
+from app.connectors.mattermost.normalize import parse_allowed_base_urls
+from app.core.config import settings
+from app.db.models import MattermostAccount, Object
 from app.local.constants import PROVIDER_LOCAL_DEVICE
 from app.services.errors import NotFoundError
 
@@ -46,6 +48,8 @@ class OpenTargetService:
             return self._yandex_mail_target(obj, meta)
         if provider in {"google_calendar", "google"} and obj.kind in {"event", "calendar_event"}:
             return self._calendar_target(obj, meta)
+        if provider == "mattermost" and obj.kind == "chat_message":
+            return self._mattermost_target(obj, meta)
         if obj.kind == "web_page":
             return self._web_target(obj)
         if provider == PROVIDER_LOCAL_DEVICE:
@@ -118,6 +122,79 @@ class OpenTargetService:
             reason="calendar_link_missing",
         )
 
+    def _mattermost_target(self, obj: Object, meta: dict) -> OpenTarget:
+        label = "Открыть в Mattermost"
+        raw_account_id = meta.get("account_id")
+        post_id = str(meta.get("post_id") or "").strip()
+        if not raw_account_id or not post_id:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_metadata_incomplete",
+            )
+        try:
+            account_id = UUID(str(raw_account_id))
+        except ValueError:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_metadata_tampered",
+            )
+
+        account = self._session.scalar(
+            select(MattermostAccount).where(
+                MattermostAccount.id == account_id,
+                MattermostAccount.user_id == self._user_id,
+            )
+        )
+        if account is None:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_metadata_tampered",
+            )
+
+        allowed_urls = parse_allowed_base_urls(settings.mattermost_allowed_base_urls)
+        if account.server_url not in allowed_urls:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="mattermost_server_not_allowlisted",
+            )
+
+        server_base = account.server_url.rstrip("/")
+        team_name = str(meta.get("team_name") or "").strip()
+        if team_name and self._is_safe_path_segment(team_name) and self._is_safe_path_segment(post_id):
+            team_segment = quote(team_name, safe="")
+            post_segment = quote(post_id, safe="")
+            url = f"{server_base}/{team_segment}/pl/{post_segment}"
+            if self._is_safe_web_url(url):
+                return OpenTarget(
+                    available=True,
+                    action="web_url",
+                    label=label,
+                    url=url,
+                )
+
+        if self._is_safe_web_url(server_base):
+            return OpenTarget(
+                available=True,
+                action="web_url",
+                label=label,
+                url=server_base,
+                reason="mattermost_exact_post_link_unavailable",
+            )
+        return OpenTarget(
+            available=False,
+            action="unavailable",
+            label=label,
+            reason="mattermost_server_unsafe",
+        )
+
     def _web_target(self, obj: Object) -> OpenTarget:
         uri = obj.canonical_uri
         if uri and self._is_safe_web_url(uri):
@@ -186,3 +263,9 @@ class OpenTargetService:
         if parsed.username or parsed.password:
             return False
         return bool(parsed.netloc)
+
+    @staticmethod
+    def _is_safe_path_segment(value: str) -> bool:
+        if not value or value in {".", ".."}:
+            return False
+        return "/" not in value and "\\" not in value

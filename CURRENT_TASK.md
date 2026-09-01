@@ -1,4 +1,4 @@
-# Current task — PHASE 27B-A awaiting architect review
+# Current task — PHASE 27B-B awaiting architect review
 
 ## Status
 
@@ -8,31 +8,35 @@ PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted
 
 PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
 
-PHASE 27B-A — Mattermost Secure Connector & Sync Core: **implementation complete, awaiting architect review**.
+PHASE 27B-A — Mattermost Secure Connector & Sync Core: **accepted / closed** (`87b16cb`).
 
-Do **not** merge, deploy to production `main`, or start scheduler/UI integration until architect review.
+PHASE 27B-B — Mattermost Operational Backend Integration: **implementation complete, awaiting architect review**.
 
-## PHASE 27B-A delivered (backend only)
+Do **not** merge, deploy to production `main`, or start PHASE 27B-C (Flutter UX) until architect review.
 
-- `MattermostAccount` + migration `0019_mattermost_accounts`
-- SSRF allowlist `MATTERMOST_ALLOWED_BASE_URLS`; HTTPS-only normalized base URLs; redirect rejection
-- `POST /connectors/mattermost/connect` (PAT verify, encrypt at rest, no token in response; no initial sync in connect)
-- Read-only Mattermost transport + bounded `MattermostSyncService`
-- Normalized `Object(provider=mattermost, kind=chat_message)` → existing `embed_object` pipeline
-- Focused fake-transport tests
+## PHASE 27B-B delivered (backend only)
 
-## Not in 27B-A (next short 27B steps)
+- Recurring `sync_mattermost` job in `RECURRING_SOURCE_JOB_TYPES`; payload `account_id` only; default interval 120s (`SOURCE_SYNC_MATTERMOST_INTERVAL_SECONDS`)
+- Worker handler via existing `source_sync_handlers` + `HANDLERS`; PAT loaded from user-owned `MattermostAccount`
+- `SourceSyncScheduler`: one recurring row per Mattermost account; stale retirement; failed rearm; `trigger_all_for_user` includes Mattermost
+- `POST /sources/sync` triggers Mattermost recurring rows (no inline network sync)
+- `GET /sources/status` includes `mattermost` provider row (no PAT)
+- `GET /connections` exposes Mattermost account list (non-secret fields only)
+- Trusted `OpenTarget` for `provider=mattermost`, `kind=chat_message` (allowlisted server base + bounded metadata; team post deep link or server fallback)
+- Stronger `sanitize_job_error` for Authorization/Bearer/token needles
+- Focused operational integration tests (`test_phase_27b_operational.py`)
 
-- Flutter / Inbox UI for Mattermost
-- `GET /sources/status` Mattermost row
-- Scheduler recurring `sync_mattermost` job
-- Search/Graph UI polish
+## Not in 27B-B (next: 27B-C)
+
+- Flutter Mattermost UX
+- Matched-version E2E
+- Mattermost disconnect flow
 - Production deploy
 
 ## Roadmap — PHASE 27 Source Completion
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
-- **27B** Mattermost connector — in progress (27B-A backend core done)
+- **27B** Mattermost connector — in progress (27B-B operational backend done)
 - **27C** Google Drive / Yandex Disk / Local Source Refresh — not started
 
 Safe External Actions follow Source Completion.

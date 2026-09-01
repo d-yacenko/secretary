@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.auth_schemas import (
     ConnectionsOut,
     GoogleConnectionOut,
+    MattermostConnectionOut,
     YandexCalendarConnectionOut,
     YandexMailConnectionOut,
 )
@@ -35,4 +36,15 @@ def get_connections(
             connected=snapshot.yandex_calendar.connected,
             email=snapshot.yandex_calendar.email,
         ),
+        mattermost=[
+            MattermostConnectionOut(
+                account_id=account.account_id,
+                server_url=account.server_url,
+                remote_user_id=account.remote_user_id,
+                username=account.username,
+                display_name=account.display_name,
+                email=account.email,
+            )
+            for account in snapshot.mattermost
+        ],
     )

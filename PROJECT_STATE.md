@@ -58,19 +58,28 @@ PHASE 27A — Live Source Sync, Inbox/Today & Assistant Presentation: **accepted
 
 PHASE 27B — Mattermost Read-Only Source Connector: **in progress**.
 
-PHASE 27B-A — Mattermost Secure Connector & Sync Core: **implementation complete, awaiting architect review**.
+PHASE 27B-A — Mattermost Secure Connector & Sync Core: **accepted / closed** (`87b16cb`).
+
+PHASE 27B-B — Mattermost Operational Backend Integration: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next planned subphase: **PHASE 27B** scheduler/UI integration (after 27B-A review).
+Next planned subphase: **PHASE 27B-C** — Flutter Mattermost UX + matched-version E2E + Mattermost closure (after 27B-B review).
 
 Safe External Actions follow Source Completion (PHASE 27B/27C).
 
-## PHASE 27B-A verification (awaiting architect review)
+## PHASE 27B-A verification (accepted at `87b16cb`)
 
 - Alembic head: `0019`
 - Mattermost connect + bounded read-only sync core; fake-transport tests
-- no scheduler / `/sources/status` / Flutter / deploy in this subphase
+- Scheduler / `/sources/status` / operational integration deferred to 27B-B
+
+## PHASE 27B-B verification (awaiting architect review)
+
+- Recurring `sync_mattermost` job wired into PHASE 27A lifecycle (scheduler, worker, manual sync, status, connections, OpenTarget)
+- Alembic head remains `0019` (no new migration)
+- Focused tests: `test_phase_27b_operational.py` + PHASE 27A regression
+- No Flutter / deploy in this subphase
 
 ## PHASE 26C verification (accepted)
 

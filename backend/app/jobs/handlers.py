@@ -14,12 +14,14 @@ from app.jobs.constants import (
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_YANDEX_MAIL,
 )
 from app.jobs.source_sync_handlers import (
     handle_sync_google_calendar,
     handle_sync_google_gmail,
+    handle_sync_mattermost,
     handle_sync_yandex_calendar,
     handle_sync_yandex_mail,
 )
@@ -298,6 +300,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_SYNC_GOOGLE_CALENDAR: handle_sync_google_calendar,
     JOB_TYPE_SYNC_YANDEX_MAIL: handle_sync_yandex_mail,
     JOB_TYPE_SYNC_YANDEX_CALENDAR: handle_sync_yandex_calendar,
+    JOB_TYPE_SYNC_MATTERMOST: handle_sync_mattermost,
 }
 
 

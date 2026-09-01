@@ -16,6 +16,7 @@ from app.jobs.constants import (
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_MATTERMOST,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_YANDEX_MAIL,
     MAX_JOB_ATTEMPTS,
@@ -36,7 +37,18 @@ def sanitize_job_error(exc: BaseException) -> str:
     message = str(exc).strip() or type(exc).__name__
     first_line = message.splitlines()[0]
     lowered = first_line.lower()
-    for needle in ("bearer ", "authorization:", "access_token", "refresh_token"):
+    sensitive_needles = (
+        "bearer ",
+        "authorization:",
+        "authorization ",
+        "access_token",
+        "refresh_token",
+        "access-token",
+        "personal-access",
+        "personal access",
+        "encrypted",
+    )
+    for needle in sensitive_needles:
         if needle in lowered:
             return type(exc).__name__
     return first_line[:MAX_LAST_ERROR_LENGTH]
@@ -267,6 +279,7 @@ class JobQueueService:
             JOB_TYPE_SYNC_YANDEX_MAIL: settings.source_sync_yandex_mail_interval_seconds,
             JOB_TYPE_SYNC_GOOGLE_CALENDAR: settings.source_sync_google_calendar_interval_seconds,
             JOB_TYPE_SYNC_YANDEX_CALENDAR: settings.source_sync_yandex_calendar_interval_seconds,
+            JOB_TYPE_SYNC_MATTERMOST: settings.source_sync_mattermost_interval_seconds,
         }
         return mapping.get(job_type, settings.source_sync_gmail_interval_seconds)
 
