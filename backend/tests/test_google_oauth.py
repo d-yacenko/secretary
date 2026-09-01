@@ -12,6 +12,8 @@ from sqlalchemy import select
 
 from app.api.deps import get_db
 from app.connectors.google.constants import (
+    CALENDAR_READONLY_SCOPE,
+    DRIVE_READONLY_SCOPE,
     GMAIL_READONLY_SCOPE,
     GOOGLE_OAUTH_SCOPES,
 )
@@ -23,9 +25,9 @@ from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.google.gmail_transport import GmailTransport
 from app.connectors.google.oauth_config import load_oauth_client_config
 from app.connectors.google.oauth_service import GoogleOAuthService
-from app.connectors.google.oauth_state import OAuthStateService
+from app.connectors.google.oauth_state import OAuthStateService, hash_oauth_state
 from app.core.config import settings
-from app.db.models import GoogleAccount, Job, Object
+from app.db.models import GoogleAccount, Job, OAuthState, Object
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.embedding_text import build_embedding_text
 from app.main import app
@@ -910,3 +912,120 @@ def test_bounded_sync_respects_max_limit(
     )
     sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=150)
     assert requested_max == [100]
+
+
+def test_authorization_url_requires_authentication(db_session) -> None:
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        response = test_client.post("/auth/google/authorization-url")
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+
+
+def test_authorization_url_returns_google_url_with_required_scopes(
+    client,
+    db_session,
+    google_settings,
+) -> None:
+    response = client.post("/auth/google/authorization-url")
+    assert response.status_code == 200
+    body = response.json()
+    assert "authorization_url" in body
+    assert "access_token" not in body
+    assert "refresh_token" not in body
+
+    location = body["authorization_url"]
+    assert "accounts.google.com" in location
+    params = parse_qs(urlparse(location).query)
+    scope = params["scope"][0]
+    assert GMAIL_READONLY_SCOPE in scope
+    assert CALENDAR_READONLY_SCOPE in scope
+    assert DRIVE_READONLY_SCOPE in scope
+    assert params["redirect_uri"] == ["http://localhost:18080/auth/google/callback"]
+    assert params["access_type"] == ["offline"]
+    assert params["prompt"] == ["consent"]
+    assert params["state"]
+
+    state_row = db_session.scalar(
+        select(OAuthState).where(OAuthState.state_hash == hash_oauth_state(params["state"][0]))
+    )
+    assert state_row is not None
+    assert state_row.user_id == BOOTSTRAP_USER_ID
+
+
+def test_oauth_callback_upgrades_existing_account_with_drive_scope(
+    client,
+    db_session,
+    google_settings,
+    oauth_client_file: str,
+    credential_key: str,
+) -> None:
+    account_store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    existing = account_store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="user@example.com",
+        scopes=[GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE],
+        access_token="access-old",
+        refresh_token="refresh-keep",
+        token_expiry=utcnow() + timedelta(hours=1),
+    )
+    db_session.commit()
+    existing_id = existing.id
+
+    state_service = OAuthStateService(db_session)
+    state = state_service.create_state(BOOTSTRAP_USER_ID)
+    db_session.flush()
+
+    granted_scope = " ".join(GOOGLE_OAUTH_SCOPES)
+    fake_http = FakeHttpClient(
+        {
+            ("POST", "https://oauth2.googleapis.com/token"): lambda data: httpx.Response(
+                200,
+                json={
+                    "access_token": "callback-access",
+                    "expires_in": 3600,
+                    "scope": granted_scope,
+                },
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/profile"): lambda params, headers: httpx.Response(
+                200,
+                json={"emailAddress": "user@example.com"},
+            ),
+        }
+    )
+
+    oauth_service = GoogleOAuthService(
+        oauth_client_file,
+        "http://localhost:18080/auth/google/callback",
+        http_client=fake_http,
+    )
+    from unittest.mock import patch
+
+    with patch("app.api.google._google_oauth_service", return_value=oauth_service), patch(
+        "app.api.google.GmailTransport",
+        return_value=GmailTransport(http_client=fake_http),
+    ):
+        response = client.get(
+            "/auth/google/callback",
+            params={"code": "auth-code", "state": state},
+        )
+
+    assert response.status_code == 200
+    accounts = list(
+        db_session.scalars(
+            select(GoogleAccount).where(
+                GoogleAccount.user_id == BOOTSTRAP_USER_ID,
+                GoogleAccount.email == "user@example.com",
+            )
+        )
+    )
+    assert len(accounts) == 1
+    upgraded = accounts[0]
+    assert upgraded.id == existing_id
+    assert DRIVE_READONLY_SCOPE in upgraded.scopes
+    assert account_store.get_access_token(upgraded) == "callback-access"
+    assert account_store.get_refresh_token(upgraded) == "refresh-keep"

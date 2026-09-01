@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -28,6 +29,18 @@ from app.core.current_user import CurrentUserContext
 router = APIRouter(tags=["google"])
 
 
+class GoogleAuthorizationUrlOut(BaseModel):
+    authorization_url: str
+
+
+def _start_google_oauth(session: Session, user_id: UUID) -> str:
+    oauth_service = _google_oauth_service()
+    state_service = OAuthStateService(session)
+    state = state_service.create_state(user_id)
+    session.commit()
+    return oauth_service.build_authorization_url(state)
+
+
 def _google_oauth_service() -> GoogleOAuthService:
     return GoogleOAuthService(
         client_file=settings.google_oauth_client_file,
@@ -46,15 +59,24 @@ def google_oauth_start(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> RedirectResponse:
     try:
-        oauth_service = _google_oauth_service()
-        state_service = OAuthStateService(session)
-        state = state_service.create_state(current_user.user_id)
-        session.commit()
-        url = oauth_service.build_authorization_url(state)
+        url = _start_google_oauth(session, current_user.user_id)
     except GoogleConfigurationError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
 
     return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
+
+
+@router.post("/auth/google/authorization-url")
+def google_oauth_authorization_url(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> GoogleAuthorizationUrlOut:
+    try:
+        url = _start_google_oauth(session, current_user.user_id)
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+
+    return GoogleAuthorizationUrlOut(authorization_url=url)
 
 
 @router.get("/auth/google/callback")

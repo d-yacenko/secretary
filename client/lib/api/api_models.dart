@@ -20,12 +20,14 @@ class GoogleConnection {
     this.email,
     required this.gmailAvailable,
     required this.calendarAvailable,
+    required this.driveAvailable,
   });
 
   final bool connected;
   final String? email;
   final bool gmailAvailable;
   final bool calendarAvailable;
+  final bool driveAvailable;
 
   factory GoogleConnection.fromJson(Map<String, dynamic> json) {
     return GoogleConnection(
@@ -33,6 +35,19 @@ class GoogleConnection {
       email: json['email'] as String?,
       gmailAvailable: json['gmail_available'] as bool? ?? false,
       calendarAvailable: json['calendar_available'] as bool? ?? false,
+      driveAvailable: json['drive_available'] as bool? ?? false,
+    );
+  }
+}
+
+class GoogleAuthorizationUrl {
+  GoogleAuthorizationUrl({required this.authorizationUrl});
+
+  final String authorizationUrl;
+
+  factory GoogleAuthorizationUrl.fromJson(Map<String, dynamic> json) {
+    return GoogleAuthorizationUrl(
+      authorizationUrl: json['authorization_url'] as String,
     );
   }
 }

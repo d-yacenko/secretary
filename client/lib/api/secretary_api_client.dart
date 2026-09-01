@@ -56,6 +56,11 @@ class SecretaryApiClient {
     return Connections.fromJson(body);
   }
 
+  Future<GoogleAuthorizationUrl> getGoogleAuthorizationUrl() async {
+    final body = await _request('POST', '/auth/google/authorization-url', jsonBody: {});
+    return GoogleAuthorizationUrl.fromJson(body);
+  }
+
   Future<MattermostConnectResult> connectMattermost({
     required String serverUrl,
     required String accessToken,
@@ -680,6 +685,10 @@ class SecretaryApiClient {
       r'Bearer\s+[A-Za-z0-9._\-+/=]+',
       caseSensitive: false,
     );
-    return message.replaceAll(bearerPattern, 'Bearer [redacted]');
+    final sanitized = message.replaceAll(bearerPattern, 'Bearer [redacted]');
+    if (sanitized == 'google drive scope not granted') {
+      return 'Для Google Drive нужно обновить разрешения Google';
+    }
+    return sanitized;
   }
 }

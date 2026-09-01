@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
-import '../capture/capture_controller.dart';
 import '../local/local_intake_actions.dart';
 import '../ui/domain_labels.dart';
 
@@ -22,20 +22,35 @@ class AccountScreen extends StatefulWidget {
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends State<AccountScreen> {
+class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserver {
   Connections? _connections;
   String? _error;
   bool _loading = true;
+  bool _googleOAuthPending = false;
   late final LocalIntakeActions _intakeActions;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _intakeActions = LocalIntakeActions(
       apiClient: widget.apiClient,
       authController: widget.authController,
     );
     _loadConnections();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadConnections();
+    }
   }
 
   Future<void> _loadConnections() async {
@@ -59,6 +74,37 @@ class _AccountScreenState extends State<AccountScreen> {
           _error = e.message;
           _loading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _startGoogleOAuth() async {
+    if (_googleOAuthPending) {
+      return;
+    }
+    setState(() => _googleOAuthPending = true);
+    try {
+      final result = await widget.apiClient.getGoogleAuthorizationUrl();
+      final uri = Uri.tryParse(result.authorizationUrl);
+      if (uri == null) {
+        throw ServerException('Не удалось открыть страницу авторизации Google');
+      }
+      final launched = await url_launcher.launchUrl(
+        uri,
+        mode: url_launcher.LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        setState(() => _error = 'Не удалось открыть браузер для авторизации Google');
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _googleOAuthPending = false);
       }
     }
   }
@@ -97,6 +143,8 @@ class _AccountScreenState extends State<AccountScreen> {
           else if (_connections != null)
             _ConnectionsList(
               connections: _connections!,
+              googleOAuthPending: _googleOAuthPending,
+              onConnectGoogle: _startGoogleOAuth,
               onConnectMattermost: _showConnectMattermostDialog,
             ),
           const SizedBox(height: 16),
@@ -118,32 +166,56 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 }
 
+String googleOAuthButtonLabel(GoogleConnection google) {
+  if (!google.connected) {
+    return 'Подключить Google';
+  }
+  if (!google.driveAvailable) {
+    return 'Разрешить Google Drive';
+  }
+  return 'Переподключить Google';
+}
+
 class _ConnectionsList extends StatelessWidget {
   const _ConnectionsList({
     required this.connections,
+    required this.googleOAuthPending,
+    required this.onConnectGoogle,
     required this.onConnectMattermost,
   });
 
   final Connections connections;
+  final bool googleOAuthPending;
+  final VoidCallback onConnectGoogle;
   final VoidCallback onConnectMattermost;
 
   @override
   Widget build(BuildContext context) {
+    final google = connections.google;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _ConnectionRow(
           label: 'Google',
-          connected: connections.google.connected,
-          detail: connections.google.email,
+          connected: google.connected,
+          detail: google.email,
         ),
         _ConnectionRow(
           label: 'Gmail доступен',
-          connected: connections.google.gmailAvailable,
+          connected: google.gmailAvailable,
         ),
         _ConnectionRow(
           label: 'Google Календарь доступен',
-          connected: connections.google.calendarAvailable,
+          connected: google.calendarAvailable,
+        ),
+        _ConnectionRow(
+          label: 'Google Drive доступен',
+          connected: google.driveAvailable,
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: googleOAuthPending ? null : onConnectGoogle,
+          child: Text(googleOAuthButtonLabel(google)),
         ),
         _ConnectionRow(
           label: 'Яндекс Почта',

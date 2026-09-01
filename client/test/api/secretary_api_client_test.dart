@@ -82,6 +82,7 @@ void main() {
                 'email': 'alice@gmail.com',
                 'gmail_available': true,
                 'calendar_available': false,
+                'drive_available': false,
               },
               'yandex_mail': {'connected': false, 'email': null},
               'yandex_calendar': {'connected': false, 'email': null},
@@ -95,6 +96,7 @@ void main() {
       final connections = await client.getConnections();
       expect(connections.google.connected, isTrue);
       expect(connections.google.gmailAvailable, isTrue);
+      expect(connections.google.driveAvailable, isFalse);
       expect(connections.yandexMail.connected, isFalse);
       expect(connections.mattermost, isEmpty);
     });
@@ -172,6 +174,31 @@ void main() {
         client.captureTask(CaptureTaskRequest(text: 'x')),
         throwsA(isA<ValidationException>()),
       );
+    });
+
+    test('sanitize maps google drive scope error to user message', () {
+      expect(
+        SecretaryApiClient.sanitizeErrorMessage('google drive scope not granted'),
+        'Для Google Drive нужно обновить разрешения Google',
+      );
+    });
+
+    test('getGoogleAuthorizationUrl returns authorization_url only', () async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(request.url.path, endsWith('/auth/google/authorization-url'));
+          return http.Response(
+            jsonEncode({
+              'authorization_url': 'https://accounts.google.com/o/oauth2/v2/auth?state=abc',
+            }),
+            200,
+          );
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      final result = await client.getGoogleAuthorizationUrl();
+      expect(result.authorizationUrl, contains('accounts.google.com'));
     });
 
     test('token never appears in sanitized error text', () async {
