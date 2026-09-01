@@ -341,11 +341,9 @@ class MattermostSyncService:
             if change == "created":
                 totals.created += 1
                 totals.jobs_enqueued += 1
-                posts_budget -= 1
             elif change == "updated":
                 totals.updated += 1
                 totals.jobs_enqueued += 1
-                posts_budget -= 1
             elif change == "metadata_updated":
                 totals.updated += 1
             else:
@@ -355,6 +353,7 @@ class MattermostSyncService:
                 max_processed_update_ms = update_at_ms
             else:
                 max_processed_update_ms = max(max_processed_update_ms, update_at_ms)
+            posts_budget -= 1
             self._session.commit()
 
         can_advance = (
@@ -392,11 +391,9 @@ class MattermostSyncService:
             if change == "created":
                 totals.created += 1
                 totals.jobs_enqueued += 1
-                posts_budget -= 1
             elif change == "updated":
                 totals.updated += 1
                 totals.jobs_enqueued += 1
-                posts_budget -= 1
             elif change == "metadata_updated":
                 totals.updated += 1
             else:
@@ -406,6 +403,7 @@ class MattermostSyncService:
             create_at_ms = int(post.get("create_at") or 0)
             if post_id:
                 last_anchor = {"post_id": post_id, "create_at_ms": create_at_ms}
+            posts_budget -= 1
             self._session.commit()
 
         return totals, posts_budget, last_anchor

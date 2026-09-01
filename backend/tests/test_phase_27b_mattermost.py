@@ -1024,3 +1024,235 @@ def test_sync_closes_production_transport_not_injected_factory_transport(
     )
     service.sync_account(account.id, BOOTSTRAP_USER_ID)
     owned_client.close.assert_called_once()
+
+
+def test_hard_global_posts_budget_caps_inspected_posts_across_channels(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    transport = FakeMattermostTransport(
+        channels=[
+            _channel("ch-a", "a", "A", "O", now),
+            _channel("ch-b", "b", "B", "O", now - timedelta(minutes=1)),
+        ],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-a": [
+                _post("a1", "ch-a", "a1", now - timedelta(hours=3)),
+                _post("a2", "ch-a", "a2", now - timedelta(hours=2)),
+            ],
+            "ch-b": [
+                _post("b1", "ch-b", "b1", now - timedelta(hours=3)),
+                _post("b2", "ch-b", "b2", now - timedelta(hours=2)),
+            ],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=2,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 2
+    assert result["created"] == 2
+    assert len(db_session.scalars(select(Object).where(Object.provider == "mattermost")).all()) == 2
+
+
+def test_metadata_only_posts_consume_global_posts_budget_without_embed(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    create_time = now - timedelta(hours=2)
+    first_update = now - timedelta(minutes=30)
+    second_update = now - timedelta(minutes=20)
+    third_update = now - timedelta(minutes=10)
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-1": [
+                _post("m1", "ch-1", "stable 1", create_time, update_at=first_update),
+                _post("m2", "ch-1", "stable 2", create_time, update_at=first_update),
+                _post("m3", "ch-1", "stable 3", create_time, update_at=first_update),
+            ],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=100,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    objects = list(db_session.scalars(select(Object).where(Object.provider == "mattermost")).all())
+    assert len(objects) == 3
+    embed_jobs_before = len(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)).all()
+    )
+
+    transport.posts_by_channel["ch-1"] = [
+        _post("m1", "ch-1", "stable 1", create_time, update_at=second_update),
+        _post("m2", "ch-1", "stable 2", create_time, update_at=third_update),
+        _post("m3", "ch-1", "stable 3", create_time, update_at=third_update),
+    ]
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=2,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 2
+    assert result["updated"] == 2
+    assert result["jobs_enqueued"] == 0
+    embed_jobs_after = len(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)).all()
+    )
+    assert embed_jobs_after == embed_jobs_before
+
+
+def test_unchanged_posts_consume_global_posts_budget(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-1": [
+                _post("u1", "ch-1", "one", now - timedelta(hours=4)),
+                _post("u2", "ch-1", "two", now - timedelta(hours=3)),
+                _post("u3", "ch-1", "three", now - timedelta(hours=2)),
+            ],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=3,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=2,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 2
+    assert result["unchanged"] == 2
+    assert result["created"] == 0
+    assert result["jobs_enqueued"] == 0
+
+
+def test_truncated_edit_sweep_does_not_advance_watermark_when_budget_exhausted(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    create_time = now - timedelta(hours=2)
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-1": [
+                _post("e1", "ch-1", "first", create_time, update_at=create_time),
+                _post("e2", "ch-1", "second", create_time, update_at=create_time),
+                _post("e3", "ch-1", "third", create_time, update_at=create_time),
+            ],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = _build_sync_service(db_session, credential_key, transport, now)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    account = db_session.scalar(select(MattermostAccount).where(MattermostAccount.id == account.id))
+    watermark_before = account.sync_state["channels"]["ch-1"].get("edit_sweep_watermark_ms")
+
+    transport.posts_by_channel["ch-1"] = [
+        _post(
+            "e1",
+            "ch-1",
+            "first",
+            create_time,
+            update_at=now - timedelta(minutes=30),
+        ),
+        _post(
+            "e2",
+            "ch-1",
+            "second",
+            create_time,
+            update_at=now - timedelta(minutes=20),
+        ),
+        _post(
+            "e3",
+            "ch-1",
+            "third",
+            create_time,
+            update_at=now - timedelta(minutes=10),
+        ),
+    ]
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=1,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["synchronized"] == 1
+    account = db_session.scalar(select(MattermostAccount).where(MattermostAccount.id == account.id))
+    assert account.sync_state["channels"]["ch-1"].get("edit_sweep_watermark_ms") == watermark_before
