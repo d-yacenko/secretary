@@ -81,6 +81,44 @@ class SecretaryApiClient {
     }
   }
 
+  Future<YandexConnectResult> connectYandexMail({
+    required String email,
+    required String appPassword,
+  }) async {
+    try {
+      final body = await _request(
+        'POST',
+        '/connectors/yandex/mail/connect',
+        jsonBody: {
+          'email': email,
+          'app_password': appPassword,
+        },
+      );
+      return YandexConnectResult.fromJson(body);
+    } on AuthenticationException catch (e) {
+      throw ServerException(e.message);
+    }
+  }
+
+  Future<YandexConnectResult> connectYandexCalendar({
+    required String email,
+    required String appPassword,
+  }) async {
+    try {
+      final body = await _request(
+        'POST',
+        '/connectors/yandex/calendar/connect',
+        jsonBody: {
+          'email': email,
+          'app_password': appPassword,
+        },
+      );
+      return YandexConnectResult.fromJson(body);
+    } on AuthenticationException catch (e) {
+      throw ServerException(e.message);
+    }
+  }
+
   Future<CaptureTaskResponse> captureTask(CaptureTaskRequest request) async {
     final body = await _request(
       'POST',

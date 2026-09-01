@@ -201,6 +201,48 @@ void main() {
       expect(result.authorizationUrl, contains('accounts.google.com'));
     });
 
+    test('connectYandexMail sends email and app_password only', () async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          expect(request.url.path, endsWith('/connectors/yandex/mail/connect'));
+          final body = jsonDecode(request.body!) as Map<String, dynamic>;
+          expect(body['email'], 'user@yandex.ru');
+          expect(body['app_password'], 'secret-password');
+          expect(body.containsKey('imap_host'), isFalse);
+          return http.Response(
+            jsonEncode({
+              'status': 'connected',
+              'account_id': 'mail-1',
+              'email': 'user@yandex.ru',
+            }),
+            200,
+          );
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      final result = await client.connectYandexMail(
+        email: 'user@yandex.ru',
+        appPassword: 'secret-password',
+      );
+      expect(result.email, 'user@yandex.ru');
+    });
+
+    test('connectYandexCalendar maps connector 401 to ServerException', () async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          return http.Response(jsonEncode({'detail': 'yandex unauthorized'}), 401);
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      await expectLater(
+        client.connectYandexCalendar(
+          email: 'user@yandex.ru',
+          appPassword: 'secret-password',
+        ),
+        throwsA(isA<ServerException>()),
+      );
+    });
+
     test('token never appears in sanitized error text', () async {
       final client = SecretaryApiClient(
         httpClient: MockClient((request) async {

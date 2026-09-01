@@ -141,6 +141,26 @@ class MattermostConnectResult {
   }
 }
 
+class YandexConnectResult {
+  YandexConnectResult({
+    required this.status,
+    required this.accountId,
+    required this.email,
+  });
+
+  final String status;
+  final String accountId;
+  final String email;
+
+  factory YandexConnectResult.fromJson(Map<String, dynamic> json) {
+    return YandexConnectResult(
+      status: json['status'] as String,
+      accountId: json['account_id'] as String,
+      email: json['email'] as String,
+    );
+  }
+}
+
 class Connections {
   Connections({
     required this.google,
