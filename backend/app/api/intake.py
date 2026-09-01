@@ -5,8 +5,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.connectors.google.constants import EXPLICIT_LINK_MAX_URL_CHARS
-from app.connectors.google.errors import GoogleConnectorError
+from app.connectors.google.constants import EXPLICIT_LINK_MAX_URL_CHARS, GOOGLE_DRIVE_PROVIDER
+from app.connectors.google.errors import GoogleConfigurationError, GoogleConnectorError
+from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
 from app.connectors.yandex.errors import YandexDiskApiError
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
@@ -14,7 +15,11 @@ from app.services.explicit_link_intake_errors import (
     AccountSelectionRequiredError,
     ExplicitLinkIntakeError,
 )
-from app.services.explicit_link_intake_service import build_explicit_link_intake_service
+from app.services.explicit_link_intake_service import (
+    build_google_explicit_link_intake_service,
+    build_yandex_explicit_link_intake_service,
+)
+from app.services.explicit_link_provider import detect_intake_provider
 
 router = APIRouter(tags=["intake"])
 
@@ -37,19 +42,38 @@ def intake_link(
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> IntakeLinkResponse:
-    if not settings.secretary_credential_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="credential encryption is not configured",
-        )
+    try:
+        provider = detect_intake_provider(data.url)
+    except ExplicitLinkIntakeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
 
-    service = build_explicit_link_intake_service(
-        session=session,
-        user_id=current_user.user_id,
-        credential_key=settings.secretary_credential_key,
-        client_file=settings.google_oauth_client_file,
-        redirect_uri=settings.google_redirect_uri,
-    )
+    if provider == YANDEX_DISK_PROVIDER:
+        service = build_yandex_explicit_link_intake_service(
+            session=session,
+            user_id=current_user.user_id,
+        )
+    elif provider == GOOGLE_DRIVE_PROVIDER:
+        if not settings.secretary_credential_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="credential encryption is not configured",
+            )
+        try:
+            service = build_google_explicit_link_intake_service(
+                session=session,
+                user_id=current_user.user_id,
+                credential_key=settings.secretary_credential_key,
+                client_file=settings.google_oauth_client_file,
+                redirect_uri=settings.google_redirect_uri,
+            )
+        except GoogleConfigurationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=exc.message,
+            ) from exc
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported link url")
+
     try:
         result = service.intake_link(url=data.url, account_id=data.account_id)
         session.commit()
@@ -65,6 +89,11 @@ def intake_link(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
     except GoogleConnectorError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+    except GoogleConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.message,
+        ) from exc
     except YandexDiskApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
     finally:

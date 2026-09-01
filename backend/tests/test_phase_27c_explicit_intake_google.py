@@ -25,7 +25,10 @@ from app.connectors.google.errors import GoogleApiError
 from app.db.models import GoogleAccount, Job, Object, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.services.connection_status_service import ConnectionStatusService
-from app.services.explicit_link_intake_service import build_explicit_link_intake_service
+from app.services.explicit_link_intake_service import (
+    build_explicit_link_intake_service,
+    build_google_explicit_link_intake_service,
+)
 from app.services.open_target_service import OpenTargetService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -148,14 +151,13 @@ def _intake_service(
     transport: FakeDriveTransport,
     user_id: uuid.UUID = BOOTSTRAP_USER_ID,
 ):
-    return build_explicit_link_intake_service(
+    return build_google_explicit_link_intake_service(
         session=db_session,
         user_id=user_id,
         credential_key=credential_key,
         client_file=oauth_client_file,
         redirect_uri="http://localhost:18080/auth/google/callback",
         google_transport=transport,
-        yandex_transport=FakeYandexDiskTransport(),
     )
 
 
@@ -596,7 +598,7 @@ def test_tokens_absent_from_object_and_errors(
     transport = FakeDriveTransport({file_id: _drive_file(file_id, "Safe")})
 
     with patch(
-        "app.api.intake.build_explicit_link_intake_service",
+        "app.api.intake.build_google_explicit_link_intake_service",
         return_value=_intake_service(db_session, credential_key, oauth_client_file, transport),
     ):
         response = auth_client.post(
@@ -639,7 +641,7 @@ def test_intake_link_api_endpoint(auth_client, db_session, credential_key, oauth
     transport = FakeDriveTransport({file_id: _drive_file(file_id, "API doc")})
 
     with patch(
-        "app.api.intake.build_explicit_link_intake_service",
+        "app.api.intake.build_google_explicit_link_intake_service",
         return_value=_intake_service(db_session, credential_key, oauth_client_file, transport),
     ):
         response = auth_client.post(

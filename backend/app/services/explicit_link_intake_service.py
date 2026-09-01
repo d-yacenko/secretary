@@ -10,7 +10,11 @@ from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.drive_normalize import normalize_drive_file
 from app.connectors.google.drive_transport import DriveTransport
 from app.connectors.google.drive_url_parser import parse_google_drive_file_id
-from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
+from app.connectors.google.errors import (
+    GoogleApiError,
+    GoogleConfigurationError,
+    GoogleConnectorError,
+)
 from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
@@ -42,17 +46,17 @@ class ExplicitLinkIntakeService:
         self,
         session: Session,
         user_id: UUID,
-        account_store: GoogleAccountStore,
-        token_manager: GoogleTokenManager,
-        google_transport: DriveTransport,
-        yandex_transport: YandexDiskTransport,
+        google_transport: DriveTransport | None = None,
+        yandex_transport: YandexDiskTransport | None = None,
+        account_store: GoogleAccountStore | None = None,
+        token_manager: GoogleTokenManager | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
-        self._account_store = account_store
-        self._token_manager = token_manager
         self._google_transport = google_transport
         self._yandex_transport = yandex_transport
+        self._account_store = account_store
+        self._token_manager = token_manager
 
     def intake_link(self, url: str, account_id: UUID | None = None) -> IntakeLinkResult:
         provider = detect_intake_provider(url)
@@ -63,10 +67,19 @@ class ExplicitLinkIntakeService:
         raise ExplicitLinkIntakeError("unsupported link url")
 
     def close(self) -> None:
-        self._google_transport.close()
-        self._yandex_transport.close()
+        if self._google_transport is not None:
+            self._google_transport.close()
+        if self._yandex_transport is not None:
+            self._yandex_transport.close()
 
     def _intake_google_drive(self, url: str, account_id: UUID | None) -> IntakeLinkResult:
+        if (
+            self._account_store is None
+            or self._token_manager is None
+            or self._google_transport is None
+        ):
+            raise GoogleConfigurationError("google explicit link intake is not configured")
+
         file_id = parse_google_drive_file_id(url)
         account = self._resolve_google_account(account_id)
         self._require_drive_scope(account)
@@ -102,6 +115,9 @@ class ExplicitLinkIntakeService:
         return self._result(obj, internal_status)
 
     def _intake_yandex_disk(self, url: str) -> IntakeLinkResult:
+        if self._yandex_transport is None:
+            raise ExplicitLinkIntakeError("yandex disk intake unavailable")
+
         share_url = parse_yandex_disk_share_url(url)
 
         try:
@@ -126,6 +142,7 @@ class ExplicitLinkIntakeService:
         return self._result(obj, internal_status)
 
     def _resolve_google_account(self, account_id: UUID | None) -> GoogleAccount:
+        assert self._account_store is not None
         if account_id is not None:
             account = self._account_store.get_by_id_for_user(account_id, self._user_id)
             if account is None:
@@ -249,6 +266,46 @@ class ExplicitLinkIntakeService:
         obj.occurred_at = normalized.get("occurred_at")
 
 
+def build_yandex_explicit_link_intake_service(
+    session: Session,
+    user_id: UUID,
+    yandex_transport: YandexDiskTransport | None = None,
+    http_client: Any | None = None,
+) -> ExplicitLinkIntakeService:
+    disk_transport = yandex_transport or YandexDiskTransport(http_client=http_client)
+    return ExplicitLinkIntakeService(
+        session=session,
+        user_id=user_id,
+        yandex_transport=disk_transport,
+    )
+
+
+def build_google_explicit_link_intake_service(
+    session: Session,
+    user_id: UUID,
+    credential_key: str,
+    client_file: str,
+    redirect_uri: str,
+    google_transport: DriveTransport | None = None,
+    http_client: Any | None = None,
+) -> ExplicitLinkIntakeService:
+    if not credential_key:
+        raise GoogleConfigurationError("credential encryption key is not configured")
+
+    encryption = GoogleAccountStore.build_encryption(credential_key)
+    account_store = GoogleAccountStore(session, encryption)
+    oauth_service = GoogleOAuthService(client_file, redirect_uri, http_client=http_client)
+    token_manager = GoogleTokenManager(session, account_store, oauth_service)
+    drive_transport = google_transport or DriveTransport(http_client=http_client)
+    return ExplicitLinkIntakeService(
+        session=session,
+        user_id=user_id,
+        account_store=account_store,
+        token_manager=token_manager,
+        google_transport=drive_transport,
+    )
+
+
 def build_explicit_link_intake_service(
     session: Session,
     user_id: UUID,
@@ -259,17 +316,21 @@ def build_explicit_link_intake_service(
     yandex_transport: YandexDiskTransport | None = None,
     http_client: Any | None = None,
 ) -> ExplicitLinkIntakeService:
-    encryption = GoogleAccountStore.build_encryption(credential_key)
-    account_store = GoogleAccountStore(session, encryption)
-    oauth_service = GoogleOAuthService(client_file, redirect_uri, http_client=http_client)
-    token_manager = GoogleTokenManager(session, account_store, oauth_service)
-    drive_transport = google_transport or DriveTransport(http_client=http_client)
+    google_service = build_google_explicit_link_intake_service(
+        session=session,
+        user_id=user_id,
+        credential_key=credential_key,
+        client_file=client_file,
+        redirect_uri=redirect_uri,
+        google_transport=google_transport,
+        http_client=http_client,
+    )
     disk_transport = yandex_transport or YandexDiskTransport(http_client=http_client)
     return ExplicitLinkIntakeService(
         session=session,
         user_id=user_id,
-        account_store=account_store,
-        token_manager=token_manager,
-        google_transport=drive_transport,
+        account_store=google_service._account_store,
+        token_manager=google_service._token_manager,
+        google_transport=google_service._google_transport,
         yandex_transport=disk_transport,
     )

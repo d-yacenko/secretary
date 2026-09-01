@@ -11,28 +11,16 @@ from cryptography.fernet import Fernet
 from sqlalchemy import func, select
 
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.google.errors import GoogleApiError
+from app.connectors.google.errors import GoogleConfigurationError
 from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER, YANDEX_DISK_PUBLIC_RESOURCE_FIELDS
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.connectors.yandex.disk_transport import YandexDiskTransport
 from app.connectors.yandex.errors import YandexDiskApiError
 from app.db.models import Job, Object
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
-from app.services.explicit_link_intake_service import build_explicit_link_intake_service
+from app.services.explicit_link_intake_service import build_yandex_explicit_link_intake_service
 from app.services.open_target_service import OpenTargetService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-
-
-class FakeDriveTransport:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    def get_file_metadata(self, access_token: str, file_id: str) -> dict[str, Any]:
-        self.calls.append(("get_file_metadata", file_id))
-        raise GoogleApiError("unexpected google call", status_code=500)
-
-    def close(self) -> None:
-        pass
 
 
 class FakeYandexDiskTransport:
@@ -124,18 +112,11 @@ def _yandex_resource(
 
 def _intake_service(
     db_session,
-    credential_key: str,
-    oauth_client_file: str,
     yandex_transport: FakeYandexDiskTransport,
-    google_transport: FakeDriveTransport | None = None,
 ):
-    return build_explicit_link_intake_service(
+    return build_yandex_explicit_link_intake_service(
         session=db_session,
         user_id=BOOTSTRAP_USER_ID,
-        credential_key=credential_key,
-        client_file=oauth_client_file,
-        redirect_uri="http://localhost:18080/auth/google/callback",
-        google_transport=google_transport or FakeDriveTransport(),
         yandex_transport=yandex_transport,
     )
 
@@ -163,7 +144,7 @@ def test_disk_yandex_ru_folder_url_creates_one_folder_object(
             )
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     result = service.intake_link(url=share_url)
     service.close()
 
@@ -198,7 +179,7 @@ def test_disk_yandex_ru_file_url_creates_file_object(
             )
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     result = service.intake_link(url=share_url)
     service.close()
 
@@ -218,7 +199,7 @@ def test_disk_360_yandex_host_accepted(
             share_url: _yandex_resource(resource_id, "360 doc", public_url=share_url),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     result = service.intake_link(url=share_url)
     service.close()
     assert result.status == "created"
@@ -234,7 +215,7 @@ def test_yadi_sk_host_accepted(
             share_url: _yandex_resource(resource_id, "Yadi file", public_url=share_url),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     result = service.intake_link(url=share_url)
     service.close()
     assert result.status == "created"
@@ -244,26 +225,18 @@ def test_unknown_host_rejected_before_network(
     db_session, credential_key, oauth_client_file, google_settings
 ) -> None:
     transport = FakeYandexDiskTransport()
-    google_transport = FakeDriveTransport()
-    service = _intake_service(
-        db_session,
-        credential_key,
-        oauth_client_file,
-        transport,
-        google_transport=google_transport,
-    )
+    service = _intake_service(db_session, transport)
     with pytest.raises(Exception, match="unsupported link url"):
         service.intake_link(url="https://evil.example/d/abc")
     service.close()
     assert transport.calls == []
-    assert google_transport.calls == []
 
 
 def test_lookalike_host_rejected(
     db_session, credential_key, oauth_client_file, google_settings
 ) -> None:
     transport = FakeYandexDiskTransport()
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     with pytest.raises(Exception, match="unsupported link url"):
         service.intake_link(url="https://disk.yandex.ru.evil.example/d/abc")
     service.close()
@@ -274,7 +247,7 @@ def test_userinfo_rejected(
     db_session, credential_key, oauth_client_file, google_settings
 ) -> None:
     transport = FakeYandexDiskTransport()
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     with pytest.raises(Exception, match="unsupported link url"):
         service.intake_link(url="https://user:pass@disk.yandex.ru/d/abc")
     service.close()
@@ -285,7 +258,7 @@ def test_private_client_link_rejected(
     db_session, credential_key, oauth_client_file, google_settings
 ) -> None:
     transport = FakeYandexDiskTransport()
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     with pytest.raises(Exception, match="yandex disk private link unsupported"):
         service.intake_link(url="https://disk.yandex.ru/client/disk/private-doc")
     service.close()
@@ -308,13 +281,9 @@ def test_transport_calls_only_public_resources_endpoint(
 
     http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
     transport = YandexDiskTransport(http_client=http_client)
-    service = build_explicit_link_intake_service(
+    service = build_yandex_explicit_link_intake_service(
         session=db_session,
         user_id=BOOTSTRAP_USER_ID,
-        credential_key=credential_key,
-        client_file=oauth_client_file,
-        redirect_uri="http://localhost:18080/auth/google/callback",
-        google_transport=FakeDriveTransport(),
         yandex_transport=transport,
         http_client=http_client,
     )
@@ -333,7 +302,7 @@ def test_full_validated_public_link_passed_as_public_key(
             share_url: _yandex_resource("rid-1", "Doc", public_url=share_url),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     service.intake_link(url=share_url)
     service.close()
     assert transport.calls == [share_url]
@@ -361,7 +330,7 @@ def test_folder_embedded_items_do_not_create_child_objects(
         ]
     }
     transport = FakeYandexDiskTransport({share_url: response})
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     result = service.intake_link(url=share_url)
     service.close()
 
@@ -390,7 +359,7 @@ def test_repeated_same_resource_id_returns_same_object(
             share_url: _yandex_resource(resource_id, "Stable", public_url=share_url),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     first = service.intake_link(url=share_url)
     second = service.intake_link(url=share_url)
     service.close()
@@ -410,7 +379,7 @@ def test_different_share_urls_same_resource_id_same_object(
             url_b: _yandex_resource(resource_id, "Doc", public_url=url_b),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     first = service.intake_link(url=url_a)
     second = service.intake_link(url=url_b)
     service.close()
@@ -437,7 +406,7 @@ def test_metadata_change_same_object_no_extra_embed(
             share_url: _yandex_resource(resource_id, "Same title", public_url=share_url),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     first = service.intake_link(url=share_url)
 
     updated = _yandex_resource(
@@ -466,7 +435,7 @@ def test_title_change_same_object_enqueues_embed_once(
             share_url: _yandex_resource(resource_id, "Old title", public_url=share_url),
         }
     )
-    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    service = _intake_service(db_session, transport)
     first = service.intake_link(url=share_url)
     jobs = _embed_jobs_for_object(db_session, first.object_id)
     assert len(jobs) == 1
@@ -540,22 +509,14 @@ def test_yandex_intake_does_not_call_google_transport(
     db_session, credential_key, oauth_client_file, google_settings
 ) -> None:
     share_url = "https://disk.yandex.ru/d/no-google"
-    google_transport = FakeDriveTransport()
     transport = FakeYandexDiskTransport(
         {
             share_url: _yandex_resource("rid", "Doc", public_url=share_url),
         }
     )
-    service = _intake_service(
-        db_session,
-        credential_key,
-        oauth_client_file,
-        transport,
-        google_transport=google_transport,
-    )
+    service = _intake_service(db_session, transport)
     service.intake_link(url=share_url)
     service.close()
-    assert google_transport.calls == []
     assert len(transport.calls) == 1
 
 
@@ -579,11 +540,9 @@ def test_no_yandex_mail_credentials_in_object_or_api(
         }
     )
     with patch(
-        "app.api.intake.build_explicit_link_intake_service",
+        "app.api.intake.build_yandex_explicit_link_intake_service",
         return_value=_intake_service(
             db_session,
-            credential_key,
-            oauth_client_file,
             transport,
         ),
     ):
@@ -600,3 +559,135 @@ def test_no_yandex_mail_credentials_in_object_or_api(
     meta_dumped = json.dumps(obj.metadata_)
     assert "super-secret-app-password" not in meta_dumped
     assert "app_password" not in meta_dumped
+
+
+def test_yandex_works_without_credential_key(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", "")
+    monkeypatch.setattr("app.core.config.settings.google_oauth_client_file", "")
+
+    share_url = "https://disk.yandex.ru/d/no-credential-key"
+    resource_id = "no-cred-resource"
+    transport = FakeYandexDiskTransport(
+        {
+            share_url: _yandex_resource(resource_id, "Public doc", public_url=share_url),
+        }
+    )
+    service = build_yandex_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        yandex_transport=transport,
+    )
+    result = service.intake_link(url=share_url)
+    service.close()
+
+    assert result.status == "created"
+    obj = db_session.get(Object, result.object_id)
+    assert obj is not None
+    assert obj.external_id == resource_id
+
+
+def test_yandex_works_without_google_oauth_file(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.core.config.settings.google_oauth_client_file",
+        "/nonexistent/google-oauth-client.json",
+    )
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", "")
+
+    share_url = "https://disk.yandex.ru/d/no-oauth-file"
+    transport = FakeYandexDiskTransport(
+        {
+            share_url: _yandex_resource("oauth-free", "Doc", public_url=share_url),
+        }
+    )
+    service = build_yandex_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        yandex_transport=transport,
+    )
+    result = service.intake_link(url=share_url)
+    service.close()
+    assert result.status == "created"
+
+
+def test_yandex_intake_does_not_load_google_oauth_config(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    share_url = "https://disk.yandex.ru/d/no-google-loader"
+    transport = FakeYandexDiskTransport(
+        {
+            share_url: _yandex_resource("loader-free", "Doc", public_url=share_url),
+        }
+    )
+
+    def _boom(_client_file: str) -> dict[str, str]:
+        raise GoogleConfigurationError("google oauth config loader touched")
+
+    monkeypatch.setattr(
+        "app.connectors.google.oauth_config.load_oauth_client_config",
+        _boom,
+    )
+
+    service = build_yandex_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        yandex_transport=transport,
+    )
+    result = service.intake_link(url=share_url)
+    service.close()
+    assert result.status == "created"
+
+
+def test_unsupported_host_rejected_before_provider_build(auth_client, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", "")
+
+    with patch(
+        "app.api.intake.build_yandex_explicit_link_intake_service",
+    ) as build_yandex, patch(
+        "app.api.intake.build_google_explicit_link_intake_service",
+    ) as build_google:
+        response = auth_client.post(
+            "/intake/link",
+            json={"url": "https://evil.example/d/abc"},
+        )
+
+    assert response.status_code == 400
+    build_yandex.assert_not_called()
+    build_google.assert_not_called()
+
+
+def test_yandex_api_without_credential_key_uses_yandex_builder_only(
+    auth_client, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", "")
+    monkeypatch.setattr(
+        "app.core.config.settings.google_oauth_client_file",
+        "/nonexistent/google-oauth-client.json",
+    )
+
+    share_url = "https://disk.yandex.ru/d/api-no-cred"
+    transport = FakeYandexDiskTransport(
+        {
+            share_url: _yandex_resource("api-rid", "API doc", public_url=share_url),
+        }
+    )
+
+    with patch(
+        "app.api.intake.build_google_explicit_link_intake_service",
+    ) as build_google, patch(
+        "app.api.intake.build_yandex_explicit_link_intake_service",
+        return_value=build_yandex_explicit_link_intake_service(
+            session=db_session,
+            user_id=BOOTSTRAP_USER_ID,
+            yandex_transport=transport,
+        ),
+    ) as build_yandex:
+        response = auth_client.post("/intake/link", json={"url": share_url})
+
+    assert response.status_code == 200
+    build_google.assert_not_called()
+    build_yandex.assert_called_once()
+
