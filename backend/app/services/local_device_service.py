@@ -40,7 +40,12 @@ class LocalDeviceService:
         self._user_id = user_id
         self._path_resolver = path_resolver
 
-    def register_device(self, device_key: str, display_name: str) -> LocalDeviceResult:
+    def register_device(
+        self,
+        device_key: str,
+        display_name: str,
+        update_existing_display_name: bool = True,
+    ) -> LocalDeviceResult:
         normalized_key = validate_device_key(device_key)
         existing = self._session.scalar(
             select(LocalDevice).where(
@@ -49,7 +54,10 @@ class LocalDeviceService:
             )
         )
         if existing is not None:
-            if existing.display_name != display_name:
+            if (
+                update_existing_display_name
+                and existing.display_name != display_name
+            ):
                 existing.display_name = display_name
                 self._session.flush()
             return LocalDeviceResult(
@@ -82,6 +90,7 @@ class LocalDeviceService:
         default_policy: str = DEFAULT_LOCAL_POLICY,
         client_source_path: str | None = None,
         ensure_folder_object: bool = True,
+        preserve_existing_policy: bool = False,
     ) -> LocalRootResult:
         if default_policy not in LOCAL_POLICIES:
             raise ValidationError(f"unsupported local policy: {default_policy}")
@@ -100,7 +109,10 @@ class LocalDeviceService:
             )
         )
         if existing is not None:
-            if existing.default_policy != default_policy:
+            if (
+                not preserve_existing_policy
+                and existing.default_policy != default_policy
+            ):
                 existing.default_policy = default_policy
                 self._session.flush()
             if ensure_folder_object:

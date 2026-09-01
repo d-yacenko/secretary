@@ -251,6 +251,7 @@ class SecretaryApiClient {
     required String deviceKey,
     required String rootPath,
     required String clientSourcePath,
+    String? displayName,
   }) async {
     final body = await _request(
       'POST',
@@ -259,6 +260,7 @@ class SecretaryApiClient {
         'device_key': deviceKey,
         'root_path': rootPath,
         'client_source_path': clientSourcePath,
+        if (displayName != null) 'display_name': displayName,
       },
       successStatuses: {201},
     );

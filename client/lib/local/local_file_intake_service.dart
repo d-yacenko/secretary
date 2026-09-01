@@ -54,6 +54,7 @@ class LocalFileIntakeService {
       deviceKey: device.deviceKey,
       rootPath: rootPath,
       clientSourcePath: root.path,
+      displayName: device.displayName,
     );
   }
 

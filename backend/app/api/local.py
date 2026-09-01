@@ -160,6 +160,7 @@ class ClientFolderIntakeRequest(BaseModel):
     device_key: str = Field(min_length=1, max_length=128)
     root_path: str = Field(min_length=1, max_length=512)
     client_source_path: str = Field(min_length=1, max_length=1024)
+    display_name: str | None = Field(default=None, max_length=128)
 
 
 class ClientFolderIntakeOut(BaseModel):
@@ -353,6 +354,7 @@ def client_folder_intake(
             device_key=body.device_key,
             root_path=body.root_path,
             client_source_path=body.client_source_path,
+            display_name=body.display_name,
         )
     except Exception as exc:
         raise _http_error(exc) from exc

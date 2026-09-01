@@ -38,6 +38,7 @@ class LocalFolderIntakeService:
         self._device_service.register_device(
             device_key=device_key,
             display_name=display_name or device_key,
+            update_existing_display_name=False,
         )
         root_result = self._device_service.register_root(
             device_key=device_key,
@@ -45,6 +46,7 @@ class LocalFolderIntakeService:
             default_policy=POLICY_METADATA_ONLY,
             client_source_path=client_source_path,
             ensure_folder_object=False,
+            preserve_existing_policy=True,
         )
         device = self._device_service.get_device_for_user(device_key)
         root = self._device_service.get_root_for_user(root_result.root_id)

@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.api.deps import get_db, get_embedding_service
-from app.db.models import Object, User
+from app.db.models import LocalDevice, LocalRoot, Object, User
 from app.llm.embedding_service import FakeEmbeddingService
 from app.local.client_paths import compute_client_content_revision
-from app.local.constants import PROVIDER_LOCAL_DEVICE
+from app.local.constants import POLICY_INDEX_TEXT, POLICY_METADATA_ONLY, PROVIDER_LOCAL_DEVICE
 from app.main import app
 from app.services.correlation_constants import FOLDER_KIND
 from app.services.folder_object_service import (
@@ -48,12 +48,16 @@ def _folder_payload(
     device_key: str = "desk-local",
     root_path: str = "home/user/projects",
     client_source_path: str = "/home/user/projects",
+    display_name: str | None = None,
 ) -> dict:
-    return {
+    payload = {
         "device_key": device_key,
         "root_path": root_path,
         "client_source_path": client_source_path,
     }
+    if display_name is not None:
+        payload["display_name"] = display_name
+    return payload
 
 
 def _intake_folder(client, **overrides) -> dict:
@@ -384,3 +388,142 @@ def test_folder_external_id_matches_canonical_identity(
         )
     )
     assert count == 1
+
+
+def test_explicit_folder_intake_preserves_existing_device_display_name(
+    phase27c_local_client, db_session, tmp_path: Path
+) -> None:
+    device_resp = phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-local", "display_name": "My Laptop"},
+    )
+    assert device_resp.status_code == 201
+
+    folder = tmp_path / "display-name-dir"
+    folder.mkdir()
+    _intake_folder(
+        phase27c_local_client,
+        root_path=str(folder.relative_to(tmp_path)),
+        client_source_path=str(folder),
+        display_name="desk-local",
+    )
+
+    device = db_session.scalar(
+        select(LocalDevice).where(
+            LocalDevice.user_id == BOOTSTRAP_USER_ID,
+            LocalDevice.device_key == "desk-local",
+        )
+    )
+    assert device is not None
+    assert device.display_name == "My Laptop"
+
+
+def test_new_explicit_root_uses_metadata_only_policy(
+    phase27c_local_client, db_session, tmp_path: Path
+) -> None:
+    folder = tmp_path / "new-policy-dir"
+    folder.mkdir()
+    rel = str(folder.relative_to(tmp_path))
+
+    _intake_folder(
+        phase27c_local_client,
+        root_path=rel,
+        client_source_path=str(folder),
+    )
+
+    root = db_session.scalar(
+        select(LocalRoot).where(
+            LocalRoot.user_id == BOOTSTRAP_USER_ID,
+            LocalRoot.root_path == rel,
+        )
+    )
+    assert root is not None
+    assert root.default_policy == POLICY_METADATA_ONLY
+    folder_obj = _folder_objects(db_session)[0]
+    assert folder_obj.metadata_["default_policy"] == POLICY_METADATA_ONLY
+
+
+def test_explicit_folder_intake_preserves_existing_root_policy(
+    phase27c_local_client, db_session, tmp_path: Path
+) -> None:
+    folder = tmp_path / "policy-dir"
+    folder.mkdir()
+    rel = str(folder.relative_to(tmp_path))
+
+    device_resp = phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-local", "display_name": "Test desktop"},
+    )
+    assert device_resp.status_code == 201
+
+    root_resp = phase27c_local_client.post(
+        "/local/roots/register",
+        json={
+            "device_key": "desk-local",
+            "root_path": rel,
+            "default_policy": POLICY_INDEX_TEXT,
+            "client_source_path": str(folder),
+        },
+    )
+    assert root_resp.status_code == 201
+
+    _intake_folder(
+        phase27c_local_client,
+        root_path=rel,
+        client_source_path=str(folder),
+    )
+
+    root = db_session.scalar(
+        select(LocalRoot).where(
+            LocalRoot.user_id == BOOTSTRAP_USER_ID,
+            LocalRoot.root_path == rel,
+        )
+    )
+    assert root is not None
+    assert root.default_policy == POLICY_INDEX_TEXT
+    folder_obj = _folder_objects(db_session)[0]
+    assert folder_obj.metadata_["default_policy"] == POLICY_INDEX_TEXT
+
+
+def test_repeated_explicit_intake_preserves_root_and_object(
+    phase27c_local_client, db_session, tmp_path: Path
+) -> None:
+    folder = tmp_path / "repeat-policy-dir"
+    folder.mkdir()
+    rel = str(folder.relative_to(tmp_path))
+
+    device_resp = phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-local", "display_name": "Test desktop"},
+    )
+    assert device_resp.status_code == 201
+
+    root_resp = phase27c_local_client.post(
+        "/local/roots/register",
+        json={
+            "device_key": "desk-local",
+            "root_path": rel,
+            "default_policy": POLICY_INDEX_TEXT,
+            "client_source_path": str(folder),
+        },
+    )
+    assert root_resp.status_code == 201
+    root_id = root_resp.json()["root_id"]
+
+    first = _intake_folder(
+        phase27c_local_client,
+        root_path=rel,
+        client_source_path=str(folder),
+    )
+    second = _intake_folder(
+        phase27c_local_client,
+        root_path=rel,
+        client_source_path=str(folder),
+    )
+
+    assert second["object_id"] == first["object_id"]
+    assert second["status"] == "unchanged"
+    root = db_session.get(LocalRoot, uuid.UUID(root_id))
+    assert root is not None
+    assert root.default_policy == POLICY_INDEX_TEXT
+    assert len(_folder_objects(db_session)) == 1
