@@ -15,6 +15,11 @@ from app.connectors.mattermost.normalize import (
     normalize_server_url,
     parse_allowed_base_urls,
 )
+from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
+from app.connectors.yandex.disk_url_parser import (
+    is_valid_yandex_disk_share_url,
+    parse_yandex_disk_share_url,
+)
 from app.core.config import settings
 from app.db.models import GoogleAccount, MattermostAccount, Object
 from app.local.constants import PROVIDER_LOCAL_DEVICE
@@ -59,6 +64,8 @@ class OpenTargetService:
             return self._mattermost_target(obj, meta)
         if provider == GOOGLE_DRIVE_PROVIDER and obj.kind in {"file", "folder"}:
             return self._google_drive_target(obj, meta)
+        if provider == YANDEX_DISK_PROVIDER and obj.kind in {"file", "folder"}:
+            return self._yandex_disk_target(obj, meta)
         if obj.kind == "web_page":
             return self._web_target(obj)
         if provider == PROVIDER_LOCAL_DEVICE:
@@ -282,6 +289,40 @@ class OpenTargetService:
                 action="unavailable",
                 label=label,
                 reason="google_drive_metadata_tampered",
+            )
+        return OpenTarget(
+            available=True,
+            action="web_url",
+            label=label,
+            url=url,
+        )
+
+    def _yandex_disk_target(self, obj: Object, meta: dict) -> OpenTarget:
+        label = "Открыть в Яндекс.Диске"
+        resource_id = str(meta.get("resource_id") or "").strip()
+        if not resource_id or obj.external_id != resource_id:
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="yandex_disk_metadata_tampered",
+            )
+
+        url: str | None = None
+        public_url = meta.get("public_url")
+        if public_url and is_valid_yandex_disk_share_url(str(public_url)):
+            url = parse_yandex_disk_share_url(str(public_url))
+        if url is None:
+            intake_url = meta.get("intake_url")
+            if intake_url and is_valid_yandex_disk_share_url(str(intake_url)):
+                url = parse_yandex_disk_share_url(str(intake_url))
+
+        if not url or not self._is_safe_web_url(url):
+            return OpenTarget(
+                available=False,
+                action="unavailable",
+                label=label,
+                reason="yandex_disk_metadata_tampered",
             )
         return OpenTarget(
             available=True,

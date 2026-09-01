@@ -64,11 +64,13 @@ PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed*
 
 PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / closed** (part of 27B closure).
 
-PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **implementation complete, awaiting architect review**.
+PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`).
+
+PHASE 27C-R2 — Yandex Disk explicit share-link intake: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `114608d`.
 
-Next: **architect review of PHASE 27C-R1** on branch `review/phase-27c-explicit-intake-google`. Superseded 27C-A/B full-drive experiments are not for merge/deploy.
+Next: **architect review of PHASE 27C-R2** on branch `review/phase-27c-explicit-intake-yandex`.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -91,13 +93,21 @@ Safe External Actions follow Source Completion (PHASE 27C explicit intake track)
 - Connect ensures recurring `sync_mattermost` row runnable immediately (no inline message sync on HTTP connect)
 - Matched-version manual E2E completed; production deploy deferred until broader release policy
 
-## PHASE 27C-R1 verification (awaiting architect review)
+## PHASE 27C-R1 verification (accepted at `467332c`)
 
 - Shared `POST /intake/link` explicit-link intake API
 - Google Drive: URL parser, single-file metadata lookup, Object upsert, OpenTarget
 - OAuth `drive.readonly` scope; `drive_available` in connection snapshot
 - No full-drive sync, no migration beyond Alembic `0019`
 - Superseded experiments `review/phase-27c-google-drive` and `review/phase-27c-google-drive-ops` — not for merge/deploy
+
+## PHASE 27C-R2 verification (awaiting architect review)
+
+- Yandex Disk public/share links via same `POST /intake/link`
+- Provider dispatch by URL host; fixed `cloud-api.yandex.net` public resources API only
+- Folder share URL → one folder Object; no `_embedded` child import
+- OpenTarget with re-validated Yandex share URLs only
+- No Yandex Disk OAuth, no migration beyond `0019`
 
 ## PHASE 26C verification (accepted)
 

@@ -30,6 +30,18 @@ from app.services.open_target_service import OpenTargetService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
+class FakeYandexDiskTransport:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def get_public_resource_metadata(self, public_key: str) -> dict[str, Any]:
+        self.calls.append(("get_public_resource_metadata", public_key))
+        return {}
+
+    def close(self) -> None:
+        pass
+
+
 class FakeDriveTransport:
     def __init__(self, files: dict[str, dict[str, Any]] | None = None) -> None:
         self._files = dict(files or {})
@@ -142,7 +154,8 @@ def _intake_service(
         credential_key=credential_key,
         client_file=oauth_client_file,
         redirect_uri="http://localhost:18080/auth/google/callback",
-        transport=transport,
+        google_transport=transport,
+        yandex_transport=FakeYandexDiskTransport(),
     )
 
 
@@ -560,7 +573,8 @@ def test_exact_provider_request_only_httpx(
         credential_key=credential_key,
         client_file=oauth_client_file,
         redirect_uri="http://localhost:18080/auth/google/callback",
-        transport=transport,
+        google_transport=transport,
+        yandex_transport=FakeYandexDiskTransport(),
         http_client=transport._http,
     )
     service.intake_link(

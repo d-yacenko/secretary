@@ -175,18 +175,15 @@ Major phase reordered before Safe External Actions.
 
 - **27A** Live Source Sync, Inbox/Today & Assistant Presentation — accepted (`f92ca0c`)
 - **27B** Mattermost (`provider=mattermost`, `kind=chat_message`) — accepted (`1dc493d`)
-- **27C-R1** Explicit Intake foundation + Google Drive link — awaiting architect review
+- **27C-R1** Explicit Intake + Google Drive link — accepted (`467332c`)
+- **27C-R2** Yandex Disk public share-link intake — awaiting architect review
 - Superseded after product clarification (not for merge/deploy): 27C-A full-drive sync (`review/phase-27c-google-drive`), 27C-B Drive ops (`review/phase-27c-google-drive-ops`)
 
-## Explicit intake product decision (PHASE 27C-R1)
+## Explicit intake product decision (PHASE 27C-R1 / R2)
 
-Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected.
+Cloud/local file sources are **explicit-intake** resources. User pastes/drops/selects one resource; Secretary resolves exactly that resource and upserts one Inbox Object. Secretary does **not** crawl an entire cloud drive merely because an account is connected. **Folders are Objects themselves; children are not automatically imported.**
 
-## PHASE 27B closure (accepted at `1dc493d`)
-
-PHASE 27B Mattermost connector accepted end-to-end including Flutter UX and matched-version E2E.
-
-## PHASE 27C-R1 — Explicit Intake foundation + Google Drive link (awaiting architect review)
+## PHASE 27C-R1 — Explicit Intake foundation + Google Drive link (accepted at `467332c`)
 
 - `POST /intake/link` with bounded URL; response `object_id`, `provider`, `kind`, `status`
 - Google Drive URL parser: known `drive.google.com` / `docs.google.com` hosts only; extract file ID; no arbitrary HTTP fetch
@@ -196,7 +193,17 @@ PHASE 27B Mattermost connector accepted end-to-end including Flutter UX and matc
 - Metadata: `account_id`, `file_id`, bounded provider fields, `intake_mode=explicit_link`; no tokens
 - Idempotent upsert; title change → embed; metadata-only → no extra embed
 - OpenTarget: backend-built canonical URL; ignores tampered `web_view_link` / `canonical_uri`
-- Deferred: Yandex Disk link, Flutter paste/drop, content download/export, full-drive recurring sync
+- Deferred: Flutter paste/drop, content download/export, full-drive recurring sync (Yandex share-link delivered in 27C-R2)
+
+## PHASE 27C-R2 — Yandex Disk explicit share-link intake (awaiting architect review)
+
+- Same `POST /intake/link`; provider dispatch by validated URL host (Google vs Yandex)
+- Yandex public/share URLs on allowlisted hosts; rejects private `/client/` browser links
+- API: `GET https://cloud-api.yandex.net/v1/disk/public/resources?public_key=<validated URL>`; bounded `fields` without `_embedded`
+- Object: `provider=yandex_disk`, `external_id=resource_id`; folder share → one folder Object (no child import)
+- OpenTarget: «Открыть в Яндекс.Диске»; destination from re-validated `public_url` or `intake_url` only
+- No Yandex Disk OAuth; Alembic head remains `0019`
+- Deferred: Flutter paste/drop, local alignment, content download, private Disk OAuth
 
 ## PHASE 27B-A — Mattermost secure connector & sync core (accepted at `87b16cb`)
 

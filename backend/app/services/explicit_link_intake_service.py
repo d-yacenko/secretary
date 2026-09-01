@@ -13,11 +13,17 @@ from app.connectors.google.drive_url_parser import parse_google_drive_file_id
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
+from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
+from app.connectors.yandex.disk_normalize import normalize_yandex_disk_resource
+from app.connectors.yandex.disk_transport import YandexDiskTransport
+from app.connectors.yandex.disk_url_parser import parse_yandex_disk_share_url
+from app.connectors.yandex.errors import YandexDiskApiError
 from app.db.models import GoogleAccount, Object
 from app.services.explicit_link_intake_errors import (
     AccountSelectionRequiredError,
     ExplicitLinkIntakeError,
 )
+from app.services.explicit_link_provider import detect_intake_provider
 from app.services.pipeline_enqueue import enqueue_embed_object
 
 EXPLICIT_INTAKE_MODE = "explicit_link"
@@ -38,15 +44,29 @@ class ExplicitLinkIntakeService:
         user_id: UUID,
         account_store: GoogleAccountStore,
         token_manager: GoogleTokenManager,
-        transport: DriveTransport,
+        google_transport: DriveTransport,
+        yandex_transport: YandexDiskTransport,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._account_store = account_store
         self._token_manager = token_manager
-        self._transport = transport
+        self._google_transport = google_transport
+        self._yandex_transport = yandex_transport
 
     def intake_link(self, url: str, account_id: UUID | None = None) -> IntakeLinkResult:
+        provider = detect_intake_provider(url)
+        if provider == GOOGLE_DRIVE_PROVIDER:
+            return self._intake_google_drive(url, account_id)
+        if provider == YANDEX_DISK_PROVIDER:
+            return self._intake_yandex_disk(url)
+        raise ExplicitLinkIntakeError("unsupported link url")
+
+    def close(self) -> None:
+        self._google_transport.close()
+        self._yandex_transport.close()
+
+    def _intake_google_drive(self, url: str, account_id: UUID | None) -> IntakeLinkResult:
         file_id = parse_google_drive_file_id(url)
         account = self._resolve_google_account(account_id)
         self._require_drive_scope(account)
@@ -55,7 +75,7 @@ class ExplicitLinkIntakeService:
         self._session.commit()
 
         try:
-            raw_file = self._transport.get_file_metadata(access_token, file_id)
+            raw_file = self._google_transport.get_file_metadata(access_token, file_id)
         except GoogleApiError as exc:
             if exc.status_code == 404:
                 raise ExplicitLinkIntakeError("google drive resource unavailable") from exc
@@ -71,7 +91,7 @@ class ExplicitLinkIntakeService:
         if normalized is None:
             raise ExplicitLinkIntakeError("google drive resource unavailable")
 
-        existing = self._find_existing(normalized["external_id"])
+        existing = self._find_existing(GOOGLE_DRIVE_PROVIDER, normalized["external_id"])
         if normalized.get("trashed"):
             if existing is None:
                 raise ExplicitLinkIntakeError("google drive resource unavailable")
@@ -81,8 +101,29 @@ class ExplicitLinkIntakeService:
         obj, internal_status = self._upsert(existing, normalized)
         return self._result(obj, internal_status)
 
-    def close(self) -> None:
-        self._transport.close()
+    def _intake_yandex_disk(self, url: str) -> IntakeLinkResult:
+        share_url = parse_yandex_disk_share_url(url)
+
+        try:
+            raw_resource = self._yandex_transport.get_public_resource_metadata(share_url)
+        except YandexDiskApiError as exc:
+            if exc.status_code == 404:
+                raise ExplicitLinkIntakeError("yandex disk resource unavailable") from exc
+            if exc.status_code in {401, 403}:
+                raise ExplicitLinkIntakeError("yandex disk resource permission denied") from exc
+            raise
+
+        normalized = normalize_yandex_disk_resource(
+            raw_resource,
+            intake_url=share_url,
+            intake_mode=EXPLICIT_INTAKE_MODE,
+        )
+        if normalized is None:
+            raise ExplicitLinkIntakeError("yandex disk provider metadata error")
+
+        existing = self._find_existing(YANDEX_DISK_PROVIDER, normalized["external_id"])
+        obj, internal_status = self._upsert(existing, normalized)
+        return self._result(obj, internal_status)
 
     def _resolve_google_account(self, account_id: UUID | None) -> GoogleAccount:
         if account_id is not None:
@@ -110,11 +151,11 @@ class ExplicitLinkIntakeService:
         if DRIVE_READONLY_SCOPE not in set(account.scopes or []):
             raise GoogleConnectorError("google drive scope not granted")
 
-    def _find_existing(self, external_id: str) -> Object | None:
+    def _find_existing(self, provider: str, external_id: str) -> Object | None:
         return self._session.scalar(
             select(Object).where(
                 Object.user_id == self._user_id,
-                Object.provider == GOOGLE_DRIVE_PROVIDER,
+                Object.provider == provider,
                 Object.external_id == external_id,
             )
         )
@@ -167,7 +208,7 @@ class ExplicitLinkIntakeService:
 
     def _result(self, obj: Object | None, internal_status: str) -> IntakeLinkResult:
         if obj is None:
-            raise ExplicitLinkIntakeError("google drive resource unavailable")
+            raise ExplicitLinkIntakeError("intake object unavailable")
         public_status = self._public_status(internal_status)
         return IntakeLinkResult(
             object_id=obj.id,
@@ -214,18 +255,21 @@ def build_explicit_link_intake_service(
     credential_key: str,
     client_file: str,
     redirect_uri: str,
-    transport: DriveTransport | None = None,
+    google_transport: DriveTransport | None = None,
+    yandex_transport: YandexDiskTransport | None = None,
     http_client: Any | None = None,
 ) -> ExplicitLinkIntakeService:
     encryption = GoogleAccountStore.build_encryption(credential_key)
     account_store = GoogleAccountStore(session, encryption)
     oauth_service = GoogleOAuthService(client_file, redirect_uri, http_client=http_client)
     token_manager = GoogleTokenManager(session, account_store, oauth_service)
-    drive_transport = transport or DriveTransport(http_client=http_client)
+    drive_transport = google_transport or DriveTransport(http_client=http_client)
+    disk_transport = yandex_transport or YandexDiskTransport(http_client=http_client)
     return ExplicitLinkIntakeService(
         session=session,
         user_id=user_id,
         account_store=account_store,
         token_manager=token_manager,
-        transport=drive_transport,
+        google_transport=drive_transport,
+        yandex_transport=disk_transport,
     )

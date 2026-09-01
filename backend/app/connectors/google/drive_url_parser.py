@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 from app.services.explicit_link_intake_errors import ExplicitLinkIntakeError
 
 _ALLOWED_HOSTS = frozenset({"drive.google.com", "docs.google.com"})
+GOOGLE_DRIVE_URL_HOSTS = _ALLOWED_HOSTS
 _FILE_PATH_RE = re.compile(r"(?:/u/\d+)?/file/d/([^/?#]+)")
 _FOLDER_PATH_RE = re.compile(r"(?:/u/\d+)?/drive/folders/([^/?#]+)")
 _DOCS_PATH_RE = re.compile(r"/(?:document|spreadsheets|presentation)/d/([^/?#]+)")

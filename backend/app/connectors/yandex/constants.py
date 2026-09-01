@@ -23,5 +23,11 @@ CALENDAR_BACKFILL_MIN_SLICE_DAYS = 1
 CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION = 2
 CALENDAR_MULTIGET_BATCH_SIZE = 25
 
+YANDEX_DISK_API_BASE = "https://cloud-api.yandex.net/v1/disk"
+YANDEX_DISK_PROVIDER = "yandex_disk"
+YANDEX_DISK_PUBLIC_RESOURCE_FIELDS = (
+    "name,resource_id,type,created,modified,size,mime_type,md5,sha256,revision,public_url,path,media_type"
+)
+
 MAX_EMAIL_BODY_CHARS = 8000
 MAX_EVENT_BODY_CHARS = 8000

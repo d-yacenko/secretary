@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.connectors.google.constants import EXPLICIT_LINK_MAX_URL_CHARS
 from app.connectors.google.errors import GoogleConnectorError
+from app.connectors.yandex.errors import YandexDiskApiError
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
 from app.services.explicit_link_intake_errors import (
@@ -63,6 +64,8 @@ def intake_link(
     except ExplicitLinkIntakeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
     except GoogleConnectorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+    except YandexDiskApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
     finally:
         service.close()
