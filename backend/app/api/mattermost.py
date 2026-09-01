@@ -43,6 +43,7 @@ def mattermost_connect(
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> dict[str, Any]:
+    transport: MattermostHttpTransport | None = None
     try:
         normalized_server_url = validate_server_url_allowlist(
             body.server_url,
@@ -80,6 +81,9 @@ def mattermost_connect(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=exc.message)
     except MattermostConnectorError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+    finally:
+        if transport is not None:
+            transport.close()
 
     return {
         "status": "connected",

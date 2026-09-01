@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse, urlunparse
+from uuid import UUID
 
 from app.connectors.mattermost.constants import (
     MAX_FILE_IDS_IN_METADATA,
@@ -155,6 +156,7 @@ def should_skip_post(post: dict[str, Any]) -> bool:
 def normalize_mattermost_post(
     post: dict[str, Any],
     normalized_server_url: str,
+    account_id: UUID,
     channel: MattermostChannelContext,
     author: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -169,16 +171,19 @@ def normalize_mattermost_post(
     create_at_ms = int(post.get("create_at") or 0)
     update_at_ms = int(post.get("update_at") or 0)
     file_ids = _bounded_file_ids(post.get("file_ids"))
+    root_id = str(post.get("root_id") or "").strip() or None
 
     metadata: dict[str, Any] = {
+        "server_url": normalized_server_url,
+        "account_id": str(account_id),
         "post_id": post_id,
         "channel_id": channel.channel_id,
         "channel_name": channel.channel_name,
         "channel_display_name": channel.channel_display_name,
         "channel_type": channel.channel_type,
-        "create_at_ms": create_at_ms,
-        "update_at_ms": update_at_ms,
-        "root_id": str(post.get("root_id") or "") or None,
+        "root_id": root_id,
+        "create_at": create_at_ms,
+        "update_at": update_at_ms,
         "post_type": str(post.get("type") or "") or None,
         "file_ids": file_ids,
     }
@@ -189,10 +194,10 @@ def normalize_mattermost_post(
     if channel.team_display_name:
         metadata["team_display_name"] = channel.team_display_name
 
+    author_user_id = str(post.get("user_id") or "").strip()
+    if author_user_id:
+        metadata["author_user_id"] = author_user_id
     if author:
-        author_id = str(author.get("id") or "").strip()
-        if author_id:
-            metadata["author_id"] = author_id
         username = str(author.get("username") or "").strip()
         if username:
             metadata["author_username"] = username

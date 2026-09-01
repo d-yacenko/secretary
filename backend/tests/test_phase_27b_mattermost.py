@@ -16,7 +16,7 @@ from app.connectors.mattermost.normalize import (
     validate_server_url_allowlist,
 )
 from app.connectors.mattermost.sync import build_mattermost_sync_service
-from app.connectors.mattermost.transport import FakeMattermostTransport
+from app.connectors.mattermost.transport import FakeMattermostTransport, MattermostHttpTransport
 from app.db.models import Job, MattermostAccount, Object, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.main import app
@@ -24,6 +24,56 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 ALLOWED_URL = "https://mm.example.com"
 PAT = "mattermost-personal-access-token"
+
+MATTERMOST_REQUIRED_METADATA_KEYS = frozenset(
+    {
+        "server_url",
+        "account_id",
+        "post_id",
+        "channel_id",
+        "channel_name",
+        "channel_display_name",
+        "channel_type",
+        "root_id",
+        "author_user_id",
+        "create_at",
+        "update_at",
+        "post_type",
+        "file_ids",
+    }
+)
+MATTERMOST_OPTIONAL_METADATA_KEYS = frozenset(
+    {
+        "team_id",
+        "team_name",
+        "team_display_name",
+        "author_username",
+        "author_display_name",
+    }
+)
+MATTERMOST_METADATA_KEYS = MATTERMOST_REQUIRED_METADATA_KEYS | MATTERMOST_OPTIONAL_METADATA_KEYS
+
+
+def _embed_jobs_for_object(db_session, object_id: uuid.UUID) -> list[Job]:
+    return [
+        job
+        for job in db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)).all()
+        if (job.payload or {}).get("object_id") == str(object_id)
+    ]
+
+
+def _assert_metadata_contract(obj: Object, account: MattermostAccount) -> None:
+    meta = obj.metadata_
+    assert meta["server_url"] == ALLOWED_URL
+    assert meta["account_id"] == str(account.id)
+    assert meta["post_id"]
+    assert meta["channel_id"]
+    assert "author_user_id" in meta
+    assert "create_at" in meta
+    assert "update_at" in meta
+    assert "file_ids" in meta
+    assert set(meta.keys()).issubset(MATTERMOST_METADATA_KEYS)
+    assert PAT not in str(meta)
 
 
 def utcnow() -> datetime:
@@ -477,7 +527,43 @@ def test_per_channel_independent_cursors(
     assert account.sync_state["channels"]["ch-b"]["last_processed_post_id"] == "b1"
 
 
-def test_edited_post_change_sweep_updates_same_object_and_embeds(
+def test_mattermost_object_metadata_contract(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-dm", "dm-user", "DM", "D", now, team_id="")],
+        teams=[],
+        users_by_id={
+            "author-1": {
+                "id": "author-1",
+                "username": "bob",
+                "display_name": "Bob",
+            }
+        },
+        posts_by_channel={
+            "ch-dm": [_post("meta", "ch-dm", "metadata contract", now - timedelta(hours=1))],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = _build_sync_service(db_session, credential_key, transport, now)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    obj = db_session.scalar(select(Object).where(Object.provider == "mattermost"))
+    assert obj is not None
+    metadata = obj.metadata_
+    assert MATTERMOST_REQUIRED_METADATA_KEYS.issubset(metadata.keys())
+    assert set(metadata.keys()) <= MATTERMOST_METADATA_KEYS
+    assert "team_id" not in metadata
+    assert metadata["server_url"] == ALLOWED_URL
+    assert metadata["account_id"] == str(account.id)
+    assert metadata["post_id"] == "meta"
+    assert metadata["author_user_id"] == "author-1"
+    assert PAT not in str(metadata)
+
+
+def test_message_edit_updates_body_and_enqueues_single_new_embed_job(
     db_session,
     credential_key: str,
     mattermost_settings,
@@ -505,6 +591,7 @@ def test_edited_post_change_sweep_updates_same_object_and_embeds(
     )
     assert obj is not None
     first_object_id = obj.id
+    assert len(_embed_jobs_for_object(db_session, first_object_id)) == 1
 
     transport.posts_by_channel["ch-1"] = [
         _post("p-edit", "ch-1", "edited body", create_time, update_at=edit_time),
@@ -516,12 +603,135 @@ def test_edited_post_change_sweep_updates_same_object_and_embeds(
     )
     assert obj.id == first_object_id
     assert obj.body == "edited body"
-    jobs = [
-        job
-        for job in db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)).all()
-        if (job.payload or {}).get("object_id") == str(first_object_id)
+    assert len(_embed_jobs_for_object(db_session, first_object_id)) == 2
+
+
+def test_metadata_only_update_refreshes_metadata_without_new_embed_job(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    create_time = now - timedelta(hours=2)
+    first_update = now - timedelta(minutes=30)
+    second_update = now - timedelta(minutes=5)
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-1": [
+                _post(
+                    "p-meta",
+                    "ch-1",
+                    "stable body",
+                    create_time,
+                    update_at=first_update,
+                ),
+            ],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = _build_sync_service(db_session, credential_key, transport, now)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(ALLOWED_URL, "p-meta"))
+    )
+    assert obj is not None
+    first_object_id = obj.id
+    assert len(_embed_jobs_for_object(db_session, first_object_id)) == 1
+
+    transport.posts_by_channel["ch-1"] = [
+        _post(
+            "p-meta",
+            "ch-1",
+            "stable body",
+            create_time,
+            update_at=second_update,
+        ),
     ]
-    assert len(jobs) == 2
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["updated"] == 1
+    assert result["jobs_enqueued"] == 0
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(ALLOWED_URL, "p-meta"))
+    )
+    assert obj.id == first_object_id
+    assert obj.metadata_["update_at"] == _ms(second_update)
+    assert len(_embed_jobs_for_object(db_session, first_object_id)) == 1
+
+
+def test_identical_duplicate_sync_is_unchanged_without_new_embed_job(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-1": [_post("dup", "ch-1", "same text", now - timedelta(hours=1))],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = _build_sync_service(db_session, credential_key, transport, now)
+    first = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    obj = db_session.scalar(select(Object).where(Object.provider == "mattermost"))
+    assert obj is not None
+    assert first["created"] == 1
+    assert len(_embed_jobs_for_object(db_session, obj.id)) == 1
+
+    second = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert second["unchanged"] >= 1
+    assert second["jobs_enqueued"] == 0
+    assert len(_embed_jobs_for_object(db_session, obj.id)) == 1
+
+
+def test_bootstrap_imports_bounded_newest_page_not_old_tail(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+) -> None:
+    now = utcnow()
+    posts = [
+        _post(f"p{i}", "ch-1", f"msg {i}", now - timedelta(hours=10 - i))
+        for i in range(1, 6)
+    ]
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={"ch-1": posts},
+    )
+    account = _connect_account(db_session, credential_key)
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=3,
+        max_posts_per_run=3,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["created"] == 3
+    imported_ids = {
+        obj.metadata_["post_id"]
+        for obj in db_session.scalars(select(Object).where(Object.provider == "mattermost")).all()
+    }
+    assert imported_ids == {"p3", "p4", "p5"}
+    assert "p1" not in imported_ids
+    assert "p2" not in imported_ids
 
 
 def test_since_saturation_does_not_advance_edit_watermark(
@@ -668,6 +878,7 @@ def test_normalize_skips_empty_without_files() -> None:
     normalized = normalize_mattermost_post(
         post=post,
         normalized_server_url=ALLOWED_URL,
+        account_id=uuid.uuid4(),
         channel=MattermostChannelContext(
             channel_id="ch",
             channel_name="general",
@@ -680,3 +891,136 @@ def test_normalize_skips_empty_without_files() -> None:
         author=None,
     )
     assert normalized is None
+
+
+def test_http_transport_closes_only_owned_client() -> None:
+    from unittest.mock import MagicMock, patch
+
+    owned_client = MagicMock()
+    with patch("httpx.Client", return_value=owned_client):
+        transport = __import__(
+            "app.connectors.mattermost.transport",
+            fromlist=["MattermostHttpTransport"],
+        ).MattermostHttpTransport(ALLOWED_URL, PAT)
+    transport.close()
+    owned_client.close.assert_called_once()
+
+    injected_client = MagicMock()
+    transport = __import__(
+        "app.connectors.mattermost.transport",
+        fromlist=["MattermostHttpTransport"],
+    ).MattermostHttpTransport(ALLOWED_URL, PAT, http_client=injected_client)
+    transport.close()
+    injected_client.close.assert_not_called()
+
+
+def test_connect_closes_transport_on_success_and_error(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TrackingFake(FakeMattermostTransport):
+        def __init__(self, **kwargs) -> None:
+            super().__init__(**kwargs)
+            self.close_invoked = False
+
+        def close(self) -> None:
+            self.close_invoked = True
+
+    success_fake = TrackingFake()
+    monkeypatch.setattr(
+        "app.api.mattermost.MattermostHttpTransport",
+        lambda **kwargs: success_fake,
+    )
+    response = client.post(
+        "/connectors/mattermost/connect",
+        json={"server_url": ALLOWED_URL, "access_token": PAT},
+    )
+    assert response.status_code == 200
+    assert success_fake.close_invoked
+
+    error_fake = TrackingFake(unauthorized_on_me=True)
+    monkeypatch.setattr(
+        "app.api.mattermost.MattermostHttpTransport",
+        lambda **kwargs: error_fake,
+    )
+    response = client.post(
+        "/connectors/mattermost/connect",
+        json={"server_url": ALLOWED_URL, "access_token": "bad-token"},
+    )
+    assert response.status_code == 401
+    assert error_fake.close_invoked
+
+
+def test_sync_closes_production_transport_not_injected_factory_transport(
+    db_session,
+    credential_key: str,
+    mattermost_settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    now = utcnow()
+    fake = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={
+            "author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"},
+        },
+        posts_by_channel={
+            "ch-1": [_post("life", "ch-1", "lifecycle", now - timedelta(hours=1))],
+        },
+    )
+    account = _connect_account(db_session, credential_key)
+    service = _build_sync_service(db_session, credential_key, fake, now)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert fake.close_invoked is False
+
+    owned_client = MagicMock()
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: owned_client)
+    monkeypatch.setattr(
+        MattermostHttpTransport,
+        "list_my_channels",
+        lambda self: fake.list_my_channels(),
+    )
+    monkeypatch.setattr(
+        MattermostHttpTransport,
+        "list_my_teams",
+        lambda self: fake.list_my_teams(),
+    )
+    monkeypatch.setattr(
+        MattermostHttpTransport,
+        "get_posts_page",
+        lambda self, channel_id, page, per_page: fake.get_posts_page(
+            channel_id, page, per_page
+        ),
+    )
+    monkeypatch.setattr(
+        MattermostHttpTransport,
+        "get_posts_after",
+        lambda self, channel_id, after_post_id, per_page: fake.get_posts_after(
+            channel_id, after_post_id, per_page
+        ),
+    )
+    monkeypatch.setattr(
+        MattermostHttpTransport,
+        "get_posts_since",
+        lambda self, channel_id, since_ms: fake.get_posts_since(channel_id, since_ms),
+    )
+    monkeypatch.setattr(
+        MattermostHttpTransport,
+        "get_users_by_ids",
+        lambda self, user_ids: fake.get_users_by_ids(user_ids),
+    )
+
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=500,
+        overlap_seconds=300,
+        now_factory=lambda: now,
+    )
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    owned_client.close.assert_called_once()

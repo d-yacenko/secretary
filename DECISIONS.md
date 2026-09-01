@@ -185,6 +185,9 @@ Major phase reordered before Safe External Actions.
 - Per-channel `sync_state` cursors (`last_processed_post_id`, `last_processed_create_at_ms`); incremental new posts via `after=<post_id>`; separate bounded edit sweep via `since=` with overlap; no false watermark advance on provider `since` saturation (max 1000).
 - Bootstrap bounds: 14 days, 50 channels, 100 initial posts/channel, 500 posts/run, 300s overlap (server-side config).
 - Normalized `chat_message` objects with server-namespaced `external_id`; `embed_object` on create/semantic update only.
+- Mattermost object metadata contract: `server_url`, `account_id`, `post_id`, channel/team/author provenance fields, `create_at`/`update_at` ms timestamps; `author_user_id` canonical author id; no PAT in metadata.
+- Semantic embedding rule: `embed_object` only when `title` or `body` changes; metadata-only provider updates refresh Object metadata without a new embedding job.
+- `MattermostHttpTransport` closes owned `httpx.Client` on `close()`; connect and sync close production transport; injected factory/external transports are caller-owned.
 - Deferred in 27B-A: scheduler job, `/sources/status`, Flutter, deploy.
 
 ## PHASE 27A — Live source sync & daily workspace (accepted)

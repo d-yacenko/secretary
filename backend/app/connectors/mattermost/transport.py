@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, Self
 
 import httpx
 
@@ -21,6 +21,9 @@ class MattermostPostsPage:
 
 class MattermostTransport(Protocol):
     def get_me(self) -> dict[str, Any]:
+        ...
+
+    def close(self) -> None:
         ...
 
     def list_my_channels(self) -> list[dict[str, Any]]:
@@ -68,7 +71,18 @@ class MattermostHttpTransport:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._access_token = access_token
+        self._owns_http_client = http_client is None
         self._http_client = http_client or httpx.Client(follow_redirects=False, timeout=30.0)
+
+    def close(self) -> None:
+        if self._owns_http_client:
+            self._http_client.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     def get_me(self) -> dict[str, Any]:
         return self._request_json("GET", "/api/v4/users/me")
@@ -230,7 +244,11 @@ class FakeMattermostTransport:
         self.redirect_on_me = redirect_on_me
         self.unauthorized_on_me = unauthorized_on_me
         self.my_channels_not_found = my_channels_not_found
+        self.close_invoked = False
         self.calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def close(self) -> None:
+        self.close_invoked = True
 
     def get_me(self) -> dict[str, Any]:
         self.calls.append(("GET", "/api/v4/users/me", None))
@@ -268,7 +286,7 @@ class FakeMattermostTransport:
     ) -> MattermostPostsPage:
         params = {"page": page, "per_page": per_page}
         self.calls.append(("GET", f"/api/v4/channels/{channel_id}/posts", params))
-        posts = self._sorted_posts(channel_id)
+        posts = self._newest_first_posts(channel_id)
         start = page * per_page
         end = start + per_page
         slice_posts = posts[start:end]
@@ -282,7 +300,7 @@ class FakeMattermostTransport:
     ) -> MattermostPostsPage:
         params = {"after": after_post_id, "page": 0, "per_page": per_page}
         self.calls.append(("GET", f"/api/v4/channels/{channel_id}/posts", params))
-        posts = self._sorted_posts(channel_id)
+        posts = self._oldest_first_posts(channel_id)
         after_index = -1
         for index, post in enumerate(posts):
             if str(post.get("id")) == after_post_id:
@@ -300,7 +318,7 @@ class FakeMattermostTransport:
         self.calls.append(("GET", f"/api/v4/channels/{channel_id}/posts", params))
         posts = [
             post
-            for post in self._sorted_posts(channel_id)
+            for post in self._oldest_first_posts(channel_id)
             if int(post.get("update_at") or post.get("create_at") or 0) >= since_ms
         ]
         saturated = len(posts) >= 1000
@@ -321,10 +339,19 @@ class FakeMattermostTransport:
             if user_id in self.users_by_id
         ]
 
-    def _sorted_posts(self, channel_id: str) -> list[dict[str, Any]]:
-        posts = [dict(post) for post in self.posts_by_channel.get(channel_id, [])]
+    def _channel_posts(self, channel_id: str) -> list[dict[str, Any]]:
+        return [dict(post) for post in self.posts_by_channel.get(channel_id, [])]
+
+    def _newest_first_posts(self, channel_id: str) -> list[dict[str, Any]]:
         return sorted(
-            posts,
+            self._channel_posts(channel_id),
+            key=lambda item: int(item.get("create_at") or 0),
+            reverse=True,
+        )
+
+    def _oldest_first_posts(self, channel_id: str) -> list[dict[str, Any]]:
+        return sorted(
+            self._channel_posts(channel_id),
             key=lambda item: int(item.get("create_at") or 0),
         )
 

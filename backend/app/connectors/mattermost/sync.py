@@ -89,78 +89,83 @@ class MattermostSyncService:
 
         self._session.commit()
         transport = self._open_transport(snapshot)
-        now = self._now_factory()
-        cutoff = now - timedelta(days=self._sync_days)
-        cutoff_ms = int(cutoff.timestamp() * 1000)
+        owns_transport = self._should_close_transport(transport)
+        try:
+            now = self._now_factory()
+            cutoff = now - timedelta(days=self._sync_days)
+            cutoff_ms = int(cutoff.timestamp() * 1000)
 
-        channels = self._discover_channels(transport, snapshot.remote_user_id)
-        teams_by_id = self._build_teams_index(transport)
+            channels = self._discover_channels(transport, snapshot.remote_user_id)
+            teams_by_id = self._build_teams_index(transport)
 
-        sync_state_root = dict(snapshot.sync_state or {})
-        channel_state_root = dict(sync_state_root.get("channels", {}))
+            sync_state_root = dict(snapshot.sync_state or {})
+            channel_state_root = dict(sync_state_root.get("channels", {}))
 
-        posts_budget = self._max_posts_per_run
-        totals = _SyncTotals()
+            posts_budget = self._max_posts_per_run
+            totals = _SyncTotals()
 
-        for channel in channels[: self._max_channels]:
-            if posts_budget <= 0:
-                break
-            channel_id = str(channel.get("id") or "").strip()
-            if not channel_id:
-                continue
-            stored = dict(channel_state_root.get(channel_id, {}))
-            channel_context = self._build_channel_context(channel, teams_by_id)
+            for channel in channels[: self._max_channels]:
+                if posts_budget <= 0:
+                    break
+                channel_id = str(channel.get("id") or "").strip()
+                if not channel_id:
+                    continue
+                stored = dict(channel_state_root.get(channel_id, {}))
+                channel_context = self._build_channel_context(channel, teams_by_id)
 
-            if stored.get("bootstrap_complete"):
-                posts_budget, stored, batch = self._sync_new_posts(
-                    transport=transport,
-                    snapshot=snapshot,
-                    channel_context=channel_context,
-                    stored=stored,
-                    cutoff_ms=cutoff_ms,
-                    posts_budget=posts_budget,
-                )
-            else:
-                posts_budget, stored, batch = self._sync_bootstrap(
-                    transport=transport,
-                    snapshot=snapshot,
-                    channel_context=channel_context,
-                    stored=stored,
-                    cutoff_ms=cutoff_ms,
-                    posts_budget=posts_budget,
-                )
-            self._merge_totals(totals, batch)
-
-            if posts_budget > 0:
-                posts_budget, stored, batch = self._sync_edit_sweep(
-                    transport=transport,
-                    snapshot=snapshot,
-                    channel_context=channel_context,
-                    stored=stored,
-                    cutoff_ms=cutoff_ms,
-                    posts_budget=posts_budget,
-                )
+                if stored.get("bootstrap_complete"):
+                    posts_budget, stored, batch = self._sync_new_posts(
+                        transport=transport,
+                        snapshot=snapshot,
+                        channel_context=channel_context,
+                        stored=stored,
+                        cutoff_ms=cutoff_ms,
+                        posts_budget=posts_budget,
+                    )
+                else:
+                    posts_budget, stored, batch = self._sync_bootstrap(
+                        transport=transport,
+                        snapshot=snapshot,
+                        channel_context=channel_context,
+                        stored=stored,
+                        cutoff_ms=cutoff_ms,
+                        posts_budget=posts_budget,
+                    )
                 self._merge_totals(totals, batch)
 
-            channel_state_root[channel_id] = stored
+                if posts_budget > 0:
+                    posts_budget, stored, batch = self._sync_edit_sweep(
+                        transport=transport,
+                        snapshot=snapshot,
+                        channel_context=channel_context,
+                        stored=stored,
+                        cutoff_ms=cutoff_ms,
+                        posts_budget=posts_budget,
+                    )
+                    self._merge_totals(totals, batch)
 
-        account = self._account_store.get_by_id_for_user(account_id, user_id)
-        if account is None:
-            raise MattermostConnectorError("mattermost account not found")
-        updated_state = dict(sync_state_root)
-        updated_state["channels"] = channel_state_root
-        self._account_store.update_sync_state(account, updated_state)
-        self._session.commit()
+                channel_state_root[channel_id] = stored
 
-        return {
-            "account_username": snapshot.username,
-            "server_url": snapshot.server_url,
-            "synchronized": totals.synchronized,
-            "created": totals.created,
-            "updated": totals.updated,
-            "unchanged": totals.unchanged,
-            "jobs_enqueued": totals.jobs_enqueued,
-        }
+            account = self._account_store.get_by_id_for_user(account_id, user_id)
+            if account is None:
+                raise MattermostConnectorError("mattermost account not found")
+            updated_state = dict(sync_state_root)
+            updated_state["channels"] = channel_state_root
+            self._account_store.update_sync_state(account, updated_state)
+            self._session.commit()
+
+            return {
+                "account_username": snapshot.username,
+                "server_url": snapshot.server_url,
+                "synchronized": totals.synchronized,
+                "created": totals.created,
+                "updated": totals.updated,
+                "unchanged": totals.unchanged,
+                "jobs_enqueued": totals.jobs_enqueued,
+            }
+        finally:
+            if owns_transport:
+                transport.close()
 
     def _discover_channels(
         self,
@@ -341,6 +346,8 @@ class MattermostSyncService:
                 totals.updated += 1
                 totals.jobs_enqueued += 1
                 posts_budget -= 1
+            elif change == "metadata_updated":
+                totals.updated += 1
             else:
                 totals.unchanged += 1
             update_at_ms = int(post.get("update_at") or post.get("create_at") or 0)
@@ -390,6 +397,8 @@ class MattermostSyncService:
                 totals.updated += 1
                 totals.jobs_enqueued += 1
                 posts_budget -= 1
+            elif change == "metadata_updated":
+                totals.updated += 1
             else:
                 totals.unchanged += 1
 
@@ -449,6 +458,7 @@ class MattermostSyncService:
         normalized = normalize_mattermost_post(
             post=post,
             normalized_server_url=snapshot.normalized_server_url,
+            account_id=snapshot.account_id,
             channel=channel_context,
             author=author,
         )
@@ -478,15 +488,20 @@ class MattermostSyncService:
             )
             return "created"
 
-        if self._post_changed(existing, normalized):
-            self._apply_normalized(existing, normalized)
+        object_changed = self._object_changed(existing, normalized)
+        if not object_changed:
+            return "unchanged"
+
+        semantic_changed = self._semantic_content_changed(existing, normalized)
+        self._apply_normalized(existing, normalized)
+        if semantic_changed:
             self._job_queue.enqueue(
                 "embed_object",
                 {"object_id": str(existing.id)},
                 user_id=snapshot.user_id,
             )
             return "updated"
-        return "unchanged"
+        return "metadata_updated"
 
     def _find_existing(self, user_id: UUID, external_id: str) -> Object | None:
         return self._session.scalar(
@@ -498,12 +513,19 @@ class MattermostSyncService:
             )
         )
 
-    def _post_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
+    def _object_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
         if obj.title != normalized["title"]:
             return True
         if obj.body != normalized.get("body"):
             return True
+        if obj.occurred_at != normalized.get("occurred_at"):
+            return True
         return obj.metadata_ != normalized["metadata"]
+
+    def _semantic_content_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
+        if obj.title != normalized["title"]:
+            return True
+        return obj.body != normalized.get("body")
 
     def _apply_normalized(self, obj: Object, normalized: dict[str, Any]) -> None:
         obj.title = normalized["title"]
@@ -517,6 +539,11 @@ class MattermostSyncService:
         totals.updated += batch.updated
         totals.unchanged += batch.unchanged
         totals.jobs_enqueued += batch.jobs_enqueued
+
+    def _should_close_transport(self, transport: MattermostTransport) -> bool:
+        if self._transport_factory is not None:
+            return False
+        return isinstance(transport, MattermostHttpTransport)
 
     def _open_transport(self, snapshot: MattermostSyncSnapshot) -> MattermostTransport:
         if self._transport_factory is not None:
