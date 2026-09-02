@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.connectors.google.errors import GoogleConfigurationError
 from app.connectors.yandex.caldav_api_errors import format_yandex_caldav_error
+from app.connectors.yandex.caldav_host import trusted_caldav_base_url
 from app.connectors.yandex.caldav_transport import CalDavHttpTransport
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
@@ -56,13 +57,6 @@ def _account_store(session: Session) -> YandexMailAccountStore:
     return _mail_account_store(session)
 
 
-def _caldav_base_url(caldav_host: str) -> str:
-    host = caldav_host.strip()
-    if host.startswith(("http://", "https://")):
-        return host.rstrip("/")
-    return f"https://{host.rstrip('/')}"
-
-
 def _validate_yandex_calendar_credentials(
     email: str,
     app_password: str,
@@ -71,7 +65,7 @@ def _validate_yandex_calendar_credentials(
     transport = CalDavHttpTransport(
         email=email,
         password=app_password,
-        base_url=_caldav_base_url(caldav_host),
+        base_url=trusted_caldav_base_url(caldav_host),
     )
     transport.probe_principal()
 
@@ -147,6 +141,11 @@ def yandex_calendar_connect(
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> dict[str, Any]:
+    try:
+        trusted_caldav_base_url(body.caldav_host)
+    except YandexConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+
     try:
         _validate_yandex_calendar_credentials(
             str(body.email),

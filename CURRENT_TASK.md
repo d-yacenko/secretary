@@ -1,42 +1,35 @@
-# Current task — PHASE 28B-D2 awaiting architect review
+# Current task — PHASE 28B-D2-R1 awaiting architect review
 
 ## Status
 
-PHASE 28B — Per-User Background AI Runtime: **accepted / closed** at `76b133b10ea2408e11c66e3fe1701a59a47bc828`.
+PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed**. Real E2E **PASS**.
 
-PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed**. Real E2E **PASS**:
-- source error diagnostics PASS
-- Yandex Mail PASS
-- Inbox desktop passive refresh PASS
-- new mail appeared automatically without tab switch
+PHASE 28B-D2 — Yandex Calendar CalDAV Regression & Credential Corrective: **implementation complete**, awaiting architect review on branch `review/phase-28b-yandex-calendar-caldav`.
 
-Open corrective: Yandex Calendar recurring CalDAV sync failure.
+Real E2E after D2 corrective: Yandex Calendar **recovered** — new Calendar event arrived.
 
-Current: **PHASE 28B-D2 — Yandex Calendar CalDAV Regression & Credential Corrective** — implementation complete, awaiting architect review.
+Current: **PHASE 28B-D2-R1 — Yandex CalDAV Safety / Retry Corrective** — implementation complete, awaiting architect review.
 
 Do **not** merge, deploy, or start 28C until review.
 
-## PHASE 28B-D2 delivered
+## PHASE 28B-D2-R1 delivered
 
-- Typed CalDAV failure model (auth/permission/not_found/rate_limit/server/network) with safe user-visible messages
-- Job retry classification respects CalDAV retryability; stale sync-token recovery preserved
-- Calendar connect validates credentials before overwrite; transient failures do not destroy stored credential
-- Account Yandex dialog: separate Mail and Calendar app-password fields; service-scoped connect calls
-- Live safe probe on matched deployment: HTTP 401 on principal PROPFIND; stored Mail/Calendar passwords equal
+- Trusted CalDAV host allowlist (`caldav.yandex.ru` only); HTTPS-only; no credentials to arbitrary hosts
+- CalDAV transport disables redirect following
+- Yandex Mail `YandexImapError` retry regression fixed (CalDAV typed retry unchanged)
 
 ## Branch
 
-`review/phase-28b-yandex-calendar-caldav` from `47acf9c64a62b8ad87f3264732eed631fb1d21dd`.
+`review/phase-28b-yandex-calendar-caldav-r1` from `014e689f8ec84ee54992708ec190dd8779cdeb3a`.
 
-## Approved next after D2 acceptance/deploy/E2E
+## Approved next after D2-R1 acceptance/deploy/E2E
 
 PHASE 28C — Per-User Source/Sync Preferences.
 
-## Not in 28B-D2
+## Not in 28B-D2-R1
 
 - Database migration (Alembic remains `0020`)
 - Calendar write support
 - Source cadence preferences (28C)
 - Google / Yandex Disk / MCP changes
 - WebSocket/SSE
-- Large Account redesign

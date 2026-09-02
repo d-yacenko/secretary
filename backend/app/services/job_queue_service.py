@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from app.connectors.google.api_errors import format_google_api_error
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.connectors.yandex.caldav_api_errors import format_yandex_caldav_error
-from app.connectors.yandex.errors import YandexCalDavError, YandexConnectorError
+from app.connectors.yandex.errors import (
+    YandexCalDavError,
+    YandexConnectorError,
+    YandexImapError,
+)
 from app.db.models import Job
 from app.jobs.constants import (
     JOB_STATUS_DONE,
@@ -71,6 +75,8 @@ def is_job_error_retryable(exc: BaseException) -> bool:
         return exc.retryable
     if isinstance(exc, YandexCalDavError):
         return exc.retryable
+    if isinstance(exc, YandexImapError):
+        return True
     if isinstance(exc, YandexConnectorError):
         return exc.retryable
     if isinstance(exc, GoogleConnectorError):

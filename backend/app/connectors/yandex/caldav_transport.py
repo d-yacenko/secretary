@@ -10,6 +10,7 @@ from app.connectors.yandex.caldav_api_errors import (
     raise_for_caldav_http_response,
     raise_for_caldav_request_error,
 )
+from app.connectors.yandex.caldav_host import trusted_caldav_base_url
 from app.connectors.yandex.constants import (
     CALENDAR_MULTIGET_BATCH_SIZE,
     DEFAULT_CALDAV_BASE_URL,
@@ -172,8 +173,8 @@ class CalDavHttpTransport:
     ) -> None:
         self._email = email
         self._password = password
-        self._base_url = base_url.rstrip("/")
-        self._http = http_client or httpx.Client(timeout=30.0)
+        self._base_url = trusted_caldav_base_url(base_url)
+        self._http = http_client or httpx.Client(timeout=30.0, follow_redirects=False)
         self.last_request_depth: str | None = None
         self.last_request_path: str | None = None
         self.last_request_body: str | None = None

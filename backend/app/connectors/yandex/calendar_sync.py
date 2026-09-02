@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.connectors.yandex.caldav_host import trusted_caldav_base_url
 from app.connectors.yandex.caldav_transport import (
     CalDavCalendar,
     CalDavFetchResult,
@@ -600,7 +601,7 @@ class YandexCalendarSyncService:
     def _open_transport(self, snapshot: YandexCalendarSyncSnapshot) -> CalDavTransport:
         if self._transport_factory is not None:
             return self._transport_factory(snapshot)
-        base_url = f"https://{snapshot.caldav_host}"
+        base_url = trusted_caldav_base_url(snapshot.caldav_host)
         return CalDavHttpTransport(
             email=snapshot.email,
             password=snapshot.app_password,

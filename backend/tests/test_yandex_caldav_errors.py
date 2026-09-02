@@ -13,10 +13,19 @@ from app.connectors.yandex.caldav_api_errors import (
     raise_for_caldav_http_response,
     raise_for_caldav_request_error,
 )
+from app.connectors.yandex.caldav_host import (
+    trusted_caldav_base_url,
+    validate_trusted_caldav_host,
+)
 from app.connectors.yandex.caldav_transport import CalDavHttpTransport
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.constants import DEFAULT_CALDAV_HOST
-from app.connectors.yandex.errors import YandexCalDavError, YandexCalDavStaleSyncTokenError
+from app.connectors.yandex.errors import (
+    YandexCalDavError,
+    YandexCalDavStaleSyncTokenError,
+    YandexConfigurationError,
+    YandexImapError,
+)
 from app.db.models import YandexCalendarAccount
 from app.services.job_queue_service import is_job_error_retryable, sanitize_job_error
 from tests.conftest import BOOTSTRAP_USER_ID
@@ -284,3 +293,67 @@ def test_calendar_connect_validation_does_not_sync_events(
     )
     assert response.status_code == 200
     assert discover_calls[0] == 0
+
+
+def test_yandex_imap_error_is_retryable() -> None:
+    assert is_job_error_retryable(YandexImapError("temporary failure")) is True
+
+
+def test_trusted_caldav_host_caldav_yandex_ru_accepted() -> None:
+    assert validate_trusted_caldav_host("caldav.yandex.ru") == DEFAULT_CALDAV_HOST
+    assert trusted_caldav_base_url("caldav.yandex.ru") == "https://caldav.yandex.ru"
+
+
+def test_trusted_caldav_host_https_url_accepted() -> None:
+    assert validate_trusted_caldav_host("https://caldav.yandex.ru") == DEFAULT_CALDAV_HOST
+    assert trusted_caldav_base_url("https://caldav.yandex.ru") == "https://caldav.yandex.ru"
+
+
+def test_trusted_caldav_host_http_rejected() -> None:
+    with pytest.raises(YandexConfigurationError, match="must use https"):
+        validate_trusted_caldav_host("http://caldav.yandex.ru")
+
+
+def test_trusted_caldav_host_evil_example_rejected() -> None:
+    with pytest.raises(YandexConfigurationError, match="not allowed"):
+        validate_trusted_caldav_host("evil.example")
+
+
+def test_trusted_caldav_host_localhost_rejected() -> None:
+    with pytest.raises(YandexConfigurationError, match="not allowed"):
+        validate_trusted_caldav_host("localhost")
+
+
+def test_trusted_caldav_host_127_rejected() -> None:
+    with pytest.raises(YandexConfigurationError, match="not allowed"):
+        validate_trusted_caldav_host("127.0.0.1")
+
+
+def test_trusted_caldav_host_private_ip_rejected() -> None:
+    with pytest.raises(YandexConfigurationError, match="not allowed"):
+        validate_trusted_caldav_host("10.0.0.1")
+
+
+def test_calendar_connect_rejected_host_makes_zero_http_calls(
+    auth_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport_calls = 0
+
+    def fake_transport(*args, **kwargs):
+        nonlocal transport_calls
+        transport_calls += 1
+        raise AssertionError("transport should not be constructed")
+
+    monkeypatch.setattr("app.api.yandex.CalDavHttpTransport", fake_transport)
+
+    response = auth_client.post(
+        "/connectors/yandex/calendar/connect",
+        json={
+            "email": "user@yandex.ru",
+            "app_password": "probe-password",
+            "caldav_host": "evil.example",
+        },
+    )
+    assert response.status_code == 400
+    assert transport_calls == 0
+    assert "not allowed" in response.json()["detail"]
