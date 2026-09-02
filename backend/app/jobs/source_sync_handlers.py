@@ -12,6 +12,7 @@ from app.services.source_sync_preference_service import SourceSyncPreferenceServ
 from app.source_sync.constants import (
     SOURCE_GMAIL,
     SOURCE_GOOGLE_CALENDAR,
+    SOURCE_MATTERMOST,
     SOURCE_YANDEX_CALENDAR,
     SOURCE_YANDEX_MAIL,
 )
@@ -81,11 +82,15 @@ def _yandex_calendar_sync_service(session: Session, user_id: UUID):
     )
 
 
-def _mattermost_sync_service(session: Session):
+def _mattermost_sync_service(session: Session, user_id: UUID):
+    history_days = SourceSyncPreferenceService.build(session).effective_history_days_for_source(
+        user_id,
+        SOURCE_MATTERMOST,
+    )
     return build_mattermost_sync_service(
         session=session,
         credential_key=settings.secretary_credential_key,
-        sync_days=settings.mattermost_sync_days,
+        sync_days=history_days,
         max_channels=settings.mattermost_sync_max_channels,
         initial_posts_per_channel=settings.mattermost_sync_initial_posts_per_channel,
         max_posts_per_run=settings.mattermost_sync_max_posts_per_run,
@@ -156,4 +161,8 @@ def handle_sync_mattermost(
     user_id: UUID,
 ) -> None:
     account_id = UUID(str(payload["account_id"]))
-    _mattermost_sync_service(session).sync_account(account_id, user_id=user_id)
+    _mattermost_sync_service(session, user_id).sync_account(
+        account_id,
+        user_id=user_id,
+        include_history_pass=True,
+    )

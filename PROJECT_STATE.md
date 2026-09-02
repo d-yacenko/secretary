@@ -126,15 +126,15 @@ PHASE 28C-B2-C2-B — Yandex Calendar History Preference Runtime: **accepted** a
 
 Yandex Calendar recurring history: **complete**.
 
-PHASE 28C-B2-C3-A — Mattermost Stable History Cursor Foundation: **implementation complete, awaiting architect review** on `review/phase-28c-history-mattermost-a`.
+PHASE 28C-B2-C3-A — Mattermost Stable History Cursor Foundation: **accepted** at `55a87761ba639e0fb6960342b7d864d4876083ba`.
 
-Next: **architect review of PHASE 28C-B2-C3-A**.
+PHASE 28C-B2-C3-B — Mattermost Bounded History Runtime: **implementation complete, awaiting architect review** on `review/phase-28c-history-mattermost-b`.
 
-Approved next after 28C-B2-C3-A acceptance: **PHASE 28C-B2-C3-B — Mattermost Bounded History Runtime**.
+Next: **architect review of PHASE 28C-B2-C3-B**.
 
-Then: **PHASE 28C-B2-D — History Preferences UI**.
+Approved next after 28C-B2-C3-B acceptance: **PHASE 28C-B2-D — History Preferences UI**.
 
-28C history work is **not** complete (Mattermost runtime, UI remain).
+28C history work is **not** complete (UI remains).
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

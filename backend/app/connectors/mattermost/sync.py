@@ -24,11 +24,28 @@ from app.connectors.mattermost.errors import (
     MattermostConnectorError,
     MattermostEndpointNotFoundError,
 )
+from app.connectors.mattermost.mattermost_history_state import (
+    complete_active_history,
+    continue_active_scan,
+    get_history_backfill,
+    persist_active_before_post_id,
+    persist_active_oldest_processed_post_id,
+    reconcile_active_scan,
+    select_history_channel,
+    set_channel_entry,
+    set_history_backfill,
+    set_last_history_channel_id,
+    start_active_history_range,
+)
 from app.connectors.mattermost.normalize import (
     MattermostChannelContext,
     normalize_mattermost_post,
 )
-from app.connectors.mattermost.transport import MattermostHttpTransport, MattermostTransport
+from app.connectors.mattermost.transport import (
+    MattermostHttpTransport,
+    MattermostPostsPage,
+    MattermostTransport,
+)
 from app.db.models import Object
 from app.services.job_queue_service import JobQueueService
 
@@ -74,7 +91,13 @@ class MattermostSyncService:
         self._transport_factory = transport_factory
         self._now_factory = now_factory or utcnow
 
-    def sync_account(self, account_id: UUID, user_id: UUID) -> dict[str, Any]:
+    def sync_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        *,
+        include_history_pass: bool = False,
+    ) -> dict[str, Any]:
         account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
             raise MattermostConnectorError("mattermost account not found")
@@ -146,13 +169,30 @@ class MattermostSyncService:
 
                 channel_state_root[channel_id] = stored
 
-            account = self._account_store.get_by_id_for_user(account_id, user_id)
-            if account is None:
-                raise MattermostConnectorError("mattermost account not found")
-            updated_state = dict(sync_state_root)
-            updated_state["channels"] = channel_state_root
-            self._account_store.update_sync_state(account, updated_state)
-            self._session.commit()
+            self._persist_sync_state(
+                account_id=account_id,
+                user_id=user_id,
+                sync_state_root=sync_state_root,
+                channel_state_root=channel_state_root,
+            )
+
+            if include_history_pass:
+                sync_state_root, channel_state_root = self._run_history_pass(
+                    transport=transport,
+                    snapshot=snapshot,
+                    account_id=account_id,
+                    user_id=user_id,
+                    sync_state_root=sync_state_root,
+                    channel_state_root=channel_state_root,
+                    channels=channels[: self._max_channels],
+                    teams_by_id=teams_by_id,
+                )
+                self._persist_sync_state(
+                    account_id=account_id,
+                    user_id=user_id,
+                    sync_state_root=sync_state_root,
+                    channel_state_root=channel_state_root,
+                )
 
             return {
                 "account_username": snapshot.username,
@@ -166,6 +206,209 @@ class MattermostSyncService:
         finally:
             if owns_transport:
                 transport.close()
+
+    def _history_page_size(self) -> int:
+        return min(self._initial_posts_per_channel, self._max_posts_per_run)
+
+    def _persist_sync_state(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        sync_state_root: dict[str, Any],
+        channel_state_root: dict[str, Any],
+    ) -> None:
+        account = self._account_store.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise MattermostConnectorError("mattermost account not found")
+        updated_state = dict(sync_state_root)
+        updated_state["channels"] = channel_state_root
+        self._account_store.update_sync_state(account, updated_state)
+        self._session.commit()
+
+    def _merge_stored_channel_entry(
+        self,
+        stored: dict[str, Any],
+        entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = dict(stored)
+        backfill = entry.get("history_backfill")
+        if isinstance(backfill, dict):
+            merged = set_history_backfill(merged, backfill)
+        return merged
+
+    def _run_history_pass(
+        self,
+        transport: MattermostTransport,
+        snapshot: MattermostSyncSnapshot,
+        account_id: UUID,
+        user_id: UUID,
+        sync_state_root: dict[str, Any],
+        channel_state_root: dict[str, Any],
+        channels: list[dict[str, Any]],
+        teams_by_id: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        history_page_size = self._history_page_size()
+        if history_page_size <= 0:
+            return sync_state_root, channel_state_root
+
+        channel_ids = [
+            str(channel.get("id") or "").strip()
+            for channel in channels
+            if str(channel.get("id") or "").strip()
+        ]
+        if not channel_ids:
+            return sync_state_root, channel_state_root
+
+        channels_by_id = {
+            str(channel.get("id") or "").strip(): channel
+            for channel in channels
+            if str(channel.get("id") or "").strip()
+        }
+
+        state = dict(sync_state_root)
+        state["channels"] = channel_state_root
+        for channel_id in channel_ids:
+            stored = dict(channel_state_root.get(channel_id, {}))
+            backfill = get_history_backfill(stored)
+            reconciled = reconcile_active_scan(backfill, self._sync_days)
+            if reconciled != backfill:
+                stored = set_history_backfill(stored, reconciled)
+                channel_state_root[channel_id] = stored
+
+        state["channels"] = channel_state_root
+        self._persist_sync_state(
+            account_id=account_id,
+            user_id=user_id,
+            sync_state_root=state,
+            channel_state_root=channel_state_root,
+        )
+
+        channel_id, plan, state = select_history_channel(
+            state,
+            channel_ids,
+            self._sync_days,
+        )
+        if channel_id is None or plan is None or plan.scan is None:
+            return state, dict(state.get("channels", {}))
+
+        channel_state_root = dict(state.get("channels", {}))
+        stored = dict(channel_state_root.get(channel_id, {}))
+        if continue_active_scan(get_history_backfill(stored)) is None:
+            started_backfill = start_active_history_range(
+                get_history_backfill(stored),
+                plan.scan.active_start_ms,
+                plan.scan.active_end_ms,
+                self._sync_days,
+                before_post_id=plan.scan.active_before_post_id,
+            )
+            stored = set_history_backfill(stored, started_backfill)
+            channel_state_root[channel_id] = stored
+            state = set_channel_entry(state, channel_id, stored)
+            self._persist_sync_state(
+                account_id=account_id,
+                user_id=user_id,
+                sync_state_root=state,
+                channel_state_root=channel_state_root,
+            )
+
+        stored = dict(channel_state_root.get(channel_id, {}))
+        backfill = get_history_backfill(stored)
+        active = continue_active_scan(backfill)
+        if active is None:
+            return state, channel_state_root
+
+        channel = channels_by_id[channel_id]
+        channel_context = self._build_channel_context(channel, teams_by_id)
+        before_post_id = active.active_before_post_id
+
+        if before_post_id is None:
+            page = transport.get_posts_page(
+                channel_id=channel_id,
+                page=0,
+                per_page=history_page_size,
+            )
+        else:
+            page = transport.get_posts_before(
+                channel_id=channel_id,
+                before_post_id=before_post_id,
+                per_page=history_page_size,
+            )
+
+        provider_posts = self._posts_from_page(page)
+        oldest_provider_post = self._oldest_post(provider_posts)
+        interval_complete = self._history_interval_complete(
+            provider_posts=provider_posts,
+            active_start_ms=active.active_start_ms,
+            per_page=history_page_size,
+        )
+
+        in_window_posts = [
+            post
+            for post in provider_posts
+            if active.active_start_ms <= int(post.get("create_at") or 0) < active.active_end_ms
+        ]
+        in_window_posts.sort(key=lambda item: int(item.get("create_at") or 0))
+
+        oldest_in_window_processed: dict[str, Any] | None = None
+        if in_window_posts:
+            author_map = self._resolve_authors(transport, in_window_posts)
+            for post in in_window_posts:
+                self._upsert_post(
+                    snapshot=snapshot,
+                    channel_context=channel_context,
+                    post=post,
+                    author_map=author_map,
+                )
+                if oldest_in_window_processed is None or int(post.get("create_at") or 0) < int(
+                    oldest_in_window_processed.get("create_at") or 0
+                ):
+                    oldest_in_window_processed = post
+                self._session.commit()
+
+        stored = dict(channel_state_root.get(channel_id, {}))
+        backfill = get_history_backfill(stored)
+        if oldest_in_window_processed is not None:
+            oldest_id = str(oldest_in_window_processed.get("id") or "").strip()
+            if oldest_id:
+                backfill = persist_active_oldest_processed_post_id(backfill, oldest_id)
+
+        if interval_complete:
+            backfill = complete_active_history(backfill)
+        elif oldest_provider_post is not None:
+            oldest_id = str(oldest_provider_post.get("id") or "").strip()
+            if oldest_id:
+                backfill = persist_active_before_post_id(backfill, oldest_id)
+
+        stored = set_history_backfill(stored, backfill)
+        channel_state_root[channel_id] = stored
+        state = set_channel_entry(state, channel_id, stored)
+        state = set_last_history_channel_id(state, channel_id)
+        return state, dict(state.get("channels", {}))
+
+    def _posts_from_page(self, page: MattermostPostsPage) -> list[dict[str, Any]]:
+        posts: list[dict[str, Any]] = []
+        for post_id in page.order:
+            post = page.posts.get(post_id)
+            if isinstance(post, dict):
+                posts.append(post)
+        return posts
+
+    def _oldest_post(self, posts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not posts:
+            return None
+        return min(posts, key=lambda item: int(item.get("create_at") or 0))
+
+    def _history_interval_complete(
+        self,
+        provider_posts: list[dict[str, Any]],
+        active_start_ms: int,
+        per_page: int,
+    ) -> bool:
+        if not provider_posts:
+            return True
+        if any(int(post.get("create_at") or 0) < active_start_ms for post in provider_posts):
+            return True
+        return len(provider_posts) < per_page
 
     def _discover_channels(
         self,
