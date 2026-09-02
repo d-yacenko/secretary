@@ -24,6 +24,7 @@ from app.connectors.yandex.errors import (
     YandexCalDavError,
     YandexCalDavStaleSyncTokenError,
     YandexConfigurationError,
+    YandexConnectorError,
     YandexImapError,
 )
 from app.db.models import YandexCalendarAccount
@@ -297,6 +298,14 @@ def test_calendar_connect_validation_does_not_sync_events(
 
 def test_yandex_imap_error_is_retryable() -> None:
     assert is_job_error_retryable(YandexImapError("temporary failure")) is True
+
+
+def test_generic_yandex_connector_error_is_retryable() -> None:
+    assert is_job_error_retryable(YandexConnectorError("temporary connector failure")) is True
+
+
+def test_yandex_configuration_error_is_not_retryable() -> None:
+    assert is_job_error_retryable(YandexConfigurationError("credential key invalid")) is False
 
 
 def test_trusted_caldav_host_caldav_yandex_ru_accepted() -> None:

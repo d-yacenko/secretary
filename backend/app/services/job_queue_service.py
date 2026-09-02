@@ -10,8 +10,8 @@ from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
 from app.connectors.yandex.caldav_api_errors import format_yandex_caldav_error
 from app.connectors.yandex.errors import (
     YandexCalDavError,
+    YandexConfigurationError,
     YandexConnectorError,
-    YandexImapError,
 )
 from app.db.models import Job
 from app.jobs.constants import (
@@ -75,10 +75,10 @@ def is_job_error_retryable(exc: BaseException) -> bool:
         return exc.retryable
     if isinstance(exc, YandexCalDavError):
         return exc.retryable
-    if isinstance(exc, YandexImapError):
-        return True
+    if isinstance(exc, YandexConfigurationError):
+        return False
     if isinstance(exc, YandexConnectorError):
-        return exc.retryable
+        return True
     if isinstance(exc, GoogleConnectorError):
         return exc.retryable
     return True
