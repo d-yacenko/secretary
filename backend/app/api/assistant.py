@@ -36,7 +36,7 @@ from app.services.errors import NotFoundError, ValidationError
 from app.services.transcription_service import (
     TranscriptionConfigurationError,
     TranscriptionProvider,
-    create_transcription_provider,
+    create_transcription_provider_for_api_key,
     transcribe_audio_upload,
 )
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
@@ -164,10 +164,19 @@ def get_assistant_service(
     )
 
 
-def get_transcription_provider() -> TranscriptionProvider:
+def get_transcription_provider(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> TranscriptionProvider:
     try:
-        return create_transcription_provider()
-    except TranscriptionConfigurationError as exc:
+        api_key = EffectiveUserSettingsService.build(session).resolve_openai_api_key(
+            current_user.user_id
+        )
+        return create_transcription_provider_for_api_key(api_key)
+    except (
+        TranscriptionConfigurationError,
+        UserOpenAICredentialConfigurationError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=TRANSCRIPTION_PROVIDER_UNAVAILABLE,

@@ -70,13 +70,20 @@ def _provider_model(provider: TranscriptionProvider) -> str:
     return settings.openai_transcription_model.strip() or "unknown"
 
 
-def create_transcription_provider() -> OpenAITranscriptionProvider:
-    if not settings.openai_api_key:
-        raise TranscriptionConfigurationError("OPENAI_API_KEY is not configured")
+def create_transcription_provider_for_api_key(
+    api_key: str | None,
+) -> OpenAITranscriptionProvider:
+    if not api_key:
+        raise TranscriptionConfigurationError("OpenAI API key is not configured")
     model = settings.openai_transcription_model.strip()
     if not model:
         raise TranscriptionConfigurationError("OPENAI_TRANSCRIPTION_MODEL cannot be blank")
-    return OpenAITranscriptionProvider(api_key=settings.openai_api_key, model=model)
+    return OpenAITranscriptionProvider(api_key=api_key, model=model)
+
+
+def create_transcription_provider() -> OpenAITranscriptionProvider:
+    deployment_key = settings.openai_api_key.strip() or None
+    return create_transcription_provider_for_api_key(deployment_key)
 
 
 def create_fake_transcription_provider(text: str = "recognized speech") -> FakeTranscriptionProvider:

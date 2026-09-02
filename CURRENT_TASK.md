@@ -1,29 +1,26 @@
-# Current task — PHASE 28B-A awaiting architect review
+# Current task — PHASE 28B-B awaiting architect review
 
 ## Status
 
-PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **accepted / closed** at `765f79126329a26f42180d00a32fb646c6ec1598`. Deployment and real Google Drive/Sheets explicit-link E2E: **PASS**.
+PHASE 28B-A — Per-User Background AI Runtime: **accepted / closed** at `2ab6c8d96c5c5695a57042e9e487194f1a6515d3`. Deployment: **PASS**.
 
-PHASE 28A — User Profile & Per-User Settings Foundation: **accepted / closed**. Matched-version manual E2E: **PASS**.
+PHASE 28B-B — Per-User Transcription Credential: **implementation complete, awaiting architect review**.
 
-PHASE 28B-A — Per-User Background AI Runtime: **implementation complete, awaiting architect review**.
+Do **not** merge, deploy, or start 28C until review.
 
-Do **not** merge, deploy, or start 28B-B until review.
+## PHASE 28B-B delivered
 
-## PHASE 28B-A delivered
-
-- Background embed / summarize / correlate jobs resolve OpenAI credential per `job.user_id`
-- Reuses `EffectiveUserSettingsService` credential precedence (personal key > deployment fallback)
-- Broken personal credential: no deployment/Fake fallback; job fails safely
-- No global embedding client at worker startup; per-job embedding service lifetime
-- Source-sync jobs unchanged; no OpenAI resolution on sync path
+- `POST /assistant/transcribe` resolves OpenAI credential per authenticated user via `resolve_openai_api_key`
+- Transcription model remains deployment-level (`OPENAI_TRANSCRIPTION_MODEL`)
+- Broken personal credential → HTTP 502 generic (not Secretary 401)
+- No `get_effective_settings()` on transcription path
 
 ## Branch
 
-`review/phase-28b-background-ai` from `765f79126329a26f42180d00a32fb646c6ec1598`.
+`review/phase-28b-transcription` from `2ab6c8d96c5c5695a57042e9e487194f1a6515d3`.
 
-## Not in 28B-A
+## Not in 28B-B
 
-- Transcription per-user migration (28B-B)
-- Source sync preferences / scheduler intervals (28C)
-- Flutter changes
+- Source sync preferences (28C)
+- Flutter microphone UX changes
+- Background embed/summarize/correlate changes
