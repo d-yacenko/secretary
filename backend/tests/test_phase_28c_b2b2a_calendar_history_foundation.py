@@ -171,6 +171,7 @@ def test_per_calendar_isolation() -> None:
             "cal-a": {
                 "active_start": format_stored_datetime(FIXED_NOW - timedelta(days=90)),
                 "active_end": format_stored_datetime(FIXED_NOW),
+                "active_history_days": 90,
                 "next_page_token": "token-a",
             },
             "cal-b": {
@@ -235,6 +236,7 @@ def test_active_narrowing_discards_out_of_policy_token() -> None:
     entry = {
         "active_start": format_stored_datetime(FIXED_NOW - timedelta(days=90)),
         "active_end": format_stored_datetime(FIXED_NOW),
+        "active_history_days": 90,
         "next_page_token": "old-token",
     }
     reconciled = reconcile_active_window(entry, history_days=14)
@@ -247,6 +249,7 @@ def test_deployment_narrowing_discards_token() -> None:
     entry = {
         "active_start": format_stored_datetime(FIXED_NOW - timedelta(days=90)),
         "active_end": format_stored_datetime(FIXED_NOW),
+        "active_history_days": 90,
         "next_page_token": "old-token",
     }
     reconciled = reconcile_active_window(entry, history_days=30)
@@ -259,6 +262,7 @@ def test_valid_increase_preserves_token() -> None:
     entry = {
         "active_start": format_stored_datetime(active_start),
         "active_end": format_stored_datetime(active_end),
+        "active_history_days": 30,
         "next_page_token": "keep-token",
     }
     plan = plan_history_active_window(entry, history_days=90)
@@ -305,9 +309,11 @@ def test_final_page_merges_into_scanned_coverage() -> None:
     entry = {
         "active_start": format_stored_datetime(active_start),
         "active_end": format_stored_datetime(active_end),
+        "active_history_days": 60,
     }
     completed = complete_active_window(entry)
     assert completed.get("active_start") is None
+    assert completed.get("active_history_days") is None
     assert completed.get("scanned_start") == format_stored_datetime(active_start)
     assert completed.get("scanned_end") == format_stored_datetime(active_end)
 

@@ -105,20 +105,52 @@ def _parse_optional_datetime(entry: dict[str, Any], key: str) -> datetime | None
         return None
 
 
+def _parse_active_history_days(entry: dict[str, Any]) -> int | None:
+    raw = entry.get("active_history_days")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def _has_active_marker(entry: dict[str, Any]) -> bool:
+    return (
+        entry.get("active_start") is not None
+        or entry.get("active_end") is not None
+        or entry.get("next_page_token")
+    )
+
+
 def sanitize_calendar_backfill(entry: dict[str, Any]) -> dict[str, Any]:
     entry = dict(entry)
     active_start = _parse_optional_datetime(entry, "active_start")
     active_end = _parse_optional_datetime(entry, "active_end")
     scanned_start = _parse_optional_datetime(entry, "scanned_start")
     scanned_end = _parse_optional_datetime(entry, "scanned_end")
+    active_history_days = _parse_active_history_days(entry)
 
-    if active_start is None or active_end is None or active_start >= active_end:
+    if (
+        active_start is None
+        or active_end is None
+        or active_start >= active_end
+        or (_has_active_marker(entry) and active_history_days is None)
+    ):
         entry.pop("active_start", None)
         entry.pop("active_end", None)
         entry.pop("next_page_token", None)
+        entry.pop("active_history_days", None)
     else:
         entry["active_start"] = format_stored_datetime(active_start)
         entry["active_end"] = format_stored_datetime(active_end)
+        if active_history_days is not None:
+            entry["active_history_days"] = active_history_days
+        else:
+            entry.pop("active_history_days", None)
 
     if (
         scanned_start is not None
@@ -152,24 +184,12 @@ def continue_active_window(calendar_backfill: dict[str, Any]) -> CalendarHistory
     )
 
 
-def _active_window_within_desired(
-    active_start: datetime,
-    active_end: datetime,
-    desired_start: datetime,
-    desired_end: datetime,
-) -> bool:
-    return (
-        active_start < active_end
-        and active_start >= desired_start
-        and active_end <= desired_end
-    )
-
-
 def clear_active_window(calendar_backfill: dict[str, Any]) -> dict[str, Any]:
     calendar_backfill = dict(calendar_backfill)
     calendar_backfill.pop("active_start", None)
     calendar_backfill.pop("active_end", None)
     calendar_backfill.pop("next_page_token", None)
+    calendar_backfill.pop("active_history_days", None)
     return calendar_backfill
 
 
@@ -181,15 +201,19 @@ def reconcile_active_window(
     continuing = continue_active_window(calendar_backfill)
     if continuing is None:
         return calendar_backfill
-    desired_start, desired_end = desired_history_window(history_days)
-    if _active_window_within_desired(
-        continuing.active_start,
-        continuing.active_end,
-        desired_start,
-        desired_end,
-    ):
-        return calendar_backfill
-    return clear_active_window(calendar_backfill)
+
+    active_history_days = _parse_active_history_days(calendar_backfill)
+    if active_history_days is None:
+        return clear_active_window(calendar_backfill)
+
+    if history_days < active_history_days:
+        return clear_active_window(calendar_backfill)
+
+    _, desired_end = desired_history_window(history_days)
+    if continuing.active_end > desired_end:
+        return clear_active_window(calendar_backfill)
+
+    return calendar_backfill
 
 
 def plan_history_active_window(
@@ -281,10 +305,14 @@ def persist_active_page_token(
 def start_active_window(
     calendar_backfill: dict[str, Any],
     window: CalendarHistoryActiveWindow,
+    history_days: int,
 ) -> dict[str, Any]:
+    if history_days <= 0:
+        raise ValueError("history_days must be positive")
     calendar_backfill = dict(calendar_backfill)
     calendar_backfill["active_start"] = format_stored_datetime(window.active_start)
     calendar_backfill["active_end"] = format_stored_datetime(window.active_end)
+    calendar_backfill["active_history_days"] = history_days
     calendar_backfill.pop("next_page_token", None)
     return calendar_backfill
 

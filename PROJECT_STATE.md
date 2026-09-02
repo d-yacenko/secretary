@@ -102,11 +102,13 @@ PHASE 28C-B2-B1 — Gmail Bounded History Runtime: **accepted** at `4d84aea36347
 
 PHASE 28C-B2-B1-R1 — Reconcile Active Gmail Backfill With Current History Policy: **accepted** at `a12bb3b86205b01973021a61c8b22310f3e16588`.
 
-PHASE 28C-B2-B2-A — Google Calendar History Pagination Foundation: **implementation complete, awaiting architect review** on `review/phase-28c-history-google-calendar-a`.
+PHASE 28C-B2-B2-A — Google Calendar History Pagination Foundation: **accepted** at `8eea8e2aafe6e1074405b51cf5c191339f14ec0c`.
 
-Next: **architect review of PHASE 28C-B2-B2-A**.
+PHASE 28C-B2-B2-A-R1 — Stable Calendar Active Pagination Across Time Drift: **implementation complete, awaiting architect review** on `review/phase-28c-history-google-calendar-a-r1`.
 
-Approved next after 28C-B2-B2-A acceptance: **PHASE 28C-B2-B2-B — Google Calendar Bounded History Runtime**.
+Next: **architect review of PHASE 28C-B2-B2-A-R1**.
+
+Approved next after 28C-B2-B2-A-R1 acceptance: **PHASE 28C-B2-B2-B — Google Calendar Bounded History Runtime**.
 
 Google Calendar runtime history backfill is **not** implemented yet (B2-B2-B).
 
