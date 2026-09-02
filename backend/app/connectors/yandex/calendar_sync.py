@@ -18,6 +18,19 @@ from app.connectors.yandex.calendar_credentials import (
     YandexCalendarAccountStore,
     YandexCalendarSyncSnapshot,
 )
+from app.connectors.yandex.calendar_history_state import (
+    clear_stale_reset_coverage,
+    complete_active_history_range,
+    continue_active_history_range,
+    get_calendar_entry,
+    mark_initial_coverage_complete,
+    persist_history_backfill_cursor,
+    reconcile_active_history_range,
+    select_history_calendar,
+    set_calendar_entry,
+    set_last_history_calendar_href,
+    start_active_history_range,
+)
 from app.connectors.yandex.calendar_normalize import normalize_caldav_events
 from app.connectors.yandex.constants import (
     CALENDAR_BACKFILL_MIN_SLICE_DAYS,
@@ -89,6 +102,7 @@ class YandexCalendarSyncService:
         account_id: UUID,
         user_id: UUID,
         limit: int | None = None,
+        include_history_pass: bool = False,
     ) -> dict[str, Any]:
         snapshot = self._account_store.load_sync_snapshot(account_id, user_id)
         if snapshot is None:
@@ -114,6 +128,9 @@ class YandexCalendarSyncService:
                 refreshed.pop("pending_sync_token", None)
                 calendar_state[calendar_href] = refreshed
         calendars = transport.discover_calendars(self._max_calendars)
+        calendar_summaries = {
+            calendar.href: calendar.display_name for calendar in calendars
+        }
 
         totals = _BatchStats()
 
@@ -131,6 +148,10 @@ class YandexCalendarSyncService:
                 batch_stats, occurrence_budget, stored = self._sync_steady_state_calendar(
                     transport=transport,
                     snapshot=snapshot,
+                    account_id=account_id,
+                    user_id=user_id,
+                    sync_state_root=sync_state_root,
+                    calendar_state=calendar_state,
                     calendar_href=calendar_href,
                     stored=stored,
                     calendar_summary=calendar_summary,
@@ -156,14 +177,25 @@ class YandexCalendarSyncService:
                 stored["display_name"] = calendar_summary
             calendar_state[calendar_href] = stored
 
-        account = self._account_store.get_by_id_for_user(account_id, user_id)
-        if account is None:
-            raise YandexConnectorError("yandex calendar account not found")
-        updated_state = dict(sync_state_root)
-        updated_state["calendars"] = calendar_state
-        updated_state["normalization_version"] = CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION
-        self._account_store.update_sync_state(account, updated_state)
-        self._session.commit()
+        self._persist_calendar_state(account_id, user_id, sync_state_root, calendar_state)
+
+        if include_history_pass:
+            history_budget = min(
+                limit if limit is not None else self._default_limit,
+                self._max_limit,
+            )
+            sync_state_root, calendar_state = self._run_history_pass(
+                transport=transport,
+                snapshot=snapshot,
+                account_id=account_id,
+                user_id=user_id,
+                sync_state_root=sync_state_root,
+                calendar_state=calendar_state,
+                calendars=calendars,
+                calendar_summaries=calendar_summaries,
+                history_budget=history_budget,
+            )
+            self._persist_calendar_state(account_id, user_id, sync_state_root, calendar_state)
 
         return {
             "account_email": snapshot.email,
@@ -178,6 +210,166 @@ class YandexCalendarSyncService:
     def _sync_window(self) -> tuple[datetime, datetime]:
         now = self._now_factory()
         return now - timedelta(days=self._days_back), now + timedelta(days=self._days_forward)
+
+    def _persist_calendar_state(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        sync_state_root: dict[str, Any],
+        calendar_state: dict[str, Any],
+    ) -> None:
+        account = self._account_store.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise YandexConnectorError("yandex calendar account not found")
+        updated_state = dict(sync_state_root)
+        updated_state["calendars"] = calendar_state
+        updated_state["normalization_version"] = CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION
+        self._account_store.update_sync_state(account, updated_state)
+        self._session.commit()
+
+    def _merge_stored_calendar_entry(
+        self,
+        stored: dict[str, Any],
+        entry: dict[str, Any],
+        calendar_summary: str | None,
+    ) -> dict[str, Any]:
+        merged = dict(stored)
+        merged.update(entry)
+        if calendar_summary:
+            merged["display_name"] = calendar_summary
+        return merged
+
+    def _run_history_pass(
+        self,
+        transport: CalDavTransport,
+        snapshot: YandexCalendarSyncSnapshot,
+        account_id: UUID,
+        user_id: UUID,
+        sync_state_root: dict[str, Any],
+        calendar_state: dict[str, Any],
+        calendars: list[CalDavCalendar],
+        calendar_summaries: dict[str, str | None],
+        history_budget: int,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if history_budget <= 0:
+            return sync_state_root, calendar_state
+
+        calendar_hrefs = [calendar.href for calendar in calendars]
+        state = dict(sync_state_root)
+        state["calendars"] = calendar_state
+
+        for href in calendar_hrefs:
+            entry = get_calendar_entry(state, href)
+            reconciled = reconcile_active_history_range(entry, self._days_back)
+            if reconciled != entry:
+                state = set_calendar_entry(state, href, reconciled)
+
+        calendar_href, plan, state = select_history_calendar(
+            state,
+            calendar_hrefs,
+            self._days_back,
+        )
+        if calendar_href is None or plan is None or plan.range is None:
+            return state, dict(state.get("calendars", {}))
+
+        calendar_state = dict(state.get("calendars", {}))
+        entry = get_calendar_entry(state, calendar_href)
+        if continue_active_history_range(entry) is None:
+            entry = start_active_history_range(
+                entry,
+                plan.range.active_start,
+                plan.range.active_end,
+                self._days_back,
+            )
+            state = set_calendar_entry(state, calendar_href, entry)
+            calendar_state[calendar_href] = self._merge_stored_calendar_entry(
+                calendar_state.get(calendar_href, {}),
+                entry,
+                calendar_summaries.get(calendar_href),
+            )
+            self._persist_calendar_state(account_id, user_id, state, calendar_state)
+
+        entry = get_calendar_entry(state, calendar_href)
+        active = continue_active_history_range(entry)
+        if active is None:
+            return state, calendar_state
+
+        frozen_start = active.active_start
+        frozen_end = active.active_end
+        cursor = active.history_backfill_cursor or frozen_start
+        cursor = max(cursor, frozen_start)
+        min_slice = timedelta(days=CALENDAR_BACKFILL_MIN_SLICE_DAYS)
+        overlap = timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
+
+        parent_slice_end = min(
+            cursor + timedelta(days=CALENDAR_BACKFILL_SLICE_DAYS),
+            frozen_end,
+        )
+        leaf_end = active.history_backfill_slice_end or parent_slice_end
+        leaf_end = min(leaf_end, parent_slice_end)
+        leaf_start = cursor
+        calendar_summary = calendar_summaries.get(calendar_href) or entry.get("display_name")
+        stored_sync_token = entry.get("sync_token")
+
+        self._session.commit()
+        while True:
+            fetch_result = transport.query_events(
+                calendar_href=calendar_href,
+                time_min=leaf_start,
+                time_max=leaf_end,
+                max_results=self._max_limit,
+            )
+            if len(fetch_result.events) < self._max_limit:
+                break
+            duration = leaf_end - leaf_start
+            if duration <= min_slice:
+                raise YandexConnectorError("history calendar slice exceeds resource cap")
+            leaf_end = leaf_start + duration / 2
+
+        apply_result = self._apply_fetch_batch(
+            user_id=snapshot.user_id,
+            fetch_result=fetch_result,
+            calendar_href=calendar_href,
+            calendar_summary=calendar_summary,
+            time_min=leaf_start,
+            time_max=leaf_end,
+            cap_occurrences=True,
+            occurrence_budget=history_budget,
+            reconcile_occurrences=False,
+        )
+
+        entry = get_calendar_entry(state, calendar_href)
+        if not apply_result.completed_all_resources:
+            entry = persist_history_backfill_cursor(entry, leaf_start, leaf_end)
+        else:
+            if leaf_end < parent_slice_end:
+                next_cursor = leaf_end - overlap
+                if next_cursor <= leaf_start:
+                    next_cursor = leaf_end
+                entry = persist_history_backfill_cursor(
+                    entry,
+                    next_cursor,
+                    parent_slice_end,
+                )
+            elif parent_slice_end >= frozen_end:
+                entry = complete_active_history_range(entry)
+            else:
+                next_cursor = parent_slice_end - overlap
+                if next_cursor <= cursor:
+                    next_cursor = parent_slice_end
+                entry = persist_history_backfill_cursor(entry, next_cursor, None)
+
+        if stored_sync_token is not None:
+            entry["sync_token"] = stored_sync_token
+
+        state = set_calendar_entry(state, calendar_href, entry)
+        state = set_last_history_calendar_href(state, calendar_href)
+        calendar_state[calendar_href] = self._merge_stored_calendar_entry(
+            calendar_state.get(calendar_href, {}),
+            entry,
+            calendar_summary,
+        )
+        return state, calendar_state
 
     def _sync_backfill_calendar(
         self,
@@ -209,6 +401,10 @@ class YandexCalendarSyncService:
         self,
         transport: CalDavTransport,
         snapshot: YandexCalendarSyncSnapshot,
+        account_id: UUID,
+        user_id: UUID,
+        sync_state_root: dict[str, Any],
+        calendar_state: dict[str, Any],
         calendar_href: str,
         stored: dict[str, Any],
         calendar_summary: str | None,
@@ -241,6 +437,10 @@ class YandexCalendarSyncService:
             batch_stats, occurrence_budget, stored = self._sync_incremental_calendar(
                 transport=transport,
                 snapshot=snapshot,
+                account_id=account_id,
+                user_id=user_id,
+                sync_state_root=sync_state_root,
+                calendar_state=calendar_state,
                 calendar_href=calendar_href,
                 stored=stored,
                 stored_token=str(stored["sync_token"]),
@@ -335,12 +535,19 @@ class YandexCalendarSyncService:
             next_cursor = parent_slice_end - overlap
             cursor = next_cursor if next_cursor > cursor else parent_slice_end
 
+        if cursor < range_end:
+            stored["backfill_cursor"] = cursor.isoformat()
+            return totals, occurrence_budget, stored
+
         stored.pop("backfill_cursor", None)
         stored.pop("backfill_slice_end", None)
         if establish_token_on_complete and stored.get("pending_sync_token"):
             stored["sync_token"] = stored["pending_sync_token"]
             stored.pop("pending_sync_token", None)
-        stored["covered_window_end"] = range_end.isoformat()
+        if establish_token_on_complete:
+            stored = mark_initial_coverage_complete(stored, range_start, range_end)
+        else:
+            stored["covered_window_end"] = range_end.isoformat()
         return totals, occurrence_budget, stored
 
     def _capture_baseline_sync_token(self, stored: dict[str, Any], fetch_token: str | None) -> None:
@@ -353,6 +560,10 @@ class YandexCalendarSyncService:
         self,
         transport: CalDavTransport,
         snapshot: YandexCalendarSyncSnapshot,
+        account_id: UUID,
+        user_id: UUID,
+        sync_state_root: dict[str, Any],
+        calendar_state: dict[str, Any],
         calendar_href: str,
         stored: dict[str, Any],
         stored_token: str,
@@ -381,11 +592,17 @@ class YandexCalendarSyncService:
                     time_max=time_max,
                 )
             except YandexCalDavStaleSyncTokenError:
-                self._session.commit()
+                stored = clear_stale_reset_coverage(stored)
                 stored.pop("sync_token", None)
-                stored.pop("covered_window_end", None)
                 stored["backfill_cursor"] = time_min.isoformat()
                 stored.pop("pending_sync_token", None)
+                calendar_state[calendar_href] = stored
+                self._persist_calendar_state(
+                    account_id,
+                    user_id,
+                    sync_state_root,
+                    calendar_state,
+                )
                 batch_stats, occurrence_budget, stored = self._run_bounded_reconciliation(
                     transport=transport,
                     snapshot=snapshot,

@@ -657,6 +657,18 @@ def test_yandex_calendar_resync_unchanged_without_duplicate_jobs(
         app_password="calendar-app-password",
         caldav_host="caldav.yandex.ru",
     )
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+    store.update_sync_state(
+        account,
+        _steady_sync_state(
+            {
+                CALENDAR_HREF: {
+                    "sync_token": "token-1",
+                    "covered_window_end": (now + timedelta(days=90)).isoformat(),
+                }
+            }
+        ),
+    )
     db_session.commit()
 
     transport = FakeCalDavTransport(
@@ -667,7 +679,11 @@ def test_yandex_calendar_resync_unchanged_without_duplicate_jobs(
                 "token-1": CalDavFetchResult(
                     events=[_event("evt-yandex-2")],
                     sync_token="token-3",
-                )
+                ),
+                "token-3": CalDavFetchResult(
+                    events=[_event("evt-yandex-2")],
+                    sync_token="token-3",
+                ),
             }
         },
         sync_tokens_by_calendar={CALENDAR_HREF: "token-1"},
@@ -681,6 +697,7 @@ def test_yandex_calendar_resync_unchanged_without_duplicate_jobs(
         max_limit=100,
         max_calendars=10,
         transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
     )
     first = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
     second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
@@ -688,7 +705,10 @@ def test_yandex_calendar_resync_unchanged_without_duplicate_jobs(
     assert first["created"] == 1
     assert second["unchanged"] == 1
     assert second["jobs_enqueued"] == 0
-    assert transport.sync_collection_calls == [(CALENDAR_HREF, "token-1", 100)]
+    assert transport.sync_collection_calls == [
+        (CALENDAR_HREF, "token-1", 100),
+        (CALENDAR_HREF, "token-3", 100),
+    ]
 
 
 def test_two_users_share_same_external_id_under_different_user_id(
@@ -1977,3 +1997,51 @@ def test_sync_collection_unrelated_409_does_not_trigger_backfill(
         sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
     assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "steady-token"
+
+
+def test_bounded_reconciliation_exact_budget_leaves_range_incomplete(
+    db_session, credential_key: str,
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="budget@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    db_session.commit()
+
+    now = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+    window_min = now - timedelta(days=60)
+    events = [
+        _event(
+            f"evt-budget-{index}",
+            dtstart=(window_min + timedelta(days=index)).strftime("%Y%m%dT%H%M%SZ"),
+            dtend=(window_min + timedelta(days=index, hours=1)).strftime("%Y%m%dT%H%M%SZ"),
+        )
+        for index in range(5)
+    ]
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="steady-token")],
+        query_events_by_calendar={CALENDAR_HREF: events},
+        sync_tokens_by_calendar={CALENDAR_HREF: "steady-token"},
+    )
+    sync_service = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=1)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    state = account.sync_state["calendars"][CALENDAR_HREF]
+
+    assert result["created"] == 1
+    assert state.get("backfill_cursor") is not None
+    assert state.get("sync_token") is None
+    assert state.get("covered_window_end") is None

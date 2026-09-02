@@ -118,17 +118,21 @@ PHASE 28C-B2-C1-B — Yandex Mail Bounded History Runtime: **accepted** at `e565
 
 Yandex Mail recurring history: **complete**.
 
-PHASE 28C-B2-C2-A — Yandex Calendar Past-Coverage Foundation: **implementation complete, awaiting architect review** on `review/phase-28c-history-yandex-calendar-a`.
+PHASE 28C-B2-C2-A — Yandex Calendar Past-Coverage Foundation: **accepted** at `dbcadb3ccbe1f1ca9f6d64bbf0b2ab76ee18ca10`.
 
-Next: **architect review of PHASE 28C-B2-C2-A**.
+PHASE 28C-B2-C2-A-R1 — Truthful Yandex Calendar Coverage Contiguity: **accepted** at `0391c813294d0504a898e9bfc6b1ee991c66da54`.
 
-Approved next after 28C-B2-C2-A acceptance: **PHASE 28C-B2-C2-B — Yandex Calendar History Preference Runtime**.
+PHASE 28C-B2-C2-B — Yandex Calendar History Preference Runtime: **implementation complete, awaiting architect review** on `review/phase-28c-history-yandex-calendar-b`.
 
-Then: Mattermost history runtime, History Preferences UI (B2-D).
+Next: **architect review of PHASE 28C-B2-C2-B**.
 
-Yandex Calendar history runtime is **not** complete (C2-B remains).
+Approved next after 28C-B2-C2-B acceptance: **Mattermost history runtime**.
 
-28C history work is **not** complete (Yandex Calendar runtime, Mattermost, UI remain).
+Then: History Preferences UI (B2-D).
+
+Yandex Calendar history runtime is **implemented in C2-B** (awaiting review).
+
+28C history work is **not** complete (Mattermost, UI remain).
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

@@ -27,7 +27,7 @@ from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
 from app.services.source_sync_preference_service import SourceSyncPreferenceService
-from app.source_sync.constants import SOURCE_YANDEX_MAIL
+from app.source_sync.constants import SOURCE_YANDEX_CALENDAR, SOURCE_YANDEX_MAIL
 
 router = APIRouter(tags=["yandex"])
 
@@ -202,10 +202,14 @@ def yandex_calendar_sync(
                 detail="yandex calendar account not found",
             )
 
+        history_days = SourceSyncPreferenceService.build(session).effective_history_days_for_source(
+            current_user.user_id,
+            SOURCE_YANDEX_CALENDAR,
+        )
         sync_service = build_yandex_calendar_sync_service(
             session=session,
             credential_key=settings.secretary_credential_key,
-            days_back=settings.calendar_sync_days_back,
+            days_back=history_days,
             days_forward=settings.calendar_sync_days_forward,
             default_limit=settings.calendar_sync_default_limit,
             max_limit=settings.calendar_sync_max_limit,
@@ -215,6 +219,7 @@ def yandex_calendar_sync(
             account.id,
             user_id=current_user.user_id,
             limit=limit,
+            include_history_pass=False,
         )
     except (GoogleConfigurationError, YandexConfigurationError) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
