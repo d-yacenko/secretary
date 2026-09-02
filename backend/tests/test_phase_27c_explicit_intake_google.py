@@ -561,8 +561,11 @@ def test_exact_provider_request_only_httpx(
     file_id = "http-file"
     requested_urls: list[str] = []
 
+    requested_params: list[dict[str, str]] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
         requested_urls.append(request.url.path)
+        requested_params.append(dict(request.url.params))
         return httpx.Response(
             200,
             json=_drive_file(file_id, "HTTP doc"),
@@ -588,6 +591,9 @@ def test_exact_provider_request_only_httpx(
     assert requested_urls == [f"/drive/v3/files/{file_id}"]
     assert all("changes" not in url for url in requested_urls)
     assert all("startPageToken" not in url for url in requested_urls)
+    assert len(requested_params) == 1
+    assert requested_params[0].get("supportsAllDrives") == "true"
+    assert "fields" in requested_params[0]
 
 
 def test_tokens_absent_from_object_and_errors(

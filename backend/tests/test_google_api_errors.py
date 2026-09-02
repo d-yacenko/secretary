@@ -53,6 +53,7 @@ def test_raise_for_google_response_preserves_403_reason() -> None:
     assert error.operation == "list_calendars"
     assert error.status_code == 403
     assert error.reason == "insufficientPermissions"
+    assert error.api_status == "PERMISSION_DENIED"
     assert error.retryable is False
     assert "Insufficient Permission" in error.message
 

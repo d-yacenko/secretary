@@ -20,7 +20,10 @@ class DriveTransport:
         encoded_file_id = quote(file_id, safe="")
         response = self._http.get(
             f"{DRIVE_API_BASE}/files/{encoded_file_id}",
-            params={"fields": DRIVE_FILE_METADATA_FIELDS},
+            params={
+                "fields": DRIVE_FILE_METADATA_FIELDS,
+                "supportsAllDrives": "true",
+            },
             headers={"Authorization": f"Bearer {access_token}"},
         )
         raise_for_google_response(response, "get_file_metadata")

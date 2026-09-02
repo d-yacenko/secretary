@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.connectors.google.constants import DRIVE_READONLY_SCOPE, GOOGLE_DRIVE_PROVIDER
 from app.connectors.google.credentials import GoogleAccountStore
+from app.connectors.google.drive_metadata_errors import raise_for_drive_metadata_error
 from app.connectors.google.drive_normalize import normalize_drive_file
 from app.connectors.google.drive_transport import DriveTransport
 from app.connectors.google.drive_url_parser import parse_google_drive_file_id
@@ -90,11 +91,7 @@ class ExplicitLinkIntakeService:
         try:
             raw_file = self._google_transport.get_file_metadata(access_token, file_id)
         except GoogleApiError as exc:
-            if exc.status_code == 404:
-                raise ExplicitLinkIntakeError("google drive resource unavailable") from exc
-            if exc.status_code in {401, 403}:
-                raise ExplicitLinkIntakeError("google drive resource permission denied") from exc
-            raise
+            raise_for_drive_metadata_error(exc)
 
         normalized = normalize_drive_file(
             raw_file,

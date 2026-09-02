@@ -116,7 +116,8 @@ def raise_for_google_response(response: httpx.Response, operation: str) -> None:
         safe_message,
         operation=operation,
         status_code=response.status_code,
-        reason=reason or api_status,
+        reason=reason,
+        api_status=api_status,
         retryable=retryable,
     )
 
