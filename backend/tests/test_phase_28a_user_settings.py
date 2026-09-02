@@ -326,6 +326,61 @@ def test_put_openai_credential_without_encryption_returns_503(
     assert response.status_code == 503
 
 
+def test_get_settings_with_invalid_non_empty_master_key_returns_presence(
+    profile_client, monkeypatch, credential_key
+) -> None:
+    profile_client.put("/me/credentials/openai", json={"api_key": "sk-stored-key"})
+    monkeypatch.setattr(settings, "secretary_credential_key", "not-a-valid-fernet-key")
+    response = profile_client.get("/me/settings")
+    assert response.status_code == 200
+    assert response.json()["openai_key_configured"] is True
+
+
+def test_delete_credential_with_invalid_non_empty_master_key(
+    profile_client, db_session, monkeypatch, credential_key
+) -> None:
+    profile_client.put("/me/credentials/openai", json={"api_key": "sk-stored-key"})
+    monkeypatch.setattr(settings, "secretary_credential_key", "not-a-valid-fernet-key")
+    response = profile_client.delete("/me/credentials/openai")
+    assert response.status_code == 200
+    assert response.json() == {"configured": False}
+    assert db_session.get(UserOpenAICredential, BOOTSTRAP_USER_ID) is None
+
+
+def test_put_with_invalid_non_empty_master_key_returns_503(profile_client, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "secretary_credential_key", "not-a-valid-fernet-key")
+    response = profile_client.put("/me/credentials/openai", json={"api_key": "sk-test"})
+    assert response.status_code == 503
+    assert "Fernet" not in response.text
+
+
+def test_assistant_with_invalid_master_key_and_stored_credential_returns_502(
+    db_session,
+    fake_embedding_service,
+    auth_headers,
+    monkeypatch,
+    credential_key,
+) -> None:
+    store = UserOpenAICredentialStore.build_from_settings(db_session)
+    store.upsert(BOOTSTRAP_USER_ID, "sk-user-invalid-master")
+    db_session.flush()
+    monkeypatch.setattr(settings, "openai_api_key", "sk-deployment-fallback")
+    monkeypatch.setattr(settings, "secretary_credential_key", "not-a-valid-fernet-key")
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, auth_headers)
+        response = client.post("/assistant/message", json={"message": "hello"})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Assistant provider unavailable"
+
+
 def test_put_oversized_openai_key_returns_422_without_echoing_key(profile_client) -> None:
     oversized = "x" * 300
     response = profile_client.put("/me/credentials/openai", json={"api_key": oversized})

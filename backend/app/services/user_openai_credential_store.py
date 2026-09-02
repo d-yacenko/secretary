@@ -18,9 +18,10 @@ def utcnow() -> datetime:
 
 
 class UserOpenAICredentialStore:
-    def __init__(self, session: Session, encryption: CredentialEncryption | None) -> None:
+    def __init__(self, session: Session, credential_key: str | None = None) -> None:
         self._session = session
-        self._encryption = encryption
+        self._credential_key = credential_key.strip() if credential_key else None
+        self._encryption: CredentialEncryption | None = None
 
     def get(self, user_id: UUID) -> UserOpenAICredential | None:
         return self._session.get(UserOpenAICredential, user_id)
@@ -29,16 +30,12 @@ class UserOpenAICredentialStore:
         return self.get(user_id) is not None
 
     def upsert(self, user_id: UUID, api_key: str) -> UserOpenAICredential:
-        if self._encryption is None:
-            raise UserOpenAICredentialConfigurationError(
-                "credential encryption is not configured"
-            )
         trimmed = api_key.strip()
         if not trimmed:
             raise ValueError("api_key cannot be blank")
         if len(trimmed) > MAX_OPENAI_API_KEY_LENGTH:
             raise ValueError("api_key exceeds maximum length")
-        encrypted = self._encryption.encrypt(trimmed)
+        encrypted = self._require_encryption().encrypt(trimmed)
         row = self.get(user_id)
         if row is None:
             row = UserOpenAICredential(user_id=user_id, api_key_encrypted=encrypted)
@@ -61,16 +58,24 @@ class UserOpenAICredentialStore:
         row = self.get(user_id)
         if row is None:
             return None
-        if self._encryption is None:
-            raise UserOpenAICredentialConfigurationError(
-                "credential encryption is not configured"
-            )
         try:
-            return self._encryption.decrypt(row.api_key_encrypted)
+            return self._require_encryption().decrypt(row.api_key_encrypted)
         except GoogleConfigurationError as exc:
             raise UserOpenAICredentialConfigurationError(
                 "stored user OpenAI credential could not be decrypted"
             ) from exc
+
+    def _require_encryption(self) -> CredentialEncryption:
+        if not self._credential_key:
+            raise UserOpenAICredentialConfigurationError(
+                "credential encryption is not configured"
+            )
+        if self._encryption is None:
+            try:
+                self._encryption = CredentialEncryption(self._credential_key)
+            except GoogleConfigurationError as exc:
+                raise UserOpenAICredentialConfigurationError(exc.message) from exc
+        return self._encryption
 
     @staticmethod
     def build_encryption(key: str) -> CredentialEncryption:
@@ -83,8 +88,5 @@ class UserOpenAICredentialStore:
     def build_from_settings(session: Session) -> UserOpenAICredentialStore:
         from app.core.config import settings
 
-        key = settings.secretary_credential_key.strip()
-        encryption = None
-        if key:
-            encryption = UserOpenAICredentialStore.build_encryption(key)
-        return UserOpenAICredentialStore(session, encryption)
+        key = settings.secretary_credential_key.strip() or None
+        return UserOpenAICredentialStore(session, key)
