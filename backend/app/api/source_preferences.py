@@ -21,6 +21,10 @@ class EffectiveSourcePreferenceOut(BaseModel):
     default_sync_interval_seconds: int
     min_sync_interval_seconds: int
     max_sync_interval_seconds: int
+    history_days: int
+    default_history_days: int
+    min_history_days: int
+    max_history_days: int
 
 
 class SourcePreferenceListOut(BaseModel):
@@ -32,6 +36,7 @@ class SourcePreferencePatch(BaseModel):
 
     enabled: bool | None = None
     sync_interval_seconds: int | None = None
+    history_days: int | None = None
 
 
 def _serialize_preference(
@@ -44,6 +49,10 @@ def _serialize_preference(
         default_sync_interval_seconds=preference.default_sync_interval_seconds,
         min_sync_interval_seconds=preference.min_sync_interval_seconds,
         max_sync_interval_seconds=preference.max_sync_interval_seconds,
+        history_days=preference.history_days,
+        default_history_days=preference.default_history_days,
+        min_history_days=preference.min_history_days,
+        max_history_days=preference.max_history_days,
     )
 
 
@@ -82,6 +91,7 @@ def patch_my_source_preference(
     service = SourceSyncPreferenceService.build(session)
     enabled_specified = "enabled" in body.model_fields_set
     sync_interval_specified = "sync_interval_seconds" in body.model_fields_set
+    history_days_specified = "history_days" in body.model_fields_set
     try:
         preference = service.update_preference(
             current_user.user_id,
@@ -90,8 +100,10 @@ def patch_my_source_preference(
             sync_interval_seconds=(
                 body.sync_interval_seconds if sync_interval_specified else None
             ),
+            history_days=body.history_days if history_days_specified else None,
             enabled_specified=enabled_specified,
             sync_interval_specified=sync_interval_specified,
+            history_days_specified=history_days_specified,
         )
     except ValueError as exc:
         raise HTTPException(

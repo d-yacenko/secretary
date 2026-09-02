@@ -568,6 +568,7 @@ class UserSourcePreference(Base):
     source: Mapped[str] = mapped_column(primary_key=True)
     enabled: Mapped[bool | None] = mapped_column(nullable=True)
     sync_interval_seconds: Mapped[int | None] = mapped_column(nullable=True)
+    history_days: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

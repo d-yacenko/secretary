@@ -2,6 +2,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 MIN_SOURCE_SYNC_INTERVAL_SECONDS = 60
+MIN_SOURCE_SYNC_HISTORY_DAYS = 1
+MAX_SOURCE_SYNC_HISTORY_DAYS = 90
 
 
 def normalize_allowed_assistant_models(raw_allowlist: str, deployment_default: str) -> list[str]:
@@ -75,6 +77,8 @@ class Settings(BaseSettings):
     source_sync_failed_rearm_seconds: int = 3600
     source_sync_user_min_interval_seconds: int = 60
     source_sync_user_max_interval_seconds: int = 86400
+    source_sync_user_min_history_days: int = 1
+    source_sync_user_max_history_days: int = 90
     resource_upload_root: str = "/var/lib/secretary/resources"
     local_files_root: str = "/var/lib/secretary/local-files"
 
@@ -113,6 +117,34 @@ class Settings(BaseSettings):
         if value < min_value:
             raise ValueError(
                 "source sync user max interval must be >= user min interval"
+            )
+        return value
+
+    @field_validator("source_sync_user_min_history_days")
+    @classmethod
+    def _validate_user_min_history_days(cls, value: int) -> int:
+        if value < MIN_SOURCE_SYNC_HISTORY_DAYS:
+            raise ValueError(
+                f"source sync user min history days must be >= "
+                f"{MIN_SOURCE_SYNC_HISTORY_DAYS}"
+            )
+        return value
+
+    @field_validator("source_sync_user_max_history_days")
+    @classmethod
+    def _validate_user_max_history_days(cls, value: int, info) -> int:
+        min_value = info.data.get(
+            "source_sync_user_min_history_days",
+            MIN_SOURCE_SYNC_HISTORY_DAYS,
+        )
+        if value < min_value:
+            raise ValueError(
+                "source sync user max history days must be >= user min history days"
+            )
+        if value > MAX_SOURCE_SYNC_HISTORY_DAYS:
+            raise ValueError(
+                f"source sync user max history days must be <= "
+                f"{MAX_SOURCE_SYNC_HISTORY_DAYS}"
             )
         return value
 
