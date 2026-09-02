@@ -32,12 +32,13 @@ AuthController _buildAuth(SecretaryApiClient apiClient) {
   return auth;
 }
 
-Finder _gmailSourceRowFinder() => find.byKey(const Key('source-preference-gmail'));
+Finder _gmailSourceRowFinder() =>
+    find.byKey(const Key('source-preference-gmail'));
 
-Finder _gmailSwitchFinder(WidgetTester tester) {
+Finder _gmailSwitchFinder() {
   return find.descendant(
     of: _gmailSourceRowFinder(),
-    matching: find.byType(SwitchListTile),
+    matching: find.byType(Switch),
   );
 }
 
@@ -68,11 +69,17 @@ void main() {
       );
 
       expect(find.text('Синхронизация'), findsOneWidget);
-      expect(find.text('Gmail'), findsOneWidget);
-      expect(find.text('Google Календарь'), findsOneWidget);
-      expect(find.text('Яндекс Почта'), findsOneWidget);
-      expect(find.text('Яндекс Календарь'), findsOneWidget);
-      expect(find.text('Mattermost'), findsOneWidget);
+      expect(find.byKey(const Key('source-preference-gmail')), findsOneWidget);
+      expect(
+        find.byKey(const Key('source-preference-google_calendar')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('source-preference-yandex_mail')), findsOneWidget);
+      expect(
+        find.byKey(const Key('source-preference-yandex_calendar')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('source-preference-mattermost')), findsOneWidget);
     });
 
     testWidgets('disconnected source remains visible with Не подключено',
@@ -125,7 +132,7 @@ void main() {
             apiClient: client, authController: _buildAuth(client)),
       );
 
-      await tester.tap(_gmailSwitchFinder(tester));
+      await tester.tap(_gmailSwitchFinder());
       await tester.pump();
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 50));
@@ -165,16 +172,14 @@ void main() {
             apiClient: client, authController: _buildAuth(client)),
       );
 
-      await tester.tap(_gmailSwitchFinder(tester));
+      await tester.tap(_gmailSwitchFinder());
       await tester.pumpAndSettle();
 
       expect(
         find.descendant(
           of: _gmailSourceRowFinder(),
           matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is SwitchListTile &&
-                widget.value == false,
+            (widget) => widget is Switch && widget.value == false,
           ),
         ),
         findsOneWidget,
@@ -200,16 +205,14 @@ void main() {
             apiClient: client, authController: _buildAuth(client)),
       );
 
-      await tester.tap(_gmailSwitchFinder(tester));
+      await tester.tap(_gmailSwitchFinder());
       await tester.pumpAndSettle();
 
       expect(
         find.descendant(
           of: _gmailSourceRowFinder(),
           matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is SwitchListTile &&
-                widget.value == true,
+            (widget) => widget is Switch && widget.value == true,
           ),
         ),
         findsOneWidget,
@@ -347,14 +350,14 @@ void main() {
             apiClient: client, authController: _buildAuth(client)),
       );
 
-      await tester.tap(_gmailSwitchFinder(tester));
+      await tester.tap(_gmailSwitchFinder());
       await tester.pump(const Duration(milliseconds: 50));
 
       final mattermostSwitch = find.descendant(
         of: _mattermostSourceRowFinder(),
-        matching: find.byType(SwitchListTile),
+        matching: find.byType(Switch),
       );
-      expect(tester.widget<SwitchListTile>(mattermostSwitch).onChanged, isNotNull);
+      expect(tester.widget<Switch>(mattermostSwitch).onChanged, isNotNull);
 
       await tester.pumpAndSettle();
     });
@@ -377,7 +380,7 @@ void main() {
         buildAccountScreen(apiClient: client, authController: auth),
       );
 
-      await tester.tap(_gmailSwitchFinder(tester));
+      await tester.tap(_gmailSwitchFinder());
       await tester.pumpAndSettle();
 
       expect(auth.status, AuthStatus.needsAuth);

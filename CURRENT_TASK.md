@@ -1,32 +1,32 @@
-# Current task — PHASE 28C-B1 awaiting architect review
+# Current task — PHASE 28C-B1-R1 awaiting review
 
 ## Status
 
-PHASE 28C-A: **accepted** and deployed at `d8c17d432b53efcc992001b56840e94c17483936`.
+PHASE 28C-B1 functional implementation: **accepted** at `a9896ce68e375a93e4c8b6bf11e3389007060c7b`.
 
-Current: **PHASE 28C-B1 — Source Preferences UI** — implementation complete, awaiting architect review.
+Manual desktop review found Account layout too unstructured.
+
+Current: **PHASE 28C-B1-R1 — Account Minimal Layout Polish** — implemented, awaiting architect/manual review.
 
 Do **not** merge, deploy, or start 28C-B2 until review.
 
-## PHASE 28C-B1 delivered
+## PHASE 28C-B1-R1 delivered
 
-- Flutter Account section «Синхронизация» for five recurring sources
-- GET/PATCH `/me/source-preferences` client integration
-- Per-source enable/cadence/reset with explicit JSON null clears
-- Inbox `disabled` status not shown as sync error
+- Centered max-width Account content column
+- Material 3 section cards (Профиль, ИИ, Подключения, Синхронизация)
+- Grouped connections and compact sync rows
 
 ## Branch
 
-`review/phase-28c-source-preferences-ui` from `d8c17d432b53efcc992001b56840e94c17483936`.
+`review/phase-28c-source-preferences-ui-polish` from `a9896ce68e375a93e4c8b6bf11e3389007060c7b`.
 
-## Next after 28C-B1 acceptance
+## Next after 28C-B1-R1 acceptance
 
 PHASE 28C-B2 — History Depth Semantics & UI.
 
-## Not in 28C-B1
+## Not in 28C-B1-R1
 
+- Backend changes
+- API / preference behavior changes
 - History depth (28C-B2)
-- Backend functional changes
-- Migration beyond Alembic `0021`
-- Source «sync now»
-- Drive/Disk/local recurring controls
+- Global redesign or provider icons

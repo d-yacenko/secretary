@@ -53,99 +53,143 @@ class SourcePreferencesList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: preferences.map((preference) {
-        final saving = savingSources.contains(preference.source);
-        final connected = sourcePreferenceConnected(
-          preference.source,
-          connections,
-        );
-        final choices = availableSyncIntervalChoices(
-          currentSeconds: preference.syncIntervalSeconds,
-          minSeconds: preference.minSyncIntervalSeconds,
-          maxSeconds: preference.maxSyncIntervalSeconds,
-        );
-        final rowError = rowErrors[preference.source];
-
-        return Padding(
+    final rows = <Widget>[];
+    for (var index = 0; index < preferences.length; index++) {
+      final preference = preferences[index];
+      rows.add(
+        _SourcePreferenceRow(
           key: Key('source-preference-${preference.source}'),
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      sourcePreferenceLabel(preference.source),
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ),
-                  if (!connected)
-                    Text(
-                      'Не подключено',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  if (saving) ...[
-                    const SizedBox(width: 8),
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ],
-                ],
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Синхронизация включена'),
-                value: preference.enabled,
-                onChanged: saving
-                    ? null
-                    : (value) => onToggleEnabled(preference.source, value),
-              ),
-              Row(
-                children: [
-                  const Text('Интервал:'),
-                  const SizedBox(width: 8),
-                  DropdownButton<int>(
-                    value: preference.syncIntervalSeconds,
-                    items: choices
-                        .map(
-                          (seconds) => DropdownMenuItem(
-                            value: seconds,
-                            child: Text(formatSyncIntervalSeconds(seconds)),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: saving
-                        ? null
-                        : (value) {
-                            if (value != null &&
-                                value != preference.syncIntervalSeconds) {
-                              onCadenceChanged(preference.source, value);
-                            }
-                          },
-                  ),
-                ],
-              ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: saving ? null : () => onReset(preference.source),
-                  child: const Text('По умолчанию'),
-                ),
-              ),
-              if (rowError != null)
-                Text(
-                  rowError,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-            ],
-          ),
+          preference: preference,
+          connected: sourcePreferenceConnected(preference.source, connections),
+          saving: savingSources.contains(preference.source),
+          rowError: rowErrors[preference.source],
+          onToggleEnabled: onToggleEnabled,
+          onCadenceChanged: onCadenceChanged,
+          onReset: onReset,
+        ),
+      );
+      if (index < preferences.length - 1) {
+        rows.add(const Divider(height: 20));
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    );
+  }
+}
+
+class _SourcePreferenceRow extends StatelessWidget {
+  const _SourcePreferenceRow({
+    super.key,
+    required this.preference,
+    required this.connected,
+    required this.saving,
+    required this.rowError,
+    required this.onToggleEnabled,
+    required this.onCadenceChanged,
+    required this.onReset,
+  });
+
+  final SourcePreference preference;
+  final bool connected;
+  final bool saving;
+  final String? rowError;
+  final Future<void> Function(String source, bool enabled) onToggleEnabled;
+  final Future<void> Function(String source, int seconds) onCadenceChanged;
+  final Future<void> Function(String source) onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = availableSyncIntervalChoices(
+      currentSeconds: preference.syncIntervalSeconds,
+      minSeconds: preference.minSyncIntervalSeconds,
+      maxSeconds: preference.maxSyncIntervalSeconds,
+    );
+    final subdued = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         );
-      }).toList(),
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    sourcePreferenceLabel(preference.source),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  if (!connected) Text('Не подключено', style: subdued),
+                ],
+              ),
+            ),
+            if (saving)
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            Switch(
+              value: preference.enabled,
+              onChanged: saving
+                  ? null
+                  : (value) => onToggleEnabled(preference.source, value),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Интервал:',
+                    style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  value: preference.syncIntervalSeconds,
+                  items: choices
+                      .map(
+                        (seconds) => DropdownMenuItem(
+                          value: seconds,
+                          child: Text(formatSyncIntervalSeconds(seconds)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: saving
+                      ? null
+                      : (value) {
+                          if (value != null &&
+                              value != preference.syncIntervalSeconds) {
+                            onCadenceChanged(preference.source, value);
+                          }
+                        },
+                ),
+              ],
+            ),
+            TextButton(
+              onPressed: saving ? null : () => onReset(preference.source),
+              child: const Text('По умолчанию'),
+            ),
+          ],
+        ),
+        if (rowError != null)
+          Text(
+            rowError!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+      ],
     );
   }
 }

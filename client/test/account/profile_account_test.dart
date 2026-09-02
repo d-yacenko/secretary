@@ -344,7 +344,7 @@ void main() {
         buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
       );
 
-      expect(find.text('Модель Assistant:'), findsOneWidget);
+      expect(find.text('Модель Assistant'), findsOneWidget);
       expect(find.text('gpt-5.6-luna'), findsWidgets);
       expect(find.text('gpt-disallowed'), findsNothing);
     });

@@ -6,6 +6,7 @@ import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/domain_labels.dart';
+import 'account_layout.dart';
 import 'source_preferences_list.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -373,178 +374,253 @@ class _AccountScreenState extends State<AccountScreen>
 
     return Scaffold(
       appBar: AppBar(title: const Text('Аккаунт')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text('Профиль', style: Theme.of(context).textTheme.titleSmall),
-          TextField(
-            controller: _displayNameController,
-            decoration: const InputDecoration(labelText: 'Отображаемое имя'),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _timezoneController,
-            decoration: const InputDecoration(labelText: 'Часовой пояс (IANA)'),
-          ),
-          const SizedBox(height: 8),
-          Row(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: accountContentMaxWidth),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
             children: [
-              FilledButton(
-                onPressed: _profileSaving ? null : _saveProfile,
-                child: Text(_profileSaving ? 'Сохранение…' : 'Сохранить имя'),
+              AccountSectionCard(
+                title: 'Профиль',
+                children: [
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 12,
+                    children: [
+                      SizedBox(
+                        width: 320,
+                        child: TextField(
+                          controller: _displayNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Отображаемое имя',
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 320,
+                        child: TextField(
+                          controller: _timezoneController,
+                          decoration: const InputDecoration(
+                            labelText: 'Часовой пояс (IANA)',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        onPressed: _profileSaving ? null : _saveProfile,
+                        child: Text(
+                          _profileSaving ? 'Сохранение…' : 'Сохранить имя',
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: _settingsSaving ? null : _saveTimezone,
+                        child: Text(
+                          _settingsSaving
+                              ? 'Сохранение…'
+                              : 'Сохранить часовой пояс',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
+              const SizedBox(height: 16),
+              AccountSectionCard(
+                title: 'ИИ',
+                children: [
+                  if (settings != null) ...[
+                    Text(
+                      settings.openaiKeyConfigured
+                          ? 'OpenAI API key: настроен'
+                          : 'OpenAI API key: не настроен',
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (!settings.openaiKeyConfigured)
+                          OutlinedButton(
+                            onPressed: () =>
+                                _showOpenAiKeyDialog(replace: false),
+                            child: const Text('Установить ключ'),
+                          ),
+                        if (settings.openaiKeyConfigured)
+                          OutlinedButton(
+                            onPressed: () =>
+                                _showOpenAiKeyDialog(replace: true),
+                            child: const Text('Заменить ключ'),
+                          ),
+                        if (settings.openaiKeyConfigured)
+                          OutlinedButton(
+                            onPressed: _deleteOpenAiKey,
+                            child: const Text('Удалить ключ'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 12,
+                      children: [
+                        AccountLabeledControl(
+                          label: 'Модель Assistant',
+                          child: DropdownButton<String>(
+                            value: _dropdownAssistantModel(settings),
+                            items: settings.allowedAssistantModels
+                                .map(
+                                  (model) => DropdownMenuItem(
+                                    value: model,
+                                    child: Text(model),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: _settingsSaving
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      _saveAiPreferences(assistantModel: value);
+                                    }
+                                  },
+                          ),
+                        ),
+                        AccountLabeledControl(
+                          label: 'Reasoning effort',
+                          child: DropdownButton<String>(
+                            value: _dropdownReasoningEffort(settings),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'none',
+                                child: Text('none'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'low',
+                                child: Text('low'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'medium',
+                                child: Text('medium'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'high',
+                                child: Text('high'),
+                              ),
+                            ],
+                            onChanged: _settingsSaving
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      _saveAiPreferences(
+                                        assistantReasoningEffort: value,
+                                      );
+                                    }
+                                  },
+                          ),
+                        ),
+                        AccountLabeledControl(
+                          label: 'Verbosity',
+                          child: DropdownButton<String>(
+                            value: _dropdownVerbosity(settings),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'low',
+                                child: Text('low'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'medium',
+                                child: Text('medium'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'high',
+                                child: Text('high'),
+                              ),
+                            ],
+                            onChanged: _settingsSaving
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      _saveAiPreferences(
+                                        assistantVerbosity: value,
+                                      );
+                                    }
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              AccountSectionCard(
+                title: 'Подключения',
+                children: [
+                  if (_error != null)
+                    Text(
+                      _error!,
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  if (_loading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_connections != null)
+                    _ConnectionsList(
+                      connections: _connections!,
+                      googleOAuthPending: _googleOAuthPending,
+                      onConnectGoogle: _startGoogleOAuth,
+                      onConnectYandex: _showConnectYandexDialog,
+                      onConnectMattermost: _showConnectMattermostDialog,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              AccountSectionCard(
+                title: 'Синхронизация',
+                children: [
+                  if (_sourcePreferencesError != null)
+                    Text(
+                      _sourcePreferencesError!,
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  if (_sourcePreferencesLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_sourcePreferences != null && _connections != null)
+                    SourcePreferencesList(
+                      preferences: _sourcePreferences!,
+                      connections: _connections!,
+                      savingSources: _savingSources,
+                      rowErrors: _sourcePreferenceRowErrors,
+                      onToggleEnabled: _toggleSourceEnabled,
+                      onCadenceChanged: _changeSourceCadence,
+                      onReset: _resetSourcePreference,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 32),
               OutlinedButton(
-                onPressed: _settingsSaving ? null : _saveTimezone,
-                child: Text(
-                    _settingsSaving ? 'Сохранение…' : 'Сохранить часовой пояс'),
+                onPressed: () async {
+                  final navigator = Navigator.of(context);
+                  await widget.authController.forgetToken();
+                  navigator.pop();
+                },
+                child: const Text('Забыть токен / отключить клиент'),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Text('ИИ', style: Theme.of(context).textTheme.titleSmall),
-          if (settings != null) ...[
-            Text(
-              settings.openaiKeyConfigured
-                  ? 'OpenAI API key: настроен'
-                  : 'OpenAI API key: не настроен',
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (!settings.openaiKeyConfigured)
-                  OutlinedButton(
-                    onPressed: () => _showOpenAiKeyDialog(replace: false),
-                    child: const Text('Установить ключ'),
-                  ),
-                if (settings.openaiKeyConfigured)
-                  OutlinedButton(
-                    onPressed: () => _showOpenAiKeyDialog(replace: true),
-                    child: const Text('Заменить ключ'),
-                  ),
-                if (settings.openaiKeyConfigured)
-                  OutlinedButton(
-                    onPressed: _deleteOpenAiKey,
-                    child: const Text('Удалить ключ'),
-                  ),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Модель Assistant:'),
-                const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: _dropdownAssistantModel(settings),
-                  items: settings.allowedAssistantModels
-                      .map((model) =>
-                          DropdownMenuItem(value: model, child: Text(model)))
-                      .toList(),
-                  onChanged: _settingsSaving
-                      ? null
-                      : (value) {
-                          if (value != null) {
-                            _saveAiPreferences(assistantModel: value);
-                          }
-                        },
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Reasoning effort:'),
-                const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: _dropdownReasoningEffort(settings),
-                  items: const [
-                    DropdownMenuItem(value: 'none', child: Text('none')),
-                    DropdownMenuItem(value: 'low', child: Text('low')),
-                    DropdownMenuItem(value: 'medium', child: Text('medium')),
-                    DropdownMenuItem(value: 'high', child: Text('high')),
-                  ],
-                  onChanged: _settingsSaving
-                      ? null
-                      : (value) {
-                          if (value != null) {
-                            _saveAiPreferences(assistantReasoningEffort: value);
-                          }
-                        },
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Verbosity:'),
-                const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: _dropdownVerbosity(settings),
-                  items: const [
-                    DropdownMenuItem(value: 'low', child: Text('low')),
-                    DropdownMenuItem(value: 'medium', child: Text('medium')),
-                    DropdownMenuItem(value: 'high', child: Text('high')),
-                  ],
-                  onChanged: _settingsSaving
-                      ? null
-                      : (value) {
-                          if (value != null) {
-                            _saveAiPreferences(assistantVerbosity: value);
-                          }
-                        },
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 16),
-          Text('Подключения', style: Theme.of(context).textTheme.titleSmall),
-          if (_error != null)
-            Text(_error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_connections != null)
-            _ConnectionsList(
-              connections: _connections!,
-              googleOAuthPending: _googleOAuthPending,
-              onConnectGoogle: _startGoogleOAuth,
-              onConnectYandex: _showConnectYandexDialog,
-              onConnectMattermost: _showConnectMattermostDialog,
-            ),
-          const SizedBox(height: 16),
-          Text('Синхронизация', style: Theme.of(context).textTheme.titleSmall),
-          if (_sourcePreferencesError != null)
-            Text(
-              _sourcePreferencesError!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          if (_sourcePreferencesLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_sourcePreferences != null && _connections != null)
-            SourcePreferencesList(
-              preferences: _sourcePreferences!,
-              connections: _connections!,
-              savingSources: _savingSources,
-              rowErrors: _sourcePreferenceRowErrors,
-              onToggleEnabled: _toggleSourceEnabled,
-              onCadenceChanged: _changeSourceCadence,
-              onReset: _resetSourcePreference,
-            ),
-          const SizedBox(height: 24),
-          OutlinedButton(
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              await widget.authController.forgetToken();
-              navigator.pop();
-            },
-            child: const Text('Забыть токен / отключить клиент'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -612,31 +688,44 @@ class _ConnectionsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final google = connections.google;
+    final sectionTitle = Theme.of(context).textTheme.titleSmall;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text('Google', style: sectionTitle),
+        const SizedBox(height: 4),
         _ConnectionRow(
           label: 'Google',
           connected: google.connected,
           detail: google.email,
         ),
-        _ConnectionRow(
-          label: 'Gmail доступен',
-          connected: google.gmailAvailable,
-        ),
-        _ConnectionRow(
-          label: 'Google Календарь доступен',
-          connected: google.calendarAvailable,
-        ),
-        _ConnectionRow(
-          label: 'Google Drive доступен',
-          connected: google.driveAvailable,
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            _ConnectionRow(
+              label: 'Gmail доступен',
+              connected: google.gmailAvailable,
+            ),
+            _ConnectionRow(
+              label: 'Google Календарь доступен',
+              connected: google.calendarAvailable,
+            ),
+            _ConnectionRow(
+              label: 'Google Drive доступен',
+              connected: google.driveAvailable,
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: googleOAuthPending ? null : onConnectGoogle,
           child: Text(googleOAuthButtonLabel(google)),
         ),
+        const Divider(height: 24),
+        Text('Яндекс', style: sectionTitle),
+        const SizedBox(height: 4),
         _ConnectionRow(
           label: 'Яндекс Почта',
           connected: connections.yandexMail.connected,
@@ -652,6 +741,9 @@ class _ConnectionsList extends StatelessWidget {
           onPressed: onConnectYandex,
           child: Text(yandexConnectButtonLabel(connections)),
         ),
+        const Divider(height: 24),
+        Text('Mattermost', style: sectionTitle),
+        const SizedBox(height: 4),
         for (final account in connections.mattermost)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),

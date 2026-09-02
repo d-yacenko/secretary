@@ -92,13 +92,13 @@ PHASE 28C-A-R1 — Immediate Disable Gate & Source Status Corrective: **accepted
 
 PHASE 28C-A-R2 — Deploy env wiring: **accepted** (included in 28C-A deploy).
 
-PHASE 28C-B1 — Source Preferences UI: **implementation complete, awaiting architect review** on `review/phase-28c-source-preferences-ui`.
+PHASE 28C-B1 — Source Preferences UI: **accepted** at `a9896ce68e375a93e4c8b6bf11e3389007060c7b`.
 
-Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
+PHASE 28C-B1-R1 — Account Minimal Layout Polish: **implementation complete, awaiting architect/manual review** on `review/phase-28c-source-preferences-ui-polish`.
 
-Next: **architect review of PHASE 28C-B1** on branch `review/phase-28c-source-preferences-ui`.
+Next: **architect/manual review of PHASE 28C-B1-R1**.
 
-Approved next after 28C-B1 acceptance: **PHASE 28C-B2 — History Depth Semantics & UI**.
+Approved next after 28C-B1-R1 acceptance: **PHASE 28C-B2 — History Depth Semantics & UI**.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
