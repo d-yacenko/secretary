@@ -5,6 +5,7 @@ import logging
 from typing import Protocol
 from uuid import UUID
 
+from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.correlation_constants import CORRELATION_ALLOWED_TYPES
 from app.services.correlation_models import (
     CorrelationCandidate,
@@ -196,7 +197,7 @@ def create_correlation_judge_from_effective(
     effective: EffectiveUserSettings,
 ) -> CorrelationJudge:
     if not effective.openai_api_key:
-        raise RuntimeError("OpenAI API key is not configured")
+        raise BackgroundAIConfigurationError("OpenAI API key is not configured")
     return OpenAICorrelationJudge(
         api_key=effective.openai_api_key,
         model=effective.assistant_model,

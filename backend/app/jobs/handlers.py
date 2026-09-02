@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.config import settings
 from app.db.models import Object
 from app.db.session import SessionLocal
@@ -27,7 +28,7 @@ from app.jobs.source_sync_handlers import (
 )
 from app.jobs.types import JobHandler
 from app.llm.correlation_judge import create_correlation_judge_from_effective
-from app.llm.embedding_service import create_embedding_service_from_effective
+from app.llm.embedding_service import create_embedding_service_for_api_key
 from app.llm.embedding_text import build_embedding_text
 from app.llm.openai_summarizer import create_openai_summarizer_from_effective
 from app.local.constants import POLICY_UPLOAD_COPY
@@ -36,8 +37,12 @@ from app.resources.constants import (
     CONTENT_INGESTED_POLICY_KEY,
     CONTENT_INGESTED_REVISION_KEY,
 )
+from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.correlation_service import CorrelationService
-from app.services.effective_user_settings_service import EffectiveUserSettingsService
+from app.services.effective_user_settings_service import (
+    EffectiveUserSettings,
+    EffectiveUserSettingsService,
+)
 from app.services.local_file_sync_service import copy_local_file_to_upload
 from app.services.pipeline_enqueue import (
     enqueue_correlate_object,
@@ -113,6 +118,13 @@ def _load_user_object(session: Session, object_id: UUID, user_id: UUID) -> Objec
     )
 
 
+def _background_effective_settings(session: Session, user_id: UUID) -> EffectiveUserSettings:
+    try:
+        return EffectiveUserSettingsService.build(session).get_effective_settings(user_id)
+    except AssistantOpenAIConfigError as exc:
+        raise BackgroundAIConfigurationError(str(exc)) from exc
+
+
 def handle_embed_object(
     session: Session,
     embedding_service,
@@ -122,8 +134,9 @@ def handle_embed_object(
     object_id = UUID(str(payload["object_id"]))
     service = embedding_service
     if service is None:
-        effective = EffectiveUserSettingsService.build(session).get_effective_settings(user_id)
-        service = create_embedding_service_from_effective(effective)
+        settings_service = EffectiveUserSettingsService.build(session)
+        api_key = settings_service.resolve_openai_api_key(user_id)
+        service = create_embedding_service_for_api_key(api_key)
     text = _load_embedding_text(object_id, user_id)
     embedding = service.embed(text)
     _store_object_embedding(object_id, user_id, embedding)
@@ -166,7 +179,7 @@ def handle_summarize_resource(
         metadata = obj.metadata_ or {}
         if expected_revision is not None and metadata.get("content_revision") != expected_revision:
             return
-        effective = EffectiveUserSettingsService.build(lookup_session).get_effective_settings(user_id)
+        effective = _background_effective_settings(lookup_session, user_id)
         summarizer = create_openai_summarizer_from_effective(effective)
         summary = SemanticSummaryService(
             lookup_session, user_id, summarizer=summarizer
@@ -187,7 +200,7 @@ def handle_correlate_object(
     object_id = UUID(str(payload["object_id"]))
     work_session = SessionLocal()
     try:
-        effective = EffectiveUserSettingsService.build(session).get_effective_settings(user_id)
+        effective = _background_effective_settings(session, user_id)
         judge = create_correlation_judge_from_effective(effective)
         CorrelationService(work_session, user_id, judge).run_correlation(object_id)
         work_session.commit()

@@ -25,6 +25,7 @@ from app.jobs.constants import (
     RETRY_BACKOFF_SECONDS,
     STALE_LOCK_MINUTES,
 )
+from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 
@@ -57,7 +58,10 @@ def sanitize_job_error(exc: BaseException) -> str:
 
 
 def is_job_error_retryable(exc: BaseException) -> bool:
-    if isinstance(exc, UserOpenAICredentialConfigurationError):
+    if isinstance(
+        exc,
+        (UserOpenAICredentialConfigurationError, BackgroundAIConfigurationError),
+    ):
         return False
     if isinstance(exc, GoogleApiError):
         return exc.retryable

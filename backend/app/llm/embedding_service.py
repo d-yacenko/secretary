@@ -7,7 +7,6 @@ from openai import OpenAI
 
 from app.core.config import settings
 from app.llm.embedding_text import EMBEDDING_DIMENSION
-from app.services.effective_user_settings_service import EffectiveUserSettings
 
 _STOP_WORDS = frozenset(
     {
@@ -75,12 +74,10 @@ def create_embedding_service() -> EmbeddingService:
     return FakeEmbeddingService()
 
 
-def create_embedding_service_from_effective(
-    effective: EffectiveUserSettings,
-) -> EmbeddingService:
-    if effective.openai_api_key:
+def create_embedding_service_for_api_key(api_key: str | None) -> EmbeddingService:
+    if api_key:
         return OpenAIEmbeddingService(
-            api_key=effective.openai_api_key,
+            api_key=api_key,
             model=settings.openai_embedding_model,
         )
     return FakeEmbeddingService()
