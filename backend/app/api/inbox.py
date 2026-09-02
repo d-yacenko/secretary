@@ -49,6 +49,7 @@ def get_inbox(
                 provider=row.provider,
                 account_id=row.account_id,
                 account_label=row.account_label,
+                enabled=row.enabled,
                 status=row.status,
                 last_success_at=row.last_success_at,
                 last_attempt_at=row.last_attempt_at,

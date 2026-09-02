@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     source_sync_mattermost_interval_seconds: int = 120
     source_sync_scheduler_interval_seconds: int = 60
     source_sync_failed_rearm_seconds: int = 3600
+    source_sync_user_min_interval_seconds: int = 60
+    source_sync_user_max_interval_seconds: int = 86400
     resource_upload_root: str = "/var/lib/secretary/resources"
     local_files_root: str = "/var/lib/secretary/local-files"
 
@@ -88,6 +90,29 @@ class Settings(BaseSettings):
         if value < MIN_SOURCE_SYNC_INTERVAL_SECONDS:
             raise ValueError(
                 f"source sync interval must be >= {MIN_SOURCE_SYNC_INTERVAL_SECONDS} seconds"
+            )
+        return value
+
+    @field_validator("source_sync_user_min_interval_seconds")
+    @classmethod
+    def _validate_user_min_interval(cls, value: int) -> int:
+        if value < MIN_SOURCE_SYNC_INTERVAL_SECONDS:
+            raise ValueError(
+                f"source sync user min interval must be >= "
+                f"{MIN_SOURCE_SYNC_INTERVAL_SECONDS} seconds"
+            )
+        return value
+
+    @field_validator("source_sync_user_max_interval_seconds")
+    @classmethod
+    def _validate_user_max_interval(cls, value: int, info) -> int:
+        min_value = info.data.get(
+            "source_sync_user_min_interval_seconds",
+            MIN_SOURCE_SYNC_INTERVAL_SECONDS,
+        )
+        if value < min_value:
+            raise ValueError(
+                "source sync user max interval must be >= user min interval"
             )
         return value
 

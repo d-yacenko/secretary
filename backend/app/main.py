@@ -20,6 +20,7 @@ from app.api.routes.notifications import router as notifications_router
 from app.api.routes.relations import router as relations_router
 from app.api.routes.resources import router as resources_router
 from app.api.routes.tasks import router as tasks_router
+from app.api.source_preferences import router as source_preferences_router
 from app.api.sources import router as sources_router
 from app.api.today import router as today_router
 from app.api.yandex import router as yandex_router
@@ -72,6 +73,7 @@ async def register_multipart_size_handler(
 
 
 app.include_router(me_router)
+app.include_router(source_preferences_router)
 app.include_router(connections_router)
 app.include_router(capture_router)
 app.include_router(assistant_router)

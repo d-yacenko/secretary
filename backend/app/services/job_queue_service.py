@@ -20,11 +20,6 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_INGEST_LOCAL_FILE,
-    JOB_TYPE_SYNC_GOOGLE_CALENDAR,
-    JOB_TYPE_SYNC_GOOGLE_GMAIL,
-    JOB_TYPE_SYNC_MATTERMOST,
-    JOB_TYPE_SYNC_YANDEX_CALENDAR,
-    JOB_TYPE_SYNC_YANDEX_MAIL,
     MAX_JOB_ATTEMPTS,
     MAX_LAST_ERROR_LENGTH,
     RECURRING_SOURCE_JOB_TYPES,
@@ -219,6 +214,35 @@ class JobQueueService:
             )
         )
 
+    def find_done_recurring_source_job(
+        self,
+        user_id: UUID,
+        job_type: str,
+        account_id: UUID,
+    ) -> Job | None:
+        account_key = str(account_id)
+        return self._session.scalar(
+            select(Job)
+            .where(
+                Job.user_id == user_id,
+                Job.type == job_type,
+                Job.payload["account_id"].as_string() == account_key,
+                Job.status == JOB_STATUS_DONE,
+            )
+            .order_by(Job.updated_at.desc())
+            .limit(1)
+        )
+
+    def reactivate_recurring_source_job(self, job: Job) -> None:
+        now = utcnow()
+        job.status = JOB_STATUS_PENDING
+        job.attempts = 0
+        job.last_error = None
+        job.locked_at = None
+        job.run_after = now
+        job.updated_at = now
+        self._session.flush()
+
     def ensure_recurring_source_job(
         self,
         job_type: str,
@@ -230,6 +254,10 @@ class JobQueueService:
         now = utcnow()
         if existing is not None:
             return existing
+        retired = self.find_done_recurring_source_job(user_id, job_type, account_id)
+        if retired is not None:
+            self.reactivate_recurring_source_job(retired)
+            return retired
         return self.enqueue(
             job_type,
             {"account_id": str(account_id)},
@@ -252,7 +280,11 @@ class JobQueueService:
     ) -> bool:
         job = self.find_recurring_source_job(user_id, job_type, account_id)
         if job is None:
-            return False
+            retired = self.find_done_recurring_source_job(user_id, job_type, account_id)
+            if retired is None:
+                return False
+            self.reactivate_recurring_source_job(retired)
+            job = retired
         now = utcnow()
         job.run_after = now
         if job.status == JOB_STATUS_FAILED:
@@ -293,17 +325,20 @@ class JobQueueService:
         job.run_after = now + timedelta(seconds=interval_seconds)
         job.updated_at = now
 
-    def recurring_interval_seconds(self, job_type: str) -> int:
-        from app.core.config import settings
+    def recurring_interval_seconds(self, job_type: str, user_id: UUID | None = None) -> int:
+        if user_id is not None:
+            from app.services.source_sync_preference_service import (
+                SourceSyncPreferenceService,
+            )
 
-        mapping = {
-            JOB_TYPE_SYNC_GOOGLE_GMAIL: settings.source_sync_gmail_interval_seconds,
-            JOB_TYPE_SYNC_YANDEX_MAIL: settings.source_sync_yandex_mail_interval_seconds,
-            JOB_TYPE_SYNC_GOOGLE_CALENDAR: settings.source_sync_google_calendar_interval_seconds,
-            JOB_TYPE_SYNC_YANDEX_CALENDAR: settings.source_sync_yandex_calendar_interval_seconds,
-            JOB_TYPE_SYNC_MATTERMOST: settings.source_sync_mattermost_interval_seconds,
-        }
-        return mapping.get(job_type, settings.source_sync_gmail_interval_seconds)
+            return SourceSyncPreferenceService.build(
+                self._session
+            ).effective_interval_seconds_for_job_type(user_id, job_type)
+        from app.services.source_sync_preference_service import (
+            deployment_default_interval_seconds_for_job_type,
+        )
+
+        return deployment_default_interval_seconds_for_job_type(job_type)
 
     def is_recurring_source_job(self, job_type: str) -> bool:
         return job_type in RECURRING_SOURCE_JOB_TYPES

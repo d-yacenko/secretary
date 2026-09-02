@@ -1,35 +1,34 @@
-# Current task — PHASE 28B-D2-R1 awaiting architect review
+# Current task — PHASE 28C-A awaiting architect review
 
 ## Status
 
-PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed**. Real E2E **PASS**.
+PHASE 28B-D: **accepted / deployed**. Real E2E **PASS**.
 
-PHASE 28B-D2 — Yandex Calendar CalDAV Regression & Credential Corrective: **implementation complete**, awaiting architect review on branch `review/phase-28b-yandex-calendar-caldav`.
+PHASE 28B-D2: **accepted / deployed** at `b39e96177fe2cdbd7fe1d385d7425ef052a0ace5`. Calendar later recovered in real runtime.
 
-Real E2E after D2 corrective: Yandex Calendar **recovered** — new Calendar event arrived.
+Current: **PHASE 28C-A — Per-User Source Enablement & Sync Cadence** — implementation complete, awaiting architect review.
 
-Current: **PHASE 28B-D2-R1 — Yandex CalDAV Safety / Retry Corrective** — implementation complete, awaiting architect review.
+Do **not** merge, deploy, or start 28C-B until review.
 
-Do **not** merge, deploy, or start 28C until review.
+## PHASE 28C-A delivered
 
-## PHASE 28B-D2-R1 delivered
-
-- Trusted CalDAV host allowlist (`caldav.yandex.ru` only); HTTPS-only; no credentials to arbitrary hosts
-- CalDAV transport disables redirect following
-- Yandex Mail `YandexImapError` retry regression fixed (CalDAV typed retry unchanged)
+- `user_source_preferences` table (Alembic `0021`)
+- `SourceSyncPreferenceService` with effective enable/cadence resolution
+- `GET/PATCH /me/source-preferences` API
+- Scheduler/worker integration: disable, cadence, running-job race, re-enable
+- Source status `enabled` + `disabled` semantics
 
 ## Branch
 
-`review/phase-28b-yandex-calendar-caldav-r1` from `014e689f8ec84ee54992708ec190dd8779cdeb3a`.
+`review/phase-28c-source-preferences-a` from `b39e96177fe2cdbd7fe1d385d7425ef052a0ace5`.
 
-## Approved next after D2-R1 acceptance/deploy/E2E
+## Next after 28C-A acceptance
 
-PHASE 28C — Per-User Source/Sync Preferences.
+PHASE 28C-B — History Depth & Source Preferences UI.
 
-## Not in 28B-D2-R1
+## Not in 28C-A
 
-- Database migration (Alembic remains `0020`)
-- Calendar write support
-- Source cadence preferences (28C)
-- Google / Yandex Disk / MCP changes
-- WebSocket/SSE
+- History depth (28C-B)
+- Flutter UI changes
+- Explicit Intake changes (Drive/Disk/local)
+- Database migration beyond `0021`

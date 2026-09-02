@@ -29,12 +29,14 @@ from app.jobs.constants import (
     RECURRING_SOURCE_JOB_TYPES,
 )
 from app.services.job_queue_service import JobQueueService, utcnow
+from app.services.source_sync_preference_service import SourceSyncPreferenceService
 
 
 class SourceSyncScheduler:
     def __init__(self, session: Session) -> None:
         self._session = session
         self._queue = JobQueueService(session)
+        self._preferences = SourceSyncPreferenceService.build(session)
 
     def run_maintenance(self) -> None:
         if not settings.secretary_credential_key:
@@ -61,33 +63,69 @@ class SourceSyncScheduler:
         google_store = GoogleAccountStore(self._session, encryption)
         for account in google_store.list_accounts(user_id):
             scopes = set(account.scopes or [])
-            if GMAIL_READONLY_SCOPE in scopes and self._queue.trigger_recurring_source_job(
-                user_id, JOB_TYPE_SYNC_GOOGLE_GMAIL, account.id
+            if (
+                GMAIL_READONLY_SCOPE in scopes
+                and self._preferences.is_job_type_enabled(
+                    user_id, JOB_TYPE_SYNC_GOOGLE_GMAIL
+                )
+                and self._queue.trigger_recurring_source_job(
+                    user_id, JOB_TYPE_SYNC_GOOGLE_GMAIL, account.id
+                )
             ):
                 triggered.append(f"gmail:{account.id}")
-            if CALENDAR_READONLY_SCOPE in scopes and self._queue.trigger_recurring_source_job(
-                user_id, JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id
+            if (
+                CALENDAR_READONLY_SCOPE in scopes
+                and self._preferences.is_job_type_enabled(
+                    user_id, JOB_TYPE_SYNC_GOOGLE_CALENDAR
+                )
+                and self._queue.trigger_recurring_source_job(
+                    user_id, JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id
+                )
             ):
                 triggered.append(f"google_calendar:{account.id}")
         yandex_mail_store = YandexMailAccountStore(self._session, encryption)
         for account in yandex_mail_store.list_accounts(user_id):
-            if self._queue.trigger_recurring_source_job(
-                user_id, JOB_TYPE_SYNC_YANDEX_MAIL, account.id
+            if (
+                self._preferences.is_job_type_enabled(user_id, JOB_TYPE_SYNC_YANDEX_MAIL)
+                and self._queue.trigger_recurring_source_job(
+                    user_id, JOB_TYPE_SYNC_YANDEX_MAIL, account.id
+                )
             ):
                 triggered.append(f"yandex_mail:{account.id}")
         yandex_calendar_store = YandexCalendarAccountStore(self._session, encryption)
         for account in yandex_calendar_store.list_accounts(user_id):
-            if self._queue.trigger_recurring_source_job(
-                user_id, JOB_TYPE_SYNC_YANDEX_CALENDAR, account.id
+            if (
+                self._preferences.is_job_type_enabled(
+                    user_id, JOB_TYPE_SYNC_YANDEX_CALENDAR
+                )
+                and self._queue.trigger_recurring_source_job(
+                    user_id, JOB_TYPE_SYNC_YANDEX_CALENDAR, account.id
+                )
             ):
                 triggered.append(f"yandex_calendar:{account.id}")
         mattermost_store = MattermostAccountStore(self._session, encryption)
         for account in mattermost_store.list_accounts(user_id):
-            if self._queue.trigger_recurring_source_job(
-                user_id, JOB_TYPE_SYNC_MATTERMOST, account.id
+            if (
+                self._preferences.is_job_type_enabled(user_id, JOB_TYPE_SYNC_MATTERMOST)
+                and self._queue.trigger_recurring_source_job(
+                    user_id, JOB_TYPE_SYNC_MATTERMOST, account.id
+                )
             ):
                 triggered.append(f"mattermost:{account.id}")
         return triggered
+
+    def _maintain_recurring_job(
+        self,
+        job_type: str,
+        account_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        if self._preferences.is_job_type_enabled(user_id, job_type):
+            self._queue.ensure_recurring_source_job(job_type, account_id, user_id)
+            return
+        job = self._queue.find_recurring_source_job(user_id, job_type, account_id)
+        if job is not None and job.status != JOB_STATUS_RUNNING:
+            self._queue.retire_recurring_source_job(job)
 
     def _maintain_google_accounts(self, _store: GoogleAccountStore) -> None:
         accounts = list(self._session.scalars(select(GoogleAccount)))
@@ -95,13 +133,13 @@ class SourceSyncScheduler:
             scopes = set(account.scopes or [])
             user_id = account.user_id
             if GMAIL_READONLY_SCOPE in scopes:
-                self._queue.ensure_recurring_source_job(
+                self._maintain_recurring_job(
                     JOB_TYPE_SYNC_GOOGLE_GMAIL,
                     account.id,
                     user_id,
                 )
             if CALENDAR_READONLY_SCOPE in scopes:
-                self._queue.ensure_recurring_source_job(
+                self._maintain_recurring_job(
                     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
                     account.id,
                     user_id,
@@ -110,7 +148,7 @@ class SourceSyncScheduler:
     def _maintain_yandex_mail_accounts(self, _store: YandexMailAccountStore) -> None:
         accounts = list(self._session.scalars(select(YandexMailAccount)))
         for account in accounts:
-            self._queue.ensure_recurring_source_job(
+            self._maintain_recurring_job(
                 JOB_TYPE_SYNC_YANDEX_MAIL,
                 account.id,
                 account.user_id,
@@ -119,7 +157,7 @@ class SourceSyncScheduler:
     def _maintain_yandex_calendar_accounts(self, _store: YandexCalendarAccountStore) -> None:
         accounts = list(self._session.scalars(select(YandexCalendarAccount)))
         for account in accounts:
-            self._queue.ensure_recurring_source_job(
+            self._maintain_recurring_job(
                 JOB_TYPE_SYNC_YANDEX_CALENDAR,
                 account.id,
                 account.user_id,
@@ -128,7 +166,7 @@ class SourceSyncScheduler:
     def _maintain_mattermost_accounts(self, _store: MattermostAccountStore) -> None:
         accounts = list(self._session.scalars(select(MattermostAccount)))
         for account in accounts:
-            self._queue.ensure_recurring_source_job(
+            self._maintain_recurring_job(
                 JOB_TYPE_SYNC_MATTERMOST,
                 account.id,
                 account.user_id,
@@ -141,22 +179,41 @@ class SourceSyncScheduler:
         expected: set[tuple[str, UUID, UUID]] = set()
         for account in self._session.scalars(select(GoogleAccount)):
             scopes = set(account.scopes or [])
-            if GMAIL_READONLY_SCOPE in scopes:
+            if (
+                GMAIL_READONLY_SCOPE in scopes
+                and self._preferences.is_job_type_enabled(
+                    account.user_id, JOB_TYPE_SYNC_GOOGLE_GMAIL
+                )
+            ):
                 expected.add(
                     (JOB_TYPE_SYNC_GOOGLE_GMAIL, account.id, account.user_id)
                 )
-            if CALENDAR_READONLY_SCOPE in scopes:
-                expected.add(
-                    (JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id, account.user_id)
+            if (
+                CALENDAR_READONLY_SCOPE in scopes
+                and self._preferences.is_job_type_enabled(
+                    account.user_id, JOB_TYPE_SYNC_GOOGLE_CALENDAR
                 )
+            ):
+                    expected.add(
+                        (JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id, account.user_id)
+                    )
         for account in self._session.scalars(select(YandexMailAccount)):
-            expected.add((JOB_TYPE_SYNC_YANDEX_MAIL, account.id, account.user_id))
+            if self._preferences.is_job_type_enabled(
+                account.user_id, JOB_TYPE_SYNC_YANDEX_MAIL
+            ):
+                expected.add((JOB_TYPE_SYNC_YANDEX_MAIL, account.id, account.user_id))
         for account in self._session.scalars(select(YandexCalendarAccount)):
-            expected.add(
-                (JOB_TYPE_SYNC_YANDEX_CALENDAR, account.id, account.user_id)
-            )
+            if self._preferences.is_job_type_enabled(
+                account.user_id, JOB_TYPE_SYNC_YANDEX_CALENDAR
+            ):
+                expected.add(
+                    (JOB_TYPE_SYNC_YANDEX_CALENDAR, account.id, account.user_id)
+                )
         for account in self._session.scalars(select(MattermostAccount)):
-            expected.add((JOB_TYPE_SYNC_MATTERMOST, account.id, account.user_id))
+            if self._preferences.is_job_type_enabled(
+                account.user_id, JOB_TYPE_SYNC_MATTERMOST
+            ):
+                expected.add((JOB_TYPE_SYNC_MATTERMOST, account.id, account.user_id))
         return expected
 
     def _retire_stale_recurring_jobs(self, encryption: CredentialEncryption) -> None:
@@ -183,6 +240,13 @@ class SourceSyncScheduler:
             account_id = UUID(str(raw_account_id))
             key = (job.type, account_id, job.user_id)
             if key not in expected:
+                if job.status != JOB_STATUS_RUNNING:
+                    self._queue.retire_recurring_source_job(job)
+                continue
+            if (
+                not self._preferences.is_job_type_enabled(job.user_id, job.type)
+                and job.status != JOB_STATUS_RUNNING
+            ):
                 self._queue.retire_recurring_source_job(job)
 
     def _rearm_failed_recurring_jobs(self) -> None:
@@ -205,6 +269,8 @@ class SourceSyncScheduler:
             )
         )
         for job in failed_jobs:
+            if not self._preferences.is_job_type_enabled(job.user_id, job.type):
+                continue
             self._queue.rearm_failed_recurring_job(
                 job,
                 settings.source_sync_failed_rearm_seconds,

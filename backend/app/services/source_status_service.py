@@ -13,6 +13,7 @@ from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
 from app.db.models import Job
 from app.jobs.constants import (
+    JOB_STATUS_DONE,
     JOB_STATUS_FAILED,
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
@@ -24,6 +25,7 @@ from app.jobs.constants import (
     RECURRING_SOURCE_JOB_TYPES,
 )
 from app.services.job_queue_service import utcnow
+from app.services.source_sync_preference_service import SourceSyncPreferenceService
 
 SOURCE_TYPE_LABELS = {
     JOB_TYPE_SYNC_GOOGLE_GMAIL: ("gmail", "Gmail"),
@@ -33,6 +35,13 @@ SOURCE_TYPE_LABELS = {
     JOB_TYPE_SYNC_MATTERMOST: ("mattermost", "Mattermost"),
 }
 
+_STATUS_PRIORITY = {
+    JOB_STATUS_RUNNING: 0,
+    JOB_STATUS_PENDING: 1,
+    JOB_STATUS_FAILED: 2,
+    JOB_STATUS_DONE: 3,
+}
+
 
 @dataclass(frozen=True)
 class SourceStatusRow:
@@ -40,6 +49,7 @@ class SourceStatusRow:
     provider: str
     account_id: UUID
     account_label: str
+    enabled: bool
     status: str
     last_success_at: datetime | None
     last_attempt_at: datetime | None
@@ -51,6 +61,7 @@ class SourceStatusService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
         self._user_id = user_id
+        self._preferences = SourceSyncPreferenceService.build(session)
 
     def list_status(self) -> list[SourceStatusRow]:
         jobs = list(
@@ -61,14 +72,22 @@ class SourceStatusService:
                 )
             )
         )
-        account_labels = self._account_label_map()
-        rows: list[SourceStatusRow] = []
+        grouped: dict[tuple[str, UUID], list[Job]] = {}
         for job in jobs:
-            provider, _ = SOURCE_TYPE_LABELS.get(job.type, (job.type, job.type))
             raw_account_id = (job.payload or {}).get("account_id")
             if not raw_account_id:
                 continue
             account_id = UUID(str(raw_account_id))
+            grouped.setdefault((job.type, account_id), []).append(job)
+
+        account_labels = self._account_label_map()
+        rows: list[SourceStatusRow] = []
+        for (job_type, account_id), job_group in grouped.items():
+            job = self._pick_status_job(job_group)
+            if job is None:
+                continue
+            source_key, _label = SOURCE_TYPE_LABELS.get(job_type, (job_type, job_type))
+            effective = self._preferences.get_effective_preference(self._user_id, source_key)
             payload = job.payload or {}
             last_success_raw = payload.get("last_success_at")
             last_success_at = None
@@ -80,21 +99,52 @@ class SourceStatusService:
             last_attempt_at = job.locked_at or (
                 job.updated_at if job.attempts > 0 else None
             )
+            if not effective.enabled:
+                rows.append(
+                    SourceStatusRow(
+                        source=source_key,
+                        provider=source_key,
+                        account_id=account_id,
+                        account_label=account_labels.get(account_id, str(account_id)),
+                        enabled=False,
+                        status="disabled",
+                        last_success_at=last_success_at,
+                        last_attempt_at=last_attempt_at,
+                        next_sync_at=None,
+                        last_error=None,
+                    )
+                )
+                continue
             rows.append(
                 SourceStatusRow(
-                    source=provider,
-                    provider=provider,
+                    source=source_key,
+                    provider=source_key,
                     account_id=account_id,
                     account_label=account_labels.get(account_id, str(account_id)),
+                    enabled=True,
                     status=self._derive_status(job),
                     last_success_at=last_success_at,
                     last_attempt_at=last_attempt_at,
-                    next_sync_at=job.run_after if job.status == JOB_STATUS_PENDING else None,
+                    next_sync_at=(
+                        job.run_after if job.status == JOB_STATUS_PENDING else None
+                    ),
                     last_error=job.last_error,
                 )
             )
         rows.sort(key=lambda row: (row.provider, row.account_label))
         return rows
+
+    @staticmethod
+    def _pick_status_job(jobs: list[Job]) -> Job | None:
+        if not jobs:
+            return None
+        return min(
+            jobs,
+            key=lambda job: (
+                _STATUS_PRIORITY.get(job.status, 99),
+                -(job.updated_at.timestamp()),
+            ),
+        )
 
     def _derive_status(self, job: Job) -> str:
         if job.status == JOB_STATUS_RUNNING:

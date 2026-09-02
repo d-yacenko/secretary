@@ -24,7 +24,7 @@ from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.connectors.yandex.imap_transport import FakeImapTransport
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.db.engine import engine
-from app.db.models import GoogleAccount, Job, Object, User, YandexCalendarAccount, YandexMailAccount
+from app.db.models import GoogleAccount, Job, Object, User, UserSourcePreference, YandexCalendarAccount, YandexMailAccount
 from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_TYPE_EMBED_OBJECT,
@@ -60,6 +60,7 @@ def cleanup_persisted_jobs() -> None:
     trans = conn.begin()
     session = Session(bind=conn)
     session.execute(delete(Job))
+    session.execute(delete(UserSourcePreference))
     session.execute(delete(GoogleAccount))
     session.execute(delete(YandexMailAccount))
     session.execute(delete(YandexCalendarAccount))

@@ -84,13 +84,15 @@ PHASE 28B-C2 — Remaining Per-User Request-Time / Tool Embeddings: **accepted /
 
 PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed**. Real E2E **PASS** (source diagnostics, Yandex Mail, Inbox passive refresh).
 
-PHASE 28B-D2 — Yandex Calendar CalDAV Regression & Credential Corrective: **implementation complete**, awaiting architect review on `review/phase-28b-yandex-calendar-caldav`. Real E2E: Calendar subsequently **recovered** (new event arrived).
+PHASE 28B-D2-R2 — Yandex CalDAV retry corrective: **accepted** at `b39e96177fe2cdbd7fe1d385d7425ef052a0ace5`.
 
-PHASE 28B-D2-R1 — Yandex CalDAV Safety / Retry Corrective: **implementation complete, awaiting architect review**.
+PHASE 28C-A — Per-User Source Enablement & Sync Cadence: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
 
-Next: **architect review of PHASE 28B-D2-R1** on branch `review/phase-28b-yandex-calendar-caldav-r1`.
+Next: **architect review of PHASE 28C-A** on branch `review/phase-28c-source-preferences-a`.
+
+Approved next after 28C-A acceptance: **PHASE 28C-B — History Depth & Source Preferences UI**.
 
 Approved next after D2-R1 acceptance/deploy/E2E: **PHASE 28C — Per-User Source/Sync Preferences**.
 

@@ -265,6 +265,7 @@ class SourceSyncStatusOut(BaseModel):
     provider: str
     account_id: UUID
     account_label: str
+    enabled: bool
     status: str
     last_success_at: datetime | None
     last_attempt_at: datetime | None

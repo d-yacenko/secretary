@@ -2,6 +2,10 @@ import logging
 
 from app.db.session import SessionLocal
 from app.jobs.handlers import get_handler
+from app.jobs.recurring_job_finalization import (
+    finalize_recurring_job_failure,
+    finalize_recurring_job_success,
+)
 from app.llm.embedding_service import EmbeddingService
 from app.services.job_queue_service import (
     JobQueueService,
@@ -42,11 +46,15 @@ def process_one_job(embedding_service: EmbeddingService | None = None) -> bool:
     try:
         session = SessionLocal()
         try:
-            handler(session, embedding_service, claimed.payload, claimed.user_id)
             queue = JobQueueService(session)
+            handler(session, embedding_service, claimed.payload, claimed.user_id)
             if queue.is_recurring_source_job(claimed.type):
-                interval = queue.recurring_interval_seconds(claimed.type)
-                queue.mark_recurring_success(claimed.id, interval)
+                finalize_recurring_job_success(
+                    session,
+                    claimed.id,
+                    claimed.user_id,
+                    claimed.type,
+                )
             else:
                 queue.mark_done(claimed.id)
             session.commit()
@@ -59,11 +67,22 @@ def process_one_job(embedding_service: EmbeddingService | None = None) -> bool:
         logger.warning("job %s (%s) failed: %s", claimed.id, claimed.type, type(exc).__name__)
         session = SessionLocal()
         try:
-            JobQueueService(session).mark_retry(
-                claimed.id,
-                sanitize_job_error(exc),
-                retryable=is_job_error_retryable(exc),
-            )
+            queue = JobQueueService(session)
+            if queue.is_recurring_source_job(claimed.type):
+                finalize_recurring_job_failure(
+                    session,
+                    claimed.id,
+                    claimed.user_id,
+                    claimed.type,
+                    sanitize_job_error(exc),
+                    retryable=is_job_error_retryable(exc),
+                )
+            else:
+                queue.mark_retry(
+                    claimed.id,
+                    sanitize_job_error(exc),
+                    retryable=is_job_error_retryable(exc),
+                )
             session.commit()
         except Exception:
             session.rollback()

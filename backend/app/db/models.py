@@ -558,6 +558,29 @@ class UserOpenAICredential(Base):
     )
 
 
+class UserSourcePreference(Base):
+    __tablename__ = "user_source_preferences"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    source: Mapped[str] = mapped_column(primary_key=True)
+    enabled: Mapped[bool | None] = mapped_column(nullable=True)
+    sync_interval_seconds: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class MattermostAccount(Base):
     __tablename__ = "mattermost_accounts"
 
