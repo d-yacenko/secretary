@@ -1,4 +1,5 @@
 import base64
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -16,9 +17,46 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+@dataclass(frozen=True)
+class GmailMessagePage:
+    message_ids: list[str]
+    next_page_token: str | None
+
+
 class GmailTransport:
     def __init__(self, http_client: httpx.Client | None = None) -> None:
         self._http = http_client or httpx.Client(timeout=30.0)
+
+    def list_message_ids_page(
+        self,
+        access_token: str,
+        user_id: str,
+        query: str,
+        max_results: int,
+        page_token: str | None = None,
+    ) -> GmailMessagePage:
+        params: dict[str, object] = {
+            "q": query,
+            "maxResults": max_results,
+            "includeSpamTrash": False,
+        }
+        if page_token is not None:
+            params["pageToken"] = page_token
+        response = self._http.get(
+            f"{GMAIL_API_BASE}/users/{user_id}/messages",
+            params=params,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code >= 400:
+            raise GoogleApiError("failed to list gmail messages")
+        payload = response.json()
+        messages = payload.get("messages", [])
+        message_ids = [str(item["id"]) for item in messages if item.get("id")]
+        next_token = payload.get("nextPageToken")
+        return GmailMessagePage(
+            message_ids=message_ids,
+            next_page_token=str(next_token) if next_token else None,
+        )
 
     def list_message_ids(
         self,
@@ -27,20 +65,12 @@ class GmailTransport:
         query: str,
         max_results: int,
     ) -> list[str]:
-        response = self._http.get(
-            f"{GMAIL_API_BASE}/users/{user_id}/messages",
-            params={
-                "q": query,
-                "maxResults": max_results,
-                "includeSpamTrash": False,
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        if response.status_code >= 400:
-            raise GoogleApiError("failed to list gmail messages")
-        payload = response.json()
-        messages = payload.get("messages", [])
-        return [str(item["id"]) for item in messages if item.get("id")]
+        return self.list_message_ids_page(
+            access_token=access_token,
+            user_id=user_id,
+            query=query,
+            max_results=max_results,
+        ).message_ids
 
     def get_message(self, access_token: str, user_id: str, message_id: str) -> dict[str, Any]:
         response = self._http.get(

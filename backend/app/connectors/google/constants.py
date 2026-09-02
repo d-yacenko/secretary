@@ -46,6 +46,8 @@ GMAIL_LIST_QUERY_EXCLUSIONS = (
 )
 
 
-def build_gmail_list_query(after_date: str) -> str:
+def build_gmail_list_query(after_date: str, before_date: str | None = None) -> str:
     parts = [f"after:{after_date}", *GMAIL_LIST_QUERY_EXCLUSIONS]
+    if before_date is not None:
+        parts.insert(1, f"before:{before_date}")
     return " ".join(parts)

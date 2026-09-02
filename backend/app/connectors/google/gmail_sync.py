@@ -13,6 +13,15 @@ from app.connectors.google.constants import (
 )
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
+from app.connectors.google.gmail_history_state import (
+    complete_active_window,
+    date_to_gmail,
+    get_history_backfill,
+    persist_active_page_token,
+    plan_history_active_window,
+    set_history_backfill,
+    start_active_window,
+)
 from app.connectors.google.gmail_normalize import (
     extract_gmail_attachment_descriptors,
     normalize_gmail_message,
@@ -55,6 +64,8 @@ class GmailSyncService:
         account_id: UUID,
         user_id: UUID,
         limit: int | None = None,
+        *,
+        include_history_pass: bool = False,
     ) -> dict[str, Any]:
         account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
@@ -69,6 +80,41 @@ class GmailSyncService:
         access_token = self._token_manager.get_valid_access_token(account_id, user_id)
         self._session.commit()
 
+        live_stats = self._run_live_pass(
+            account_id=account_id,
+            user_id=user_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+            effective_limit=effective_limit,
+        )
+
+        if include_history_pass:
+            self._run_history_pass(
+                account_id=account_id,
+                user_id=user_id,
+                owner_user_id=owner_user_id,
+                access_token=access_token,
+                effective_limit=effective_limit,
+            )
+
+        return {
+            "account_email": account_email,
+            "synchronized": live_stats["synchronized"],
+            "created": live_stats["created"],
+            "updated": live_stats["updated"],
+            "unchanged": live_stats["unchanged"],
+            "jobs_enqueued": live_stats["jobs_enqueued"],
+        }
+
+    def _run_live_pass(
+        self,
+        *,
+        account_id: UUID,
+        user_id: UUID,
+        owner_user_id: UUID,
+        access_token: str,
+        effective_limit: int,
+    ) -> dict[str, int]:
         after_date = (utcnow() - timedelta(days=self._sync_days)).strftime("%Y/%m/%d")
         query = build_gmail_list_query(after_date)
         message_ids = self._transport.list_message_ids(
@@ -77,7 +123,74 @@ class GmailSyncService:
             query=query,
             max_results=effective_limit,
         )
+        return self._materialize_message_ids(
+            message_ids=message_ids,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
 
+    def _run_history_pass(
+        self,
+        *,
+        account_id: UUID,
+        user_id: UUID,
+        owner_user_id: UUID,
+        access_token: str,
+        effective_limit: int,
+    ) -> dict[str, int]:
+        gmail_state = self._account_store.get_gmail_sync_state(account_id, user_id)
+        backfill = get_history_backfill(gmail_state)
+        window = plan_history_active_window(backfill, self._sync_days)
+        if window is None:
+            return {
+                "synchronized": 0,
+                "created": 0,
+                "unchanged": 0,
+                "jobs_enqueued": 0,
+            }
+
+        if window.next_page_token is None and not backfill.get("active_start"):
+            backfill = start_active_window(backfill, window)
+            gmail_state = set_history_backfill(gmail_state, backfill)
+            self._account_store.update_gmail_sync_state(account_id, user_id, gmail_state)
+            self._session.commit()
+
+        query = build_gmail_list_query(
+            date_to_gmail(window.active_start),
+            date_to_gmail(window.active_end),
+        )
+        page = self._transport.list_message_ids_page(
+            access_token=access_token,
+            user_id="me",
+            query=query,
+            max_results=effective_limit,
+            page_token=window.next_page_token,
+        )
+
+        stats = self._materialize_message_ids(
+            message_ids=page.message_ids,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+
+        gmail_state = self._account_store.get_gmail_sync_state(account_id, user_id)
+        backfill = get_history_backfill(gmail_state)
+        if page.next_page_token:
+            backfill = persist_active_page_token(backfill, window, page.next_page_token)
+        else:
+            backfill = complete_active_window(backfill)
+        gmail_state = set_history_backfill(gmail_state, backfill)
+        self._account_store.update_gmail_sync_state(account_id, user_id, gmail_state)
+        self._session.flush()
+        return stats
+
+    def _materialize_message_ids(
+        self,
+        *,
+        message_ids: list[str],
+        owner_user_id: UUID,
+        access_token: str,
+    ) -> dict[str, int]:
         known_external_ids = self._load_known_gmail_external_ids(owner_user_id, message_ids)
         self._session.commit()
 
@@ -151,7 +264,6 @@ class GmailSyncService:
             self._session.commit()
 
         return {
-            "account_email": account_email,
             "synchronized": synchronized,
             "created": created,
             "updated": updated,

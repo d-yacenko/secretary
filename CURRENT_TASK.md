@@ -1,34 +1,30 @@
-# Current task — PHASE 28C-B2-A awaiting review
+# Current task — PHASE 28C-B2-B1 awaiting review
 
 ## Status
 
-PHASE 28C-B1: **accepted** at `a9896ce68e375a93e4c8b6bf11e3389007060c7b`.
+PHASE 28C-B2-A: **accepted** at `31326d120ba3e02f2478d9fb72edc7baab37ef57`.
 
-PHASE 28C-B1-R1: **accepted / manual desktop UI PASS** at `b8ee3f889b30a16eea3af663565fa218b9bcf0a2`.
+Current: **PHASE 28C-B2-B1 — Gmail Bounded History Runtime** — implemented, awaiting architect review.
 
-Current: **PHASE 28C-B2-A — Per-User History Preference Foundation** — implemented, awaiting architect review.
+Do **not** merge, deploy, or start B2-B2 until review.
 
-Do **not** merge, deploy, or start B2-B until review.
+## PHASE 28C-B2-B1 delivered
 
-## PHASE 28C-B2-A delivered
-
-- `history_days` column on `user_source_preferences`
-- Effective history resolution with deployment hard policy (1–90 days)
-- GET/PATCH API extensions (no connector/runtime backfill yet)
+- `gmail_sync_state` / `calendar_sync_state` on `google_accounts`
+- Gmail transport pagination + bounded history backfill (live pass + one history page per run)
+- Recurring handler uses effective `history_days`; direct HTTP sync remains live-only
 
 ## Branch
 
-`review/phase-28c-history-preferences-a` from `b8ee3f889b30a16eea3af663565fa218b9bcf0a2`.
+`review/phase-28c-history-gmail-runtime` from `31326d120ba3e02f2478d9fb72edc7baab37ef57`.
 
-## Next after 28C-B2-A acceptance
+## Next after 28C-B2-B1 acceptance
 
-1. PHASE 28C-B2-B — Bounded History Runtime: Google sources
-2. PHASE 28C-B2-C — Bounded History Runtime: Yandex + Mattermost
-3. PHASE 28C-B2-D — History UI
+PHASE 28C-B2-B2 — Google Calendar Bounded History Runtime.
 
-## Not in 28C-B2-A
+## Not in 28C-B2-B1
 
-- Connector fetch window changes
-- Runtime backfill / coverage tracking
-- Flutter / History UI
-- Explicit Intake preference keys
+- Google Calendar runtime changes
+- Yandex / Mattermost history runtime
+- History UI / public coverage fields
+- Flutter changes

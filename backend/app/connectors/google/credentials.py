@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.google.errors import GoogleOAuthError
+from app.connectors.google.errors import GoogleConnectorError, GoogleOAuthError
 from app.db.models import GoogleAccount
 
 
@@ -120,6 +121,46 @@ class GoogleAccountStore:
         account.updated_at = utcnow()
         self._session.flush()
         return account
+
+    def get_gmail_sync_state(self, account_id: UUID, user_id: UUID) -> dict[str, Any]:
+        account = self.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise GoogleConnectorError("google account not found")
+        state = account.gmail_sync_state
+        return dict(state) if isinstance(state, dict) else {}
+
+    def get_calendar_sync_state(self, account_id: UUID, user_id: UUID) -> dict[str, Any]:
+        account = self.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise GoogleConnectorError("google account not found")
+        state = account.calendar_sync_state
+        return dict(state) if isinstance(state, dict) else {}
+
+    def update_gmail_sync_state(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        state: dict[str, Any],
+    ) -> None:
+        account = self.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise GoogleConnectorError("google account not found")
+        account.gmail_sync_state = dict(state)
+        account.updated_at = utcnow()
+        self._session.flush()
+
+    def update_calendar_sync_state(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        state: dict[str, Any],
+    ) -> None:
+        account = self.get_by_id_for_user(account_id, user_id)
+        if account is None:
+            raise GoogleConnectorError("google account not found")
+        account.calendar_sync_state = dict(state)
+        account.updated_at = utcnow()
+        self._session.flush()
 
     def build_encryption(key: str) -> CredentialEncryption:
         return CredentialEncryption(key)

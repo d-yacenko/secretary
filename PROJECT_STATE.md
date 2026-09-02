@@ -96,17 +96,15 @@ PHASE 28C-B1 — Source Preferences UI: **accepted** at `a9896ce68e375a93e4c8b6b
 
 PHASE 28C-B1-R1 — Account Minimal Layout Polish: **accepted / manual desktop UI PASS** at `b8ee3f889b30a16eea3af663565fa218b9bcf0a2`.
 
-PHASE 28C-B2-A — Per-User History Preference Foundation: **implementation complete, awaiting architect review** on `review/phase-28c-history-preferences-a`.
+PHASE 28C-B2-A — Per-User History Preference Foundation: **accepted** at `31326d120ba3e02f2478d9fb72edc7baab37ef57`.
 
-Next: **architect review of PHASE 28C-B2-A**.
+PHASE 28C-B2-B1 — Gmail Bounded History Runtime: **implementation complete, awaiting architect review** on `review/phase-28c-history-gmail-runtime`.
 
-Approved next after 28C-B2-A acceptance:
+Next: **architect review of PHASE 28C-B2-B1**.
 
-1. PHASE 28C-B2-B — Bounded History Runtime: Google sources
-2. PHASE 28C-B2-C — Bounded History Runtime: Yandex + Mattermost
-3. PHASE 28C-B2-D — History UI
+Approved next after 28C-B2-B1 acceptance: **PHASE 28C-B2-B2 — Google Calendar Bounded History Runtime**.
 
-B2-A stores desired history only; runtime bounded backfill is **not** implemented yet.
+B2 history feature is **not** complete (Calendar, Yandex, Mattermost, UI remain).
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
