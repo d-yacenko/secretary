@@ -726,7 +726,7 @@ def test_history_increase_schedules_backward_extension_only(
         "scanned_start": format_stored_date(scanned_start),
         "scanned_end": format_stored_date(scanned_end),
     }
-    window = plan_history_active_window(backfill, history_days=90)
+    window = plan_history_active_window(backfill, history_days=90).window
     assert window is not None
     assert window.active_end == scanned_start
     assert window.active_start == today - timedelta(days=90)
@@ -753,7 +753,7 @@ def test_history_decrease_does_not_delete_objects(
         "scanned_start": format_stored_date(today - timedelta(days=90)),
         "scanned_end": format_stored_date(today + timedelta(days=1)),
     }
-    window = plan_history_active_window(backfill, history_days=14)
+    window = plan_history_active_window(backfill, history_days=14).window
     assert window is None or window.active_start >= today - timedelta(days=14)
     assert db_session.get(Object, old_obj.id) is not None
 
@@ -766,7 +766,7 @@ def test_forward_catch_up_when_scan_boundary_advances() -> None:
         "scanned_start": format_stored_date(today - timedelta(days=30)),
         "scanned_end": format_stored_date(scanned_end),
     }
-    window = plan_history_active_window(backfill, history_days=30)
+    window = plan_history_active_window(backfill, history_days=30).window
     assert window is not None
     assert window.active_start == scanned_end
 

@@ -98,11 +98,13 @@ PHASE 28C-B1-R1 — Account Minimal Layout Polish: **accepted / manual desktop U
 
 PHASE 28C-B2-A — Per-User History Preference Foundation: **accepted** at `31326d120ba3e02f2478d9fb72edc7baab37ef57`.
 
-PHASE 28C-B2-B1 — Gmail Bounded History Runtime: **implementation complete, awaiting architect review** on `review/phase-28c-history-gmail-runtime`.
+PHASE 28C-B2-B1 — Gmail Bounded History Runtime: **accepted** at `4d84aea363479f22b134c8971aabe253c20d3f14`.
 
-Next: **architect review of PHASE 28C-B2-B1**.
+PHASE 28C-B2-B1-R1 — Reconcile Active Gmail Backfill With Current History Policy: **implementation complete, awaiting architect review** on `review/phase-28c-history-gmail-runtime-r1`.
 
-Approved next after 28C-B2-B1 acceptance: **PHASE 28C-B2-B2 — Google Calendar Bounded History Runtime**.
+Next: **architect review of PHASE 28C-B2-B1-R1**.
+
+Approved next after 28C-B2-B1-R1 acceptance: **PHASE 28C-B2-B2 — Google Calendar Bounded History Runtime**.
 
 B2 history feature is **not** complete (Calendar, Yandex, Mattermost, UI remain).
 

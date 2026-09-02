@@ -43,6 +43,12 @@ class HistoryActiveWindow:
     next_page_token: str | None
 
 
+@dataclass(frozen=True)
+class HistoryBackfillPlan:
+    window: HistoryActiveWindow | None
+    backfill: dict[str, Any]
+
+
 def empty_gmail_sync_state() -> dict[str, Any]:
     return {}
 
@@ -81,6 +87,8 @@ def continue_active_window(backfill: dict[str, Any]) -> HistoryActiveWindow | No
     active_end = _parse_optional_date(backfill, "active_end")
     if active_start is None or active_end is None:
         return None
+    if active_start >= active_end:
+        return None
     token = backfill.get("next_page_token")
     return HistoryActiveWindow(
         active_start=active_start,
@@ -89,13 +97,50 @@ def continue_active_window(backfill: dict[str, Any]) -> HistoryActiveWindow | No
     )
 
 
+def _active_window_within_desired(
+    active_start: date,
+    active_end: date,
+    desired_start: date,
+    desired_end: date,
+) -> bool:
+    return (
+        active_start < active_end
+        and active_start >= desired_start
+        and active_end <= desired_end
+    )
+
+
+def clear_active_window(backfill: dict[str, Any]) -> dict[str, Any]:
+    backfill = dict(backfill)
+    backfill.pop("active_start", None)
+    backfill.pop("active_end", None)
+    backfill.pop("next_page_token", None)
+    return backfill
+
+
+def reconcile_active_window(backfill: dict[str, Any], history_days: int) -> dict[str, Any]:
+    continuing = continue_active_window(backfill)
+    if continuing is None:
+        return backfill
+    desired_start, desired_end = desired_history_window(history_days)
+    if _active_window_within_desired(
+        continuing.active_start,
+        continuing.active_end,
+        desired_start,
+        desired_end,
+    ):
+        return backfill
+    return clear_active_window(backfill)
+
+
 def plan_history_active_window(
     backfill: dict[str, Any],
     history_days: int,
-) -> HistoryActiveWindow | None:
+) -> HistoryBackfillPlan:
+    backfill = reconcile_active_window(backfill, history_days)
     continuing = continue_active_window(backfill)
     if continuing is not None:
-        return continuing
+        return HistoryBackfillPlan(window=continuing, backfill=backfill)
 
     desired_start, desired_end = desired_history_window(history_days)
     scanned_start = _parse_optional_date(backfill, "scanned_start")
@@ -103,28 +148,37 @@ def plan_history_active_window(
 
     if scanned_start is None and scanned_end is None:
         if desired_start >= desired_end:
-            return None
-        return HistoryActiveWindow(
-            active_start=desired_start,
-            active_end=desired_end,
-            next_page_token=None,
+            return HistoryBackfillPlan(window=None, backfill=backfill)
+        return HistoryBackfillPlan(
+            window=HistoryActiveWindow(
+                active_start=desired_start,
+                active_end=desired_end,
+                next_page_token=None,
+            ),
+            backfill=backfill,
         )
 
     if scanned_start is not None and desired_start < scanned_start:
-        return HistoryActiveWindow(
-            active_start=desired_start,
-            active_end=scanned_start,
-            next_page_token=None,
+        return HistoryBackfillPlan(
+            window=HistoryActiveWindow(
+                active_start=desired_start,
+                active_end=scanned_start,
+                next_page_token=None,
+            ),
+            backfill=backfill,
         )
 
     if scanned_end is not None and scanned_end < desired_end:
-        return HistoryActiveWindow(
-            active_start=scanned_end,
-            active_end=desired_end,
-            next_page_token=None,
+        return HistoryBackfillPlan(
+            window=HistoryActiveWindow(
+                active_start=scanned_end,
+                active_end=desired_end,
+                next_page_token=None,
+            ),
+            backfill=backfill,
         )
 
-    return None
+    return HistoryBackfillPlan(window=None, backfill=backfill)
 
 
 def complete_active_window(backfill: dict[str, Any]) -> dict[str, Any]:

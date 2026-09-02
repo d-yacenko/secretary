@@ -139,8 +139,16 @@ class GmailSyncService:
         effective_limit: int,
     ) -> dict[str, int]:
         gmail_state = self._account_store.get_gmail_sync_state(account_id, user_id)
-        backfill = get_history_backfill(gmail_state)
-        window = plan_history_active_window(backfill, self._sync_days)
+        original_backfill = get_history_backfill(gmail_state)
+        plan = plan_history_active_window(original_backfill, self._sync_days)
+        backfill = plan.backfill
+        window = plan.window
+
+        if backfill != original_backfill:
+            gmail_state = set_history_backfill(gmail_state, backfill)
+            self._account_store.update_gmail_sync_state(account_id, user_id, gmail_state)
+            self._session.commit()
+
         if window is None:
             return {
                 "synchronized": 0,
