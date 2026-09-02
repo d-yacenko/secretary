@@ -1,33 +1,32 @@
-# Current task — PHASE 28C-A-R1 awaiting architect review
+# Current task — PHASE 28C-B1 awaiting architect review
 
 ## Status
 
-PHASE 28B-D2-R2: **accepted** at `b39e96177fe2cdbd7fe1d385d7425ef052a0ace5`.
+PHASE 28C-A: **accepted** and deployed at `d8c17d432b53efcc992001b56840e94c17483936`.
 
-PHASE 28C-A — Per-User Source Enablement & Sync Cadence: **implementation complete**, awaiting architect review on `review/phase-28c-source-preferences-a`.
+Current: **PHASE 28C-B1 — Source Preferences UI** — implementation complete, awaiting architect review.
 
-Current: **PHASE 28C-A-R1 — Immediate Disable Gate & Source Status Corrective** — implementation complete, awaiting architect review.
+Do **not** merge, deploy, or start 28C-B2 until review.
 
-Do **not** merge, deploy, or start 28C-B until review.
+## PHASE 28C-B1 delivered
 
-## PHASE 28C-A-R1 delivered
-
-- PATCH `enabled` reconciles jobs immediately via `reconcile_user_source`
-- Worker pre-execution disable gate (no handler call when disabled)
-- Account-based source status (connected accounts, not job-only)
-- PATCH null clears stored overrides
+- Flutter Account section «Синхронизация» for five recurring sources
+- GET/PATCH `/me/source-preferences` client integration
+- Per-source enable/cadence/reset with explicit JSON null clears
+- Inbox `disabled` status not shown as sync error
 
 ## Branch
 
-`review/phase-28c-source-preferences-a-r1` from `cd36155c4f5ce4fdecd2f15b103b96d2a452e1ca`.
+`review/phase-28c-source-preferences-ui` from `d8c17d432b53efcc992001b56840e94c17483936`.
 
-## Next after 28C-A-R1 acceptance
+## Next after 28C-B1 acceptance
 
-PHASE 28C-B — History Depth & Source Preferences UI.
+PHASE 28C-B2 — History Depth Semantics & UI.
 
-## Not in 28C-A-R1
+## Not in 28C-B1
 
-- History depth (28C-B)
-- Flutter UI changes
-- Explicit Intake changes
+- History depth (28C-B2)
+- Backend functional changes
 - Migration beyond Alembic `0021`
+- Source «sync now»
+- Drive/Disk/local recurring controls

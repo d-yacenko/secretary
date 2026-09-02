@@ -69,6 +69,7 @@ void main() {
     String? lastError = 'RuntimeError',
     String? lastSuccessAt = '2026-09-01T10:00:00Z',
     String? lastAttemptAt = '2026-09-02T09:00:00Z',
+    bool? enabled,
   }) {
     return {
       'source': provider,
@@ -76,6 +77,7 @@ void main() {
       'account_id': '550e8400-e29b-41d4-a716-446655440000',
       'account_label': accountLabel,
       'status': status,
+      if (enabled != null) 'enabled': enabled,
       'last_success_at': lastSuccessAt,
       'last_attempt_at': lastAttemptAt,
       'next_sync_at': null,
@@ -569,6 +571,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Ошибка синхронизации'), findsNothing);
+  });
+
+  testWidgets('disabled sync status is not rendered as sync error',
+      (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response(
+            jsonEncode(inboxJson(
+              syncStatus: [
+                syncStatusJson(
+                  status: 'disabled',
+                  lastError: null,
+                  enabled: false,
+                ),
+              ],
+            )),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Ошибка синхронизации'), findsNothing);
+    expect(find.text('Gmail — user@example.com'), findsNothing);
   });
 
   testWidgets('source errors remain visible when inbox is empty',

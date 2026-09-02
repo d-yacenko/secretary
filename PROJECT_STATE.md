@@ -86,17 +86,19 @@ PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed*
 
 PHASE 28B-D2-R2 — Yandex CalDAV retry corrective: **accepted** at `b39e96177fe2cdbd7fe1d385d7425ef052a0ace5`.
 
-PHASE 28C-A — Per-User Source Enablement & Sync Cadence: **implementation complete**, awaiting architect review on `review/phase-28c-source-preferences-a`.
+PHASE 28C-A — Per-User Source Enablement & Sync Cadence: **accepted / deployed** at `d8c17d432b53efcc992001b56840e94c17483936`.
 
-PHASE 28C-A-R1 — Immediate Disable Gate & Source Status Corrective: **implementation complete, awaiting architect review**.
+PHASE 28C-A-R1 — Immediate Disable Gate & Source Status Corrective: **accepted** (included in 28C-A deploy).
+
+PHASE 28C-A-R2 — Deploy env wiring: **accepted** (included in 28C-A deploy).
+
+PHASE 28C-B1 — Source Preferences UI: **implementation complete, awaiting architect review** on `review/phase-28c-source-preferences-ui`.
 
 Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
 
-Next: **architect review of PHASE 28C-A-R1** on branch `review/phase-28c-source-preferences-a-r1`.
+Next: **architect review of PHASE 28C-B1** on branch `review/phase-28c-source-preferences-ui`.
 
-Approved next after 28C-A-R1 acceptance: **PHASE 28C-B — History Depth & Source Preferences UI**.
-
-Approved next after D2-R1 acceptance/deploy/E2E: **PHASE 28C — Per-User Source/Sync Preferences**.
+Approved next after 28C-B1 acceptance: **PHASE 28C-B2 — History Depth Semantics & UI**.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -242,11 +244,10 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `f472b8ce51b4f63cf85c81affe0f40cd9e0b7a66`
-- Deployed: 2026-08-31 (PHASE 26 closure — full PHASE 26 accepted)
-- Accepted application: `5c4ffc40fd7462c1ecc29b2a00bc9f5920a50ba6`
-- Checkout: `main`, clean (no tracked modifications)
-- Alembic current/head: `0018` (`pending_action_plans`)
+- SHA: `d8c17d432b53efcc992001b56840e94c17483936`
+- Deployed: 2026-09-02 (PHASE 28C-A — per-user source preferences, Alembic `0021`)
+- Checkout: detached at deploy SHA, clean (no tracked modifications)
+- Alembic current/head: `0021` (`user_source_preferences`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`

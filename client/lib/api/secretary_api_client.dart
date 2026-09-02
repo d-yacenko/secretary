@@ -17,7 +17,8 @@ class SecretaryApiClient {
     ClientTimezoneProvider? timezoneProvider,
   })  : _httpClient = httpClient ?? http.Client(),
         _timeout = timeout ?? const Duration(seconds: 30),
-        _timezoneProvider = timezoneProvider ?? const SystemClientTimezoneProvider();
+        _timezoneProvider =
+            timezoneProvider ?? const SystemClientTimezoneProvider();
 
   final http.Client _httpClient;
   final Duration _timeout;
@@ -52,7 +53,8 @@ class SecretaryApiClient {
   }
 
   Future<UserMe> patchMe({required String displayName}) async {
-    final body = await _request('PATCH', '/me', jsonBody: {'display_name': displayName});
+    final body =
+        await _request('PATCH', '/me', jsonBody: {'display_name': displayName});
     return UserMe.fromJson(body);
   }
 
@@ -85,7 +87,8 @@ class SecretaryApiClient {
   }
 
   Future<void> putOpenaiCredential(String apiKey) async {
-    await _request('PUT', '/me/credentials/openai', jsonBody: {'api_key': apiKey});
+    await _request('PUT', '/me/credentials/openai',
+        jsonBody: {'api_key': apiKey});
   }
 
   Future<void> deleteOpenaiCredential() async {
@@ -97,8 +100,50 @@ class SecretaryApiClient {
     return Connections.fromJson(body);
   }
 
+  Future<List<SourcePreference>> getSourcePreferences() async {
+    final body = await _request('GET', '/me/source-preferences');
+    return SourcePreferenceList.fromJson(body).preferences;
+  }
+
+  Future<SourcePreference> patchSourceEnabled(
+    String source,
+    bool? enabled,
+  ) async {
+    final body = await _request(
+      'PATCH',
+      '/me/source-preferences/$source',
+      jsonBody: {'enabled': enabled},
+    );
+    return SourcePreference.fromJson(body);
+  }
+
+  Future<SourcePreference> patchSourceSyncInterval(
+    String source,
+    int? seconds,
+  ) async {
+    final body = await _request(
+      'PATCH',
+      '/me/source-preferences/$source',
+      jsonBody: {'sync_interval_seconds': seconds},
+    );
+    return SourcePreference.fromJson(body);
+  }
+
+  Future<SourcePreference> resetSourcePreference(String source) async {
+    final body = await _request(
+      'PATCH',
+      '/me/source-preferences/$source',
+      jsonBody: {
+        'enabled': null,
+        'sync_interval_seconds': null,
+      },
+    );
+    return SourcePreference.fromJson(body);
+  }
+
   Future<GoogleAuthorizationUrl> getGoogleAuthorizationUrl() async {
-    final body = await _request('POST', '/auth/google/authorization-url', jsonBody: {});
+    final body =
+        await _request('POST', '/auth/google/authorization-url', jsonBody: {});
     return GoogleAuthorizationUrl.fromJson(body);
   }
 
@@ -187,12 +232,14 @@ class SecretaryApiClient {
   }
 
   Future<NotificationOut> acceptNotification(String notificationId) async {
-    final body = await _request('POST', '/notifications/$notificationId/accept');
+    final body =
+        await _request('POST', '/notifications/$notificationId/accept');
     return NotificationOut.fromJson(body);
   }
 
   Future<NotificationOut> ignoreNotification(String notificationId) async {
-    final body = await _request('POST', '/notifications/$notificationId/ignore');
+    final body =
+        await _request('POST', '/notifications/$notificationId/ignore');
     return NotificationOut.fromJson(body);
   }
 
@@ -340,7 +387,8 @@ class SecretaryApiClient {
         if (contentHash != null) 'content_hash': contentHash,
         'metadata_only': metadataOnly,
         if (rootPath != null) 'root_path': rootPath,
-        if (clientAbsolutePath != null) 'client_absolute_path': clientAbsolutePath,
+        if (clientAbsolutePath != null)
+          'client_absolute_path': clientAbsolutePath,
         if (intakeMode != null) 'intake_mode': intakeMode,
       },
       successStatuses: {201},
@@ -387,7 +435,8 @@ class SecretaryApiClient {
     if (nodeLimit != null) {
       queryParameters['node_limit'] = '$nodeLimit';
     }
-    final body = await _request('GET', '/graph/workspace', queryParameters: queryParameters);
+    final body = await _request('GET', '/graph/workspace',
+        queryParameters: queryParameters);
     return GraphWorkspaceOut.fromJson(body);
   }
 
@@ -537,9 +586,8 @@ class SecretaryApiClient {
     };
 
     try {
-      final response = await _httpClient
-          .post(uri, headers: headers)
-          .timeout(_timeout);
+      final response =
+          await _httpClient.post(uri, headers: headers).timeout(_timeout);
 
       if (response.statusCode == 200 || response.statusCode == 409) {
         if (response.body.isEmpty) {

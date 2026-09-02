@@ -6,6 +6,7 @@ import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/domain_labels.dart';
+import 'source_preferences_list.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
@@ -14,12 +15,14 @@ class AccountScreen extends StatefulWidget {
     required this.authController,
     this.initialConnections,
     this.initialSettings,
+    this.initialSourcePreferences,
   });
 
   final SecretaryApiClient apiClient;
   final AuthController authController;
   final Connections? initialConnections;
   final UserSettings? initialSettings;
+  final List<SourcePreference>? initialSourcePreferences;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -29,11 +32,16 @@ class _AccountScreenState extends State<AccountScreen>
     with WidgetsBindingObserver {
   Connections? _connections;
   UserSettings? _settings;
+  List<SourcePreference>? _sourcePreferences;
   String? _error;
+  String? _sourcePreferencesError;
   bool _loading = false;
+  bool _sourcePreferencesLoading = false;
   bool _googleOAuthPending = false;
   bool _profileSaving = false;
   bool _settingsSaving = false;
+  final Set<String> _savingSources = {};
+  final Map<String, String> _sourcePreferenceRowErrors = {};
   late final TextEditingController _displayNameController;
   late final TextEditingController _timezoneController;
 
@@ -47,10 +55,14 @@ class _AccountScreenState extends State<AccountScreen>
     _timezoneController = TextEditingController(
       text: widget.initialSettings?.timezone ?? '',
     );
-    if (widget.initialConnections != null && widget.initialSettings != null) {
+    if (widget.initialConnections != null &&
+        widget.initialSettings != null &&
+        widget.initialSourcePreferences != null) {
       _connections = widget.initialConnections;
       _settings = widget.initialSettings;
+      _sourcePreferences = widget.initialSourcePreferences;
       _loading = false;
+      _sourcePreferencesLoading = false;
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -85,11 +97,15 @@ class _AccountScreenState extends State<AccountScreen>
   Future<void> _loadAccountData() async {
     setState(() {
       _loading = true;
+      _sourcePreferencesLoading = true;
       _error = null;
+      _sourcePreferencesError = null;
     });
     Connections? connections;
     UserSettings? settings;
+    List<SourcePreference>? sourcePreferences;
     String? error;
+    String? sourcePreferencesError;
     try {
       connections = await widget.apiClient.getConnections();
     } on AuthenticationException {
@@ -106,17 +122,83 @@ class _AccountScreenState extends State<AccountScreen>
     } on ApiException catch (e) {
       error ??= e.message;
     }
+    try {
+      sourcePreferences = await widget.apiClient.getSourcePreferences();
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+      return;
+    } on ApiException catch (e) {
+      sourcePreferencesError = e.message;
+    }
     if (mounted) {
       setState(() {
         _connections = connections;
         _settings = settings;
+        _sourcePreferences = sourcePreferences;
         if (settings != null) {
           _timezoneController.text = settings.timezone;
         }
         _error = error;
+        _sourcePreferencesError = sourcePreferencesError;
         _loading = false;
+        _sourcePreferencesLoading = false;
       });
     }
+  }
+
+  Future<void> _patchSourcePreference(
+    String source,
+    Future<SourcePreference> request,
+  ) async {
+    if (_savingSources.contains(source)) {
+      return;
+    }
+    setState(() {
+      _savingSources.add(source);
+      _sourcePreferenceRowErrors.remove(source);
+    });
+    try {
+      final updated = await request;
+      if (mounted) {
+        setState(() {
+          _sourcePreferences = [
+            for (final preference in _sourcePreferences ?? const [])
+              preference.source == updated.source ? updated : preference,
+          ];
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _sourcePreferenceRowErrors[source] = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _savingSources.remove(source));
+      }
+    }
+  }
+
+  Future<void> _toggleSourceEnabled(String source, bool enabled) async {
+    await _patchSourcePreference(
+      source,
+      widget.apiClient.patchSourceEnabled(source, enabled),
+    );
+  }
+
+  Future<void> _changeSourceCadence(String source, int seconds) async {
+    await _patchSourcePreference(
+      source,
+      widget.apiClient.patchSourceSyncInterval(source, seconds),
+    );
+  }
+
+  Future<void> _resetSourcePreference(String source) async {
+    await _patchSourcePreference(
+      source,
+      widget.apiClient.resetSourcePreference(source),
+    );
   }
 
   Future<void> _saveProfile() async {
@@ -430,6 +512,28 @@ class _AccountScreenState extends State<AccountScreen>
               onConnectGoogle: _startGoogleOAuth,
               onConnectYandex: _showConnectYandexDialog,
               onConnectMattermost: _showConnectMattermostDialog,
+            ),
+          const SizedBox(height: 16),
+          Text('Синхронизация', style: Theme.of(context).textTheme.titleSmall),
+          if (_sourcePreferencesError != null)
+            Text(
+              _sourcePreferencesError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          if (_sourcePreferencesLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_sourcePreferences != null && _connections != null)
+            SourcePreferencesList(
+              preferences: _sourcePreferences!,
+              connections: _connections!,
+              savingSources: _savingSources,
+              rowErrors: _sourcePreferenceRowErrors,
+              onToggleEnabled: _toggleSourceEnabled,
+              onCadenceChanged: _changeSourceCadence,
+              onReset: _resetSourcePreference,
             ),
           const SizedBox(height: 24),
           OutlinedButton(

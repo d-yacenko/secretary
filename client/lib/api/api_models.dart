@@ -1,5 +1,6 @@
 class UserMe {
-  UserMe({required this.id, required this.displayName, required this.createdAt});
+  UserMe(
+      {required this.id, required this.displayName, required this.createdAt});
 
   final String id;
   final String displayName;
@@ -38,9 +39,10 @@ class UserSettings {
       assistantReasoningEffort: json['assistant_reasoning_effort'] as String,
       assistantVerbosity: json['assistant_verbosity'] as String,
       openaiKeyConfigured: json['openai_key_configured'] as bool,
-      allowedAssistantModels: (json['allowed_assistant_models'] as List<dynamic>)
-          .map((item) => item as String)
-          .toList(),
+      allowedAssistantModels:
+          (json['allowed_assistant_models'] as List<dynamic>)
+              .map((item) => item as String)
+              .toList(),
     );
   }
 }
@@ -209,14 +211,15 @@ class Connections {
     final mattermostRaw = json['mattermost'];
     return Connections(
       google: GoogleConnection.fromJson(json['google'] as Map<String, dynamic>),
-      yandexMail:
-          YandexMailConnection.fromJson(json['yandex_mail'] as Map<String, dynamic>),
+      yandexMail: YandexMailConnection.fromJson(
+          json['yandex_mail'] as Map<String, dynamic>),
       yandexCalendar: YandexCalendarConnection.fromJson(
         json['yandex_calendar'] as Map<String, dynamic>,
       ),
       mattermost: mattermostRaw is List<dynamic>
           ? mattermostRaw
-              .map((e) => MattermostConnection.fromJson(e as Map<String, dynamic>))
+              .map((e) =>
+                  MattermostConnection.fromJson(e as Map<String, dynamic>))
               .toList()
           : const [],
     );
@@ -479,8 +482,7 @@ class NotificationOut {
 
   String? get proposedAction => proposal['action'] as String?;
 
-  String? get proposalDescription =>
-      proposal['description'] as String? ?? body;
+  String? get proposalDescription => proposal['description'] as String? ?? body;
 
   factory NotificationOut.fromJson(Map<String, dynamic> json) {
     return NotificationOut(
@@ -544,6 +546,7 @@ class SourceSyncStatusOut {
     required this.accountId,
     required this.accountLabel,
     required this.status,
+    this.enabled,
     required this.lastSuccessAt,
     required this.lastAttemptAt,
     required this.nextSyncAt,
@@ -555,6 +558,7 @@ class SourceSyncStatusOut {
   final String accountId;
   final String accountLabel;
   final String status;
+  final bool? enabled;
   final String? lastSuccessAt;
   final String? lastAttemptAt;
   final String? nextSyncAt;
@@ -567,6 +571,7 @@ class SourceSyncStatusOut {
       accountId: json['account_id'] as String,
       accountLabel: json['account_label'] as String,
       status: json['status'] as String,
+      enabled: json['enabled'] as bool?,
       lastSuccessAt: json['last_success_at'] as String?,
       lastAttemptAt: json['last_attempt_at'] as String?,
       nextSyncAt: json['next_sync_at'] as String?,
@@ -588,9 +593,10 @@ class InboxOut {
 
   factory InboxOut.fromJson(Map<String, dynamic> json) {
     return InboxOut(
-      unresolvedNotifications: (json['unresolved_notifications'] as List<dynamic>)
-          .map((e) => NotificationOut.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      unresolvedNotifications:
+          (json['unresolved_notifications'] as List<dynamic>)
+              .map((e) => NotificationOut.fromJson(e as Map<String, dynamic>))
+              .toList(),
       recentSourceObjects: (json['recent_source_objects'] as List<dynamic>)
           .map((e) => InboxSourceObjectOut.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -756,7 +762,8 @@ class AssistantMessageResponse {
           .map((e) => AssistantReference.fromJson(e as Map<String, dynamic>))
           .toList(),
       affectedObjects: (json['affected_objects'] as List<dynamic>)
-          .map((e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
+          .map((e) =>
+              AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
           .toList(),
       pendingActionPlan: pendingRaw == null
           ? null
@@ -888,7 +895,10 @@ class ActionPlanResponse {
     final status = json['status'];
     final expiresAt = json['expires_at'];
     final actions = json['actions'];
-    if (id is! String || status is! String || expiresAt is! String || actions is! List) {
+    if (id is! String ||
+        status is! String ||
+        expiresAt is! String ||
+        actions is! List) {
       return null;
     }
     try {
@@ -912,7 +922,8 @@ class ActionPlanResumeResponse {
     return ActionPlanResumeResponse(
       answer: json['answer'] as String,
       affectedObjects: (json['affected_objects'] as List<dynamic>)
-          .map((e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
+          .map((e) =>
+              AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }
@@ -1012,9 +1023,8 @@ class GraphWorkspaceOut {
   factory GraphWorkspaceOut.fromJson(Map<String, dynamic> json) {
     return GraphWorkspaceOut(
       rootId: json['root_id'] as String?,
-      seedIds: (json['seed_ids'] as List<dynamic>)
-          .map((e) => e as String)
-          .toList(),
+      seedIds:
+          (json['seed_ids'] as List<dynamic>).map((e) => e as String).toList(),
       nodes: (json['nodes'] as List<dynamic>)
           .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -1262,6 +1272,58 @@ class SearchFacetsOut {
           .toList(),
       providers: (json['providers'] as List<dynamic>)
           .map((row) => SearchFacetValue.fromJson(row as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+/// Recurring account sources with per-user sync preferences (PHASE 28C-A).
+const List<String> supportedSourcePreferenceKeys = [
+  'gmail',
+  'google_calendar',
+  'yandex_mail',
+  'yandex_calendar',
+  'mattermost',
+];
+
+class SourcePreference {
+  SourcePreference({
+    required this.source,
+    required this.enabled,
+    required this.syncIntervalSeconds,
+    required this.defaultSyncIntervalSeconds,
+    required this.minSyncIntervalSeconds,
+    required this.maxSyncIntervalSeconds,
+  });
+
+  final String source;
+  final bool enabled;
+  final int syncIntervalSeconds;
+  final int defaultSyncIntervalSeconds;
+  final int minSyncIntervalSeconds;
+  final int maxSyncIntervalSeconds;
+
+  factory SourcePreference.fromJson(Map<String, dynamic> json) {
+    return SourcePreference(
+      source: json['source'] as String,
+      enabled: json['enabled'] as bool,
+      syncIntervalSeconds: json['sync_interval_seconds'] as int,
+      defaultSyncIntervalSeconds: json['default_sync_interval_seconds'] as int,
+      minSyncIntervalSeconds: json['min_sync_interval_seconds'] as int,
+      maxSyncIntervalSeconds: json['max_sync_interval_seconds'] as int,
+    );
+  }
+}
+
+class SourcePreferenceList {
+  SourcePreferenceList({required this.preferences});
+
+  final List<SourcePreference> preferences;
+
+  factory SourcePreferenceList.fromJson(Map<String, dynamic> json) {
+    return SourcePreferenceList(
+      preferences: (json['preferences'] as List<dynamic>)
+          .map((e) => SourcePreference.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }

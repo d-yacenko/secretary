@@ -48,33 +48,78 @@ Map<String, dynamic> accountSettingsJson({
 
 bool isAccountSettingsRequest(Uri url) => url.path.endsWith('/me/settings');
 
+Map<String, dynamic> accountSourcePreferencesJson({
+  int minInterval = 60,
+  int maxInterval = 86400,
+}) {
+  Map<String, dynamic> pref(String source, int defaultSeconds) {
+    return {
+      'source': source,
+      'enabled': true,
+      'sync_interval_seconds': defaultSeconds,
+      'default_sync_interval_seconds': defaultSeconds,
+      'min_sync_interval_seconds': minInterval,
+      'max_sync_interval_seconds': maxInterval,
+    };
+  }
+
+  return {
+    'preferences': [
+      pref('gmail', 300),
+      pref('google_calendar', 300),
+      pref('yandex_mail', 300),
+      pref('yandex_calendar', 300),
+      pref('mattermost', 120),
+    ],
+  };
+}
+
+bool isAccountSourcePreferencesRequest(Uri url) =>
+    url.path.endsWith('/me/source-preferences');
+
 class StubSecretaryApiClient extends SecretaryApiClient {
   StubSecretaryApiClient({
     required Connections connections,
     required UserSettings settings,
+    List<SourcePreference>? sourcePreferences,
     http.Client? httpClient,
   })  : _connections = connections,
         _settings = settings,
-        super(httpClient: httpClient ?? MockClient((_) async => http.Response('{}', 404)));
+        _sourcePreferences = sourcePreferences ??
+            SourcePreferenceList.fromJson(accountSourcePreferencesJson())
+                .preferences,
+        super(
+            httpClient: httpClient ??
+                MockClient((_) async => http.Response('{}', 404)));
 
   final Connections _connections;
   final UserSettings _settings;
+  final List<SourcePreference> _sourcePreferences;
 
   @override
   Future<Connections> getConnections() async => _connections;
 
   @override
   Future<UserSettings> getSettings() async => _settings;
+
+  @override
+  Future<List<SourcePreference>> getSourcePreferences() async =>
+      List<SourcePreference>.from(_sourcePreferences);
 }
 
 SecretaryApiClient buildAccountApiClient({
   Map<String, dynamic>? connectionsJson,
   Map<String, dynamic>? settingsJson,
+  Map<String, dynamic>? sourcePreferencesJson,
   http.Client? httpClient,
 }) {
   return StubSecretaryApiClient(
-    connections: Connections.fromJson(connectionsJson ?? accountConnectionsJson()),
+    connections:
+        Connections.fromJson(connectionsJson ?? accountConnectionsJson()),
     settings: UserSettings.fromJson(settingsJson ?? accountSettingsJson()),
+    sourcePreferences: sourcePreferencesJson == null
+        ? null
+        : SourcePreferenceList.fromJson(sourcePreferencesJson).preferences,
     httpClient: httpClient,
   );
 }
@@ -84,16 +129,31 @@ AccountScreen buildAccountScreen({
   required AuthController authController,
   Map<String, dynamic>? connectionsJson,
   Map<String, dynamic>? settingsJson,
+  Map<String, dynamic>? sourcePreferencesJson,
 }) {
+  final connections =
+      Connections.fromJson(connectionsJson ?? accountConnectionsJson());
+  final settings = UserSettings.fromJson(settingsJson ?? accountSettingsJson());
+  final sourcePreferences = sourcePreferencesJson == null
+      ? SourcePreferenceList.fromJson(accountSourcePreferencesJson())
+          .preferences
+      : SourcePreferenceList.fromJson(sourcePreferencesJson).preferences;
   return AccountScreen(
     apiClient: apiClient,
     authController: authController,
-    initialConnections: Connections.fromJson(connectionsJson ?? accountConnectionsJson()),
-    initialSettings: UserSettings.fromJson(settingsJson ?? accountSettingsJson()),
+    initialConnections: connections,
+    initialSettings: settings,
+    initialSourcePreferences: sourcePreferences,
   );
 }
 
 Future<void> pumpAccountReady(WidgetTester tester, Widget child) async {
+  final binding = tester.binding;
+  binding.window.physicalSizeTestValue = const Size(800, 3000);
+  binding.window.devicePixelRatioTestValue = 1.0;
+  addTearDown(binding.window.clearPhysicalSizeTestValue);
+  addTearDown(binding.window.clearDevicePixelRatioTestValue);
+
   await tester.pumpWidget(MaterialApp(home: child));
   await tester.pump();
   for (var i = 0; i < 20; i++) {
