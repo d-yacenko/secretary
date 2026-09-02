@@ -9,7 +9,7 @@ from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_servi
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
 from app.services.source_sync_preference_service import SourceSyncPreferenceService
-from app.source_sync.constants import SOURCE_GMAIL, SOURCE_GOOGLE_CALENDAR
+from app.source_sync.constants import SOURCE_GMAIL, SOURCE_GOOGLE_CALENDAR, SOURCE_YANDEX_MAIL
 
 
 def _gmail_sync_service(session: Session, user_id: UUID):
@@ -46,11 +46,15 @@ def _google_calendar_sync_service(session: Session, user_id: UUID):
     )
 
 
-def _yandex_mail_sync_service(session: Session):
+def _yandex_mail_sync_service(session: Session, user_id: UUID):
+    history_days = SourceSyncPreferenceService.build(session).effective_history_days_for_source(
+        user_id,
+        SOURCE_YANDEX_MAIL,
+    )
     return build_yandex_mail_sync_service(
         session=session,
         credential_key=settings.secretary_credential_key,
-        sync_days=settings.yandex_mail_sync_days,
+        sync_days=history_days,
         default_limit=settings.yandex_mail_sync_default_limit,
         max_limit=settings.yandex_mail_sync_max_limit,
     )
@@ -115,7 +119,11 @@ def handle_sync_yandex_mail(
     user_id: UUID,
 ) -> None:
     account_id = UUID(str(payload["account_id"]))
-    _yandex_mail_sync_service(session).sync_account(account_id, user_id=user_id)
+    _yandex_mail_sync_service(session, user_id).sync_account(
+        account_id,
+        user_id=user_id,
+        include_history_pass=True,
+    )
 
 
 def handle_sync_yandex_calendar(

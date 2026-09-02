@@ -26,6 +26,8 @@ from app.connectors.yandex.errors import (
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
+from app.services.source_sync_preference_service import SourceSyncPreferenceService
+from app.source_sync.constants import SOURCE_YANDEX_MAIL
 
 router = APIRouter(tags=["yandex"])
 
@@ -115,10 +117,14 @@ def yandex_mail_sync(
         if account is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="yandex mail account not found")
 
+        history_days = SourceSyncPreferenceService.build(session).effective_history_days_for_source(
+            current_user.user_id,
+            SOURCE_YANDEX_MAIL,
+        )
         sync_service = build_yandex_mail_sync_service(
             session=session,
             credential_key=settings.secretary_credential_key,
-            sync_days=settings.yandex_mail_sync_days,
+            sync_days=history_days,
             default_limit=settings.yandex_mail_sync_default_limit,
             max_limit=settings.yandex_mail_sync_max_limit,
         )

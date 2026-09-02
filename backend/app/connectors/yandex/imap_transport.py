@@ -274,6 +274,8 @@ class FakeImapTransport:
         self._folder = folder
         self.fetch_calls: list[int] = []
         self.history_search_calls: list[dict[str, object]] = []
+        self.initial_search_calls: list[dict[str, object]] = []
+        self.incremental_search_calls: list[dict[str, object]] = []
         self._tx_checker = tx_checker
         self._history_matching_uids = history_matching_uids
 
@@ -301,6 +303,9 @@ class FakeImapTransport:
         max_results: int,
     ) -> list[int]:
         self._check_tx()
+        self.initial_search_calls.append(
+            {"folder": folder, "since_date": since_date, "max_results": max_results}
+        )
         uids = sorted(self._messages.keys())
         if len(uids) > max_results:
             return uids[-max_results:]
@@ -313,6 +318,9 @@ class FakeImapTransport:
         max_results: int,
     ) -> list[int]:
         self._check_tx()
+        self.incremental_search_calls.append(
+            {"folder": folder, "after_uid": after_uid, "max_results": max_results}
+        )
         uids = sorted(uid for uid in self._messages if uid > after_uid)
         if len(uids) > max_results:
             return uids[:max_results]

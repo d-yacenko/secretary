@@ -6,6 +6,8 @@ from typing import Any
 
 HISTORY_BACKFILL_KEY = "history_backfill"
 HISTORY_BACKFILL_VERSION = 1
+MAX_IMAP_UID = 4_294_967_295
+INITIAL_HISTORY_BEFORE_UID = MAX_IMAP_UID + 1
 
 
 def utcnow() -> datetime:
