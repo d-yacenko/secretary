@@ -3,6 +3,7 @@
 import logging
 
 from app.llm.summarizer import Summarizer
+from app.services.effective_user_settings_service import EffectiveUserSettings
 
 logger = logging.getLogger(__name__)
 
@@ -67,4 +68,17 @@ def create_openai_summarizer() -> Summarizer:
         model=settings.openai_assistant_model,
         reasoning_effort=settings.openai_assistant_reasoning_effort,
         verbosity=settings.openai_assistant_verbosity,
+    )
+
+
+def create_openai_summarizer_from_effective(
+    effective: EffectiveUserSettings,
+) -> Summarizer:
+    if not effective.openai_api_key:
+        raise RuntimeError("OpenAI API key is not configured")
+    return OpenAISummarizer(
+        api_key=effective.openai_api_key,
+        model=effective.assistant_model,
+        reasoning_effort=effective.assistant_reasoning_effort,
+        verbosity=effective.assistant_verbosity,
     )

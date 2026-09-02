@@ -560,8 +560,8 @@ def test_pipeline_summarize_embed_correlate_sequence(db_session, fake_embedding_
     with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
         db_session, "close", lambda: None
     ), patch(
-        "app.jobs.handlers.create_openai_summarizer",
-        lambda: RecordingSummarizer("pipeline summary"),
+        "app.jobs.handlers.create_openai_summarizer_from_effective",
+        lambda effective: RecordingSummarizer("pipeline summary"),
     ):
         handle_summarize_resource(
             db_session,

@@ -1,33 +1,29 @@
-# Current task — PHASE 27C-R4C awaiting architect review
+# Current task — PHASE 28B-A awaiting architect review
 
 ## Status
 
-PHASE 28A — User Profile & Per-User Settings Foundation: **accepted / closed** at `d9a7ea874379366fcacdb0646efcad871764658c`. Matched-version manual E2E: **PASS**.
+PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **accepted / closed** at `765f79126329a26f42180d00a32fb646c6ec1598`. Deployment and real Google Drive/Sheets explicit-link E2E: **PASS**.
 
-PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **implementation complete, awaiting architect review**.
+PHASE 28A — User Profile & Per-User Settings Foundation: **accepted / closed**. Matched-version manual E2E: **PASS**.
 
-Do **not** merge, deploy, or start 28B until review.
+PHASE 28B-A — Per-User Background AI Runtime: **implementation complete, awaiting architect review**.
 
-Google Drive 403 on real shared links is **not** claimed resolved until architect review, deploy, and real-link E2E succeed.
+Do **not** merge, deploy, or start 28B-B until review.
 
-## PHASE 27C-R4C delivered
+## PHASE 28B-A delivered
 
-- `files.get` adds `supportsAllDrives=true` for Shared Drive metadata
-- Google Drive metadata errors classified by HTTP status + reason (not all 401/403 → permission denied)
-- External Google authorization failures → controlled intake 400 (`google drive authorization requires reconnect`); **not** Secretary HTTP 401 / logout
-- Deployment/API configuration 403 → `GoogleConfigurationError` → HTTP 503
-- Sanitized diagnostics: operation, status, reason (no tokens or raw auth headers)
-
-## Architectural rule (unchanged)
-
-One pasted Google Drive URL → one `files.get` → one Object. No `files.list`, no sync, no recursive folder import.
+- Background embed / summarize / correlate jobs resolve OpenAI credential per `job.user_id`
+- Reuses `EffectiveUserSettingsService` credential precedence (personal key > deployment fallback)
+- Broken personal credential: no deployment/Fake fallback; job fails safely
+- No global embedding client at worker startup; per-job embedding service lifetime
+- Source-sync jobs unchanged; no OpenAI resolution on sync path
 
 ## Branch
 
-`review/phase-27c-google-drive-403` from `bc5a7d29976482bca033543c49a04f9b51f974d0`.
+`review/phase-28b-background-ai` from `765f79126329a26f42180d00a32fb646c6ec1598`.
 
-## Not in 27C-R4C
+## Not in 28B-A
 
-- Embedding / transcription / background AI migration (28B)
-- Source sync preferences (28C)
-- Flutter redesign beyond existing Inbox error display
+- Transcription per-user migration (28B-B)
+- Source sync preferences / scheduler intervals (28C)
+- Flutter changes

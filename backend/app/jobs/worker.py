@@ -12,7 +12,7 @@ from app.services.job_queue_service import (
 logger = logging.getLogger(__name__)
 
 
-def process_one_job(embedding_service: EmbeddingService) -> bool:
+def process_one_job(embedding_service: EmbeddingService | None = None) -> bool:
     session = SessionLocal()
     try:
         queue = JobQueueService(session)

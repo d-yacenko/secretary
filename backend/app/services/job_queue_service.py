@@ -25,6 +25,7 @@ from app.jobs.constants import (
     RETRY_BACKOFF_SECONDS,
     STALE_LOCK_MINUTES,
 )
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 
 def utcnow() -> datetime:
@@ -47,6 +48,7 @@ def sanitize_job_error(exc: BaseException) -> str:
         "personal-access",
         "personal access",
         "encrypted",
+        "sk-",
     )
     for needle in sensitive_needles:
         if needle in lowered:
@@ -55,6 +57,8 @@ def sanitize_job_error(exc: BaseException) -> str:
 
 
 def is_job_error_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, UserOpenAICredentialConfigurationError):
+        return False
     if isinstance(exc, GoogleApiError):
         return exc.retryable
     if isinstance(exc, GoogleConnectorError):

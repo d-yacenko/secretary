@@ -26,9 +26,10 @@ from app.jobs.source_sync_handlers import (
     handle_sync_yandex_mail,
 )
 from app.jobs.types import JobHandler
-from app.llm.correlation_judge import create_correlation_judge
+from app.llm.correlation_judge import create_correlation_judge_from_effective
+from app.llm.embedding_service import create_embedding_service_from_effective
 from app.llm.embedding_text import build_embedding_text
-from app.llm.openai_summarizer import create_openai_summarizer
+from app.llm.openai_summarizer import create_openai_summarizer_from_effective
 from app.local.constants import POLICY_UPLOAD_COPY
 from app.local.paths import LocalPathResolver
 from app.resources.constants import (
@@ -36,6 +37,7 @@ from app.resources.constants import (
     CONTENT_INGESTED_REVISION_KEY,
 )
 from app.services.correlation_service import CorrelationService
+from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.local_file_sync_service import copy_local_file_to_upload
 from app.services.pipeline_enqueue import (
     enqueue_correlate_object,
@@ -118,14 +120,18 @@ def handle_embed_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    service = embedding_service
+    if service is None:
+        effective = EffectiveUserSettingsService.build(session).get_effective_settings(user_id)
+        service = create_embedding_service_from_effective(effective)
     text = _load_embedding_text(object_id, user_id)
-    embedding = embedding_service.embed(text)
+    embedding = service.embed(text)
     _store_object_embedding(object_id, user_id, embedding)
 
     chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
     if chunk_targets:
         chunk_embeddings = [
-            (target.representation_id, embedding_service.embed(target.text))
+            (target.representation_id, service.embed(target.text))
             for target in chunk_targets
         ]
         store_representation_embeddings(object_id, user_id, chunk_embeddings)
@@ -160,7 +166,8 @@ def handle_summarize_resource(
         metadata = obj.metadata_ or {}
         if expected_revision is not None and metadata.get("content_revision") != expected_revision:
             return
-        summarizer = create_openai_summarizer()
+        effective = EffectiveUserSettingsService.build(lookup_session).get_effective_settings(user_id)
+        summarizer = create_openai_summarizer_from_effective(effective)
         summary = SemanticSummaryService(
             lookup_session, user_id, summarizer=summarizer
         ).update_summary_for_object(object_id)
@@ -180,7 +187,8 @@ def handle_correlate_object(
     object_id = UUID(str(payload["object_id"]))
     work_session = SessionLocal()
     try:
-        judge = create_correlation_judge()
+        effective = EffectiveUserSettingsService.build(session).get_effective_settings(user_id)
+        judge = create_correlation_judge_from_effective(effective)
         CorrelationService(work_session, user_id, judge).run_correlation(object_id)
         work_session.commit()
     finally:

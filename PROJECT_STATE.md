@@ -64,7 +64,7 @@ PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed*
 
 PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / closed** (part of 27B closure).
 
-PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`). Google Drive resource `403` corrective in PHASE 27C-R4C (awaiting architect review).
+PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`). Google Drive 403 corrective closed in PHASE 27C-R4C.
 
 PHASE 27C-R2 — Yandex Disk explicit share-link intake: **accepted / closed** (`374db8aa4bf4b05e922812414e723c7f8a2c4731`).
 
@@ -74,13 +74,15 @@ PHASE 27C-R4A — Inbox Explicit Intake UI: **accepted / closed** (`70117058ce64
 
 PHASE 27C — Yandex Account UX corrective: **accepted / closed** (`70117058ce6472f2d1e3d11015a09137f8a2d047`).
 
+PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **accepted / closed** (`765f79126329a26f42180d00a32fb646c6ec1598`). Deployment and real Google Drive/Sheets explicit-link E2E: **PASS**.
+
 PHASE 28A — User Profile & Per-User Settings Foundation: **accepted / closed** (`d9a7ea874379366fcacdb0646efcad871764658c`). Matched-version manual E2E: **PASS**.
 
-PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **implementation complete, awaiting architect review**.
+PHASE 28B-A — Per-User Background AI Runtime: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
 
-Next: **architect review of PHASE 27C-R4C** on branch `review/phase-27c-google-drive-403`. Google Drive 403 on real shared links remains **outstanding** until deploy + real-link E2E after review.
+Next: **architect review of PHASE 28B-A** on branch `review/phase-28b-background-ai`.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

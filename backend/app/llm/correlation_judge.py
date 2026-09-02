@@ -6,7 +6,12 @@ from typing import Protocol
 from uuid import UUID
 
 from app.services.correlation_constants import CORRELATION_ALLOWED_TYPES
-from app.services.correlation_models import CorrelationCandidate, CorrelationDecision, CorrelationJudgeResult
+from app.services.correlation_models import (
+    CorrelationCandidate,
+    CorrelationDecision,
+    CorrelationJudgeResult,
+)
+from app.services.effective_user_settings_service import EffectiveUserSettings
 
 logger = logging.getLogger(__name__)
 
@@ -184,4 +189,17 @@ def create_correlation_judge() -> CorrelationJudge:
         model=settings.openai_assistant_model,
         reasoning_effort=settings.openai_assistant_reasoning_effort,
         verbosity=settings.openai_assistant_verbosity,
+    )
+
+
+def create_correlation_judge_from_effective(
+    effective: EffectiveUserSettings,
+) -> CorrelationJudge:
+    if not effective.openai_api_key:
+        raise RuntimeError("OpenAI API key is not configured")
+    return OpenAICorrelationJudge(
+        api_key=effective.openai_api_key,
+        model=effective.assistant_model,
+        reasoning_effort=effective.assistant_reasoning_effort,
+        verbosity=effective.assistant_verbosity,
     )

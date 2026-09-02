@@ -130,6 +130,13 @@ class EffectiveUserSettingsService:
         self._session.flush()
         return self.get_settings_view(user_id)
 
+    def resolve_openai_api_key(self, user_id: UUID) -> str | None:
+        """Resolve decrypted OpenAI API key without creating a settings row."""
+        return self._resolve_openai_api_key(
+            user_id,
+            self._credential_store.is_configured(user_id),
+        )
+
     def _resolve_openai_api_key(
         self,
         user_id: UUID,
