@@ -17,6 +17,32 @@ import 'account_test_helpers.dart';
 const _baseUrl = 'https://secretary.example';
 const _token = 'opaque-test-token';
 
+Map<String, dynamic> _preferenceResponseJson({
+  String source = 'gmail',
+  bool enabled = true,
+  int syncIntervalSeconds = 300,
+  int defaultSyncIntervalSeconds = 300,
+  int minSyncIntervalSeconds = 60,
+  int maxSyncIntervalSeconds = 86400,
+  int historyDays = 30,
+  int defaultHistoryDays = 30,
+  int minHistoryDays = 1,
+  int maxHistoryDays = 90,
+}) {
+  return {
+    'source': source,
+    'enabled': enabled,
+    'sync_interval_seconds': syncIntervalSeconds,
+    'default_sync_interval_seconds': defaultSyncIntervalSeconds,
+    'min_sync_interval_seconds': minSyncIntervalSeconds,
+    'max_sync_interval_seconds': maxSyncIntervalSeconds,
+    'history_days': historyDays,
+    'default_history_days': defaultHistoryDays,
+    'min_history_days': minHistoryDays,
+    'max_history_days': maxHistoryDays,
+  };
+}
+
 AuthController _buildAuth(SecretaryApiClient apiClient) {
   final auth = AuthController(
     apiClient: apiClient,
@@ -45,8 +71,14 @@ Finder _gmailSwitchFinder() {
 Finder _gmailCadenceDropdownFinder() {
   return find.descendant(
     of: _gmailSourceRowFinder(),
-    matching: find.byType(DropdownButton<int>),
+    matching: find.byWidgetPredicate(
+      (widget) => widget is DropdownButton<int> && widget.key == null,
+    ),
   );
+}
+
+Finder _gmailHistoryDropdownFinder() {
+  return find.byKey(const Key('source-history-dropdown-gmail'));
 }
 
 Finder _mattermostSourceRowFinder() =>
@@ -74,12 +106,14 @@ void main() {
         find.byKey(const Key('source-preference-google_calendar')),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('source-preference-yandex_mail')), findsOneWidget);
+      expect(find.byKey(const Key('source-preference-yandex_mail')),
+          findsOneWidget);
       expect(
         find.byKey(const Key('source-preference-yandex_calendar')),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('source-preference-mattermost')), findsOneWidget);
+      expect(find.byKey(const Key('source-preference-mattermost')),
+          findsOneWidget);
     });
 
     testWidgets('disconnected source remains visible with Не подключено',
@@ -110,14 +144,7 @@ void main() {
             capturedBody =
                 jsonDecode(request.body as String) as Map<String, dynamic>;
             return http.Response(
-              jsonEncode({
-                'source': 'gmail',
-                'enabled': false,
-                'sync_interval_seconds': 300,
-                'default_sync_interval_seconds': 300,
-                'min_sync_interval_seconds': 60,
-                'max_sync_interval_seconds': 86400,
-              }),
+              jsonEncode(_preferenceResponseJson(enabled: false)),
               200,
             );
           }
@@ -150,14 +177,7 @@ void main() {
           if (request.method == 'PATCH' &&
               request.url.path.endsWith('/me/source-preferences/gmail')) {
             return http.Response(
-              jsonEncode({
-                'source': 'gmail',
-                'enabled': false,
-                'sync_interval_seconds': 300,
-                'default_sync_interval_seconds': 300,
-                'min_sync_interval_seconds': 60,
-                'max_sync_interval_seconds': 86400,
-              }),
+              jsonEncode(_preferenceResponseJson(enabled: false)),
               200,
             );
           }
@@ -229,14 +249,7 @@ void main() {
             capturedBody =
                 jsonDecode(request.body as String) as Map<String, dynamic>;
             return http.Response(
-              jsonEncode({
-                'source': 'gmail',
-                'enabled': true,
-                'sync_interval_seconds': 120,
-                'default_sync_interval_seconds': 300,
-                'min_sync_interval_seconds': 60,
-                'max_sync_interval_seconds': 86400,
-              }),
+              jsonEncode(_preferenceResponseJson(syncIntervalSeconds: 120)),
               200,
             );
           }
@@ -278,14 +291,7 @@ void main() {
             capturedBody =
                 jsonDecode(request.body as String) as Map<String, dynamic>;
             return http.Response(
-              jsonEncode({
-                'source': 'gmail',
-                'enabled': true,
-                'sync_interval_seconds': 300,
-                'default_sync_interval_seconds': 300,
-                'min_sync_interval_seconds': 60,
-                'max_sync_interval_seconds': 86400,
-              }),
+              jsonEncode(_preferenceResponseJson()),
               200,
             );
           }
@@ -317,6 +323,7 @@ void main() {
       expect(capturedBody, {
         'enabled': null,
         'sync_interval_seconds': null,
+        'history_days': null,
       });
     });
 
@@ -328,14 +335,7 @@ void main() {
               request.url.path.endsWith('/me/source-preferences/gmail')) {
             await Future<void>.delayed(const Duration(milliseconds: 200));
             return http.Response(
-              jsonEncode({
-                'source': 'gmail',
-                'enabled': false,
-                'sync_interval_seconds': 300,
-                'default_sync_interval_seconds': 300,
-                'min_sync_interval_seconds': 60,
-                'max_sync_interval_seconds': 86400,
-              }),
+              jsonEncode(_preferenceResponseJson(enabled: false)),
               200,
             );
           }
@@ -384,6 +384,295 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(auth.status, AuthStatus.needsAuth);
+    });
+
+    testWidgets('every row exposes history control', (tester) async {
+      final client = buildAccountApiClient();
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      for (final source in supportedSourcePreferenceKeys) {
+        expect(
+          find.byKey(Key('source-history-dropdown-$source')),
+          findsOneWidget,
+        );
+      }
+    });
+
+    testWidgets('Gmail history current 30 displays 30 дней', (tester) async {
+      final client = buildAccountApiClient();
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      expect(find.text('30 дней'), findsWidgets);
+    });
+
+    testWidgets('Gmail change 30 to 7 sends exact history PATCH',
+        (tester) async {
+      Map<String, dynamic>? capturedBody;
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.method == 'PATCH' &&
+              request.url.path.endsWith('/me/source-preferences/gmail')) {
+            capturedBody =
+                jsonDecode(request.body as String) as Map<String, dynamic>;
+            return http.Response(
+              jsonEncode(_preferenceResponseJson(historyDays: 7)),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      await tester.tap(_gmailHistoryDropdownFinder());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('7 дней').last);
+      await tester.pump();
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (capturedBody != null) {
+          break;
+        }
+      }
+
+      expect(capturedBody, {'history_days': 7});
+      expect(capturedBody!.containsKey('enabled'), isFalse);
+      expect(capturedBody!.containsKey('sync_interval_seconds'), isFalse);
+    });
+
+    testWidgets('successful history PATCH updates displayed value',
+        (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.method == 'PATCH' &&
+              request.url.path.endsWith('/me/source-preferences/gmail')) {
+            return http.Response(
+              jsonEncode(_preferenceResponseJson(historyDays: 7)),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      await tester.tap(_gmailHistoryDropdownFinder());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('7 дней').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('7 дней'), findsWidgets);
+    });
+
+    testWidgets('failed history PATCH keeps previous value and shows error',
+        (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.method == 'PATCH' &&
+              request.url.path.endsWith('/me/source-preferences/gmail')) {
+            return http.Response(jsonEncode({'detail': 'history failed'}), 422);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      await tester.tap(_gmailHistoryDropdownFinder());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('7 дней').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('30 дней'), findsWidgets);
+      expect(find.text('history failed'), findsOneWidget);
+    });
+
+    testWidgets('server bounds filter history presets', (tester) async {
+      final preferencesJson = accountSourcePreferencesJson(
+        minHistoryDays: 10,
+        maxHistoryDays: 45,
+      );
+      final client = buildAccountApiClient(sourcePreferencesJson: preferencesJson);
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          sourcePreferencesJson: preferencesJson,
+        ),
+      );
+
+      await tester.tap(_gmailHistoryDropdownFinder());
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 день'), findsNothing);
+      expect(find.text('3 дня'), findsNothing);
+      expect(find.text('60 дней'), findsNothing);
+      expect(find.text('14 дней'), findsWidgets);
+      expect(find.text('30 дней'), findsWidgets);
+    });
+
+    testWidgets('non-preset current value 21 displays correctly',
+        (tester) async {
+      final preferencesJson = {
+        'preferences': [
+          accountSourcePreferenceEntryJson(
+            source: 'gmail',
+            historyDays: 21,
+            defaultHistoryDays: 30,
+          ),
+          accountSourcePreferenceEntryJson(source: 'google_calendar'),
+          accountSourcePreferenceEntryJson(source: 'yandex_mail'),
+          accountSourcePreferenceEntryJson(source: 'yandex_calendar'),
+          accountSourcePreferenceEntryJson(
+            source: 'mattermost',
+            historyDays: 14,
+            defaultHistoryDays: 14,
+          ),
+        ],
+      };
+      final client = buildAccountApiClient(sourcePreferencesJson: preferencesJson);
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          sourcePreferencesJson: preferencesJson,
+        ),
+      );
+
+      expect(find.text('21 день'), findsWidgets);
+    });
+
+    testWidgets('server default rendered from default_history_days',
+        (tester) async {
+      final preferencesJson = {
+        'preferences': [
+          accountSourcePreferenceEntryJson(
+            source: 'gmail',
+            historyDays: 14,
+            defaultHistoryDays: 30,
+          ),
+          accountSourcePreferenceEntryJson(source: 'google_calendar'),
+          accountSourcePreferenceEntryJson(source: 'yandex_mail'),
+          accountSourcePreferenceEntryJson(source: 'yandex_calendar'),
+          accountSourcePreferenceEntryJson(
+            source: 'mattermost',
+            historyDays: 14,
+            defaultHistoryDays: 14,
+          ),
+        ],
+      };
+      final client = buildAccountApiClient(sourcePreferencesJson: preferencesJson);
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          sourcePreferencesJson: preferencesJson,
+        ),
+      );
+
+      expect(
+        find.descendant(
+          of: _gmailSourceRowFinder(),
+          matching: find.text('По умолчанию: 30 дней'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('disconnected source still shows history control',
+        (tester) async {
+      final client = buildAccountApiClient(
+        connectionsJson: accountConnectionsJson(
+          googleConnected: false,
+          gmailAvailable: false,
+        ),
+      );
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      expect(_gmailHistoryDropdownFinder(), findsOneWidget);
+    });
+
+    testWidgets('Gmail saving disables Gmail history control', (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.method == 'PATCH' &&
+              request.url.path.endsWith('/me/source-preferences/gmail')) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+            return http.Response(
+              jsonEncode(_preferenceResponseJson(enabled: false)),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      await tester.tap(_gmailSwitchFinder());
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final historyDropdown = tester.widget<DropdownButton<int>>(
+        _gmailHistoryDropdownFinder(),
+      );
+      expect(historyDropdown.onChanged, isNull);
+
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('progressive history wording without completed coverage claim',
+        (tester) async {
+      final client = buildAccountApiClient();
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
+      );
+
+      expect(
+        find.text(
+          'Изменение глубины истории применяется постепенно при синхронизации.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('загружено'), findsNothing);
     });
   });
 }

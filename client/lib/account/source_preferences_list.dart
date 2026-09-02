@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_models.dart';
+import 'source_history_days_format.dart';
 import 'source_sync_interval_format.dart';
 
 const Map<String, String> sourcePreferenceLabels = {
@@ -40,6 +41,7 @@ class SourcePreferencesList extends StatelessWidget {
     required this.rowErrors,
     required this.onToggleEnabled,
     required this.onCadenceChanged,
+    required this.onHistoryChanged,
     required this.onReset,
   });
 
@@ -49,6 +51,7 @@ class SourcePreferencesList extends StatelessWidget {
   final Map<String, String> rowErrors;
   final Future<void> Function(String source, bool enabled) onToggleEnabled;
   final Future<void> Function(String source, int seconds) onCadenceChanged;
+  final Future<void> Function(String source, int days) onHistoryChanged;
   final Future<void> Function(String source) onReset;
 
   @override
@@ -65,6 +68,7 @@ class SourcePreferencesList extends StatelessWidget {
           rowError: rowErrors[preference.source],
           onToggleEnabled: onToggleEnabled,
           onCadenceChanged: onCadenceChanged,
+          onHistoryChanged: onHistoryChanged,
           onReset: onReset,
         ),
       );
@@ -88,6 +92,7 @@ class _SourcePreferenceRow extends StatelessWidget {
     required this.rowError,
     required this.onToggleEnabled,
     required this.onCadenceChanged,
+    required this.onHistoryChanged,
     required this.onReset,
   });
 
@@ -97,14 +102,20 @@ class _SourcePreferenceRow extends StatelessWidget {
   final String? rowError;
   final Future<void> Function(String source, bool enabled) onToggleEnabled;
   final Future<void> Function(String source, int seconds) onCadenceChanged;
+  final Future<void> Function(String source, int days) onHistoryChanged;
   final Future<void> Function(String source) onReset;
 
   @override
   Widget build(BuildContext context) {
-    final choices = availableSyncIntervalChoices(
+    final cadenceChoices = availableSyncIntervalChoices(
       currentSeconds: preference.syncIntervalSeconds,
       minSeconds: preference.minSyncIntervalSeconds,
       maxSeconds: preference.maxSyncIntervalSeconds,
+    );
+    final historyChoices = availableHistoryDayChoices(
+      currentDays: preference.historyDays,
+      minDays: preference.minHistoryDays,
+      maxDays: preference.maxHistoryDays,
     );
     final subdued = Theme.of(context).textTheme.bodySmall?.copyWith(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -159,7 +170,7 @@ class _SourcePreferenceRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 DropdownButton<int>(
                   value: preference.syncIntervalSeconds,
-                  items: choices
+                  items: cadenceChoices
                       .map(
                         (seconds) => DropdownMenuItem(
                           value: seconds,
@@ -175,6 +186,38 @@ class _SourcePreferenceRow extends StatelessWidget {
                             onCadenceChanged(preference.source, value);
                           }
                         },
+                ),
+              ],
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('История:', style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  key: Key('source-history-dropdown-${preference.source}'),
+                  value: preference.historyDays,
+                  items: historyChoices
+                      .map(
+                        (days) => DropdownMenuItem(
+                          value: days,
+                          child: Text(formatHistoryDays(days)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: saving
+                      ? null
+                      : (value) {
+                          if (value != null &&
+                              value != preference.historyDays) {
+                            onHistoryChanged(preference.source, value);
+                          }
+                        },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'По умолчанию: ${formatHistoryDays(preference.defaultHistoryDays)}',
+                  style: subdued,
                 ),
               ],
             ),

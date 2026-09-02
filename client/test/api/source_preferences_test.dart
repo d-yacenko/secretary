@@ -16,6 +16,10 @@ Map<String, dynamic> _preferenceJson({
   int defaultSyncIntervalSeconds = 300,
   int minSyncIntervalSeconds = 60,
   int maxSyncIntervalSeconds = 86400,
+  int historyDays = 30,
+  int defaultHistoryDays = 30,
+  int minHistoryDays = 1,
+  int maxHistoryDays = 90,
 }) {
   return {
     'source': source,
@@ -24,6 +28,10 @@ Map<String, dynamic> _preferenceJson({
     'default_sync_interval_seconds': defaultSyncIntervalSeconds,
     'min_sync_interval_seconds': minSyncIntervalSeconds,
     'max_sync_interval_seconds': maxSyncIntervalSeconds,
+    'history_days': historyDays,
+    'default_history_days': defaultHistoryDays,
+    'min_history_days': minHistoryDays,
+    'max_history_days': maxHistoryDays,
   };
 }
 
@@ -34,7 +42,11 @@ Map<String, dynamic> _preferencesListJson() {
       _preferenceJson(source: 'google_calendar', syncIntervalSeconds: 300),
       _preferenceJson(source: 'yandex_mail', syncIntervalSeconds: 300),
       _preferenceJson(source: 'yandex_calendar', syncIntervalSeconds: 300),
-      _preferenceJson(source: 'mattermost', syncIntervalSeconds: 120),
+      _preferenceJson(
+          source: 'mattermost',
+          syncIntervalSeconds: 120,
+          historyDays: 14,
+          defaultHistoryDays: 14),
     ],
   };
 }
@@ -47,7 +59,8 @@ SecretaryApiClient _client(MockClient mock) {
 
 void main() {
   group('SourcePreference models', () {
-    test('parses five supported sources from list response', () {
+    test('parses five supported sources and history fields from list response',
+        () {
       final list = SourcePreferenceList.fromJson(_preferencesListJson());
       expect(list.preferences.length, 5);
       expect(
@@ -59,6 +72,10 @@ void main() {
       expect(gmail.syncIntervalSeconds, 300);
       expect(gmail.minSyncIntervalSeconds, 60);
       expect(gmail.maxSyncIntervalSeconds, 86400);
+      expect(gmail.historyDays, 30);
+      expect(gmail.defaultHistoryDays, 30);
+      expect(gmail.minHistoryDays, 1);
+      expect(gmail.maxHistoryDays, 90);
     });
   });
 
@@ -101,7 +118,46 @@ void main() {
       expect(capturedBody!.containsKey('enabled'), isFalse);
     });
 
-    test('resetSourcePreference sends explicit nulls', () async {
+    test('patchSourceHistoryDays sends only history_days', () async {
+      Map<String, dynamic>? capturedBody;
+      final client = _client(MockClient((request) async {
+        if (request.method == 'PATCH' &&
+            request.url.path.endsWith('/me/source-preferences/gmail')) {
+          capturedBody =
+              jsonDecode(request.body as String) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(_preferenceJson(historyDays: 30)),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }));
+
+      await client.patchSourceHistoryDays('gmail', 30);
+      expect(capturedBody, {'history_days': 30});
+      expect(capturedBody!.containsKey('enabled'), isFalse);
+      expect(capturedBody!.containsKey('sync_interval_seconds'), isFalse);
+    });
+
+    test('patchSourceHistoryDays null sends explicit history_days null',
+        () async {
+      Map<String, dynamic>? capturedBody;
+      final client = _client(MockClient((request) async {
+        if (request.method == 'PATCH' &&
+            request.url.path.endsWith('/me/source-preferences/gmail')) {
+          capturedBody =
+              jsonDecode(request.body as String) as Map<String, dynamic>;
+          return http.Response(jsonEncode(_preferenceJson()), 200);
+        }
+        return http.Response('{}', 404);
+      }));
+
+      await client.patchSourceHistoryDays('gmail', null);
+      expect(capturedBody, {'history_days': null});
+    });
+
+    test('resetSourcePreference sends explicit nulls including history_days',
+        () async {
       Map<String, dynamic>? capturedBody;
       final client = _client(MockClient((request) async {
         if (request.method == 'PATCH' &&
@@ -117,6 +173,7 @@ void main() {
       expect(capturedBody, {
         'enabled': null,
         'sync_interval_seconds': null,
+        'history_days': null,
       });
     });
   });

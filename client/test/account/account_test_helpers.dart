@@ -48,28 +48,60 @@ Map<String, dynamic> accountSettingsJson({
 
 bool isAccountSettingsRequest(Uri url) => url.path.endsWith('/me/settings');
 
+Map<String, dynamic> accountSourcePreferenceEntryJson({
+  String source = 'gmail',
+  bool enabled = true,
+  int syncIntervalSeconds = 300,
+  int defaultSyncIntervalSeconds = 300,
+  int minSyncIntervalSeconds = 60,
+  int maxSyncIntervalSeconds = 86400,
+  int historyDays = 30,
+  int defaultHistoryDays = 30,
+  int minHistoryDays = 1,
+  int maxHistoryDays = 90,
+}) {
+  return {
+    'source': source,
+    'enabled': enabled,
+    'sync_interval_seconds': syncIntervalSeconds,
+    'default_sync_interval_seconds': defaultSyncIntervalSeconds,
+    'min_sync_interval_seconds': minSyncIntervalSeconds,
+    'max_sync_interval_seconds': maxSyncIntervalSeconds,
+    'history_days': historyDays,
+    'default_history_days': defaultHistoryDays,
+    'min_history_days': minHistoryDays,
+    'max_history_days': maxHistoryDays,
+  };
+}
+
 Map<String, dynamic> accountSourcePreferencesJson({
   int minInterval = 60,
   int maxInterval = 86400,
+  int minHistoryDays = 1,
+  int maxHistoryDays = 90,
 }) {
-  Map<String, dynamic> pref(String source, int defaultSeconds) {
-    return {
-      'source': source,
-      'enabled': true,
-      'sync_interval_seconds': defaultSeconds,
-      'default_sync_interval_seconds': defaultSeconds,
-      'min_sync_interval_seconds': minInterval,
-      'max_sync_interval_seconds': maxInterval,
-    };
+  Map<String, dynamic> pref(
+      String source, int defaultSeconds, int historyDays) {
+    return accountSourcePreferenceEntryJson(
+      source: source,
+      syncIntervalSeconds: defaultSeconds,
+      defaultSyncIntervalSeconds: defaultSeconds,
+      minSyncIntervalSeconds: minInterval,
+      maxSyncIntervalSeconds: maxInterval,
+      historyDays: historyDays,
+      defaultHistoryDays: historyDays,
+      minHistoryDays: minHistoryDays,
+      maxHistoryDays: maxHistoryDays,
+    );
   }
 
   return {
     'preferences': [
-      pref('gmail', 300),
-      pref('google_calendar', 300),
-      pref('yandex_mail', 300),
-      pref('yandex_calendar', 300),
-      pref('mattermost', 120),
+      pref('gmail', 300, 30),
+      pref('google_calendar', 300, 30),
+      pref('yandex_mail', 300, 30),
+      pref('yandex_calendar', 300, 30),
+      pref('mattermost', 120, 14),
     ],
   };
 }

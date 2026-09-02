@@ -129,6 +129,18 @@ class SecretaryApiClient {
     return SourcePreference.fromJson(body);
   }
 
+  Future<SourcePreference> patchSourceHistoryDays(
+    String source,
+    int? days,
+  ) async {
+    final body = await _request(
+      'PATCH',
+      '/me/source-preferences/$source',
+      jsonBody: {'history_days': days},
+    );
+    return SourcePreference.fromJson(body);
+  }
+
   Future<SourcePreference> resetSourcePreference(String source) async {
     final body = await _request(
       'PATCH',
@@ -136,6 +148,7 @@ class SecretaryApiClient {
       jsonBody: {
         'enabled': null,
         'sync_interval_seconds': null,
+        'history_days': null,
       },
     );
     return SourcePreference.fromJson(body);

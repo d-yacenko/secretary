@@ -1294,6 +1294,10 @@ class SourcePreference {
     required this.defaultSyncIntervalSeconds,
     required this.minSyncIntervalSeconds,
     required this.maxSyncIntervalSeconds,
+    required this.historyDays,
+    required this.defaultHistoryDays,
+    required this.minHistoryDays,
+    required this.maxHistoryDays,
   });
 
   final String source;
@@ -1302,6 +1306,10 @@ class SourcePreference {
   final int defaultSyncIntervalSeconds;
   final int minSyncIntervalSeconds;
   final int maxSyncIntervalSeconds;
+  final int historyDays;
+  final int defaultHistoryDays;
+  final int minHistoryDays;
+  final int maxHistoryDays;
 
   factory SourcePreference.fromJson(Map<String, dynamic> json) {
     return SourcePreference(
@@ -1311,6 +1319,10 @@ class SourcePreference {
       defaultSyncIntervalSeconds: json['default_sync_interval_seconds'] as int,
       minSyncIntervalSeconds: json['min_sync_interval_seconds'] as int,
       maxSyncIntervalSeconds: json['max_sync_interval_seconds'] as int,
+      historyDays: json['history_days'] as int,
+      defaultHistoryDays: json['default_history_days'] as int,
+      minHistoryDays: json['min_history_days'] as int,
+      maxHistoryDays: json['max_history_days'] as int,
     );
   }
 }

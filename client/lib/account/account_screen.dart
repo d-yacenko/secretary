@@ -195,6 +195,13 @@ class _AccountScreenState extends State<AccountScreen>
     );
   }
 
+  Future<void> _changeSourceHistory(String source, int days) async {
+    await _patchSourcePreference(
+      source,
+      widget.apiClient.patchSourceHistoryDays(source, days),
+    );
+  }
+
   Future<void> _resetSourcePreference(String source) async {
     await _patchSourcePreference(
       source,
@@ -597,7 +604,16 @@ class _AccountScreenState extends State<AccountScreen>
                       padding: EdgeInsets.symmetric(vertical: 16),
                       child: Center(child: CircularProgressIndicator()),
                     )
-                  else if (_sourcePreferences != null && _connections != null)
+                  else if (_sourcePreferences != null &&
+                      _connections != null) ...[
+                    Text(
+                      'Изменение глубины истории применяется постепенно при синхронизации.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
                     SourcePreferencesList(
                       preferences: _sourcePreferences!,
                       connections: _connections!,
@@ -605,8 +621,10 @@ class _AccountScreenState extends State<AccountScreen>
                       rowErrors: _sourcePreferenceRowErrors,
                       onToggleEnabled: _toggleSourceEnabled,
                       onCadenceChanged: _changeSourceCadence,
+                      onHistoryChanged: _changeSourceHistory,
                       onReset: _resetSourcePreference,
                     ),
+                  ],
                 ],
               ),
               const SizedBox(height: 32),

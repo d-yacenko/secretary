@@ -1,25 +1,29 @@
-# Current task — PHASE 28C-B2-C3-B awaiting review
+# Current task — PHASE 28C-B2-D awaiting review
 
 ## Status
 
-PHASE 28C-B2-C3-A: **accepted** at `55a87761ba639e0fb6960342b7d864d4876083ba`.
+PHASE 28C-B2-C3-B: **accepted** at `2ccf81f27c7a5bbf770d651e1ff7366d1d1f9c0c`.
 
-Current: **PHASE 28C-B2-C3-B — Mattermost Bounded History Runtime** — implemented, awaiting architect review.
+All five recurring-source backend history runtimes are **complete**.
 
-Do **not** merge, deploy, or start B2-D until review.
+Current: **PHASE 28C-B2-D — History Preferences UI** — implemented, awaiting architect review.
+
+Do **not** merge, deploy, or start Phase 29 until review.
 
 ## Branch
 
-`review/phase-28c-history-mattermost-b` from `55a87761ba639e0fb6960342b7d864d4876083ba`.
+`review/phase-28c-history-preferences-ui` from `2ccf81f27c7a5bbf770d651e1ff7366d1d1f9c0c`.
 
-## Next after 28C-B2-C3-B acceptance
+## Next after 28C-B2-D acceptance
 
-PHASE 28C-B2-D — History Preferences UI.
+Final PHASE 28C deploy + manual Account/history E2E.
 
-## Not in 28C-B2-C3-B
+Then: **PHASE 29A — bounded content extraction**.
 
-- History Preferences UI (B2-D)
-- Flutter / public coverage fields
+## Not in 28C-B2-D
+
+- Phase 29
+- backend runtime changes
 - migration (Alembic stays 0023)
 - deploy / merge
-- new Mattermost direct sync endpoint
+- public coverage fields in UI
