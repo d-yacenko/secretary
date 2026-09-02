@@ -3,8 +3,12 @@ from contextlib import contextmanager
 
 from app.auth.errors import AuthenticationError
 from app.db.session import SessionLocal
-from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
+from app.services.user_embedding_resolver import (
+    EMBEDDING_PROVIDER_UNAVAILABLE,
+    resolve_embedding_service_for_user,
+)
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 from app.users.current_user_provider import resolve_current_user
 
 
@@ -18,7 +22,11 @@ def tool_session() -> Iterator[DomainToolService]:
             raise RuntimeError(
                 "MCP tools require Authorization: Bearer <token>; enable MCP only with authenticated access"
             ) from exc
-        tools = DomainToolService(session, current_user.user_id, create_embedding_service())
+        try:
+            embedding_service = resolve_embedding_service_for_user(session, current_user.user_id)
+        except UserOpenAICredentialConfigurationError as exc:
+            raise RuntimeError(EMBEDDING_PROVIDER_UNAVAILABLE) from exc
+        tools = DomainToolService(session, current_user.user_id, embedding_service)
         yield tools
         session.commit()
     except Exception:

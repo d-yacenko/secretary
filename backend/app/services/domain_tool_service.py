@@ -76,7 +76,7 @@ class DomainToolService:
         self,
         session: Session,
         user_id: UUID,
-        embedding_service: EmbeddingService,
+        embedding_service: EmbeddingService | None = None,
         defer_write_embeddings: bool = False,
         write_mode: DomainWriteMode = DomainWriteMode.AGENT_PROPOSED,
         client_timezone: str | None = None,

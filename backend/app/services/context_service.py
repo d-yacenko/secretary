@@ -10,7 +10,11 @@ from app.api.schemas import ContextBuildResult, ContextItem
 from app.db.models import Edge, Object, Representation
 from app.llm.embedding_service import EmbeddingService
 from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
-from app.services.correlation_constants import EDGE_TYPE_CONTAINS, FOLDER_KIND, SEMANTIC_SUMMARY_METADATA_KEY
+from app.services.correlation_constants import (
+    EDGE_TYPE_CONTAINS,
+    FOLDER_KIND,
+    SEMANTIC_SUMMARY_METADATA_KEY,
+)
 from app.services.graph_service import GraphService
 from app.services.representation_service import (
     KIND_CHUNK,
@@ -84,7 +88,7 @@ class ContextService:
         self,
         session: Session,
         user_id: UUID,
-        embedding_service: EmbeddingService,
+        embedding_service: EmbeddingService | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -399,7 +403,7 @@ class ContextService:
 
     def _rank_chunks(self, chunk_reps: list[Representation], query: str) -> list[Representation]:
         embedded = [rep for rep in chunk_reps if rep.embedding is not None]
-        if not embedded:
+        if not embedded or self._embedding_service is None:
             return []
 
         try:

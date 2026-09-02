@@ -78,13 +78,15 @@ PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **accepted / clos
 
 PHASE 28A — User Profile & Per-User Settings Foundation: **accepted / closed** (`d9a7ea874379366fcacdb0646efcad871764658c`). Matched-version manual E2E: **PASS**.
 
-PHASE 28B-B — Per-User Transcription Credential: **accepted / closed** (`18c7bb1f8fd708c7c121217b62071ba26adada38`). Deployment: **PASS**.
+PHASE 28B-C — Per-User Request-Time Graph Embeddings: **accepted / closed** (code) (`485e24942fb778e1952153394dccac552f9e88c3`). Deployment: **pending** combined 28B deployment after C2 review.
 
-PHASE 28B-C — Per-User Request-Time Graph Embeddings: **implementation complete, awaiting architect review**.
+PHASE 28B-C2 — Remaining Per-User Request-Time / Tool Embeddings: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
 
-Next: **architect review of PHASE 28B-C** on branch `review/phase-28b-graph-embeddings`.
+Next: **architect review of PHASE 28B-C2** on branch `review/phase-28b-remaining-embeddings`.
+
+Approved next after full 28B closure: **PHASE 28B-D — Source Status Diagnostics & UI Freshness**.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

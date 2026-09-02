@@ -10,13 +10,13 @@ from app.db.session import SessionLocal
 from app.llm.embedding_service import (
     EmbeddingService,
     create_embedding_service,
-    create_embedding_service_for_api_key,
 )
-from app.services.effective_user_settings_service import EffectiveUserSettingsService
+from app.services.user_embedding_resolver import (
+    EMBEDDING_PROVIDER_UNAVAILABLE,
+    resolve_embedding_service_for_user,
+)
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 from app.users.current_user_provider import resolve_current_user
-
-EMBEDDING_PROVIDER_UNAVAILABLE = "Embedding provider unavailable"
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -50,10 +50,7 @@ def get_user_embedding_service(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> EmbeddingService:
     try:
-        api_key = EffectiveUserSettingsService.build(session).resolve_openai_api_key(
-            current_user.user_id
-        )
-        return create_embedding_service_for_api_key(api_key)
+        return resolve_embedding_service_for_user(session, current_user.user_id)
     except UserOpenAICredentialConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

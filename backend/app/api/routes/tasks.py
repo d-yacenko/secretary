@@ -3,7 +3,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, get_embedding_service
+from app.api.deps import (
+    EMBEDDING_PROVIDER_UNAVAILABLE,
+    get_current_user,
+    get_db,
+)
 from app.api.schemas import (
     ObjectOut,
     TaskMutationResponse,
@@ -15,16 +19,17 @@ from app.core.current_user import CurrentUserContext
 from app.llm.embedding_service import EmbeddingService
 from app.services.errors import NotFoundError, ValidationError
 from app.services.task_mutation_service import TaskMutationService
+from app.services.user_embedding_resolver import resolve_embedding_service_for_user
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 router = APIRouter()
 
 
-def _service(
+def _task_service(
     session: Session = Depends(get_db),
-    embedding_service: EmbeddingService = Depends(get_embedding_service),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> TaskMutationService:
-    return TaskMutationService(session, current_user.user_id, embedding_service)
+    return TaskMutationService(session, current_user.user_id)
 
 
 def _not_found(exc: NotFoundError) -> HTTPException:
@@ -41,12 +46,35 @@ def _validation_error(exc: ValidationError) -> HTTPException:
     )
 
 
+def _embedding_configuration_error(exc: UserOpenAICredentialConfigurationError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=EMBEDDING_PROVIDER_UNAVAILABLE,
+    )
+
+
+def _embedding_service_for_task_patch(
+    data: TaskPatchRequest,
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> EmbeddingService | None:
+    if "title" not in data.model_fields_set and "body" not in data.model_fields_set:
+        return None
+    try:
+        return resolve_embedding_service_for_user(session, current_user.user_id)
+    except UserOpenAICredentialConfigurationError as exc:
+        raise _embedding_configuration_error(exc) from exc
+
+
 @router.patch("/tasks/{task_id}", response_model=TaskMutationResponse)
 def patch_task(
     task_id: UUID,
     data: TaskPatchRequest,
-    service: TaskMutationService = Depends(_service),
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+    embedding_service: EmbeddingService | None = Depends(_embedding_service_for_task_patch),
 ) -> TaskMutationResponse:
+    service = TaskMutationService(session, current_user.user_id, embedding_service)
     try:
         result = service.patch_task_fields(
             task_id,
@@ -69,7 +97,7 @@ def patch_task(
 def set_task_status(
     task_id: UUID,
     data: TaskStatusRequest,
-    service: TaskMutationService = Depends(_service),
+    service: TaskMutationService = Depends(_task_service),
 ) -> TaskStatusResponse:
     try:
         result = service.set_task_status(task_id, data.status)
@@ -88,7 +116,7 @@ def set_task_status(
 @router.delete("/tasks/{task_id}", response_model=TaskStatusResponse)
 def delete_task(
     task_id: UUID,
-    service: TaskMutationService = Depends(_service),
+    service: TaskMutationService = Depends(_task_service),
 ) -> TaskStatusResponse:
     try:
         result = service.soft_delete_task(task_id)

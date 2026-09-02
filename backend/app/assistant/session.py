@@ -3,8 +3,12 @@ from uuid import UUID
 
 from app.assistant.tool_args import normalize_assistant_tool_arguments
 from app.db.session import SessionLocal
-from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
+from app.services.user_embedding_resolver import (
+    EMBEDDING_PROVIDER_UNAVAILABLE,
+    resolve_embedding_service_for_user,
+)
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 from app.tools.execution_context import ExecutionContext
 from app.tools.gateway import ToolExecutionGateway
 from app.tools.results import ToolExecutionResult, ToolExecutionStatus
@@ -16,10 +20,20 @@ _GATEWAY = ToolExecutionGateway()
 def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolExecutionResult:
     """One interactive Assistant tool call: short session, commit on success, rollback on failure."""
     session = SessionLocal()
+    try:
+        embedding_service = resolve_embedding_service_for_user(session, user_id)
+    except UserOpenAICredentialConfigurationError:
+        session.close()
+        return ToolExecutionResult(
+            success=False,
+            tool_name=tool_name,
+            error=EMBEDDING_PROVIDER_UNAVAILABLE,
+            status=ToolExecutionStatus.EXECUTION_FAILED,
+        )
     tools = DomainToolService(
         session,
         user_id,
-        create_embedding_service(),
+        embedding_service,
         defer_write_embeddings=True,
     )
     try:
@@ -32,7 +46,7 @@ def run_assistant_tool(user_id: UUID, tool_name: str, arguments: dict) -> ToolEx
         )
         if result.success:
             session.commit()
-        else:
+        elif result.status != ToolExecutionStatus.APPROVAL_REQUIRED:
             session.rollback()
         return result
     except Exception as exc:  # noqa: BLE001

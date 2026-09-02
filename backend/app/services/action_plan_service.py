@@ -19,7 +19,6 @@ from app.assistant.action_plan_constants import (
 )
 from app.assistant.session import execute_approved_actions_with_tools
 from app.db.models import PendingActionPlan
-from app.llm.embedding_service import create_embedding_service
 from app.services.domain_tool_service import DomainToolService
 from app.services.domain_write_mode import DomainWriteMode
 from app.services.errors import NotFoundError, ValidationError
@@ -87,7 +86,7 @@ class ActionPlanService:
         tools = DomainToolService(
             self._session,
             self._user_id,
-            create_embedding_service(),
+            None,
             defer_write_embeddings=True,
             write_mode=DomainWriteMode.APPROVED_CONFIRMED,
         )

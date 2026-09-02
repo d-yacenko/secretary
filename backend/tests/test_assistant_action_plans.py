@@ -166,6 +166,17 @@ class _FailingTextOnlyProvider(_ResumeTextOnlyProvider):
         raise AssistantProviderError("finalize failed")
 
 
+@pytest.fixture(autouse=True)
+def _restore_session_local_after_action_plan_test() -> None:
+    yield
+    import app.assistant.session as assistant_session_module
+    import app.services.assistant_service as assistant_service_module
+    from app.db.session import SessionLocal
+
+    assistant_service_module.SessionLocal = SessionLocal
+    assistant_session_module.SessionLocal = SessionLocal
+
+
 @pytest.fixture
 def action_plan_user(db_session) -> uuid.UUID:
     user_id = uuid.uuid4()
