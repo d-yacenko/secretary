@@ -748,6 +748,105 @@ void main() {
     expect(inboxCalls, greaterThan(2));
     expect(find.text('Passive updated row'), findsOneWidget);
   });
+
+  testWidgets('passive refresh continues after inactive without changing tabs',
+      (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            final title =
+                inboxCalls <= 1 ? 'Snapshot email A' : 'Snapshot email B';
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: [
+                  {
+                    'id': 'email-a',
+                    'title': title,
+                    'kind': 'email',
+                    'provider': 'gmail',
+                    'state': 'observed',
+                    'status': null,
+                    'primary_at': '2026-08-31T10:00:00Z',
+                    'excerpt': 'first',
+                  },
+                ],
+              )),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Snapshot email A').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(inboxCalls, 1);
+    expect(find.text('Snapshot email A'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(inboxCalls, greaterThan(1));
+    expect(find.text('Snapshot email B'), findsOneWidget);
+  });
+
+  testWidgets('hidden pauses passive refresh until resumed', (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            final title =
+                inboxCalls <= 1 ? 'Hidden pause row' : 'Hidden resume row';
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: [
+                  {
+                    'id': 'email-hidden',
+                    'title': title,
+                    'kind': 'email',
+                    'provider': 'gmail',
+                    'state': 'observed',
+                    'status': null,
+                    'primary_at': '2026-08-31T10:00:00Z',
+                    'excerpt': 'hidden',
+                  },
+                ],
+              )),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(inboxCalls, 1);
+    expect(find.text('Hidden pause row'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(inboxCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(inboxCalls, greaterThan(1));
+    expect(find.text('Hidden resume row'), findsOneWidget);
+  });
 }
 
 Map<String, dynamic> _notificationJson(NotificationOut notification) {

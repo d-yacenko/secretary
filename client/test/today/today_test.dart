@@ -732,4 +732,120 @@ void main() {
     expect(todayCalls, greaterThan(2));
     expect(find.text('Passive updated task'), findsOneWidget);
   });
+
+  testWidgets('passive refresh continues after inactive without changing tabs',
+      (tester) async {
+    int todayCalls = 0;
+    await tester.pumpWidget(
+      buildToday(
+        MockClient((request) async {
+          if (request.url.path == '/today') {
+            todayCalls++;
+            return http.Response(
+              jsonEncode(todayPayload(
+                tasks: [
+                  {
+                    'id': 'task-1',
+                    'kind': 'task',
+                    'title':
+                        todayCalls <= 1 ? 'Due today' : 'Updated today task',
+                    'body': null,
+                    'provider': null,
+                    'external_id': null,
+                    'canonical_uri': null,
+                    'status': null,
+                    'start_at': null,
+                    'due_at': '2026-08-28T14:00:00+02:00',
+                    'metadata': {},
+                    'origin': 'user',
+                    'state': 'confirmed',
+                    'confidence': null,
+                    'created_at': '2026-08-28T08:00:00Z',
+                    'updated_at': '2026-08-28T08:00:00Z',
+                  },
+                ],
+                notifications: [],
+              )),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(todayCalls, 1);
+    expect(find.text('Due today'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(todayCalls, greaterThan(1));
+    expect(find.text('Updated today task'), findsOneWidget);
+  });
+
+  testWidgets('hidden pauses passive refresh until resumed', (tester) async {
+    int todayCalls = 0;
+    await tester.pumpWidget(
+      buildToday(
+        MockClient((request) async {
+          if (request.url.path == '/today') {
+            todayCalls++;
+            return http.Response(
+              jsonEncode(todayPayload(
+                tasks: [
+                  {
+                    'id': 'task-1',
+                    'kind': 'task',
+                    'title': todayCalls <= 1
+                        ? 'Hidden pause task'
+                        : 'Hidden resume task',
+                    'body': null,
+                    'provider': null,
+                    'external_id': null,
+                    'canonical_uri': null,
+                    'status': null,
+                    'start_at': null,
+                    'due_at': '2026-08-28T14:00:00+02:00',
+                    'metadata': {},
+                    'origin': 'user',
+                    'state': 'confirmed',
+                    'confidence': null,
+                    'created_at': '2026-08-28T08:00:00Z',
+                    'updated_at': '2026-08-28T08:00:00Z',
+                  },
+                ],
+                notifications: [],
+              )),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(todayCalls, 1);
+    expect(find.text('Hidden pause task'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(todayCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    for (var i = 0; i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Hidden resume task').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(todayCalls, greaterThan(1));
+    expect(find.text('Hidden resume task'), findsOneWidget);
+  });
 }

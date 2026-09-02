@@ -45,6 +45,8 @@ class PassiveSnapshotRefresh with WidgetsBindingObserver {
         _scheduleNextTick();
         break;
       case AppLifecycleState.inactive:
+        // Non-web desktop: visible app without input focus must keep polling.
+        break;
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
