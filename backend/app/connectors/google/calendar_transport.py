@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote
@@ -6,6 +7,12 @@ import httpx
 
 from app.connectors.google.api_errors import raise_for_google_response
 from app.connectors.google.constants import CALENDAR_API_BASE
+
+
+@dataclass(frozen=True)
+class CalendarEventPage:
+    events: list[dict[str, Any]]
+    next_page_token: str | None
 
 
 class CalendarTransport:
@@ -26,6 +33,39 @@ class CalendarTransport:
         payload = response.json()
         return list(payload.get("items", []))
 
+    def list_events_page(
+        self,
+        access_token: str,
+        calendar_id: str,
+        time_min: datetime,
+        time_max: datetime,
+        max_results: int,
+        page_token: str | None = None,
+    ) -> CalendarEventPage:
+        encoded_calendar_id = quote(calendar_id, safe="")
+        params: dict[str, object] = {
+            "timeMin": _format_rfc3339(time_min),
+            "timeMax": _format_rfc3339(time_max),
+            "maxResults": max_results,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+        }
+        if page_token is not None:
+            params["pageToken"] = page_token
+        response = self._http.get(
+            f"{CALENDAR_API_BASE}/calendars/{encoded_calendar_id}/events",
+            params=params,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        raise_for_google_response(response, "list_events")
+        payload = response.json()
+        events = list(payload.get("items", []))
+        next_token = payload.get("nextPageToken")
+        return CalendarEventPage(
+            events=events,
+            next_page_token=str(next_token) if next_token else None,
+        )
+
     def list_events(
         self,
         access_token: str,
@@ -34,21 +74,13 @@ class CalendarTransport:
         time_max: datetime,
         max_results: int,
     ) -> list[dict[str, Any]]:
-        encoded_calendar_id = quote(calendar_id, safe="")
-        response = self._http.get(
-            f"{CALENDAR_API_BASE}/calendars/{encoded_calendar_id}/events",
-            params={
-                "timeMin": _format_rfc3339(time_min),
-                "timeMax": _format_rfc3339(time_max),
-                "maxResults": max_results,
-                "singleEvents": "true",
-                "orderBy": "startTime",
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        raise_for_google_response(response, "list_events")
-        payload = response.json()
-        return list(payload.get("items", []))
+        return self.list_events_page(
+            access_token=access_token,
+            calendar_id=calendar_id,
+            time_min=time_min,
+            time_max=time_max,
+            max_results=max_results,
+        ).events
 
 
 def _format_rfc3339(value: datetime) -> str:
