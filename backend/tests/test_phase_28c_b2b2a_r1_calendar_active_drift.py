@@ -144,5 +144,6 @@ def test_start_active_window_persists_history_days() -> None:
         active_end=T0,
         next_page_token=None,
     )
-    started = start_active_window({}, window, history_days=60)
+    started = start_active_window({}, window, history_days=60, page_size=100)
     assert started["active_history_days"] == 60
+    assert started["active_page_size"] == 100

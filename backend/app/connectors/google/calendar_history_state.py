@@ -7,6 +7,7 @@ from typing import Any
 HISTORY_BACKFILL_KEY = "history_backfill"
 HISTORY_BACKFILL_VERSION = 1
 CALENDARS_KEY = "calendars"
+LAST_HISTORY_CALENDAR_ID_KEY = "last_history_calendar_id"
 
 
 def utcnow() -> datetime:
@@ -118,6 +119,19 @@ def _parse_active_history_days(entry: dict[str, Any]) -> int | None:
     return value
 
 
+def _parse_active_page_size(entry: dict[str, Any]) -> int | None:
+    raw = entry.get("active_page_size")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
 def _has_active_marker(entry: dict[str, Any]) -> bool:
     return (
         entry.get("active_start") is not None
@@ -144,6 +158,7 @@ def sanitize_calendar_backfill(entry: dict[str, Any]) -> dict[str, Any]:
         entry.pop("active_end", None)
         entry.pop("next_page_token", None)
         entry.pop("active_history_days", None)
+        entry.pop("active_page_size", None)
     else:
         entry["active_start"] = format_stored_datetime(active_start)
         entry["active_end"] = format_stored_datetime(active_end)
@@ -151,6 +166,11 @@ def sanitize_calendar_backfill(entry: dict[str, Any]) -> dict[str, Any]:
             entry["active_history_days"] = active_history_days
         else:
             entry.pop("active_history_days", None)
+        active_page_size = _parse_active_page_size(entry)
+        if active_page_size is not None:
+            entry["active_page_size"] = active_page_size
+        else:
+            entry.pop("active_page_size", None)
 
     if (
         scanned_start is not None
@@ -190,12 +210,28 @@ def clear_active_window(calendar_backfill: dict[str, Any]) -> dict[str, Any]:
     calendar_backfill.pop("active_end", None)
     calendar_backfill.pop("next_page_token", None)
     calendar_backfill.pop("active_history_days", None)
+    calendar_backfill.pop("active_page_size", None)
     return calendar_backfill
+
+
+def _active_page_size_invalid(
+    calendar_backfill: dict[str, Any],
+    max_limit: int,
+    effective_limit: int,
+) -> bool:
+    active_page_size = _parse_active_page_size(calendar_backfill)
+    if active_page_size is None:
+        return True
+    if active_page_size > max_limit:
+        return True
+    return active_page_size > effective_limit
 
 
 def reconcile_active_window(
     calendar_backfill: dict[str, Any],
     history_days: int,
+    max_limit: int | None = None,
+    effective_limit: int | None = None,
 ) -> dict[str, Any]:
     calendar_backfill = sanitize_calendar_backfill(calendar_backfill)
     continuing = continue_active_window(calendar_backfill)
@@ -211,6 +247,13 @@ def reconcile_active_window(
 
     _, desired_end = desired_history_window(history_days)
     if continuing.active_end > desired_end:
+        return clear_active_window(calendar_backfill)
+
+    if (
+        max_limit is not None
+        and effective_limit is not None
+        and _active_page_size_invalid(calendar_backfill, max_limit, effective_limit)
+    ):
         return clear_active_window(calendar_backfill)
 
     return calendar_backfill
@@ -306,15 +349,80 @@ def start_active_window(
     calendar_backfill: dict[str, Any],
     window: CalendarHistoryActiveWindow,
     history_days: int,
+    page_size: int,
 ) -> dict[str, Any]:
     if history_days <= 0:
         raise ValueError("history_days must be positive")
+    if page_size <= 0:
+        raise ValueError("page_size must be positive")
     calendar_backfill = dict(calendar_backfill)
     calendar_backfill["active_start"] = format_stored_datetime(window.active_start)
     calendar_backfill["active_end"] = format_stored_datetime(window.active_end)
     calendar_backfill["active_history_days"] = history_days
+    calendar_backfill["active_page_size"] = page_size
     calendar_backfill.pop("next_page_token", None)
     return calendar_backfill
+
+
+def reconcile_discovered_calendars(
+    backfill: dict[str, Any],
+    calendar_ids: list[str],
+    history_days: int,
+    max_limit: int,
+    effective_limit: int,
+) -> dict[str, Any]:
+    backfill = dict(backfill)
+    calendars = dict(backfill.get(CALENDARS_KEY) or {})
+    for calendar_id in calendar_ids:
+        entry = sanitize_calendar_backfill(dict(calendars.get(calendar_id) or {}))
+        reconciled = reconcile_active_window(
+            entry,
+            history_days,
+            max_limit=max_limit,
+            effective_limit=effective_limit,
+        )
+        if reconciled != entry:
+            calendars[calendar_id] = reconciled
+    if calendars:
+        backfill[CALENDARS_KEY] = calendars
+    else:
+        backfill.pop(CALENDARS_KEY, None)
+    backfill["version"] = HISTORY_BACKFILL_VERSION
+    return backfill
+
+
+def select_history_calendar(
+    backfill: dict[str, Any],
+    calendar_ids: list[str],
+    history_days: int,
+) -> tuple[str | None, CalendarHistoryBackfillPlan | None, dict[str, Any]]:
+    if not calendar_ids:
+        return None, None, backfill
+
+    last_id = backfill.get(LAST_HISTORY_CALENDAR_ID_KEY)
+    start_idx = 0
+    if isinstance(last_id, str) and last_id in calendar_ids:
+        start_idx = calendar_ids.index(last_id) + 1
+        if start_idx >= len(calendar_ids):
+            start_idx = 0
+
+    for offset in range(len(calendar_ids)):
+        calendar_id = calendar_ids[(start_idx + offset) % len(calendar_ids)]
+        entry = get_calendar_backfill(backfill, calendar_id)
+        plan = plan_history_active_window(entry, history_days)
+        if plan.window is not None:
+            if plan.calendar_backfill != entry:
+                backfill = set_calendar_backfill(backfill, calendar_id, plan.calendar_backfill)
+            return calendar_id, plan, backfill
+
+    return None, None, backfill
+
+
+def set_last_history_calendar_id(backfill: dict[str, Any], calendar_id: str) -> dict[str, Any]:
+    backfill = dict(backfill)
+    backfill[LAST_HISTORY_CALENDAR_ID_KEY] = calendar_id
+    backfill["version"] = HISTORY_BACKFILL_VERSION
+    return backfill
 
 
 def plan_calendar_history(

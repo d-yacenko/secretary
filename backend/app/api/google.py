@@ -26,7 +26,7 @@ from app.connectors.google.oauth_state import OAuthStateService
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
 from app.services.source_sync_preference_service import SourceSyncPreferenceService
-from app.source_sync.constants import SOURCE_GMAIL
+from app.source_sync.constants import SOURCE_GMAIL, SOURCE_GOOGLE_CALENDAR
 
 router = APIRouter(tags=["google"])
 
@@ -194,12 +194,16 @@ def calendar_sync(
         if account is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="google account not found")
 
+        history_days = SourceSyncPreferenceService.build(session).effective_history_days_for_source(
+            current_user.user_id,
+            SOURCE_GOOGLE_CALENDAR,
+        )
         sync_service = build_calendar_sync_service(
             session=session,
             credential_key=settings.secretary_credential_key,
             client_file=settings.google_oauth_client_file,
             redirect_uri=settings.google_redirect_uri,
-            days_back=settings.calendar_sync_days_back,
+            days_back=history_days,
             days_forward=settings.calendar_sync_days_forward,
             default_limit=settings.calendar_sync_default_limit,
             max_limit=settings.calendar_sync_max_limit,

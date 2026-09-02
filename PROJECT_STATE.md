@@ -104,15 +104,17 @@ PHASE 28C-B2-B1-R1 — Reconcile Active Gmail Backfill With Current History Poli
 
 PHASE 28C-B2-B2-A — Google Calendar History Pagination Foundation: **accepted** at `8eea8e2aafe6e1074405b51cf5c191339f14ec0c`.
 
-PHASE 28C-B2-B2-A-R1 — Stable Calendar Active Pagination Across Time Drift: **implementation complete, awaiting architect review** on `review/phase-28c-history-google-calendar-a-r1`.
+PHASE 28C-B2-B2-A-R1 — Stable Calendar Active Pagination Across Time Drift: **accepted** at `b6ab2c621e8bbe683a1aad03e0e8af734dbaa26a`.
 
-Next: **architect review of PHASE 28C-B2-B2-A-R1**.
+PHASE 28C-B2-B2-B — Google Calendar Bounded History Runtime: **implementation complete, awaiting architect review** on `review/phase-28c-history-google-calendar-b`.
 
-Approved next after 28C-B2-B2-A-R1 acceptance: **PHASE 28C-B2-B2-B — Google Calendar Bounded History Runtime**.
+Next: **architect review of PHASE 28C-B2-B2-B**.
 
-Google Calendar runtime history backfill is **not** implemented yet (B2-B2-B).
+Approved next after 28C-B2-B2-B acceptance: **PHASE 28C-B2-C — Yandex Mail / Yandex Calendar / Mattermost history runtime** (split into short provider phases as needed).
 
-B2 history feature is **not** complete (Calendar, Yandex, Mattermost, UI remain).
+Then: **PHASE 28C-B2-D — History Preferences UI**.
+
+B2 history feature is **not** complete (Yandex, Mattermost, UI remain).
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

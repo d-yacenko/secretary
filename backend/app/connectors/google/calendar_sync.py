@@ -5,6 +5,19 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.connectors.google.calendar_history_state import (
+    complete_active_window,
+    continue_active_window,
+    get_calendar_backfill,
+    get_history_backfill,
+    persist_active_page_token,
+    reconcile_discovered_calendars,
+    select_history_calendar,
+    set_calendar_backfill,
+    set_history_backfill,
+    set_last_history_calendar_id,
+    start_active_window,
+)
 from app.connectors.google.calendar_normalize import normalize_calendar_event
 from app.connectors.google.calendar_transport import CalendarTransport
 from app.connectors.google.constants import (
@@ -57,6 +70,8 @@ class CalendarSyncService:
         account_id: UUID,
         user_id: UUID,
         limit: int | None = None,
+        *,
+        include_history_pass: bool = False,
     ) -> dict[str, Any]:
         account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
@@ -73,9 +88,59 @@ class CalendarSyncService:
         access_token = self._token_manager.get_valid_access_token(account_id, user_id)
         self._session.commit()
 
+        calendars = self._transport.list_calendars(access_token, self._max_calendars)
+        calendar_entries: list[tuple[str, str | None]] = []
+        for calendar in calendars:
+            calendar_id = str(calendar.get("id", ""))
+            if not calendar_id:
+                continue
+            summary = calendar.get("summary")
+            calendar_entries.append(
+                (
+                    calendar_id,
+                    str(summary) if summary is not None else None,
+                )
+            )
+
+        live_stats = self._run_live_pass(
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+            calendar_entries=calendar_entries,
+            effective_limit=effective_limit,
+        )
+
+        if include_history_pass:
+            self._run_history_pass(
+                account_id=account_id,
+                user_id=user_id,
+                owner_user_id=owner_user_id,
+                access_token=access_token,
+                calendar_ids=[calendar_id for calendar_id, _ in calendar_entries],
+                calendar_summaries={
+                    calendar_id: summary for calendar_id, summary in calendar_entries
+                },
+                effective_limit=effective_limit,
+            )
+
+        return {
+            "account_email": account_email,
+            "synchronized": live_stats["synchronized"],
+            "created": live_stats["created"],
+            "updated": live_stats["updated"],
+            "unchanged": live_stats["unchanged"],
+            "jobs_enqueued": live_stats["jobs_enqueued"],
+        }
+
+    def _run_live_pass(
+        self,
+        *,
+        owner_user_id: UUID,
+        access_token: str,
+        calendar_entries: list[tuple[str, str | None]],
+        effective_limit: int,
+    ) -> dict[str, int]:
         time_min = utcnow() - timedelta(days=self._days_back)
         time_max = utcnow() + timedelta(days=self._days_forward)
-        calendars = self._transport.list_calendars(access_token, self._max_calendars)
 
         created = 0
         updated = 0
@@ -84,13 +149,9 @@ class CalendarSyncService:
         unchanged = 0
         remaining = effective_limit
 
-        for calendar in calendars:
+        for calendar_id, calendar_summary in calendar_entries:
             if remaining <= 0:
                 break
-            calendar_id = str(calendar.get("id", ""))
-            if not calendar_id:
-                continue
-            calendar_summary = calendar.get("summary")
             self._session.commit()
             raw_events = self._transport.list_events(
                 access_token=access_token,
@@ -99,72 +160,200 @@ class CalendarSyncService:
                 time_max=time_max,
                 max_results=remaining,
             )
-            for raw_event in raw_events:
-                if remaining <= 0:
-                    break
-                normalized = normalize_calendar_event(
-                    raw_event,
-                    calendar_id=calendar_id,
-                    calendar_summary=str(calendar_summary) if calendar_summary else None,
-                )
-                existing = self._find_existing_calendar_object(
-                    owner_user_id, normalized["external_id"]
-                )
-
-                if existing is None:
-                    obj = Object(
-                        user_id=owner_user_id,
-                        kind=normalized["kind"],
-                        provider=normalized["provider"],
-                        external_id=normalized["external_id"],
-                        origin=normalized["origin"],
-                        state=normalized["state"],
-                        title=normalized["title"],
-                        body=normalized.get("body"),
-                        start_at=normalized.get("start_at"),
-                        due_at=normalized.get("due_at"),
-                        occurred_at=normalized.get("occurred_at"),
-                        metadata_=normalized["metadata"],
-                    )
-                    self._session.add(obj)
-                    self._session.flush()
-                    created += 1
-                    synchronized += 1
-                    remaining -= 1
-                    self._job_queue.enqueue(
-                        "embed_object",
-                        {"object_id": str(obj.id)},
-                        user_id=owner_user_id,
-                    )
-                    jobs_enqueued += 1
-                    self._session.commit()
-                    continue
-
-                if self._calendar_object_changed(existing, normalized):
-                    self._apply_normalized_calendar_object(existing, normalized)
-                    updated += 1
-                    synchronized += 1
-                    remaining -= 1
-                    self._job_queue.enqueue(
-                        "embed_object",
-                        {"object_id": str(existing.id)},
-                        user_id=owner_user_id,
-                    )
-                    jobs_enqueued += 1
-                    self._session.commit()
-                else:
-                    synchronized += 1
-                    unchanged += 1
-                    remaining -= 1
-                    self._session.commit()
+            stats = self._materialize_calendar_events(
+                raw_events=raw_events,
+                owner_user_id=owner_user_id,
+                calendar_id=calendar_id,
+                calendar_summary=calendar_summary,
+                remaining=remaining,
+            )
+            created += stats["created"]
+            updated += stats["updated"]
+            jobs_enqueued += stats["jobs_enqueued"]
+            synchronized += stats["synchronized"]
+            unchanged += stats["unchanged"]
+            remaining -= stats["processed"]
 
         return {
-            "account_email": account_email,
             "synchronized": synchronized,
             "created": created,
             "updated": updated,
             "unchanged": unchanged,
             "jobs_enqueued": jobs_enqueued,
+        }
+
+    def _run_history_pass(
+        self,
+        *,
+        account_id: UUID,
+        user_id: UUID,
+        owner_user_id: UUID,
+        access_token: str,
+        calendar_ids: list[str],
+        calendar_summaries: dict[str, str | None],
+        effective_limit: int,
+    ) -> None:
+        calendar_state = self._account_store.get_calendar_sync_state(account_id, user_id)
+        original_backfill = get_history_backfill(calendar_state)
+        reconciled_backfill = reconcile_discovered_calendars(
+            original_backfill,
+            calendar_ids,
+            self._days_back,
+            self._max_limit,
+            effective_limit,
+        )
+        if reconciled_backfill != original_backfill:
+            calendar_state = set_history_backfill(calendar_state, reconciled_backfill)
+            self._account_store.update_calendar_sync_state(account_id, user_id, calendar_state)
+            self._session.commit()
+
+        calendar_id, plan, backfill = select_history_calendar(
+            reconciled_backfill,
+            calendar_ids,
+            self._days_back,
+        )
+        if calendar_id is None or plan is None or plan.window is None:
+            return
+
+        entry = get_calendar_backfill(backfill, calendar_id)
+        window = plan.window
+        if window.next_page_token is None and not entry.get("active_start"):
+            page_size = min(effective_limit, self._max_limit)
+            entry = start_active_window(entry, window, self._days_back, page_size)
+            backfill = set_calendar_backfill(backfill, calendar_id, entry)
+            calendar_state = set_history_backfill(calendar_state, backfill)
+            self._account_store.update_calendar_sync_state(account_id, user_id, calendar_state)
+            self._session.commit()
+            window = continue_active_window(entry)
+            if window is None:
+                return
+
+        entry = get_calendar_backfill(backfill, calendar_id)
+        page_size = entry.get("active_page_size", effective_limit)
+        try:
+            page_size = int(page_size)
+        except (TypeError, ValueError):
+            return
+        if page_size <= 0:
+            return
+
+        page = self._transport.list_events_page(
+            access_token=access_token,
+            calendar_id=calendar_id,
+            time_min=window.active_start,
+            time_max=window.active_end,
+            max_results=page_size,
+            page_token=window.next_page_token,
+        )
+
+        stats = self._materialize_calendar_events(
+            raw_events=page.events,
+            owner_user_id=owner_user_id,
+            calendar_id=calendar_id,
+            calendar_summary=calendar_summaries.get(calendar_id),
+            remaining=page_size,
+        )
+        del stats
+
+        calendar_state = self._account_store.get_calendar_sync_state(account_id, user_id)
+        backfill = get_history_backfill(calendar_state)
+        entry = get_calendar_backfill(backfill, calendar_id)
+        if page.next_page_token:
+            entry = persist_active_page_token(entry, window, page.next_page_token)
+            backfill = set_calendar_backfill(backfill, calendar_id, entry)
+        else:
+            entry = complete_active_window(entry)
+            backfill = set_calendar_backfill(backfill, calendar_id, entry)
+            backfill = set_last_history_calendar_id(backfill, calendar_id)
+        calendar_state = set_history_backfill(calendar_state, backfill)
+        self._account_store.update_calendar_sync_state(account_id, user_id, calendar_state)
+        self._session.flush()
+
+    def _materialize_calendar_events(
+        self,
+        *,
+        raw_events: list[dict[str, Any]],
+        owner_user_id: UUID,
+        calendar_id: str,
+        calendar_summary: str | None,
+        remaining: int,
+    ) -> dict[str, int]:
+        created = 0
+        updated = 0
+        jobs_enqueued = 0
+        synchronized = 0
+        unchanged = 0
+        processed = 0
+
+        for raw_event in raw_events:
+            if remaining <= 0:
+                break
+            normalized = normalize_calendar_event(
+                raw_event,
+                calendar_id=calendar_id,
+                calendar_summary=calendar_summary,
+            )
+            existing = self._find_existing_calendar_object(
+                owner_user_id, normalized["external_id"]
+            )
+
+            if existing is None:
+                obj = Object(
+                    user_id=owner_user_id,
+                    kind=normalized["kind"],
+                    provider=normalized["provider"],
+                    external_id=normalized["external_id"],
+                    origin=normalized["origin"],
+                    state=normalized["state"],
+                    title=normalized["title"],
+                    body=normalized.get("body"),
+                    start_at=normalized.get("start_at"),
+                    due_at=normalized.get("due_at"),
+                    occurred_at=normalized.get("occurred_at"),
+                    metadata_=normalized["metadata"],
+                )
+                self._session.add(obj)
+                self._session.flush()
+                created += 1
+                synchronized += 1
+                processed += 1
+                remaining -= 1
+                self._job_queue.enqueue(
+                    "embed_object",
+                    {"object_id": str(obj.id)},
+                    user_id=owner_user_id,
+                )
+                jobs_enqueued += 1
+                self._session.commit()
+                continue
+
+            if self._calendar_object_changed(existing, normalized):
+                self._apply_normalized_calendar_object(existing, normalized)
+                updated += 1
+                synchronized += 1
+                processed += 1
+                remaining -= 1
+                self._job_queue.enqueue(
+                    "embed_object",
+                    {"object_id": str(existing.id)},
+                    user_id=owner_user_id,
+                )
+                jobs_enqueued += 1
+                self._session.commit()
+            else:
+                synchronized += 1
+                unchanged += 1
+                processed += 1
+                remaining -= 1
+                self._session.commit()
+
+        return {
+            "created": created,
+            "updated": updated,
+            "jobs_enqueued": jobs_enqueued,
+            "synchronized": synchronized,
+            "unchanged": unchanged,
+            "processed": processed,
         }
 
     def _find_existing_calendar_object(self, user_id: UUID, external_id: str) -> Object | None:
