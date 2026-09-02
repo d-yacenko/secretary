@@ -143,7 +143,9 @@ def test_scheduler_disabled_does_not_create_gmail_job(
     monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
     account_id = _gmail_account_id(db_session, credential_key, monkeypatch)
     service = SourceSyncPreferenceService.build(db_session)
-    service.update_preference(BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False)
+    service.update_preference(
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
+    )
     SourceSyncScheduler(db_session).run_maintenance()
     db_session.commit()
     job = JobQueueService(db_session).find_recurring_source_job(
@@ -161,7 +163,9 @@ def test_existing_pending_job_retired_when_disabled(
     account_id = _gmail_account_id(db_session, credential_key, monkeypatch)
     SourceSyncScheduler(db_session).run_maintenance()
     service = SourceSyncPreferenceService.build(db_session)
-    service.update_preference(BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False)
+    service.update_preference(
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
+    )
     SourceSyncScheduler(db_session).run_maintenance()
     db_session.commit()
     job = db_session.scalar(
@@ -181,7 +185,7 @@ def test_manual_aggregate_sync_skips_disabled_gmail(
     _gmail_account_id(db_session, credential_key, monkeypatch)
     SourceSyncScheduler(db_session).run_maintenance()
     SourceSyncPreferenceService.build(db_session).update_preference(
-        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
     )
     triggered = SourceSyncScheduler(db_session).trigger_all_for_user(BOOTSTRAP_USER_ID)
     assert not any(item.startswith("gmail:") for item in triggered)
@@ -202,7 +206,7 @@ def test_running_success_finalize_does_not_rearm_when_disabled(
     job.locked_at = utcnow()
     db_session.flush()
     SourceSyncPreferenceService.build(db_session).update_preference(
-        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
     )
     finalize_recurring_job_success(
         db_session,
@@ -230,7 +234,7 @@ def test_running_failure_finalize_does_not_retry_when_disabled(
     job.locked_at = utcnow()
     db_session.flush()
     SourceSyncPreferenceService.build(db_session).update_preference(
-        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
     )
     finalize_recurring_job_failure(
         db_session,
@@ -257,7 +261,8 @@ def test_user_interval_used_after_success(
     trans = conn.begin()
     persist_session = Session(bind=conn)
     SourceSyncPreferenceService.build(persist_session).update_preference(
-        BOOTSTRAP_USER_ID, SOURCE_GMAIL, sync_interval_seconds=custom_interval
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, sync_interval_seconds=custom_interval,
+        sync_interval_specified=True,
     )
     trans.commit()
     conn.close()
@@ -295,9 +300,13 @@ def test_reenable_restores_single_recurring_job(
     account_id = _gmail_account_id(db_session, credential_key, monkeypatch)
     service = SourceSyncPreferenceService.build(db_session)
     SourceSyncScheduler(db_session).run_maintenance()
-    service.update_preference(BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False)
+    service.update_preference(
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
+    )
     SourceSyncScheduler(db_session).run_maintenance()
-    service.update_preference(BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=True)
+    service.update_preference(
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=True, enabled_specified=True
+    )
     SourceSyncScheduler(db_session).run_maintenance()
     db_session.commit()
     jobs = list(
@@ -332,7 +341,7 @@ def test_disabled_status_shape(
     job.status = JOB_STATUS_FAILED
     db_session.flush()
     SourceSyncPreferenceService.build(db_session).update_preference(
-        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
     )
     SourceSyncScheduler(db_session).run_maintenance()
     rows = SourceStatusService(db_session, BOOTSTRAP_USER_ID).list_status()
@@ -352,9 +361,13 @@ def test_reenable_status_no_duplicate_rows(
     _gmail_account_id(db_session, credential_key, monkeypatch)
     service = SourceSyncPreferenceService.build(db_session)
     SourceSyncScheduler(db_session).run_maintenance()
-    service.update_preference(BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False)
+    service.update_preference(
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=False, enabled_specified=True
+    )
     SourceSyncScheduler(db_session).run_maintenance()
-    service.update_preference(BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=True)
+    service.update_preference(
+        BOOTSTRAP_USER_ID, SOURCE_GMAIL, enabled=True, enabled_specified=True
+    )
     SourceSyncScheduler(db_session).run_maintenance()
     rows = SourceStatusService(db_session, BOOTSTRAP_USER_ID).list_status()
     gmail_rows = [row for row in rows if row.source == SOURCE_GMAIL]
@@ -392,3 +405,217 @@ def test_unsupported_source_returns_404(auth_client: AuthTestClient) -> None:
 def test_empty_patch_returns_422(auth_client: AuthTestClient) -> None:
     response = auth_client.patch("/me/source-preferences/gmail", json={})
     assert response.status_code == 422
+
+
+def test_patch_disable_immediately_retires_pending_without_maintenance(
+    auth_client: AuthTestClient,
+    db_session,
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    account_id = _gmail_account_id(db_session, credential_key, monkeypatch)
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.flush()
+    job = JobQueueService(db_session).find_recurring_source_job(
+        BOOTSTRAP_USER_ID,
+        JOB_TYPE_SYNC_GOOGLE_GMAIL,
+        account_id,
+    )
+    assert job is not None
+    assert job.status == JOB_STATUS_PENDING
+
+    response = auth_client.patch(
+        "/me/source-preferences/gmail",
+        json={"enabled": False},
+    )
+    assert response.status_code == 200
+    db_session.expire_all()
+    stored = db_session.get(Job, job.id)
+    assert stored is not None
+    assert stored.status == JOB_STATUS_DONE
+
+
+def test_patch_enable_immediately_reactivates_without_maintenance(
+    auth_client: AuthTestClient,
+    db_session,
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    account_id = _gmail_account_id(db_session, credential_key, monkeypatch)
+    SourceSyncScheduler(db_session).run_maintenance()
+    auth_client.patch("/me/source-preferences/gmail", json={"enabled": False})
+
+    response = auth_client.patch(
+        "/me/source-preferences/gmail",
+        json={"enabled": True},
+    )
+    assert response.status_code == 200
+    jobs = list(
+        db_session.scalars(
+            select(Job).where(
+                Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+                Job.user_id == BOOTSTRAP_USER_ID,
+            )
+        )
+    )
+    active = [job for job in jobs if job.status != JOB_STATUS_DONE]
+    assert len(active) == 1
+    assert active[0].payload["account_id"] == str(account_id)
+    assert active[0].status == JOB_STATUS_PENDING
+    assert active[0].attempts == 0
+    assert active[0].last_error is None
+    assert active[0].run_after <= utcnow() + timedelta(seconds=2)
+
+
+def test_worker_skips_handler_when_disabled_before_execution(
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_embedding_service,
+) -> None:
+    handler_calls = 0
+
+    def fake_handler(session, embedding_service, payload, user_id) -> None:
+        nonlocal handler_calls
+        handler_calls += 1
+
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    account_id = _persist_gmail_schedule(credential_key, [GMAIL_READONLY_SCOPE])
+    conn = engine.connect()
+    trans = conn.begin()
+    persist_session = Session(bind=conn)
+    SourceSyncPreferenceService.build(persist_session).update_preference(
+        BOOTSTRAP_USER_ID,
+        SOURCE_GMAIL,
+        enabled=False,
+        enabled_specified=True,
+    )
+    trans.commit()
+    conn.close()
+
+    conn = engine.connect()
+    trans = conn.begin()
+    ready_session = Session(bind=conn)
+    job = ready_session.scalar(
+        select(Job).where(
+            Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+            Job.payload["account_id"].as_string() == str(account_id),
+        )
+    )
+    job.run_after = utcnow() - timedelta(seconds=1)
+    trans.commit()
+    conn.close()
+
+    with patch.dict(HANDLERS, {JOB_TYPE_SYNC_GOOGLE_GMAIL: fake_handler}):
+        assert process_one_job(fake_embedding_service)
+
+    assert handler_calls == 0
+    conn = engine.connect()
+    stored = Session(bind=conn).scalar(
+        select(Job).where(
+            Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+            Job.payload["account_id"].as_string() == str(account_id),
+        )
+    )
+    conn.close()
+    assert stored is not None
+    assert stored.status == JOB_STATUS_DONE
+
+
+def test_disabled_before_connect_shows_status_without_job(
+    db_session,
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    SourceSyncPreferenceService.build(db_session).update_preference(
+        BOOTSTRAP_USER_ID,
+        SOURCE_GMAIL,
+        enabled=False,
+        enabled_specified=True,
+    )
+    _gmail_account_id(db_session, credential_key, monkeypatch)
+    SourceSyncScheduler(db_session).run_maintenance()
+    db_session.flush()
+    job = db_session.scalar(
+        select(Job).where(
+            Job.type == JOB_TYPE_SYNC_GOOGLE_GMAIL,
+            Job.user_id == BOOTSTRAP_USER_ID,
+        )
+    )
+    assert job is None
+    rows = SourceStatusService(db_session, BOOTSTRAP_USER_ID).list_status()
+    gmail_rows = [row for row in rows if row.source == SOURCE_GMAIL]
+    assert len(gmail_rows) == 1
+    assert gmail_rows[0].enabled is False
+    assert gmail_rows[0].status == "disabled"
+    assert gmail_rows[0].next_sync_at is None
+    assert gmail_rows[0].last_error is None
+
+
+def test_disconnected_account_with_retired_job_has_no_status_row(
+    db_session,
+    credential_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.db.models import GoogleAccount
+
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", credential_key)
+    account_id = _gmail_account_id(db_session, credential_key, monkeypatch)
+    SourceSyncScheduler(db_session).run_maintenance()
+    account = db_session.get(GoogleAccount, account_id)
+    db_session.delete(account)
+    db_session.flush()
+    rows = SourceStatusService(db_session, BOOTSTRAP_USER_ID).list_status()
+    assert not any(row.source == SOURCE_GMAIL for row in rows)
+
+
+def test_patch_clear_sync_interval_returns_deployment_default(
+    auth_client: AuthTestClient,
+    db_session,
+) -> None:
+    custom = settings.source_sync_gmail_interval_seconds + 300
+    set_resp = auth_client.patch(
+        "/me/source-preferences/gmail",
+        json={"sync_interval_seconds": custom},
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["sync_interval_seconds"] == custom
+
+    clear_resp = auth_client.patch(
+        "/me/source-preferences/gmail",
+        json={"sync_interval_seconds": None},
+    )
+    assert clear_resp.status_code == 200
+    assert (
+        clear_resp.json()["sync_interval_seconds"]
+        == settings.source_sync_gmail_interval_seconds
+    )
+    pref_count = db_session.scalar(
+        select(func.count()).select_from(UserSourcePreference)
+    )
+    assert pref_count == 0
+
+
+def test_patch_clear_enabled_returns_default_enabled(
+    auth_client: AuthTestClient,
+    db_session,
+) -> None:
+    disable_resp = auth_client.patch(
+        "/me/source-preferences/gmail",
+        json={"enabled": False},
+    )
+    assert disable_resp.status_code == 200
+    assert disable_resp.json()["enabled"] is False
+
+    clear_resp = auth_client.patch(
+        "/me/source-preferences/gmail",
+        json={"enabled": None},
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["enabled"] is True
+    pref_count = db_session.scalar(
+        select(func.count()).select_from(UserSourcePreference)
+    )
+    assert pref_count == 0

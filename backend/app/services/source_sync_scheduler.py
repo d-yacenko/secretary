@@ -30,6 +30,14 @@ from app.jobs.constants import (
 )
 from app.services.job_queue_service import JobQueueService, utcnow
 from app.services.source_sync_preference_service import SourceSyncPreferenceService
+from app.source_sync.constants import (
+    SOURCE_GMAIL,
+    SOURCE_GOOGLE_CALENDAR,
+    SOURCE_MATTERMOST,
+    SOURCE_TO_JOB_TYPE,
+    SOURCE_YANDEX_CALENDAR,
+    SOURCE_YANDEX_MAIL,
+)
 
 
 class SourceSyncScheduler:
@@ -114,6 +122,54 @@ class SourceSyncScheduler:
                 triggered.append(f"mattermost:{account.id}")
         return triggered
 
+    def reconcile_user_source(self, user_id: UUID, source: str) -> None:
+        if not settings.secretary_credential_key:
+            return
+        job_type = SOURCE_TO_JOB_TYPE.get(source)
+        if job_type is None:
+            return
+        encryption = CredentialEncryption(settings.secretary_credential_key)
+        account_ids = self._connected_account_ids_for_source(
+            user_id,
+            source,
+            encryption,
+        )
+        enabled = self._preferences.is_source_enabled(user_id, source)
+        for account_id in account_ids:
+            if enabled:
+                self._queue.ensure_recurring_source_job(job_type, account_id, user_id)
+            else:
+                job = self._queue.find_recurring_source_job(user_id, job_type, account_id)
+                if job is not None and job.status != JOB_STATUS_RUNNING:
+                    self._queue.retire_recurring_source_job(job)
+
+    def _connected_account_ids_for_source(
+        self,
+        user_id: UUID,
+        source: str,
+        encryption: CredentialEncryption,
+    ) -> list[UUID]:
+        if source == SOURCE_GMAIL or source == SOURCE_GOOGLE_CALENDAR:
+            google_store = GoogleAccountStore(self._session, encryption)
+            account_ids: list[UUID] = []
+            for account in google_store.list_accounts(user_id):
+                scopes = set(account.scopes or [])
+                if source == SOURCE_GMAIL and GMAIL_READONLY_SCOPE in scopes:
+                    account_ids.append(account.id)
+                if source == SOURCE_GOOGLE_CALENDAR and CALENDAR_READONLY_SCOPE in scopes:
+                    account_ids.append(account.id)
+            return account_ids
+        if source == SOURCE_YANDEX_MAIL:
+            store = YandexMailAccountStore(self._session, encryption)
+            return [account.id for account in store.list_accounts(user_id)]
+        if source == SOURCE_YANDEX_CALENDAR:
+            store = YandexCalendarAccountStore(self._session, encryption)
+            return [account.id for account in store.list_accounts(user_id)]
+        if source == SOURCE_MATTERMOST:
+            store = MattermostAccountStore(self._session, encryption)
+            return [account.id for account in store.list_accounts(user_id)]
+        return []
+
     def _maintain_recurring_job(
         self,
         job_type: str,
@@ -194,9 +250,9 @@ class SourceSyncScheduler:
                     account.user_id, JOB_TYPE_SYNC_GOOGLE_CALENDAR
                 )
             ):
-                    expected.add(
-                        (JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id, account.user_id)
-                    )
+                expected.add(
+                    (JOB_TYPE_SYNC_GOOGLE_CALENDAR, account.id, account.user_id)
+                )
         for account in self._session.scalars(select(YandexMailAccount)):
             if self._preferences.is_job_type_enabled(
                 account.user_id, JOB_TYPE_SYNC_YANDEX_MAIL

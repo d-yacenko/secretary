@@ -8,6 +8,7 @@ from app.services.source_sync_preference_service import (
     EffectiveSourceSyncPreference,
     SourceSyncPreferenceService,
 )
+from app.services.source_sync_scheduler import SourceSyncScheduler
 from app.source_sync.constants import SUPPORTED_SOURCE_KEYS
 
 router = APIRouter(tags=["source-preferences"])
@@ -79,20 +80,27 @@ def patch_my_source_preference(
             detail="no fields to update",
         )
     service = SourceSyncPreferenceService.build(session)
+    enabled_specified = "enabled" in body.model_fields_set
+    sync_interval_specified = "sync_interval_seconds" in body.model_fields_set
     try:
         preference = service.update_preference(
             current_user.user_id,
             source,
-            enabled=body.enabled if "enabled" in body.model_fields_set else None,
+            enabled=body.enabled if enabled_specified else None,
             sync_interval_seconds=(
-                body.sync_interval_seconds
-                if "sync_interval_seconds" in body.model_fields_set
-                else None
+                body.sync_interval_seconds if sync_interval_specified else None
             ),
+            enabled_specified=enabled_specified,
+            sync_interval_specified=sync_interval_specified,
         )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    if enabled_specified:
+        SourceSyncScheduler(session).reconcile_user_source(
+            current_user.user_id,
+            source,
+        )
     return _serialize_preference(preference)

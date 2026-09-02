@@ -129,10 +129,12 @@ class SourceSyncPreferenceService:
         *,
         enabled: bool | None = None,
         sync_interval_seconds: int | None = None,
+        enabled_specified: bool = False,
+        sync_interval_specified: bool = False,
     ) -> EffectiveSourceSyncPreference:
         if source not in SUPPORTED_SOURCE_KEYS:
             raise ValueError(f"unsupported source: {source}")
-        if enabled is None and sync_interval_seconds is None:
+        if not enabled_specified and not sync_interval_specified:
             raise ValueError("no fields to update")
         min_seconds = max(
             MIN_SOURCE_SYNC_INTERVAL_SECONDS,
@@ -140,7 +142,8 @@ class SourceSyncPreferenceService:
         )
         max_seconds = max(min_seconds, settings.source_sync_user_max_interval_seconds)
         if (
-            sync_interval_seconds is not None
+            sync_interval_specified
+            and sync_interval_seconds is not None
             and (
                 sync_interval_seconds < min_seconds
                 or sync_interval_seconds > max_seconds
@@ -150,11 +153,14 @@ class SourceSyncPreferenceService:
                 f"sync_interval_seconds must be between {min_seconds} and {max_seconds}"
             )
         row = self._get_or_create_row(user_id, source)
-        if enabled is not None:
+        if enabled_specified:
             row.enabled = enabled
-        if sync_interval_seconds is not None:
+        if sync_interval_specified:
             row.sync_interval_seconds = sync_interval_seconds
-        row.updated_at = utcnow()
+        if row.enabled is None and row.sync_interval_seconds is None:
+            self._session.delete(row)
+        else:
+            row.updated_at = utcnow()
         self._session.flush()
         return self.get_effective_preference(user_id, source)
 

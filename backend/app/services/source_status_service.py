@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READONLY_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
@@ -26,13 +27,20 @@ from app.jobs.constants import (
 )
 from app.services.job_queue_service import utcnow
 from app.services.source_sync_preference_service import SourceSyncPreferenceService
+from app.source_sync.constants import (
+    SOURCE_GMAIL,
+    SOURCE_GOOGLE_CALENDAR,
+    SOURCE_MATTERMOST,
+    SOURCE_YANDEX_CALENDAR,
+    SOURCE_YANDEX_MAIL,
+)
 
 SOURCE_TYPE_LABELS = {
-    JOB_TYPE_SYNC_GOOGLE_GMAIL: ("gmail", "Gmail"),
-    JOB_TYPE_SYNC_GOOGLE_CALENDAR: ("google_calendar", "Google Calendar"),
-    JOB_TYPE_SYNC_YANDEX_MAIL: ("yandex_mail", "Yandex Mail"),
-    JOB_TYPE_SYNC_YANDEX_CALENDAR: ("yandex_calendar", "Yandex Calendar"),
-    JOB_TYPE_SYNC_MATTERMOST: ("mattermost", "Mattermost"),
+    JOB_TYPE_SYNC_GOOGLE_GMAIL: SOURCE_GMAIL,
+    JOB_TYPE_SYNC_GOOGLE_CALENDAR: SOURCE_GOOGLE_CALENDAR,
+    JOB_TYPE_SYNC_YANDEX_MAIL: SOURCE_YANDEX_MAIL,
+    JOB_TYPE_SYNC_YANDEX_CALENDAR: SOURCE_YANDEX_CALENDAR,
+    JOB_TYPE_SYNC_MATTERMOST: SOURCE_MATTERMOST,
 }
 
 _STATUS_PRIORITY = {
@@ -57,6 +65,14 @@ class SourceStatusRow:
     last_error: str | None
 
 
+@dataclass(frozen=True)
+class _ConnectedSourceAccount:
+    source_key: str
+    job_type: str
+    account_id: UUID
+    account_label: str
+
+
 class SourceStatusService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
@@ -72,40 +88,31 @@ class SourceStatusService:
                 )
             )
         )
-        grouped: dict[tuple[str, UUID], list[Job]] = {}
+        jobs_by_key: dict[tuple[str, UUID], list[Job]] = {}
         for job in jobs:
             raw_account_id = (job.payload or {}).get("account_id")
             if not raw_account_id:
                 continue
             account_id = UUID(str(raw_account_id))
-            grouped.setdefault((job.type, account_id), []).append(job)
+            jobs_by_key.setdefault((job.type, account_id), []).append(job)
 
-        account_labels = self._account_label_map()
         rows: list[SourceStatusRow] = []
-        for (job_type, account_id), job_group in grouped.items():
-            job = self._pick_status_job(job_group)
-            if job is None:
-                continue
-            source_key, _label = SOURCE_TYPE_LABELS.get(job_type, (job_type, job_type))
-            effective = self._preferences.get_effective_preference(self._user_id, source_key)
-            payload = job.payload or {}
-            last_success_raw = payload.get("last_success_at")
-            last_success_at = None
-            if isinstance(last_success_raw, str):
-                try:
-                    last_success_at = datetime.fromisoformat(last_success_raw)
-                except ValueError:
-                    last_success_at = None
-            last_attempt_at = job.locked_at or (
-                job.updated_at if job.attempts > 0 else None
+        for account in self._connected_accounts():
+            job_group = jobs_by_key.get((account.job_type, account.account_id), [])
+            history_job = self._pick_history_job(job_group)
+            active_job = self._pick_active_job(job_group)
+            effective = self._preferences.get_effective_preference(
+                self._user_id,
+                account.source_key,
             )
+            last_success_at, last_attempt_at = self._history_timestamps(history_job)
             if not effective.enabled:
                 rows.append(
                     SourceStatusRow(
-                        source=source_key,
-                        provider=source_key,
-                        account_id=account_id,
-                        account_label=account_labels.get(account_id, str(account_id)),
+                        source=account.source_key,
+                        provider=account.source_key,
+                        account_id=account.account_id,
+                        account_label=account.account_label,
                         enabled=False,
                         status="disabled",
                         last_success_at=last_success_at,
@@ -115,36 +122,140 @@ class SourceStatusService:
                     )
                 )
                 continue
+            if active_job is None:
+                rows.append(
+                    SourceStatusRow(
+                        source=account.source_key,
+                        provider=account.source_key,
+                        account_id=account.account_id,
+                        account_label=account.account_label,
+                        enabled=True,
+                        status="pending",
+                        last_success_at=last_success_at,
+                        last_attempt_at=last_attempt_at,
+                        next_sync_at=None,
+                        last_error=None,
+                    )
+                )
+                continue
             rows.append(
                 SourceStatusRow(
-                    source=source_key,
-                    provider=source_key,
-                    account_id=account_id,
-                    account_label=account_labels.get(account_id, str(account_id)),
+                    source=account.source_key,
+                    provider=account.source_key,
+                    account_id=account.account_id,
+                    account_label=account.account_label,
                     enabled=True,
-                    status=self._derive_status(job),
+                    status=self._derive_status(active_job),
                     last_success_at=last_success_at,
                     last_attempt_at=last_attempt_at,
                     next_sync_at=(
-                        job.run_after if job.status == JOB_STATUS_PENDING else None
+                        active_job.run_after
+                        if active_job.status == JOB_STATUS_PENDING
+                        else None
                     ),
-                    last_error=job.last_error,
+                    last_error=active_job.last_error,
                 )
             )
         rows.sort(key=lambda row: (row.provider, row.account_label))
         return rows
 
+    def _connected_accounts(self) -> list[_ConnectedSourceAccount]:
+        if not settings.secretary_credential_key:
+            return []
+        encryption = CredentialEncryption(settings.secretary_credential_key)
+        accounts: list[_ConnectedSourceAccount] = []
+        google_store = GoogleAccountStore(self._session, encryption)
+        for account in google_store.list_accounts(self._user_id):
+            scopes = set(account.scopes or [])
+            if GMAIL_READONLY_SCOPE in scopes:
+                accounts.append(
+                    _ConnectedSourceAccount(
+                        source_key=SOURCE_GMAIL,
+                        job_type=JOB_TYPE_SYNC_GOOGLE_GMAIL,
+                        account_id=account.id,
+                        account_label=account.email,
+                    )
+                )
+            if CALENDAR_READONLY_SCOPE in scopes:
+                accounts.append(
+                    _ConnectedSourceAccount(
+                        source_key=SOURCE_GOOGLE_CALENDAR,
+                        job_type=JOB_TYPE_SYNC_GOOGLE_CALENDAR,
+                        account_id=account.id,
+                        account_label=account.email,
+                    )
+                )
+        yandex_mail_store = YandexMailAccountStore(self._session, encryption)
+        for account in yandex_mail_store.list_accounts(self._user_id):
+            accounts.append(
+                _ConnectedSourceAccount(
+                    source_key=SOURCE_YANDEX_MAIL,
+                    job_type=JOB_TYPE_SYNC_YANDEX_MAIL,
+                    account_id=account.id,
+                    account_label=account.email,
+                )
+            )
+        yandex_calendar_store = YandexCalendarAccountStore(self._session, encryption)
+        for account in yandex_calendar_store.list_accounts(self._user_id):
+            accounts.append(
+                _ConnectedSourceAccount(
+                    source_key=SOURCE_YANDEX_CALENDAR,
+                    job_type=JOB_TYPE_SYNC_YANDEX_CALENDAR,
+                    account_id=account.id,
+                    account_label=account.email,
+                )
+            )
+        mattermost_store = MattermostAccountStore(self._session, encryption)
+        for account in mattermost_store.list_accounts(self._user_id):
+            accounts.append(
+                _ConnectedSourceAccount(
+                    source_key=SOURCE_MATTERMOST,
+                    job_type=JOB_TYPE_SYNC_MATTERMOST,
+                    account_id=account.id,
+                    account_label=self._mattermost_account_label(account),
+                )
+            )
+        return accounts
+
     @staticmethod
-    def _pick_status_job(jobs: list[Job]) -> Job | None:
-        if not jobs:
+    def _pick_active_job(jobs: list[Job]) -> Job | None:
+        active = [
+            job
+            for job in jobs
+            if job.status in (JOB_STATUS_RUNNING, JOB_STATUS_PENDING, JOB_STATUS_FAILED)
+        ]
+        if not active:
             return None
         return min(
-            jobs,
+            active,
             key=lambda job: (
                 _STATUS_PRIORITY.get(job.status, 99),
                 -(job.updated_at.timestamp()),
             ),
         )
+
+    @staticmethod
+    def _pick_history_job(jobs: list[Job]) -> Job | None:
+        if not jobs:
+            return None
+        return max(jobs, key=lambda job: job.updated_at.timestamp())
+
+    @staticmethod
+    def _history_timestamps(job: Job | None) -> tuple[datetime | None, datetime | None]:
+        if job is None:
+            return None, None
+        payload = job.payload or {}
+        last_success_raw = payload.get("last_success_at")
+        last_success_at = None
+        if isinstance(last_success_raw, str):
+            try:
+                last_success_at = datetime.fromisoformat(last_success_raw)
+            except ValueError:
+                last_success_at = None
+        last_attempt_at = job.locked_at or (
+            job.updated_at if job.attempts > 0 else None
+        )
+        return last_success_at, last_attempt_at
 
     def _derive_status(self, job: Job) -> str:
         if job.status == JOB_STATUS_RUNNING:
@@ -157,25 +268,6 @@ class SourceStatusService:
         if job.status == JOB_STATUS_PENDING and job.run_after > now:
             return "scheduled"
         return "pending"
-
-    def _account_label_map(self) -> dict[UUID, str]:
-        if not settings.secretary_credential_key:
-            return {}
-        encryption = CredentialEncryption(settings.secretary_credential_key)
-        labels: dict[UUID, str] = {}
-        google_store = GoogleAccountStore(self._session, encryption)
-        for account in google_store.list_accounts(self._user_id):
-            labels[account.id] = account.email
-        yandex_mail_store = YandexMailAccountStore(self._session, encryption)
-        for account in yandex_mail_store.list_accounts(self._user_id):
-            labels[account.id] = account.email
-        yandex_calendar_store = YandexCalendarAccountStore(self._session, encryption)
-        for account in yandex_calendar_store.list_accounts(self._user_id):
-            labels[account.id] = account.email
-        mattermost_store = MattermostAccountStore(self._session, encryption)
-        for account in mattermost_store.list_accounts(self._user_id):
-            labels[account.id] = self._mattermost_account_label(account)
-        return labels
 
     @staticmethod
     def _mattermost_account_label(account) -> str:

@@ -12,6 +12,7 @@ from app.services.job_queue_service import (
     is_job_error_retryable,
     sanitize_job_error,
 )
+from app.services.source_sync_preference_service import SourceSyncPreferenceService
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,23 @@ def process_one_job(embedding_service: EmbeddingService | None = None) -> bool:
         finally:
             session.close()
         return True
+
+    session = SessionLocal()
+    try:
+        queue = JobQueueService(session)
+        if queue.is_recurring_source_job(claimed.type):
+            preferences = SourceSyncPreferenceService.build(session)
+            if not preferences.is_job_type_enabled(claimed.user_id, claimed.type):
+                job = queue.get_job(claimed.id)
+                if job is not None:
+                    queue.retire_recurring_source_job(job)
+                session.commit()
+                return True
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
     try:
         session = SessionLocal()
