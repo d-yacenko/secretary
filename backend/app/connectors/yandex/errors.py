@@ -1,6 +1,7 @@
 class YandexConnectorError(Exception):
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
         self.message = message
+        self.retryable = retryable
         super().__init__(message)
 
 
@@ -13,7 +14,21 @@ class YandexImapError(YandexConnectorError):
 
 
 class YandexCalDavError(YandexConnectorError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str | None = None,
+        path: str | None = None,
+        status_code: int | None = None,
+        category: str | None = None,
+        retryable: bool = False,
+    ) -> None:
+        self.operation = operation
+        self.path = path
+        self.status_code = status_code
+        self.category = category
+        super().__init__(message, retryable=retryable)
 
 
 class YandexCalDavStaleSyncTokenError(YandexCalDavError):

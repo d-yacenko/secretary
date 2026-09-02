@@ -15,7 +15,8 @@ import 'account_test_helpers.dart';
 
 const _baseUrl = 'https://secretary.example';
 const _token = 'opaque-test-token';
-const _appPassword = 'yandex-app-password-secret';
+const _mailPassword = 'sk-testPhase28bD2MailSecret';
+const _calendarPassword = 'sk-testPhase28bD2CalendarSecret';
 
 Map<String, dynamic> _connectionsJson({
   bool yandexMailConnected = false,
@@ -98,9 +99,6 @@ void main() {
           if (isAccountSettingsRequest(request.url)) {
             return http.Response(jsonEncode(accountSettingsJson()), 200);
           }
-          if (isAccountSettingsRequest(request.url)) {
-            return http.Response(jsonEncode(accountSettingsJson()), 200);
-          }
           return http.Response('{}', 404);
         }),
       );
@@ -108,20 +106,19 @@ void main() {
 
       await _pumpAccountReady(
         tester,
-        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+        buildAccountScreen(
+            apiClient: client, authController: _buildAuth(client)),
       );
 
       expect(find.text('Подключить Яндекс'), findsOneWidget);
     });
 
-    testWidgets('dialog has email and obscured app password with both checkboxes', (tester) async {
+    testWidgets('dialog has separate mail and calendar password fields',
+        (tester) async {
       final client = SecretaryApiClient(
         httpClient: MockClient((request) async {
           if (request.url.path.endsWith('/connections')) {
             return http.Response(jsonEncode(_connectionsJson()), 200);
-          }
-          if (isAccountSettingsRequest(request.url)) {
-            return http.Response(jsonEncode(accountSettingsJson()), 200);
           }
           if (isAccountSettingsRequest(request.url)) {
             return http.Response(jsonEncode(accountSettingsJson()), 200);
@@ -139,18 +136,25 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.widgetWithText(TextField, 'Email'), findsOneWidget);
-      final passwordField = tester.widget<TextField>(
-        find.widgetWithText(TextField, 'Пароль приложения'),
+      expect(
+        find.text(
+            'Яндекс Почта и Календарь используют разные пароли приложения.'),
+        findsOneWidget,
       );
-      expect(passwordField.obscureText, isTrue);
+      final mailField = tester.widget<TextField>(
+        find.byKey(const Key('yandex_mail_app_password')),
+      );
+      final calendarField = tester.widget<TextField>(
+        find.byKey(const Key('yandex_calendar_app_password')),
+      );
+      expect(mailField.obscureText, isTrue);
+      expect(calendarField.obscureText, isTrue);
       expect(find.text('Яндекс Почта'), findsOneWidget);
       expect(find.text('Яндекс Календарь'), findsOneWidget);
-      expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile).first).value, isTrue);
-      expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile).last).value, isTrue);
     });
 
-    testWidgets('successful connect calls both endpoints and refreshes connections', (tester) async {
-      int connectionsCalls = 0;
+    testWidgets('both services send distinct passwords to each endpoint',
+        (tester) async {
       int mailCalls = 0;
       int calendarCalls = 0;
       String? mailBody;
@@ -159,15 +163,8 @@ void main() {
       final client = SecretaryApiClient(
         httpClient: MockClient((request) async {
           if (request.url.path.endsWith('/connections')) {
-            connectionsCalls += 1;
-            final mailConnected = connectionsCalls >= 2;
             return http.Response(
-              jsonEncode(_connectionsJson(
-                yandexMailConnected: mailConnected,
-                yandexCalendarConnected: mailConnected,
-                yandexMailEmail: mailConnected ? 'user@yandex.ru' : null,
-                yandexCalendarEmail: mailConnected ? 'user@yandex.ru' : null,
-              )),
+              jsonEncode(_connectionsJson()),
               200,
             );
           }
@@ -179,13 +176,12 @@ void main() {
                 'status': 'connected',
                 'account_id': 'mail-1',
                 'email': 'user@yandex.ru',
-                'imap_host': 'imap.yandex.ru',
-                'imap_port': 993,
               }),
               200,
             );
           }
-          if (request.url.path.endsWith('/connectors/yandex/calendar/connect')) {
+          if (request.url.path
+              .endsWith('/connectors/yandex/calendar/connect')) {
             calendarCalls += 1;
             calendarBody = request.body;
             return http.Response(
@@ -213,10 +209,13 @@ void main() {
       await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
       await tester.enterText(
-        find.widgetWithText(TextField, 'Пароль приложения'),
-        _appPassword,
+          find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
+      await tester.enterText(
+          find.byKey(const Key('yandex_mail_app_password')), _mailPassword);
+      await tester.enterText(
+        find.byKey(const Key('yandex_calendar_app_password')),
+        _calendarPassword,
       );
       await tester.tap(find.widgetWithText(FilledButton, 'Подключить'));
       await tester.pumpAndSettle();
@@ -225,26 +224,35 @@ void main() {
       expect(calendarCalls, 1);
       final mailDecoded = jsonDecode(mailBody!) as Map<String, dynamic>;
       final calendarDecoded = jsonDecode(calendarBody!) as Map<String, dynamic>;
-      expect(mailDecoded['email'], 'user@yandex.ru');
-      expect(mailDecoded['app_password'], _appPassword);
-      expect(mailDecoded.containsKey('imap_host'), isFalse);
-      expect(calendarDecoded.containsKey('caldav_host'), isFalse);
-      expect(connectionsCalls, greaterThanOrEqualTo(2));
-      expect(find.text('Яндекс Почта: подключено (user@yandex.ru)'), findsOneWidget);
-      expect(find.textContaining(_appPassword), findsNothing);
+      expect(mailDecoded['app_password'], _mailPassword);
+      expect(calendarDecoded['app_password'], _calendarPassword);
+      expect(mailDecoded['app_password'], isNot(_calendarPassword));
+      expect(find.textContaining(_mailPassword), findsNothing);
+      expect(find.textContaining(_calendarPassword), findsNothing);
     });
 
-    testWidgets('password controller cleared after submit error', (tester) async {
+    testWidgets('mail-only update does not call calendar connect',
+        (tester) async {
+      int calendarCalls = 0;
       final client = SecretaryApiClient(
         httpClient: MockClient((request) async {
           if (request.url.path.endsWith('/connections')) {
             return http.Response(jsonEncode(_connectionsJson()), 200);
           }
-          if (request.url.path.endsWith('/connectors/yandex/mail/connect')) {
-            return http.Response(jsonEncode({'detail': 'mail failed'}), 400);
+          if (request.url.path
+              .endsWith('/connectors/yandex/calendar/connect')) {
+            calendarCalls += 1;
+            return http.Response('{}', 200);
           }
-          if (request.url.path.endsWith('/connectors/yandex/calendar/connect')) {
-            return http.Response(jsonEncode({'detail': 'calendar failed'}), 400);
+          if (request.url.path.endsWith('/connectors/yandex/mail/connect')) {
+            return http.Response(
+              jsonEncode({
+                'status': 'connected',
+                'account_id': 'mail-1',
+                'email': 'user@yandex.ru',
+              }),
+              200,
+            );
           }
           if (isAccountSettingsRequest(request.url)) {
             return http.Response(jsonEncode(accountSettingsJson()), 200);
@@ -261,27 +269,73 @@ void main() {
       await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
+      await tester.tap(find.text('Яндекс Календарь'));
+      await tester.pumpAndSettle();
       await tester.enterText(
-        find.widgetWithText(TextField, 'Пароль приложения'),
-        _appPassword,
-      );
+          find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
+      await tester.enterText(
+          find.byKey(const Key('yandex_mail_app_password')), _mailPassword);
       await tester.tap(find.widgetWithText(FilledButton, 'Подключить'));
-      for (var i = 0; i < 40; i++) {
-        await tester.pump(const Duration(milliseconds: 50));
-        if (find.textContaining('Не удалось подключить').evaluate().isNotEmpty) {
-          break;
-        }
-      }
+      await tester.pumpAndSettle();
 
-      final passwordField = tester.widget<TextField>(
-        find.widgetWithText(TextField, 'Пароль приложения'),
-      );
-      expect(passwordField.controller?.text, isEmpty);
-      expect(find.textContaining(_appPassword), findsNothing);
+      expect(calendarCalls, 0);
     });
 
-    testWidgets('partial Mail success shows Calendar error and refreshes mail status', (tester) async {
+    testWidgets('calendar-only update does not call mail connect',
+        (tester) async {
+      int mailCalls = 0;
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/connectors/yandex/mail/connect')) {
+            mailCalls += 1;
+            return http.Response('{}', 200);
+          }
+          if (request.url.path
+              .endsWith('/connectors/yandex/calendar/connect')) {
+            return http.Response(
+              jsonEncode({
+                'status': 'connected',
+                'account_id': 'cal-1',
+                'email': 'user@yandex.ru',
+                'caldav_host': 'caldav.yandex.ru',
+              }),
+              200,
+            );
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        AccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+      await tapAccountText(tester, 'Подключить Яндекс');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Яндекс Почта'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
+      await tester.enterText(
+        find.byKey(const Key('yandex_calendar_app_password')),
+        _calendarPassword,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Подключить'));
+      await tester.pumpAndSettle();
+
+      expect(mailCalls, 0);
+    });
+
+    testWidgets('calendar failure does not erase mail connection state',
+        (tester) async {
       int connectionsCalls = 0;
       final client = SecretaryApiClient(
         httpClient: MockClient((request) async {
@@ -306,8 +360,10 @@ void main() {
               200,
             );
           }
-          if (request.url.path.endsWith('/connectors/yandex/calendar/connect')) {
-            return http.Response(jsonEncode({'detail': 'calendar unauthorized'}), 401);
+          if (request.url.path
+              .endsWith('/connectors/yandex/calendar/connect')) {
+            return http.Response(
+                jsonEncode({'detail': 'calendar unauthorized'}), 401);
           }
           if (isAccountSettingsRequest(request.url)) {
             return http.Response(jsonEncode(accountSettingsJson()), 200);
@@ -325,10 +381,13 @@ void main() {
       await tapAccountText(tester, 'Подключить Яндекс');
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
       await tester.enterText(
-        find.widgetWithText(TextField, 'Пароль приложения'),
-        _appPassword,
+          find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
+      await tester.enterText(
+          find.byKey(const Key('yandex_mail_app_password')), _mailPassword);
+      await tester.enterText(
+        find.byKey(const Key('yandex_calendar_app_password')),
+        _calendarPassword,
       );
       await tester.tap(find.widgetWithText(FilledButton, 'Подключить'));
       for (var i = 0; i < 40; i++) {
@@ -339,9 +398,72 @@ void main() {
       }
 
       expect(auth.status, AuthStatus.authenticated);
-      expect(find.textContaining('Не удалось подключить Яндекс Календарь'), findsOneWidget);
-      expect(find.text('Яндекс Почта: подключено (user@yandex.ru)'), findsOneWidget);
+      expect(find.textContaining('Не удалось подключить Яндекс Календарь'),
+          findsOneWidget);
+      expect(find.text('Яндекс Почта: подключено (user@yandex.ru)'),
+          findsOneWidget);
       expect(connectionsCalls, greaterThanOrEqualTo(2));
+    });
+
+    testWidgets('password controllers cleared after submit error',
+        (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/connectors/yandex/mail/connect')) {
+            return http.Response(jsonEncode({'detail': 'mail failed'}), 400);
+          }
+          if (request.url.path
+              .endsWith('/connectors/yandex/calendar/connect')) {
+            return http.Response(
+                jsonEncode({'detail': 'calendar failed'}), 400);
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        AccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+      await tapAccountText(tester, 'Подключить Яндекс');
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Email'), 'user@yandex.ru');
+      await tester.enterText(
+          find.byKey(const Key('yandex_mail_app_password')), _mailPassword);
+      await tester.enterText(
+        find.byKey(const Key('yandex_calendar_app_password')),
+        _calendarPassword,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Подключить'));
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (find
+            .textContaining('Не удалось подключить')
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+      }
+
+      final mailField = tester.widget<TextField>(
+        find.byKey(const Key('yandex_mail_app_password')),
+      );
+      final calendarField = tester.widget<TextField>(
+        find.byKey(const Key('yandex_calendar_app_password')),
+      );
+      expect(mailField.controller?.text, isEmpty);
+      expect(calendarField.controller?.text, isEmpty);
+      expect(find.textContaining(_mailPassword), findsNothing);
+      expect(find.textContaining(_calendarPassword), findsNothing);
     });
   });
 }

@@ -1,40 +1,42 @@
-# Current task — PHASE 28B-D awaiting architect review
+# Current task — PHASE 28B-D2 awaiting architect review
 
 ## Status
 
 PHASE 28B — Per-User Background AI Runtime: **accepted / closed** at `76b133b10ea2408e11c66e3fe1701a59a47bc828`.
 
-Deployment: **PASS**.
+PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed**. Real E2E **PASS**:
+- source error diagnostics PASS
+- Yandex Mail PASS
+- Inbox desktop passive refresh PASS
+- new mail appeared automatically without tab switch
 
-Manual matched-version checks:
-- Assistant PASS
-- direct task mutation PASS
-- Assistant approval/action plan PASS
-- MCP manual E2E deferred
+Open corrective: Yandex Calendar recurring CalDAV sync failure.
 
-Current: **PHASE 28B-D — Source Status Diagnostics & UI Freshness** — implementation complete, awaiting architect review.
+Current: **PHASE 28B-D2 — Yandex Calendar CalDAV Regression & Credential Corrective** — implementation complete, awaiting architect review.
 
 Do **not** merge, deploy, or start 28C until review.
 
-## PHASE 28B-D delivered
+## PHASE 28B-D2 delivered
 
-- Per-source sync error cards in Inbox (provider, account label, safe reason, timing)
-- Source errors visible when Inbox has no notifications/objects
-- Passive snapshot refresh scheduler fix (paused tick no longer stops polling)
-- Manual source refresh `try/finally` resets `_isSourceRefreshing` on all paths
-- Inbox/Today passive refresh survives manual refresh overlap and failure
+- Typed CalDAV failure model (auth/permission/not_found/rate_limit/server/network) with safe user-visible messages
+- Job retry classification respects CalDAV retryability; stale sync-token recovery preserved
+- Calendar connect validates credentials before overwrite; transient failures do not destroy stored credential
+- Account Yandex dialog: separate Mail and Calendar app-password fields; service-scoped connect calls
+- Live safe probe on matched deployment: HTTP 401 on principal PROPFIND; stored Mail/Calendar passwords equal
 
 ## Branch
 
-`review/phase-28b-source-ui-freshness` from `76b133b10ea2408e11c66e3fe1701a59a47bc828`.
+`review/phase-28b-yandex-calendar-caldav` from `47acf9c64a62b8ad87f3264732eed631fb1d21dd`.
 
-## Approved next after acceptance/deploy
+## Approved next after D2 acceptance/deploy/E2E
 
 PHASE 28C — Per-User Source/Sync Preferences.
 
-## Not in 28B-D
+## Not in 28B-D2
 
-- Source sync preferences (28C)
+- Database migration (Alembic remains `0020`)
+- Calendar write support
+- Source cadence preferences (28C)
+- Google / Yandex Disk / MCP changes
 - WebSocket/SSE
-- Database migration
-- MCP work
+- Large Account redesign

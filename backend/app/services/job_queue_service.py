@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.connectors.google.api_errors import format_google_api_error
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
+from app.connectors.yandex.caldav_api_errors import format_yandex_caldav_error
+from app.connectors.yandex.errors import YandexCalDavError, YandexConnectorError
 from app.db.models import Job
 from app.jobs.constants import (
     JOB_STATUS_DONE,
@@ -36,6 +38,8 @@ def utcnow() -> datetime:
 def sanitize_job_error(exc: BaseException) -> str:
     if isinstance(exc, GoogleApiError):
         return format_google_api_error(exc)
+    if isinstance(exc, YandexCalDavError):
+        return format_yandex_caldav_error(exc)
     message = str(exc).strip() or type(exc).__name__
     first_line = message.splitlines()[0]
     lowered = first_line.lower()
@@ -64,6 +68,10 @@ def is_job_error_retryable(exc: BaseException) -> bool:
     ):
         return False
     if isinstance(exc, GoogleApiError):
+        return exc.retryable
+    if isinstance(exc, YandexCalDavError):
+        return exc.retryable
+    if isinstance(exc, YandexConnectorError):
         return exc.retryable
     if isinstance(exc, GoogleConnectorError):
         return exc.retryable

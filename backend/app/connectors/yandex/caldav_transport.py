@@ -6,6 +6,10 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
+from app.connectors.yandex.caldav_api_errors import (
+    raise_for_caldav_http_response,
+    raise_for_caldav_request_error,
+)
 from app.connectors.yandex.constants import (
     CALENDAR_MULTIGET_BATCH_SIZE,
     DEFAULT_CALDAV_BASE_URL,
@@ -187,20 +191,55 @@ class CalDavHttpTransport:
         self.last_request_path = path
         self.last_request_body = body
         url = urljoin(self._base_url + "/", path.lstrip("/"))
-        response = self._http.request(
-            method,
-            url,
-            content=body.encode("utf-8"),
-            headers=headers,
-            auth=(self._email, self._password),
-        )
+        try:
+            response = self._http.request(
+                method,
+                url,
+                content=body.encode("utf-8"),
+                headers=headers,
+                auth=(self._email, self._password),
+            )
+        except httpx.TimeoutException as exc:
+            raise raise_for_caldav_request_error(
+                exc,
+                operation=method,
+                path=path,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise raise_for_caldav_request_error(
+                exc,
+                operation=method,
+                path=path,
+            ) from exc
         if response.status_code >= 400:
             if "sync-collection" in body and _is_stale_sync_token_response(
                 response.status_code, response.text
             ):
-                raise YandexCalDavStaleSyncTokenError(f"caldav sync-token invalid for {path}")
-            raise YandexCalDavError(f"caldav request failed for {path}")
+                raise YandexCalDavStaleSyncTokenError(
+                    f"caldav sync-token invalid for {path}",
+                    operation=method,
+                    path=path,
+                    status_code=response.status_code,
+                    category="permission",
+                    retryable=False,
+                )
+            raise_for_caldav_http_response(
+                response,
+                operation=method,
+                path=path,
+            )
         return response.text
+
+    def probe_principal(self) -> None:
+        """Bounded read-only credential check via principal PROPFIND."""
+        principal_path = self._principal_path()
+        principal_body = (
+            "<?xml version='1.0' encoding='UTF-8'?>"
+            "<d:propfind xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+            "<d:prop><c:calendar-home-set/></d:prop>"
+            "</d:propfind>"
+        )
+        self._request("PROPFIND", principal_path, principal_body, depth="0")
 
     def discover_calendars(self, max_results: int) -> list[CalDavCalendar]:
         principal_path = self._principal_path()

@@ -82,13 +82,15 @@ PHASE 28B-C — Per-User Request-Time Graph Embeddings: **accepted / closed** (`
 
 PHASE 28B-C2 — Remaining Per-User Request-Time / Tool Embeddings: **accepted / closed** at `76b133b10ea2408e11c66e3fe1701a59a47bc828`. Deployment: **PASS**. Manual matched-version E2E: Assistant PASS; task mutation PASS; approval/action plan PASS; MCP manual E2E deferred.
 
-PHASE 28B-D — Source Status Diagnostics & UI Freshness: **implementation complete, awaiting architect review**.
+PHASE 28B-D — Source Status Diagnostics & UI Freshness: **accepted / deployed**. Real E2E **PASS** (source diagnostics, Yandex Mail, Inbox passive refresh).
+
+PHASE 28B-D2 — Yandex Calendar CalDAV Regression & Credential Corrective: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
 
-Next: **architect review of PHASE 28B-D** on branch `review/phase-28b-source-ui-freshness`.
+Next: **architect review of PHASE 28B-D2** on branch `review/phase-28b-yandex-calendar-caldav`.
 
-Approved next after acceptance/deploy: **PHASE 28C — Per-User Source/Sync Preferences**.
+Approved next after D2 acceptance/deploy/E2E: **PHASE 28C — Per-User Source/Sync Preferences**.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

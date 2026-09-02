@@ -1208,6 +1208,30 @@ def test_yandex_calendar_connect_api_does_not_return_app_password(
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "secretary_credential_key", credential_key)
+
+    class OkClient:
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            return httpx.Response(
+                207,
+                text=(
+                    "<?xml version='1.0'?>"
+                    "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+                    "<d:response><d:propstat><d:status>HTTP/1.1 200 OK</d:status>"
+                    "<d:prop><c:calendar-home-set><d:href>/calendars/user/</d:href>"
+                    "</c:calendar-home-set></d:prop></d:propstat></d:response>"
+                    "</d:multistatus>"
+                ),
+            )
+
+    monkeypatch.setattr(
+        "app.api.yandex.CalDavHttpTransport",
+        lambda email, password, base_url, http_client=None: CalDavHttpTransport(
+            email=email,
+            password=password,
+            base_url=base_url,
+            http_client=OkClient(),
+        ),
+    )
     response = client.post(
         "/connectors/yandex/calendar/connect",
         json={
@@ -1834,7 +1858,7 @@ def test_sync_collection_permission_forbidden_raises_caldav_error_not_stale() ->
         password="pass",
         http_client=ForbiddenHttpClient(),
     )
-    with pytest.raises(YandexCalDavError, match="caldav request failed"):
+    with pytest.raises(YandexCalDavError, match="HTTP 403"):
         transport.sync_collection(
             CALENDAR_HREF,
             "steady-token",
@@ -1854,7 +1878,7 @@ def test_sync_collection_unrelated_409_raises_caldav_error_not_stale() -> None:
         password="pass",
         http_client=ConflictHttpClient(),
     )
-    with pytest.raises(YandexCalDavError, match="caldav request failed"):
+    with pytest.raises(YandexCalDavError, match="HTTP 409"):
         transport.sync_collection(
             CALENDAR_HREF,
             "steady-token",

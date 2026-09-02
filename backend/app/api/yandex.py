@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.connectors.google.errors import GoogleConfigurationError
+from app.connectors.yandex.caldav_api_errors import format_yandex_caldav_error
+from app.connectors.yandex.caldav_transport import CalDavHttpTransport
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.constants import (
@@ -15,7 +17,11 @@ from app.connectors.yandex.constants import (
     DEFAULT_IMAP_PORT,
 )
 from app.connectors.yandex.credentials import YandexMailAccountStore
-from app.connectors.yandex.errors import YandexConfigurationError, YandexConnectorError
+from app.connectors.yandex.errors import (
+    YandexCalDavError,
+    YandexConfigurationError,
+    YandexConnectorError,
+)
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
@@ -48,6 +54,26 @@ def _calendar_account_store(session: Session) -> YandexCalendarAccountStore:
 
 def _account_store(session: Session) -> YandexMailAccountStore:
     return _mail_account_store(session)
+
+
+def _caldav_base_url(caldav_host: str) -> str:
+    host = caldav_host.strip()
+    if host.startswith(("http://", "https://")):
+        return host.rstrip("/")
+    return f"https://{host.rstrip('/')}"
+
+
+def _validate_yandex_calendar_credentials(
+    email: str,
+    app_password: str,
+    caldav_host: str,
+) -> None:
+    transport = CalDavHttpTransport(
+        email=email,
+        password=app_password,
+        base_url=_caldav_base_url(caldav_host),
+    )
+    transport.probe_principal()
 
 
 @router.post("/connectors/yandex/mail/connect")
@@ -122,6 +148,11 @@ def yandex_calendar_connect(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> dict[str, Any]:
     try:
+        _validate_yandex_calendar_credentials(
+            str(body.email),
+            body.app_password,
+            body.caldav_host,
+        )
         account_store = _calendar_account_store(session)
         account = account_store.upsert_account(
             user_id=current_user.user_id,
@@ -132,6 +163,11 @@ def yandex_calendar_connect(
         session.commit()
     except (GoogleConfigurationError, YandexConfigurationError) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+    except YandexCalDavError as exc:
+        detail = format_yandex_caldav_error(exc)
+        if exc.retryable:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
     return {
         "status": "connected",

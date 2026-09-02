@@ -25,7 +25,8 @@ class AccountScreen extends StatefulWidget {
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserver {
+class _AccountScreenState extends State<AccountScreen>
+    with WidgetsBindingObserver {
   Connections? _connections;
   UserSettings? _settings;
   String? _error;
@@ -124,7 +125,8 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
     }
     setState(() => _profileSaving = true);
     try {
-      await widget.apiClient.patchMe(displayName: _displayNameController.text.trim());
+      await widget.apiClient
+          .patchMe(displayName: _displayNameController.text.trim());
       await widget.authController.refreshUser();
       if (mounted) {
         setState(() => _error = null);
@@ -245,7 +247,8 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
         mode: url_launcher.LaunchMode.externalApplication,
       );
       if (!launched && mounted) {
-        setState(() => _error = 'Не удалось открыть браузер для авторизации Google');
+        setState(
+            () => _error = 'Не удалось открыть браузер для авторизации Google');
       }
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
@@ -311,7 +314,8 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
               const SizedBox(width: 8),
               OutlinedButton(
                 onPressed: _settingsSaving ? null : _saveTimezone,
-                child: Text(_settingsSaving ? 'Сохранение…' : 'Сохранить часовой пояс'),
+                child: Text(
+                    _settingsSaving ? 'Сохранение…' : 'Сохранить часовой пояс'),
               ),
             ],
           ),
@@ -352,7 +356,8 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
                 DropdownButton<String>(
                   value: _dropdownAssistantModel(settings),
                   items: settings.allowedAssistantModels
-                      .map((model) => DropdownMenuItem(value: model, child: Text(model)))
+                      .map((model) =>
+                          DropdownMenuItem(value: model, child: Text(model)))
                       .toList(),
                   onChanged: _settingsSaving
                       ? null
@@ -411,7 +416,8 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
           const SizedBox(height: 16),
           Text('Подключения', style: Theme.of(context).textTheme.titleSmall),
           if (_error != null)
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
           if (_loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -477,7 +483,8 @@ String googleOAuthButtonLabel(GoogleConnection google) {
 }
 
 String yandexConnectButtonLabel(Connections connections) {
-  if (!connections.yandexMail.connected && !connections.yandexCalendar.connected) {
+  if (!connections.yandexMail.connected &&
+      !connections.yandexCalendar.connected) {
     return 'Подключить Яндекс';
   }
   return 'Обновить данные Яндекса';
@@ -582,7 +589,8 @@ class _YandexConnectDialog extends StatefulWidget {
 
 class _YandexConnectDialogState extends State<_YandexConnectDialog> {
   final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _mailPasswordController = TextEditingController();
+  final _calendarPasswordController = TextEditingController();
   bool _connectMail = true;
   bool _connectCalendar = true;
   bool _submitting = false;
@@ -591,7 +599,8 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
   @override
   void dispose() {
     _emailController.dispose();
-    _passwordController.dispose();
+    _mailPasswordController.dispose();
+    _calendarPasswordController.dispose();
     super.dispose();
   }
 
@@ -600,16 +609,29 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
       return;
     }
     final email = _emailController.text.trim();
-    final appPassword = _passwordController.text.trim();
-    if (email.isEmpty || appPassword.isEmpty) {
+    final mailPassword = _mailPasswordController.text.trim();
+    final calendarPassword = _calendarPasswordController.text.trim();
+    if (email.isEmpty) {
       setState(() {
-        _error = 'Укажите email и пароль приложения';
+        _error = 'Укажите email';
       });
       return;
     }
     if (!_connectMail && !_connectCalendar) {
       setState(() {
         _error = 'Выберите хотя бы один сервис';
+      });
+      return;
+    }
+    if (_connectMail && mailPassword.isEmpty) {
+      setState(() {
+        _error = 'Укажите пароль приложения для Яндекс Почты';
+      });
+      return;
+    }
+    if (_connectCalendar && calendarPassword.isEmpty) {
+      setState(() {
+        _error = 'Укажите пароль приложения для Яндекс Календаря';
       });
       return;
     }
@@ -625,7 +647,7 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
       try {
         await widget.apiClient.connectYandexMail(
           email: email,
-          appPassword: appPassword,
+          appPassword: mailPassword,
         );
       } on AuthenticationException {
         widget.authController.handleAuthenticationFailure();
@@ -642,7 +664,7 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
       try {
         await widget.apiClient.connectYandexCalendar(
           email: email,
-          appPassword: appPassword,
+          appPassword: calendarPassword,
         );
       } on AuthenticationException {
         widget.authController.handleAuthenticationFailure();
@@ -655,7 +677,8 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
       }
     }
 
-    _passwordController.clear();
+    _mailPasswordController.clear();
+    _calendarPasswordController.clear();
     await widget.onConnected();
 
     if (!mounted) {
@@ -693,18 +716,10 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
               textInputAction: TextInputAction.next,
               autocorrect: false,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(
-                labelText: 'Пароль приложения',
-              ),
-              enabled: !_submitting,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submit(),
+            const SizedBox(height: 8),
+            Text(
+              'Яндекс Почта и Календарь используют разные пароли приложения.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
             CheckboxListTile(
@@ -715,14 +730,45 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
                   ? null
                   : (value) => setState(() => _connectMail = value ?? false),
             ),
+            if (_connectMail) ...[
+              TextField(
+                key: const Key('yandex_mail_app_password'),
+                controller: _mailPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'Пароль приложения — Почта',
+                ),
+                enabled: !_submitting,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 8),
+            ],
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Яндекс Календарь'),
               value: _connectCalendar,
               onChanged: _submitting
                   ? null
-                  : (value) => setState(() => _connectCalendar = value ?? false),
+                  : (value) =>
+                      setState(() => _connectCalendar = value ?? false),
             ),
+            if (_connectCalendar) ...[
+              TextField(
+                key: const Key('yandex_calendar_app_password'),
+                controller: _calendarPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'Пароль приложения — Календарь',
+                ),
+                enabled: !_submitting,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+              ),
+            ],
             if (_submitting) ...[
               const SizedBox(height: 16),
               const Center(
@@ -769,7 +815,8 @@ class _MattermostConnectDialog extends StatefulWidget {
   final Future<void> Function() onConnected;
 
   @override
-  State<_MattermostConnectDialog> createState() => _MattermostConnectDialogState();
+  State<_MattermostConnectDialog> createState() =>
+      _MattermostConnectDialogState();
 }
 
 class _MattermostConnectDialogState extends State<_MattermostConnectDialog> {
@@ -958,7 +1005,8 @@ class _OpenAiKeyDialogState extends State<_OpenAiKeyDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.replace ? 'Заменить OpenAI ключ' : 'Установить OpenAI ключ'),
+      title: Text(
+          widget.replace ? 'Заменить OpenAI ключ' : 'Установить OpenAI ключ'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
