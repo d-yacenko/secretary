@@ -151,6 +151,32 @@ def test_forbidden_raises_resource_permission_denied() -> None:
         raise_for_drive_metadata_error(exc)
 
 
+def test_rate_limit_exceeded_re_raises_original_google_api_error() -> None:
+    exc = _api_error(403, "rateLimitExceeded", api_status="RESOURCE_EXHAUSTED")
+    assert exc.retryable is True
+    with pytest.raises(GoogleApiError) as raised:
+        raise_for_drive_metadata_error(exc)
+    err = raised.value
+    assert err is exc
+    assert err.status_code == 403
+    assert err.reason == "rateLimitExceeded"
+    assert err.api_status == "RESOURCE_EXHAUSTED"
+    assert err.retryable is True
+
+
+def test_user_rate_limit_exceeded_re_raises_original_google_api_error() -> None:
+    exc = _api_error(403, "userRateLimitExceeded", api_status="RESOURCE_EXHAUSTED")
+    assert exc.retryable is True
+    with pytest.raises(GoogleApiError) as raised:
+        raise_for_drive_metadata_error(exc)
+    err = raised.value
+    assert err is exc
+    assert err.status_code == 403
+    assert err.reason == "userRateLimitExceeded"
+    assert err.api_status == "RESOURCE_EXHAUSTED"
+    assert err.retryable is True
+
+
 def test_domain_policy_raises_organization_policy_message() -> None:
     exc = _api_error(403, "domainPolicy", api_status="PERMISSION_DENIED")
     with pytest.raises(

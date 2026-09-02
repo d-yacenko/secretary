@@ -66,6 +66,8 @@ def raise_for_drive_metadata_error(exc: GoogleApiError) -> None:
             raise ExplicitLinkIntakeError(
                 "google drive access blocked by organization policy"
             ) from exc
+        if exc.retryable:
+            raise exc
         raise ExplicitLinkIntakeError("google drive resource permission denied") from exc
 
     raise exc
