@@ -68,7 +68,8 @@ class _TodayScreenState extends State<TodayScreen> {
     super.dispose();
   }
 
-  Future<void> _loadToday({bool showFullLoader = true, bool passive = false}) async {
+  Future<void> _loadToday(
+      {bool showFullLoader = true, bool passive = false}) async {
     if (!mounted) {
       return;
     }
@@ -118,17 +119,38 @@ class _TodayScreenState extends State<TodayScreen> {
         _loadState = TodayLoadState.loading;
       }
     });
-    final result = await _sourceRefreshService.refreshSources();
-    await _loadToday(showFullLoader: _today == null);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _isSourceRefreshing = false;
-      if (result.timedOut) {
-        _refreshStatusMessage = 'Синхронизация источников продолжается';
+    try {
+      final result = await _sourceRefreshService.refreshSources();
+      if (!mounted) {
+        return;
       }
-    });
+      await _loadToday(showFullLoader: _today == null);
+      if (!mounted) {
+        return;
+      }
+      if (result.timedOut) {
+        setState(() {
+          _refreshStatusMessage = 'Синхронизация источников продолжается';
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _refreshStatusMessage = e.message;
+        if (_today == null) {
+          _loadState = TodayLoadState.error;
+          _errorMessage = e.message;
+        }
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isSourceRefreshing = false);
+      }
+    }
   }
 
   @override

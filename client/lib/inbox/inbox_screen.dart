@@ -13,6 +13,7 @@ import '../capture/capture_controller.dart';
 import '../local/local_intake_actions.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
+import '../sources/source_sync_error_presentation.dart';
 import '../ui/date_format.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
@@ -38,7 +39,8 @@ class InboxScreen extends StatefulWidget {
   final CaptureController captureController;
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
-  final void Function(NotificationOut notification)? onAskSecretaryAboutNotification;
+  final void Function(NotificationOut notification)?
+      onAskSecretaryAboutNotification;
   final ShowInGraphHandler? onShowInGraph;
   final Duration passiveRefreshInterval;
 
@@ -102,7 +104,8 @@ class InboxScreenState extends State<InboxScreen> {
     await _loadInbox(showFullLoader: false);
   }
 
-  Future<void> _loadInbox({bool showFullLoader = true, bool passive = false}) async {
+  Future<void> _loadInbox(
+      {bool showFullLoader = true, bool passive = false}) async {
     if (!mounted) {
       return;
     }
@@ -152,17 +155,38 @@ class InboxScreenState extends State<InboxScreen> {
         _loadState = InboxLoadState.loading;
       }
     });
-    final result = await _sourceRefreshService.refreshSources();
-    await _loadInbox(showFullLoader: _inbox == null);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _isSourceRefreshing = false;
-      if (result.timedOut) {
-        _refreshStatusMessage = 'Синхронизация источников продолжается';
+    try {
+      final result = await _sourceRefreshService.refreshSources();
+      if (!mounted) {
+        return;
       }
-    });
+      await _loadInbox(showFullLoader: _inbox == null);
+      if (!mounted) {
+        return;
+      }
+      if (result.timedOut) {
+        setState(() {
+          _refreshStatusMessage = 'Синхронизация источников продолжается';
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _refreshStatusMessage = e.message;
+        if (_inbox == null) {
+          _loadState = InboxLoadState.error;
+          _errorMessage = e.message;
+        }
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isSourceRefreshing = false);
+      }
+    }
   }
 
   Future<void> _submitLinkIntake() async {
@@ -214,7 +238,8 @@ class InboxScreenState extends State<InboxScreen> {
   }
 
   void _showIntakeSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _accept(NotificationOut notification) async {
@@ -445,7 +470,8 @@ class InboxScreenState extends State<InboxScreen> {
         final inbox = _inbox!;
         final hasNotifications = inbox.unresolvedNotifications.isNotEmpty;
         final hasSources = inbox.recentSourceObjects.isNotEmpty;
-        if (!hasNotifications && !hasSources) {
+        final syncErrorRows = sourceSyncErrorRows(inbox.sourceSyncStatus);
+        if (!hasNotifications && !hasSources && syncErrorRows.isEmpty) {
           return const Center(child: Text('Входящие пусты'));
         }
         return ListView(
@@ -456,16 +482,7 @@ class InboxScreenState extends State<InboxScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(_refreshStatusMessage!),
               ),
-            if (inbox.sourceSyncStatus.any((row) => row.status == 'error'))
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    'Некоторые источники не синхронизированы. '
-                    'Проверьте подключения или повторите позже.',
-                  ),
-                ),
-              ),
+            SourceSyncErrorList(errorRows: syncErrorRows),
             const _SectionHeader(title: 'Требует внимания'),
             if (!hasNotifications)
               const Padding(
@@ -628,7 +645,8 @@ class _NotificationCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
-            Text('Приоритет: ${notificationPriorityLabel(notification.priority)}'),
+            Text(
+                'Приоритет: ${notificationPriorityLabel(notification.priority)}'),
             if (notification.proposalType != null)
               Text(
                 'Тип: ${notificationProposalTypeLabel(notification.proposalType!)}',

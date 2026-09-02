@@ -57,7 +57,7 @@ class PassiveSnapshotRefresh with WidgetsBindingObserver {
 
   void _scheduleNextTick() {
     _timer?.cancel();
-    if (_disposed || _lifecyclePaused || isPaused()) {
+    if (_disposed || _lifecyclePaused) {
       return;
     }
     _timer = Timer(interval, () {

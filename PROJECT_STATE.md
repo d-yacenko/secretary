@@ -78,15 +78,17 @@ PHASE 27C-R4C — Google Drive explicit-intake 403 corrective: **accepted / clos
 
 PHASE 28A — User Profile & Per-User Settings Foundation: **accepted / closed** (`d9a7ea874379366fcacdb0646efcad871764658c`). Matched-version manual E2E: **PASS**.
 
-PHASE 28B-C — Per-User Request-Time Graph Embeddings: **accepted / closed** (code) (`485e24942fb778e1952153394dccac552f9e88c3`). Deployment: **pending** combined 28B deployment after C2 review.
+PHASE 28B-C — Per-User Request-Time Graph Embeddings: **accepted / closed** (`485e24942fb778e1952153394dccac552f9e88c3`).
 
-PHASE 28B-C2 — Remaining Per-User Request-Time / Tool Embeddings: **implementation complete, awaiting architect review**.
+PHASE 28B-C2 — Remaining Per-User Request-Time / Tool Embeddings: **accepted / closed** at `76b133b10ea2408e11c66e3fe1701a59a47bc828`. Deployment: **PASS**. Manual matched-version E2E: Assistant PASS; task mutation PASS; approval/action plan PASS; MCP manual E2E deferred.
+
+PHASE 28B-D — Source Status Diagnostics & UI Freshness: **implementation complete, awaiting architect review**.
 
 Architect context refresh checkpoint: **completed** at `bc5a7d29976482bca033543c49a04f9b51f974d0`.
 
-Next: **architect review of PHASE 28B-C2** on branch `review/phase-28b-remaining-embeddings`.
+Next: **architect review of PHASE 28B-D** on branch `review/phase-28b-source-ui-freshness`.
 
-Approved next after full 28B closure: **PHASE 28B-D — Source Status Diagnostics & UI Freshness**.
+Approved next after acceptance/deploy: **PHASE 28C — Per-User Source/Sync Preferences**.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

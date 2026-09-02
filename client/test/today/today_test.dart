@@ -28,67 +28,67 @@ void main() {
       'day_start': '2026-08-28T00:00:00+02:00',
       'tasks': tasks ??
           [
-        {
-          'id': 'task-1',
-          'kind': 'task',
-          'title': 'Due today',
-          'body': null,
-          'provider': null,
-          'external_id': null,
-          'canonical_uri': null,
-          'status': null,
-          'start_at': null,
-          'due_at': '2026-08-28T14:00:00+02:00',
-          'metadata': {},
-          'origin': 'user',
-          'state': 'confirmed',
-          'confidence': null,
-          'created_at': '2026-08-28T08:00:00Z',
-          'updated_at': '2026-08-28T08:00:00Z',
-        },
-      ],
+            {
+              'id': 'task-1',
+              'kind': 'task',
+              'title': 'Due today',
+              'body': null,
+              'provider': null,
+              'external_id': null,
+              'canonical_uri': null,
+              'status': null,
+              'start_at': null,
+              'due_at': '2026-08-28T14:00:00+02:00',
+              'metadata': {},
+              'origin': 'user',
+              'state': 'confirmed',
+              'confidence': null,
+              'created_at': '2026-08-28T08:00:00Z',
+              'updated_at': '2026-08-28T08:00:00Z',
+            },
+          ],
       'calendar_events': calendarEvents ??
           [
-        {
-          'id': 'event-1',
-          'kind': 'event',
-          'title': 'Standup',
-          'body': null,
-          'provider': 'google',
-          'external_id': null,
-          'canonical_uri': null,
-          'status': null,
-          'start_at': '2026-08-28T09:00:00+02:00',
-          'due_at': '2026-08-28T10:00:00+02:00',
-          'metadata': {},
-          'origin': 'source',
-          'state': 'observed',
-          'confidence': null,
-          'created_at': '2026-08-28T08:00:00Z',
-          'updated_at': '2026-08-28T08:00:00Z',
-        },
-      ],
+            {
+              'id': 'event-1',
+              'kind': 'event',
+              'title': 'Standup',
+              'body': null,
+              'provider': 'google',
+              'external_id': null,
+              'canonical_uri': null,
+              'status': null,
+              'start_at': '2026-08-28T09:00:00+02:00',
+              'due_at': '2026-08-28T10:00:00+02:00',
+              'metadata': {},
+              'origin': 'source',
+              'state': 'observed',
+              'confidence': null,
+              'created_at': '2026-08-28T08:00:00Z',
+              'updated_at': '2026-08-28T08:00:00Z',
+            },
+          ],
       'notifications': notifications ??
           [
-        {
-          'id': 'n-urgent',
-          'title': 'Urgent follow-up',
-          'body': null,
-          'priority': 'urgent',
-          'status': 'new',
-          'source_object_id': 'email-1',
-          'related_object_id': null,
-          'result_object_id': null,
-          'proposal': {
-            'type': 'task',
-            'confidence': 0.9,
-            'evidence': [],
-          },
-          'read_at': null,
-          'created_at': '2026-08-28T08:00:00Z',
-          'updated_at': '2026-08-28T08:00:00Z',
-        },
-      ],
+            {
+              'id': 'n-urgent',
+              'title': 'Urgent follow-up',
+              'body': null,
+              'priority': 'urgent',
+              'status': 'new',
+              'source_object_id': 'email-1',
+              'related_object_id': null,
+              'result_object_id': null,
+              'proposal': {
+                'type': 'task',
+                'confidence': 0.9,
+                'evidence': [],
+              },
+              'read_at': null,
+              'created_at': '2026-08-28T08:00:00Z',
+              'updated_at': '2026-08-28T08:00:00Z',
+            },
+          ],
     };
   }
 
@@ -104,7 +104,8 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture =
+        CaptureController(apiClient: apiClient, authController: auth);
     return MaterialApp(
       home: Scaffold(
         body: TodayScreen(
@@ -163,7 +164,8 @@ void main() {
     var todayCalls = 0;
     await tester.pumpWidget(
       buildToday(MockClient((request) async {
-        if (request.method == 'POST' && request.url.path.endsWith('/sources/sync')) {
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/sources/sync')) {
           return http.Response(jsonEncode({'triggered': [], 'count': 0}), 200);
         }
         if (request.url.path.endsWith('/sources/status')) {
@@ -309,7 +311,8 @@ void main() {
     expect(todayAug29.isTaskOverdue(late), isTrue);
   });
 
-  testWidgets('overdue label uses day_start not device timezone', (tester) async {
+  testWidgets('overdue label uses day_start not device timezone',
+      (tester) async {
     await tester.pumpWidget(
       buildToday(MockClient((request) async {
         if (request.url.path == '/today') {
@@ -391,7 +394,8 @@ void main() {
     expect(find.text('Предложено'), findsOneWidget);
   });
 
-  testWidgets('calendar events use compact metadata without raw provider names', (tester) async {
+  testWidgets('calendar events use compact metadata without raw provider names',
+      (tester) async {
     await tester.pumpWidget(
       buildToday(MockClient((request) async {
         if (request.url.path == '/today') {
@@ -479,7 +483,8 @@ void main() {
     expect(find.text('G'), findsOneWidget);
   });
 
-  testWidgets('passive refresh loads newer today snapshot without navigation', (tester) async {
+  testWidgets('passive refresh loads newer today snapshot without navigation',
+      (tester) async {
     int todayCalls = 0;
     await tester.pumpWidget(
       buildToday(
@@ -546,7 +551,8 @@ void main() {
                     },
                   ];
             return http.Response(
-              jsonEncode(todayPayload(calendarEvents: events, notifications: [])),
+              jsonEncode(
+                  todayPayload(calendarEvents: events, notifications: [])),
               200,
             );
           }
@@ -571,5 +577,159 @@ void main() {
 
     expect(todayCalls, 2);
     expect(find.text('Afternoon review'), findsOneWidget);
+  });
+
+  testWidgets('manual source refresh failure resets refreshing state',
+      (tester) async {
+    await tester.pumpWidget(
+      buildToday(MockClient((request) async {
+        if (request.url.path == '/today') {
+          return http.Response(jsonEncode(todayPayload()), 200);
+        }
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/sources/sync')) {
+          return http.Response(jsonEncode({'detail': 'sync failed'}), 500);
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Due today'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Due today'), findsOneWidget);
+    expect(find.byTooltip('Обновить'), findsOneWidget);
+  });
+
+  testWidgets('later passive refresh still occurs after manual refresh failure',
+      (tester) async {
+    int todayCalls = 0;
+    var syncFails = true;
+    await tester.pumpWidget(
+      buildToday(
+        MockClient((request) async {
+          if (request.url.path == '/today') {
+            todayCalls++;
+            return http.Response(
+              jsonEncode(todayPayload(
+                tasks: [
+                  {
+                    'id': 'task-1',
+                    'kind': 'task',
+                    'title':
+                        todayCalls == 1 ? 'Due today' : 'Updated today task',
+                    'body': null,
+                    'provider': null,
+                    'external_id': null,
+                    'canonical_uri': null,
+                    'status': null,
+                    'start_at': null,
+                    'due_at': '2026-08-28T14:00:00+02:00',
+                    'metadata': {},
+                    'origin': 'user',
+                    'state': 'confirmed',
+                    'confidence': null,
+                    'created_at': '2026-08-28T08:00:00Z',
+                    'updated_at': '2026-08-28T08:00:00Z',
+                  },
+                ],
+                notifications: [],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            if (syncFails) {
+              return http.Response(jsonEncode({'detail': 'sync failed'}), 500);
+            }
+            return http.Response(
+                jsonEncode({'triggered': [], 'count': 0}), 200);
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            return http.Response(jsonEncode({'sources': []}), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(todayCalls, 1);
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pumpAndSettle();
+    syncFails = false;
+    expect(find.text('Due today'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(todayCalls, greaterThan(1));
+    expect(find.text('Updated today task'), findsOneWidget);
+  });
+
+  testWidgets('overlap with manual source refresh does not kill polling',
+      (tester) async {
+    int todayCalls = 0;
+    await tester.pumpWidget(
+      buildToday(
+        MockClient((request) async {
+          if (request.url.path == '/today') {
+            todayCalls++;
+            return http.Response(
+              jsonEncode(todayPayload(
+                tasks: [
+                  {
+                    'id': 'task-1',
+                    'kind': 'task',
+                    'title':
+                        todayCalls <= 2 ? 'Due today' : 'Passive updated task',
+                    'body': null,
+                    'provider': null,
+                    'external_id': null,
+                    'canonical_uri': null,
+                    'status': null,
+                    'start_at': null,
+                    'due_at': '2026-08-28T14:00:00+02:00',
+                    'metadata': {},
+                    'origin': 'user',
+                    'state': 'confirmed',
+                    'confidence': null,
+                    'created_at': '2026-08-28T08:00:00Z',
+                    'updated_at': '2026-08-28T08:00:00Z',
+                  },
+                ],
+                notifications: [],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+            return http.Response(
+                jsonEncode({'triggered': [], 'count': 0}), 200);
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+            return http.Response(jsonEncode({'sources': []}), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(todayCalls, 1);
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(todayCalls, greaterThan(2));
+    expect(find.text('Passive updated task'), findsOneWidget);
   });
 }

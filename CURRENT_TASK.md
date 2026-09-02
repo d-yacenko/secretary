@@ -1,35 +1,40 @@
-# Current task — PHASE 28B-C2 awaiting architect review
+# Current task — PHASE 28B-D awaiting architect review
 
 ## Status
 
-PHASE 28B-A — Per-User Background AI Runtime: **accepted / closed** at `2ab6c8d96c5c5695a57042e9e487194f1a6515d3`. Deployment: **PASS**.
+PHASE 28B — Per-User Background AI Runtime: **accepted / closed** at `76b133b10ea2408e11c66e3fe1701a59a47bc828`.
 
-PHASE 28B-B — Per-User Transcription Credential: **accepted / closed** at `18c7bb1f8fd708c7c121217b62071ba26adada38`. Deployment: **PASS**.
+Deployment: **PASS**.
 
-PHASE 28B-C — Per-User Request-Time Graph Embeddings: **accepted / closed** (code) at `485e24942fb778e1952153394dccac552f9e88c3`. Deployment: **pending** combined 28B deployment after C2 review.
+Manual matched-version checks:
+- Assistant PASS
+- direct task mutation PASS
+- Assistant approval/action plan PASS
+- MCP manual E2E deferred
 
-PHASE 28B-C2 — Remaining Per-User Request-Time / Tool Embeddings: **implementation complete, awaiting architect review**.
+Current: **PHASE 28B-D — Source Status Diagnostics & UI Freshness** — implementation complete, awaiting architect review.
 
-Do **not** merge, deploy, or start 28B-D / 28C until review.
+Do **not** merge, deploy, or start 28C until review.
 
-## PHASE 28B-C2 delivered
+## PHASE 28B-D delivered
 
-- Direct task PATCH (title/body) uses per-user embedding credential
-- Status/delete/due_at-only PATCH skip credential resolution
-- Interactive Assistant tool session uses per-user credential
-- MCP authenticated tool session uses per-user credential
-- Action plan approval uses deferred writes without embedding provider
+- Per-source sync error cards in Inbox (provider, account label, safe reason, timing)
+- Source errors visible when Inbox has no notifications/objects
+- Passive snapshot refresh scheduler fix (paused tick no longer stops polling)
+- Manual source refresh `try/finally` resets `_isSourceRefreshing` on all paths
+- Inbox/Today passive refresh survives manual refresh overlap and failure
 
 ## Branch
 
-`review/phase-28b-remaining-embeddings` from `485e24942fb778e1952153394dccac552f9e88c3`.
+`review/phase-28b-source-ui-freshness` from `76b133b10ea2408e11c66e3fe1701a59a47bc828`.
 
-## Approved next after full 28B closure
+## Approved next after acceptance/deploy
 
-PHASE 28B-D — Source Status Diagnostics & UI Freshness (not started).
+PHASE 28C — Per-User Source/Sync Preferences.
 
-## Not in 28B-C2
+## Not in 28B-D
 
 - Source sync preferences (28C)
-- Flutter changes
-- SecretaryService legacy migration
+- WebSocket/SSE
+- Database migration
+- MCP work
