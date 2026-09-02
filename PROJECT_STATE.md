@@ -64,7 +64,7 @@ PHASE 27B-B — Mattermost Operational Backend Integration: **accepted / closed*
 
 PHASE 27B-C — Mattermost Flutter UX + matched-version E2E prep: **accepted / closed** (part of 27B closure).
 
-PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`).
+PHASE 27C-R1 — Explicit Intake foundation + one Google Drive object: **accepted / closed** (`467332c`). Google Drive resource `403` on some explicit-intake paths remains **outstanding** (outside PHASE 28A).
 
 PHASE 27C-R2 — Yandex Disk explicit share-link intake: **accepted / closed** (`374db8aa4bf4b05e922812414e723c7f8a2c4731`).
 

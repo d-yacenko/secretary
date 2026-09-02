@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConfigurationError
 from app.db.models import UserOpenAICredential
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 MAX_OPENAI_API_KEY_LENGTH = 256
 
@@ -29,7 +30,9 @@ class UserOpenAICredentialStore:
 
     def upsert(self, user_id: UUID, api_key: str) -> UserOpenAICredential:
         if self._encryption is None:
-            raise ValueError("credential encryption key is not configured")
+            raise UserOpenAICredentialConfigurationError(
+                "credential encryption is not configured"
+            )
         trimmed = api_key.strip()
         if not trimmed:
             raise ValueError("api_key cannot be blank")
@@ -56,16 +59,25 @@ class UserOpenAICredentialStore:
 
     def get_api_key(self, user_id: UUID) -> str | None:
         row = self.get(user_id)
-        if row is None or self._encryption is None:
+        if row is None:
             return None
-        return self._encryption.decrypt(row.api_key_encrypted)
+        if self._encryption is None:
+            raise UserOpenAICredentialConfigurationError(
+                "credential encryption is not configured"
+            )
+        try:
+            return self._encryption.decrypt(row.api_key_encrypted)
+        except GoogleConfigurationError as exc:
+            raise UserOpenAICredentialConfigurationError(
+                "stored user OpenAI credential could not be decrypted"
+            ) from exc
 
     @staticmethod
     def build_encryption(key: str) -> CredentialEncryption:
         try:
             return CredentialEncryption(key)
         except GoogleConfigurationError as exc:
-            raise ValueError(exc.message) from exc
+            raise UserOpenAICredentialConfigurationError(exc.message) from exc
 
     @staticmethod
     def build_from_settings(session: Session) -> UserOpenAICredentialStore:

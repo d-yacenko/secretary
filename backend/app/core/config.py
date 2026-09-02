@@ -4,6 +4,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 MIN_SOURCE_SYNC_INTERVAL_SECONDS = 60
 
 
+def normalize_allowed_assistant_models(raw_allowlist: str, deployment_default: str) -> list[str]:
+    default_model = deployment_default.strip()
+    if not default_model:
+        return []
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    raw = raw_allowlist.strip()
+    if raw:
+        for item in raw.split(","):
+            model = item.strip()
+            if not model or model in seen:
+                continue
+            seen.add(model)
+            deduped.append(model)
+
+    if default_model not in seen:
+        deduped.insert(0, default_model)
+    return deduped if deduped else [default_model]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
@@ -72,13 +93,10 @@ class Settings(BaseSettings):
 
     @property
     def allowed_assistant_models(self) -> list[str]:
-        raw = self.openai_allowed_assistant_models.strip()
-        if raw:
-            models = [item.strip() for item in raw.split(",") if item.strip()]
-            if models:
-                return models
-        default_model = self.openai_assistant_model.strip()
-        return [default_model] if default_model else []
+        return normalize_allowed_assistant_models(
+            self.openai_allowed_assistant_models,
+            self.openai_assistant_model,
+        )
 
     @property
     def database_url(self) -> str:

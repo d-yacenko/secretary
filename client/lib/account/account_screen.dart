@@ -350,7 +350,7 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
                 const Text('Модель Assistant:'),
                 const SizedBox(width: 8),
                 DropdownButton<String>(
-                  value: settings.assistantModel,
+                  value: _dropdownAssistantModel(settings),
                   items: settings.allowedAssistantModels
                       .map((model) => DropdownMenuItem(value: model, child: Text(model)))
                       .toList(),
@@ -369,7 +369,7 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
                 const Text('Reasoning effort:'),
                 const SizedBox(width: 8),
                 DropdownButton<String>(
-                  value: settings.assistantReasoningEffort,
+                  value: _dropdownReasoningEffort(settings),
                   items: const [
                     DropdownMenuItem(value: 'none', child: Text('none')),
                     DropdownMenuItem(value: 'low', child: Text('low')),
@@ -391,7 +391,7 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
                 const Text('Verbosity:'),
                 const SizedBox(width: 8),
                 DropdownButton<String>(
-                  value: settings.assistantVerbosity,
+                  value: _dropdownVerbosity(settings),
                   items: const [
                     DropdownMenuItem(value: 'low', child: Text('low')),
                     DropdownMenuItem(value: 'medium', child: Text('medium')),
@@ -438,6 +438,32 @@ class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserv
       ),
     );
   }
+}
+
+String _dropdownAssistantModel(UserSettings settings) {
+  if (settings.allowedAssistantModels.contains(settings.assistantModel)) {
+    return settings.assistantModel;
+  }
+  if (settings.allowedAssistantModels.isNotEmpty) {
+    return settings.allowedAssistantModels.first;
+  }
+  return settings.assistantModel;
+}
+
+String _dropdownReasoningEffort(UserSettings settings) {
+  const allowed = ['none', 'low', 'medium', 'high'];
+  if (allowed.contains(settings.assistantReasoningEffort)) {
+    return settings.assistantReasoningEffort;
+  }
+  return 'low';
+}
+
+String _dropdownVerbosity(UserSettings settings) {
+  const allowed = ['low', 'medium', 'high'];
+  if (allowed.contains(settings.assistantVerbosity)) {
+    return settings.assistantVerbosity;
+  }
+  return 'low';
 }
 
 String googleOAuthButtonLabel(GoogleConnection google) {

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.core.config import Settings
+from app.core.config import Settings, normalize_allowed_assistant_models
 
 ALLOWED_ASSISTANT_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high"})
 ALLOWED_ASSISTANT_VERBOSITY = frozenset({"low", "medium", "high"})
@@ -79,6 +79,15 @@ def validated_assistant_openai_settings(settings: Settings) -> AssistantOpenAISe
         raise AssistantOpenAIConfigError(
             f"OPENAI_ASSISTANT_MAX_OUTPUT_TOKENS must be between "
             f"{MIN_ASSISTANT_MAX_OUTPUT_TOKENS} and {MAX_ASSISTANT_MAX_OUTPUT_TOKENS}"
+        )
+
+    allowed_models = normalize_allowed_assistant_models(
+        settings.openai_allowed_assistant_models,
+        model,
+    )
+    if model not in allowed_models:
+        raise AssistantOpenAIConfigError(
+            f"OPENAI_ASSISTANT_MODEL must be one of: {', '.join(allowed_models)}"
         )
 
     return AssistantOpenAISettings(

@@ -1,6 +1,7 @@
 """PHASE 28A — user profile and per-user settings foundation."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -8,12 +9,21 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.api.deps import get_db
-from app.core.config import settings
+import app.api.assistant as assistant_api_module
+from app.api.deps import get_db, get_embedding_service
+from app.core.config import normalize_allowed_assistant_models, settings
 from app.db.models import User, UserOpenAICredential, UserSettings
 from app.main import app
-from app.services.assistant_service import create_assistant_provider_from_effective
-from app.services.effective_user_settings_service import EffectiveUserSettingsService
+from app.services.assistant_service import (
+    AssistantConfigurationError,
+    create_assistant_provider_from_effective,
+)
+from app.services.effective_user_settings_service import (
+    EffectiveUserSettings,
+    EffectiveUserSettingsService,
+)
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
+from app.services.user_openai_credential_store import UserOpenAICredentialStore
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 from tests.conftest import AuthTestClient
 
@@ -240,7 +250,201 @@ def test_create_assistant_provider_from_effective_without_key_raises(
     monkeypatch.setattr(settings, "openai_api_key", "")
     service = EffectiveUserSettingsService.build(db_session)
     effective = service.get_effective_settings(BOOTSTRAP_USER_ID)
-    from app.services.assistant_service import AssistantConfigurationError
 
     with pytest.raises(AssistantConfigurationError):
         create_assistant_provider_from_effective(effective)
+
+
+def test_normalize_allowed_assistant_models_dedupes_and_includes_default() -> None:
+    models = normalize_allowed_assistant_models("gpt-b, gpt-a, gpt-b", "gpt-default")
+    assert models == ["gpt-default", "gpt-b", "gpt-a"]
+
+
+def test_effective_model_falls_back_when_deployment_policy_narrows(
+    profile_client, db_session, monkeypatch, credential_key
+) -> None:
+    monkeypatch.setattr(settings, "openai_assistant_model", "gpt-a")
+    monkeypatch.setattr(settings, "openai_allowed_assistant_models", "gpt-a,gpt-b")
+    profile_client.patch("/me/settings", json={"assistant_model": "gpt-b"})
+
+    monkeypatch.setattr(settings, "openai_allowed_assistant_models", "gpt-a")
+    response = profile_client.get("/me/settings")
+    body = response.json()
+    assert body["assistant_model"] == "gpt-a"
+    assert body["allowed_assistant_models"].count("gpt-a") == 1
+    row = db_session.get(UserSettings, BOOTSTRAP_USER_ID)
+    assert row is not None
+    assert row.assistant_model == "gpt-b"
+
+
+def test_get_settings_model_always_in_allowlist_once(profile_client, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "openai_assistant_model", "gpt-5.6-luna")
+    monkeypatch.setattr(
+        settings,
+        "openai_allowed_assistant_models",
+        "gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-luna",
+    )
+    body = profile_client.get("/me/settings").json()
+    assert body["assistant_model"] in body["allowed_assistant_models"]
+    assert body["allowed_assistant_models"].count(body["assistant_model"]) == 1
+    assert body["allowed_assistant_models"] == ["gpt-5.6-luna", "gpt-5.6-terra"]
+
+
+def test_effective_settings_repr_hides_api_key(
+    db_session, monkeypatch, credential_key
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "sk-deployment")
+    service = EffectiveUserSettingsService.build(db_session)
+    service._credential_store.upsert(BOOTSTRAP_USER_ID, "sk-repr-secret")
+    effective = service.get_effective_settings(BOOTSTRAP_USER_ID)
+    rendered = repr(effective)
+    assert "sk-repr-secret" not in rendered
+    assert "sk-deployment" not in rendered
+
+
+def test_stored_credential_decrypt_failure_does_not_fallback_to_deployment(
+    profile_client, db_session, monkeypatch, credential_key
+) -> None:
+    profile_client.put("/me/credentials/openai", json={"api_key": "sk-user-only"})
+    monkeypatch.setattr(settings, "secretary_credential_key", Fernet.generate_key().decode())
+    monkeypatch.setattr(settings, "openai_api_key", "sk-deployment")
+
+    service = EffectiveUserSettingsService.build(db_session)
+    with pytest.raises(UserOpenAICredentialConfigurationError):
+        service.get_effective_settings(BOOTSTRAP_USER_ID)
+
+    view = service.get_settings_view(BOOTSTRAP_USER_ID)
+    assert view.openai_key_configured is True
+    assert view.openai_api_key is None
+
+
+def test_put_openai_credential_without_encryption_returns_503(
+    profile_client, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "secretary_credential_key", "")
+    response = profile_client.put("/me/credentials/openai", json={"api_key": "sk-test"})
+    assert response.status_code == 503
+
+
+def test_put_oversized_openai_key_returns_422_without_echoing_key(profile_client) -> None:
+    oversized = "x" * 300
+    response = profile_client.put("/me/credentials/openai", json={"api_key": oversized})
+    assert response.status_code == 422
+    assert oversized not in response.text
+
+
+def test_action_plan_resume_uses_user_openai_key_when_deployment_empty(
+    db_session,
+    fake_embedding_service,
+    monkeypatch,
+    credential_key,
+) -> None:
+    from app.assistant.action_plan_constants import PENDING_ACTION_PLAN_STATUS_EXECUTED
+    from app.db.models import PendingActionPlan, User
+    from app.services.assistant_service import create_fake_assistant_provider
+
+    user_id = uuid.uuid4()
+    db_session.add(User(id=user_id, display_name="resume user key"))
+    db_session.flush()
+
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "openai_assistant_model", "gpt-5.6-luna")
+
+    from app.auth.token_service import AuthTokenService
+
+    token_service = AuthTokenService(db_session)
+    token, _ = token_service.issue_token(user_id, label="pytest-resume-key")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    store = UserOpenAICredentialStore.build_from_settings(db_session)
+    store.upsert(user_id, "sk-user-resume-only")
+    db_session.flush()
+
+    plan = PendingActionPlan(
+        user_id=user_id,
+        status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+        actions=[],
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        result={"tool_results": []},
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    captured: dict[str, str] = {}
+
+    def capture_create(effective: EffectiveUserSettings):
+        captured["api_key"] = effective.openai_api_key or ""
+        return create_fake_assistant_provider()
+
+    monkeypatch.setattr(
+        assistant_api_module,
+        "create_assistant_provider_from_effective",
+        capture_create,
+    )
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, headers)
+        response = client.post(f"/assistant/action-plans/{plan.id}/resume")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert captured["api_key"] == "sk-user-resume-only"
+
+
+def test_action_plan_resume_user_a_key_not_used_for_user_b(
+    db_session,
+    fake_embedding_service,
+    monkeypatch,
+    credential_key,
+) -> None:
+    from app.assistant.action_plan_constants import PENDING_ACTION_PLAN_STATUS_EXECUTED
+    from app.db.models import PendingActionPlan, User
+
+    user_a = uuid.uuid4()
+    user_b = uuid.uuid4()
+    db_session.add_all(
+        [
+            User(id=user_a, display_name="resume A"),
+            User(id=user_b, display_name="resume B"),
+        ]
+    )
+    db_session.flush()
+
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    store = UserOpenAICredentialStore.build_from_settings(db_session)
+    store.upsert(user_a, "sk-user-a-resume")
+    db_session.flush()
+
+    plan = PendingActionPlan(
+        user_id=user_b,
+        status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+        actions=[],
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        result={"tool_results": []},
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    from app.auth.token_service import AuthTokenService
+
+    token_service = AuthTokenService(db_session)
+    token_b, _ = token_service.issue_token(user_b, label="pytest-resume-b")
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    with TestClient(app) as test_client:
+        client = AuthTestClient(test_client, headers_b)
+        response = client.post(f"/assistant/action-plans/{plan.id}/resume")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Assistant provider unavailable"

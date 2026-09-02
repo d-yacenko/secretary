@@ -13,6 +13,7 @@ from app.services.effective_user_settings_service import (
     EffectiveUserSettingsService,
 )
 from app.services.errors import ValidationError
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 
 router = APIRouter(tags=["auth"])
@@ -116,7 +117,7 @@ def get_my_settings(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> UserSettingsOut:
     service = _settings_service(session)
-    effective = service.get_effective_settings(current_user.user_id)
+    effective = service.get_settings_view(current_user.user_id)
     return _serialize_settings(effective)
 
 
@@ -167,6 +168,11 @@ def put_openai_credential(
     store = UserOpenAICredentialStore.build_from_settings(session)
     try:
         store.upsert(current_user.user_id, payload.api_key)
+    except UserOpenAICredentialConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.message,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

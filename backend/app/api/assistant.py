@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
@@ -25,10 +26,12 @@ from app.services.assistant_service import (
     AssistantProvider,
     AssistantService,
     AssistantValidationError,
-    create_assistant_provider,
     create_assistant_provider_from_effective,
 )
-from app.services.effective_user_settings_service import EffectiveUserSettingsService
+from app.services.effective_user_settings_service import (
+    EffectiveUserSettings,
+    EffectiveUserSettingsService,
+)
 from app.services.errors import NotFoundError, ValidationError
 from app.services.transcription_service import (
     TranscriptionConfigurationError,
@@ -36,6 +39,7 @@ from app.services.transcription_service import (
     create_transcription_provider,
     transcribe_audio_upload,
 )
+from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 ASSISTANT_PROVIDER_UNAVAILABLE = "Assistant provider unavailable"
 TRANSCRIPTION_PROVIDER_UNAVAILABLE = "Transcription provider unavailable"
@@ -113,38 +117,50 @@ class AssistantTranscribeResponse(BaseModel):
     text: str
 
 
-def get_assistant_provider(
+@dataclass(frozen=True)
+class AssistantRuntime:
+    provider: AssistantProvider
+    effective: EffectiveUserSettings
+
+
+def build_assistant_runtime(session: Session, user_id: UUID) -> AssistantRuntime:
+    settings_service = EffectiveUserSettingsService.build(session)
+    effective = settings_service.get_effective_settings(user_id)
+    provider = create_assistant_provider_from_effective(effective)
+    return AssistantRuntime(provider=provider, effective=effective)
+
+
+def get_assistant_runtime(
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
-) -> AssistantProvider:
+) -> AssistantRuntime:
     try:
-        settings_service = EffectiveUserSettingsService.build(session)
-        effective = settings_service.get_effective_settings(current_user.user_id)
-        return create_assistant_provider_from_effective(effective)
-    except (AssistantConfigurationError, AssistantOpenAIConfigError) as exc:
+        return build_assistant_runtime(session, current_user.user_id)
+    except (
+        AssistantConfigurationError,
+        AssistantOpenAIConfigError,
+        UserOpenAICredentialConfigurationError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=ASSISTANT_PROVIDER_UNAVAILABLE,
         ) from exc
+
+
+def get_assistant_provider(
+    runtime: AssistantRuntime = Depends(get_assistant_runtime),
+) -> AssistantProvider:
+    return runtime.provider
 
 
 def get_assistant_service(
-    session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
-    provider: AssistantProvider = Depends(get_assistant_provider),
+    runtime: AssistantRuntime = Depends(get_assistant_runtime),
 ) -> AssistantService:
-    try:
-        settings_service = EffectiveUserSettingsService.build(session)
-        effective = settings_service.get_effective_settings(current_user.user_id)
-    except AssistantOpenAIConfigError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
-        ) from exc
     return AssistantService(
         current_user.user_id,
-        provider,
-        user_timezone=effective.timezone,
+        runtime.provider,
+        user_timezone=runtime.effective.timezone,
     )
 
 
@@ -357,14 +373,22 @@ def resume_action_plan(
         ) from exc
 
     try:
-        provider = create_assistant_provider()
-    except AssistantConfigurationError as exc:
+        runtime = build_assistant_runtime(session, current_user.user_id)
+    except (
+        AssistantConfigurationError,
+        AssistantOpenAIConfigError,
+        UserOpenAICredentialConfigurationError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=ASSISTANT_PROVIDER_UNAVAILABLE,
         ) from exc
 
-    assistant = AssistantService(current_user.user_id, provider)
+    assistant = AssistantService(
+        current_user.user_id,
+        runtime.provider,
+        user_timezone=runtime.effective.timezone,
+    )
     try:
         result = assistant.finalize_executed_plan(plan)
     except AssistantProviderError as exc:

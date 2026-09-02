@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.api.assistant import get_assistant_provider
+from app.api.assistant import get_assistant_runtime
 import app.api.assistant as assistant_api_module
 from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import ObjectCreate, EdgeCreate
@@ -31,6 +31,8 @@ from app.tools.gateway import ToolExecutionGateway
 from app.tools.policy import PolicyDecision, ToolPermission, evaluate_policy
 from app.tools.results import ToolExecutionStatus
 from tests.conftest import AuthTestClient
+
+ORIGINAL_BUILD_ASSISTANT_RUNTIME = assistant_api_module.build_assistant_runtime
 
 
 class _MutationOnlyProvider:
@@ -191,16 +193,54 @@ def action_plan_client(db_session, fake_embedding_service, action_plan_user, iss
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, headers), action_plan_user
     app.dependency_overrides.clear()
+    assistant_api_module.build_assistant_runtime = ORIGINAL_BUILD_ASSISTANT_RUNTIME
 
 
 def _override_assistant_provider(provider, monkeypatch=None) -> None:
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    from app.api.assistant import AssistantRuntime, get_assistant_runtime
+    from app.services.effective_user_settings_service import EffectiveUserSettings
+
+    effective = EffectiveUserSettings(
+        timezone="Europe/Amsterdam",
+        assistant_model="gpt-5.6-luna",
+        assistant_reasoning_effort="low",
+        assistant_verbosity="low",
+        openai_api_key=None,
+        openai_key_configured=False,
+        allowed_assistant_models=["gpt-5.6-luna"],
+    )
+    runtime = AssistantRuntime(provider=provider, effective=effective)
+    app.dependency_overrides[get_assistant_runtime] = lambda: runtime
+    assistant_api_module.build_assistant_runtime = lambda session, user_id: runtime
     if monkeypatch is not None:
         monkeypatch.setattr(
             assistant_api_module,
-            "create_assistant_provider",
-            lambda: provider,
+            "build_assistant_runtime",
+            lambda session, user_id: runtime,
         )
+
+
+def _set_assistant_runtime_override(provider) -> None:
+    from app.api.assistant import AssistantRuntime, get_assistant_runtime
+    from app.services.effective_user_settings_service import EffectiveUserSettings
+
+    effective = EffectiveUserSettings(
+        timezone="Europe/Amsterdam",
+        assistant_model="gpt-5.6-luna",
+        assistant_reasoning_effort="low",
+        assistant_verbosity="low",
+        openai_api_key=None,
+        openai_key_configured=False,
+        allowed_assistant_models=["gpt-5.6-luna"],
+    )
+    app.dependency_overrides[get_assistant_runtime] = lambda: AssistantRuntime(
+        provider=provider,
+        effective=effective,
+    )
+    assistant_api_module.build_assistant_runtime = lambda session, user_id: AssistantRuntime(
+        provider=provider,
+        effective=effective,
+    )
 
 
 def _reload_plan(db_session, plan_id: uuid.UUID) -> PendingActionPlan:
@@ -295,7 +335,7 @@ def test_assistant_message_returns_pending_plan(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -334,7 +374,7 @@ def test_approve_executes_exact_frozen_arguments(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -373,7 +413,7 @@ def test_repeat_approve_is_idempotent(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -407,7 +447,7 @@ def test_reject_produces_zero_mutation(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -447,7 +487,7 @@ def test_wrong_user_cannot_approve_plan(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -502,7 +542,7 @@ def test_provider_failure_does_not_leave_pending_plan(
     db_session, fake_embedding_service, action_plan_user, action_plan_client
 ):
     client, _ = action_plan_client
-    app.dependency_overrides[get_assistant_provider] = lambda: _FailingProvider()
+    _set_assistant_runtime_override(_FailingProvider())
 
     class _TestSession:
         def __init__(self) -> None:
@@ -565,7 +605,7 @@ def test_multi_action_plan_commits_atomically(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -613,7 +653,7 @@ def test_failed_action_plan_rolls_back_internal_mutations(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -661,7 +701,7 @@ def test_http_approve_execution_failure_persists_failed_status(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -708,7 +748,7 @@ def test_second_approve_of_failed_plan_remains_failed(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -771,7 +811,7 @@ def test_approve_endpoint_ignores_replacement_arguments(
         def __getattr__(self, name: str):
             return getattr(self._session, name)
 
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     import app.services.assistant_service as assistant_service_module
 
     assistant_service_module.SessionLocal = lambda: _TestSession()
@@ -817,7 +857,7 @@ def test_approved_create_task_creates_confirmed_task(
         {"title": "Confirmed task", "confidence": 0.77},
     )
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
 
     plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
         "pending_action_plan"
@@ -848,7 +888,7 @@ def test_approved_link_objects_creates_confirmed_edge(
         },
     )
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
 
     plan_id = client.post("/assistant/message", json={"message": "link"}).json()[
         "pending_action_plan"
@@ -920,7 +960,7 @@ def test_resume_pending_returns_409_without_provider(
     client, _ = action_plan_client
     provider = _ResumeTextOnlyProvider()
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
 
     plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
         "pending_action_plan"
@@ -936,7 +976,7 @@ def test_resume_rejected_returns_409_without_provider(
     client, _ = action_plan_client
     provider = _ResumeTextOnlyProvider()
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
 
     plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
         "pending_action_plan"
@@ -968,14 +1008,14 @@ def test_resume_failed_returns_409_without_provider(
         ]
     )
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
 
     plan_id = client.post("/assistant/message", json={"message": "fail"}).json()[
         "pending_action_plan"
     ]["id"]
     client.post(f"/assistant/action-plans/{plan_id}/approve")
     resume_provider = _ResumeTextOnlyProvider()
-    app.dependency_overrides[get_assistant_provider] = lambda: resume_provider
+    _set_assistant_runtime_override(resume_provider)
     response = client.post(f"/assistant/action-plans/{plan_id}/resume")
     assert response.status_code == 409
     assert resume_provider.text_only_calls == 0
@@ -1001,7 +1041,7 @@ def test_resume_expired_returns_409_without_provider(
     db_session.flush()
 
     resume_provider = _ResumeTextOnlyProvider()
-    app.dependency_overrides[get_assistant_provider] = lambda: resume_provider
+    _set_assistant_runtime_override(resume_provider)
     response = client.post(f"/assistant/action-plans/{plan.id}/resume")
     assert response.status_code == 409
     assert resume_provider.text_only_calls == 0
@@ -1013,7 +1053,7 @@ def test_wrong_user_resume_returns_404(
     client, _ = action_plan_client
     provider = _ResumeTextOnlyProvider()
     _setup_test_session(db_session)
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
 
     plan_id = client.post("/assistant/message", json={"message": "create"}).json()[
         "pending_action_plan"
@@ -1027,7 +1067,7 @@ def test_wrong_user_resume_returns_404(
     other_headers = {"Authorization": f"Bearer {other_bearer}"}
 
     resume_provider = _ResumeTextOnlyProvider()
-    app.dependency_overrides[get_assistant_provider] = lambda: resume_provider
+    _set_assistant_runtime_override(resume_provider)
     with TestClient(app) as test_client:
         other_client = AuthTestClient(test_client, other_headers)
         response = other_client.post(f"/assistant/action-plans/{plan_id}/resume")
@@ -1116,7 +1156,7 @@ def test_resume_pending_without_openai_config_returns_409_provider_not_construct
         provider_constructed = True
         raise AssertionError("provider should not be constructed")
 
-    monkeypatch.setattr("app.api.assistant.create_assistant_provider", track_create)
+    monkeypatch.setattr("app.api.assistant.build_assistant_runtime", track_create)
 
     client, user_id = action_plan_client
     plan = PendingActionPlan(
@@ -1154,7 +1194,7 @@ def test_resume_wrong_user_without_openai_config_returns_404_provider_not_constr
         provider_constructed = True
         raise AssertionError("provider should not be constructed")
 
-    monkeypatch.setattr("app.api.assistant.create_assistant_provider", track_create)
+    monkeypatch.setattr("app.api.assistant.build_assistant_runtime", track_create)
 
     client, user_id = action_plan_client
     executed = PendingActionPlan(
@@ -1467,7 +1507,7 @@ def test_frozen_update_task_rename_preserves_omitted_fields(
         "update_task",
         {"object_id": str(task.id), "title": "Renamed"},
     )
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     _bind_action_plan_test_session(db_session)
 
     message_response = client.post(
@@ -1504,7 +1544,7 @@ def test_frozen_update_task_clear_body_preserves_other_fields(
         "update_task",
         {"object_id": str(task.id), "body": None},
     )
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     _bind_action_plan_test_session(db_session)
 
     message_response = client.post(
@@ -1541,7 +1581,7 @@ def test_frozen_update_task_clear_due_at_preserves_other_fields(
         "update_task",
         {"object_id": str(task.id), "due_at": None},
     )
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     _bind_action_plan_test_session(db_session)
 
     message_response = client.post(
@@ -1572,7 +1612,7 @@ def test_invalid_update_title_null_not_staged(
         "update_task",
         {"object_id": str(task.id), "title": None},
     )
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     _bind_action_plan_test_session(db_session)
 
     response = client.post(
@@ -1592,7 +1632,7 @@ def test_set_task_status_reject_then_approve_lifecycle(
         "set_task_status",
         {"object_id": str(task.id), "status": "done"},
     )
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     _bind_action_plan_test_session(db_session)
 
     plan_id = client.post(
@@ -1642,7 +1682,7 @@ def test_delete_task_reject_and_approve_lifecycle(
         "delete_task",
         {"object_id": str(task.id)},
     )
-    app.dependency_overrides[get_assistant_provider] = lambda: provider
+    _set_assistant_runtime_override(provider)
     _bind_action_plan_test_session(db_session)
 
     plan_id = client.post(

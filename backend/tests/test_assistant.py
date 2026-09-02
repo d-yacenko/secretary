@@ -8,7 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.api.assistant import get_assistant_provider
+from app.api.assistant import AssistantRuntime, get_assistant_runtime
+import app.api.assistant as assistant_api_module
 from app.api.deps import get_db, get_embedding_service
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
@@ -27,6 +28,7 @@ from app.assistant.tool_output import (
     serialize_tool_output_json,
 )
 from app.assistant.tool_runner import PerTurnToolBudget
+from app.core.config import settings
 from app.db.models import Job, Object, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.assistant_models import AssistantProviderResult
@@ -38,6 +40,7 @@ from app.llm.openai_assistant_provider import (
     _function_call_input_items,
 )
 from app.main import app
+from app.services.effective_user_settings_service import EffectiveUserSettings
 from app.services.assistant_service import AssistantService, create_fake_assistant_provider
 from app.services.domain_tool_service import DomainToolService
 from app.services.errors import NotFoundError
@@ -49,7 +52,47 @@ from app.services.retrieval_service import RetrievalService
 from app.tools.executor import DEFAULT_MAX_TOOL_CALLS, ToolExecutionResult, _dispatch
 from app.tools.results import ToolExecutionStatus
 from app.tools.schemas import ToolError
+from app.services.effective_user_settings_service import EffectiveUserSettingsService
+from app.services.user_openai_credential_store import UserOpenAICredentialStore
 from app.users.bootstrap import BOOTSTRAP_USER_ID
+
+ORIGINAL_BUILD_ASSISTANT_RUNTIME = assistant_api_module.build_assistant_runtime
+
+
+@pytest.fixture
+def credential_key(monkeypatch) -> str:
+    from cryptography.fernet import Fernet
+
+    key = Fernet.generate_key().decode("utf-8")
+    monkeypatch.setattr(settings, "secretary_credential_key", key)
+    return key
+
+
+def _default_test_effective_settings() -> EffectiveUserSettings:
+    return EffectiveUserSettings(
+        timezone="Europe/Amsterdam",
+        assistant_model="gpt-5.6-luna",
+        assistant_reasoning_effort="low",
+        assistant_verbosity="low",
+        openai_api_key=None,
+        openai_key_configured=False,
+        allowed_assistant_models=["gpt-5.6-luna"],
+    )
+
+
+def _set_assistant_runtime_override(provider) -> None:
+    runtime = AssistantRuntime(
+        provider=provider,
+        effective=_default_test_effective_settings(),
+    )
+    app.dependency_overrides[get_assistant_runtime] = lambda: runtime
+    assistant_api_module.build_assistant_runtime = lambda session, user_id: runtime
+
+
+@pytest.fixture(autouse=True)
+def _restore_assistant_runtime_builder():
+    yield
+    assistant_api_module.build_assistant_runtime = ORIGINAL_BUILD_ASSISTANT_RUNTIME
 
 
 @pytest.fixture(autouse=True)
@@ -133,7 +176,7 @@ def assistant_client(db_session, fake_embedding_service, auth_headers, fake_assi
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
-    app.dependency_overrides[get_assistant_provider] = override_provider
+    _set_assistant_runtime_override(override_provider())
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers), fake_assistant_provider
     app.dependency_overrides.clear()
@@ -156,7 +199,7 @@ def test_assistant_requires_auth(db_session, fake_embedding_service) -> None:
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
-    app.dependency_overrides[get_assistant_provider] = create_fake_assistant_provider
+    _set_assistant_runtime_override(create_fake_assistant_provider())
     with TestClient(app) as client:
         response = client.post(
             "/assistant/message",
@@ -199,6 +242,40 @@ def test_assistant_provider_error_returns_502(assistant_client) -> None:
     response = client.post("/assistant/message", json={"message": "hello"})
     assert response.status_code == 502
     assert response.json()["detail"] == "Assistant provider unavailable"
+
+
+def test_assistant_message_dependency_resolves_user_openai_key(
+    assistant_client,
+    db_session,
+    monkeypatch,
+    credential_key,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    store = UserOpenAICredentialStore.build_from_settings(db_session)
+    store.upsert(BOOTSTRAP_USER_ID, "sk-user-only-path")
+    db_session.flush()
+
+    captured: dict[str, str] = {}
+
+    def spy_runtime(session, user_id):
+        from app.services.assistant_service import create_fake_assistant_provider
+
+        settings_service = EffectiveUserSettingsService.build(session)
+        effective = settings_service.get_effective_settings(user_id)
+        captured["api_key"] = effective.openai_api_key or ""
+        return AssistantRuntime(
+            provider=create_fake_assistant_provider(),
+            effective=effective,
+        )
+
+    monkeypatch.setattr(assistant_api_module, "build_assistant_runtime", spy_runtime)
+    app.dependency_overrides.pop(get_assistant_runtime, None)
+
+    client, _ = assistant_client
+    response = client.post("/assistant/message", json={"message": "hello"})
+
+    assert response.status_code == 200
+    assert captured["api_key"] == "sk-user-only-path"
 
 
 def test_assistant_rejects_user_id(assistant_client) -> None:
@@ -372,7 +449,7 @@ def test_assistant_foreign_object_id_not_returned(
     def override_provider():
         return ForeignIdProvider()
 
-    app.dependency_overrides[get_assistant_provider] = override_provider
+    _set_assistant_runtime_override(override_provider())
     client, _ = assistant_client
     response = client.post("/assistant/message", json={"message": "hello"})
     assert response.status_code == 200
@@ -626,7 +703,7 @@ def test_assistant_endpoint_openai_multi_round_no_match_returns_200(
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
-    app.dependency_overrides[get_assistant_provider] = override_provider
+    _set_assistant_runtime_override(override_provider())
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.post(
@@ -690,7 +767,7 @@ def test_assistant_endpoint_openai_multi_round_create_task_success(
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
-    app.dependency_overrides[get_assistant_provider] = override_provider
+    _set_assistant_runtime_override(override_provider())
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.post(
@@ -1083,7 +1160,7 @@ def test_assistant_api_reference_uri_is_sanitized(
                 store_false_used=True,
             )
 
-    app.dependency_overrides[get_assistant_provider] = lambda: ReferenceProvider()
+    _set_assistant_runtime_override(ReferenceProvider())
     client, _ = assistant_client
     response = client.post("/assistant/message", json={"message": "show link"})
     assert response.status_code == 200

@@ -307,6 +307,47 @@ void main() {
 
       expect(deleteCalled, isTrue);
     });
+
+    testWidgets('model dropdown uses only server-provided allowed choices', (tester) async {
+      final client = buildAccountApiClient(
+        settingsJson: accountSettingsJson(
+          assistantModel: 'gpt-5.6-luna',
+          allowedAssistantModels: ['gpt-5.6-luna', 'gpt-5.6-terra'],
+        ),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      expect(find.text('gpt-5.6-luna'), findsWidgets);
+
+      await tester.tap(find.byType(DropdownButton<String>).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('gpt-5.6-terra'), findsOneWidget);
+    });
+
+    testWidgets('inconsistent model and allowlist does not crash Account', (tester) async {
+      final client = buildAccountApiClient(
+        settingsJson: accountSettingsJson(
+          assistantModel: 'gpt-disallowed',
+          allowedAssistantModels: ['gpt-5.6-luna'],
+        ),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      expect(find.text('Модель Assistant:'), findsOneWidget);
+      expect(find.text('gpt-5.6-luna'), findsWidgets);
+      expect(find.text('gpt-disallowed'), findsNothing);
+    });
   });
 }
 
