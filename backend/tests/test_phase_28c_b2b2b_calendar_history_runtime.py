@@ -865,23 +865,38 @@ def test_page_size_increase_continues_with_smaller_stored_size(
     assert reconciled.get("active_page_size") == 50
 
 
-def test_fairness_rotates_across_calendars(
+def _is_history_params(params: dict) -> bool:
+    live_forward = FIXED_NOW + timedelta(days=settings.calendar_sync_days_forward)
+    return not str(params.get("timeMax", "")).startswith(live_forward.strftime("%Y-%m-%d"))
+
+
+def _multi_page_history_handler(
+    cal_id: str,
+    continuation_token: str,
+    selected: list[str],
+    page_tokens: list[str],
+) -> object:
+    def events_handler(params, headers):
+        if not _is_history_params(params):
+            return httpx.Response(200, json={"items": []})
+        selected.append(cal_id)
+        page_tokens.append(str(params.get("pageToken") or ""))
+        return httpx.Response(
+            200,
+            json={"items": [], "nextPageToken": continuation_token},
+        )
+
+    return events_handler
+
+
+def test_fairness_rotates_across_calendars_with_multi_page_backlog(
     db_session,
     credential_key: str,
     oauth_client_file: str,
 ) -> None:
     account = _upsert_calendar_account(db_session, credential_key)
     selected: list[str] = []
-
-    def handler_for(cal_id: str):
-        def events_handler(params, headers):
-            if not params.get("timeMax", "").startswith(
-                (FIXED_NOW + timedelta(days=settings.calendar_sync_days_forward)).strftime("%Y-%m-%d")
-            ):
-                selected.append(cal_id)
-            return httpx.Response(200, json={"items": []})
-
-        return events_handler
+    page_tokens: list[str] = []
 
     fake_http = FakeHttpClient(
         _calendar_list_handler(
@@ -892,18 +907,178 @@ def test_fairness_rotates_across_calendars(
             ]
         )
         | {
-            ("GET", _events_url("cal-a")): handler_for("cal-a"),
-            ("GET", _events_url("cal-b")): handler_for("cal-b"),
-            ("GET", _events_url("cal-c")): handler_for("cal-c"),
+            ("GET", _events_url("cal-a")): _multi_page_history_handler(
+                "cal-a", "a2", selected, page_tokens
+            ),
+            ("GET", _events_url("cal-b")): _multi_page_history_handler(
+                "cal-b", "b2", selected, page_tokens
+            ),
+            ("GET", _events_url("cal-c")): _multi_page_history_handler(
+                "cal-c", "c2", selected, page_tokens
+            ),
         }
     )
     service = _build_service(db_session, credential_key, oauth_client_file, fake_http)
     for _ in range(3):
         service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
-    assert len(selected) == 3
-    assert selected[0] == "cal-a"
-    assert selected[1] == "cal-b"
-    assert selected[2] == "cal-c"
+    assert selected == ["cal-a", "cal-b", "cal-c"]
+    assert page_tokens == ["", "", ""]
+
+    service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    assert selected[3] == "cal-a"
+    assert page_tokens[3] == "a2"
+
+    service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    assert selected[4] == "cal-b"
+    assert page_tokens[4] == "b2"
+
+    stored = db_session.get(GoogleAccount, account.id)
+    backfill = get_history_backfill(stored.calendar_sync_state)
+    assert get_calendar_backfill(backfill, "cal-a").get("next_page_token") == "a2"
+    assert get_calendar_backfill(backfill, "cal-b").get("next_page_token") == "b2"
+    assert get_calendar_backfill(backfill, "cal-c").get("next_page_token") == "c2"
+
+
+def test_single_calendar_multi_page_continues_on_successive_runs(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _upsert_calendar_account(db_session, credential_key)
+    selected: list[str] = []
+    page_tokens: list[str] = []
+
+    def events_handler(params, headers):
+        if not _is_history_params(params):
+            return httpx.Response(200, json={"items": []})
+        selected.append("cal-a")
+        page_tokens.append(str(params.get("pageToken") or ""))
+        token = str(params.get("pageToken") or "")
+        if token == "a2":
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(200, json={"items": [], "nextPageToken": "a2"})
+
+    fake_http = FakeHttpClient(
+        _calendar_list_handler([{"id": "cal-a", "summary": "A"}])
+        | {("GET", _events_url("cal-a")): events_handler}
+    )
+    service = _build_service(db_session, credential_key, oauth_client_file, fake_http)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    assert selected == ["cal-a", "cal-a"]
+    assert page_tokens == ["", "a2"]
+    stored = db_session.get(GoogleAccount, account.id)
+    backfill = get_history_backfill(stored.calendar_sync_state)
+    assert backfill.get("last_history_calendar_id") == "cal-a"
+
+
+def test_non_final_page_advances_round_robin_cursor(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _upsert_calendar_account(db_session, credential_key)
+    fake_http = FakeHttpClient(
+        _calendar_list_handler(
+            [
+                {"id": "cal-a", "summary": "A"},
+                {"id": "cal-b", "summary": "B"},
+            ]
+        )
+        | {
+            ("GET", _events_url("cal-a")): lambda params, headers: httpx.Response(
+                200,
+                json={"items": [], "nextPageToken": "a2"},
+            )
+            if _is_history_params(params)
+            else httpx.Response(200, json={"items": []}),
+            ("GET", _events_url("cal-b")): lambda params, headers: httpx.Response(
+                200,
+                json={"items": []},
+            ),
+        }
+    )
+    service = _build_service(db_session, credential_key, oauth_client_file, fake_http)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    stored = db_session.get(GoogleAccount, account.id)
+    backfill = get_history_backfill(stored.calendar_sync_state)
+    assert backfill.get("last_history_calendar_id") == "cal-a"
+    assert get_calendar_backfill(backfill, "cal-a").get("next_page_token") == "a2"
+
+
+def test_final_page_advances_round_robin_cursor(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+) -> None:
+    account = _upsert_calendar_account(db_session, credential_key)
+    fake_http = FakeHttpClient(
+        _calendar_list_handler([{"id": "cal-a", "summary": "A"}])
+        | {
+            ("GET", _events_url("cal-a")): lambda params, headers: httpx.Response(
+                200,
+                json={"items": []},
+            ),
+        }
+    )
+    service = _build_service(db_session, credential_key, oauth_client_file, fake_http)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    stored = db_session.get(GoogleAccount, account.id)
+    backfill = get_history_backfill(stored.calendar_sync_state)
+    assert backfill.get("last_history_calendar_id") == "cal-a"
+    assert get_calendar_backfill(backfill, "cal-a").get("active_start") is None
+
+
+def test_mid_page_crash_does_not_advance_round_robin_cursor(
+    db_session,
+    credential_key: str,
+    oauth_client_file: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    account = _upsert_calendar_account(db_session, credential_key)
+
+    def events_handler(params, headers):
+        if _is_history_params(params):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _sample_calendar_event("evt-1"),
+                        _sample_calendar_event("evt-2"),
+                    ],
+                    "nextPageToken": "token-b",
+                },
+            )
+        return httpx.Response(200, json={"items": []})
+
+    fake_http = FakeHttpClient(
+        _calendar_list_handler([{"id": "cal-a", "summary": "A"}])
+        | {("GET", _events_url("cal-a")): events_handler}
+    )
+    service = _build_service(db_session, credential_key, oauth_client_file, fake_http)
+    original_materialize = service._materialize_calendar_events
+
+    def crash_wrapper(**kwargs):
+        raw_events = kwargs["raw_events"]
+        if len(raw_events) > 1:
+            original_materialize(
+                raw_events=raw_events[:1],
+                owner_user_id=kwargs["owner_user_id"],
+                calendar_id=kwargs["calendar_id"],
+                calendar_summary=kwargs["calendar_summary"],
+                remaining=kwargs["remaining"],
+            )
+            raise RuntimeError("simulated crash")
+        return original_materialize(**kwargs)
+
+    monkeypatch.setattr(service, "_materialize_calendar_events", crash_wrapper)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
+    stored = db_session.get(GoogleAccount, account.id)
+    backfill = get_history_backfill(stored.calendar_sync_state)
+    assert backfill.get("last_history_calendar_id") is None
+    entry = get_calendar_backfill(backfill, "cal-a")
+    assert entry.get("next_page_token") is None
 
 
 def test_crash_does_not_advance_round_robin_cursor(

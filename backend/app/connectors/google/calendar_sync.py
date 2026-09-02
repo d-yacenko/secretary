@@ -260,11 +260,10 @@ class CalendarSyncService:
         entry = get_calendar_backfill(backfill, calendar_id)
         if page.next_page_token:
             entry = persist_active_page_token(entry, window, page.next_page_token)
-            backfill = set_calendar_backfill(backfill, calendar_id, entry)
         else:
             entry = complete_active_window(entry)
-            backfill = set_calendar_backfill(backfill, calendar_id, entry)
-            backfill = set_last_history_calendar_id(backfill, calendar_id)
+        backfill = set_calendar_backfill(backfill, calendar_id, entry)
+        backfill = set_last_history_calendar_id(backfill, calendar_id)
         calendar_state = set_history_backfill(calendar_state, backfill)
         self._account_store.update_calendar_sync_state(account_id, user_id, calendar_state)
         self._session.flush()
