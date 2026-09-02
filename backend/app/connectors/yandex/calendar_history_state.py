@@ -93,6 +93,13 @@ def sanitize_calendar_history_state(entry: dict[str, Any]) -> dict[str, Any]:
 
     covered_start = _parse_optional_datetime(entry, "covered_window_start")
     covered_end = _parse_optional_datetime(entry, "covered_window_end")
+    if (
+        covered_start is not None
+        and covered_end is not None
+        and covered_start >= covered_end
+    ):
+        entry.pop("covered_window_start", None)
+        covered_start = None
     if covered_start is not None:
         entry["covered_window_start"] = format_stored_datetime(covered_start)
     else:
@@ -219,17 +226,13 @@ def complete_active_history_range(entry: dict[str, Any]) -> dict[str, Any]:
     covered_start = _parse_optional_datetime(entry, "covered_window_start")
     covered_end = _parse_optional_datetime(entry, "covered_window_end")
 
-    claimed = False
     if covered_start is None:
         if (covered_end is not None and active_end <= covered_end) or covered_end is None:
             entry["covered_window_start"] = format_stored_datetime(active_start)
-            claimed = True
-    elif active_end <= covered_start:
-        entry["covered_window_start"] = format_stored_datetime(active_start)
-        claimed = True
-
-    if not claimed and covered_start is not None:
         return clear_active_history_range(entry)
+
+    if active_end == covered_start:
+        entry["covered_window_start"] = format_stored_datetime(active_start)
 
     return clear_active_history_range(entry)
 

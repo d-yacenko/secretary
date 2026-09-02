@@ -157,6 +157,26 @@ def test_policy_increase_preserves_active_range() -> None:
     assert plan.range.history_backfill_cursor == active_start + timedelta(days=5)
 
 
+def test_older_gap_completion_does_not_move_covered_start() -> None:
+    covered_start = datetime(2026, 8, 1, tzinfo=UTC)
+    covered_end = datetime(2026, 9, 1, tzinfo=UTC)
+    active_start = datetime(2026, 6, 1, tzinfo=UTC)
+    active_end = datetime(2026, 7, 1, tzinfo=UTC)
+    entry = {
+        "covered_window_start": format_stored_datetime(covered_start),
+        "covered_window_end": format_stored_datetime(covered_end),
+        "history_backfill_start": format_stored_datetime(active_start),
+        "history_backfill_end": format_stored_datetime(active_end),
+        "history_backfill_days": 90,
+        "history_backfill_cursor": format_stored_datetime(active_start + timedelta(days=5)),
+    }
+    completed = complete_active_history_range(entry)
+    assert completed["covered_window_start"] == format_stored_datetime(covered_start)
+    assert completed["covered_window_end"] == format_stored_datetime(covered_end)
+    assert completed.get("history_backfill_start") is None
+    assert completed.get("history_backfill_cursor") is None
+
+
 def test_contiguous_completion_moves_covered_window_start_backward() -> None:
     covered_start = FIXED_NOW - timedelta(days=30)
     active_start = FIXED_NOW - timedelta(days=90)
@@ -187,6 +207,24 @@ def test_first_completion_establishes_covered_window_start() -> None:
     assert completed.get("history_backfill_start") is None
 
 
+def test_overlap_out_of_order_does_not_move_covered_start() -> None:
+    covered_start = FIXED_NOW - timedelta(days=30)
+    covered_end = FIXED_NOW
+    active_start = FIXED_NOW - timedelta(days=20)
+    active_end = FIXED_NOW - timedelta(days=5)
+    entry = {
+        "covered_window_start": format_stored_datetime(covered_start),
+        "covered_window_end": format_stored_datetime(covered_end),
+        "history_backfill_start": format_stored_datetime(active_start),
+        "history_backfill_end": format_stored_datetime(active_end),
+        "history_backfill_days": 60,
+    }
+    completed = complete_active_history_range(entry)
+    assert completed["covered_window_start"] == format_stored_datetime(covered_start)
+    assert completed["covered_window_end"] == format_stored_datetime(covered_end)
+    assert completed.get("history_backfill_start") is None
+
+
 def test_non_contiguous_completion_does_not_claim_gap() -> None:
     covered_start = FIXED_NOW - timedelta(days=60)
     covered_end = FIXED_NOW - timedelta(days=30)
@@ -203,6 +241,19 @@ def test_non_contiguous_completion_does_not_claim_gap() -> None:
     assert completed["covered_window_start"] == format_stored_datetime(covered_start)
     assert completed["covered_window_end"] == format_stored_datetime(covered_end)
     assert completed.get("history_backfill_start") is None
+
+
+def test_inverted_coverage_pair_clears_start_preserves_end_and_token() -> None:
+    covered_end = FIXED_NOW
+    entry = {
+        "covered_window_start": format_stored_datetime(FIXED_NOW),
+        "covered_window_end": format_stored_datetime(covered_end),
+        "sync_token": "steady-token",
+    }
+    sanitized = sanitize_calendar_history_state(entry)
+    assert sanitized.get("covered_window_start") is None
+    assert sanitized["covered_window_end"] == format_stored_datetime(covered_end)
+    assert sanitized["sync_token"] == "steady-token"
 
 
 def test_malformed_active_state_clears_safely() -> None:
