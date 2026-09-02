@@ -10,13 +10,13 @@ from app.main import app
 @pytest.fixture
 def client(db_session, auth_headers):
     from app.llm.embedding_service import FakeEmbeddingService
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
+    apply_embedding_service_overrides(FakeEmbeddingService())
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers)
     app.dependency_overrides.clear()

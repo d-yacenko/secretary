@@ -30,7 +30,7 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 @pytest.fixture
 def client(db_session, tmp_path: Path, auth_headers):
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     upload_root = tmp_path / "api-uploads"
     upload_root.mkdir()
@@ -39,7 +39,7 @@ def client(db_session, tmp_path: Path, auth_headers):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
+    apply_embedding_service_overrides(FakeEmbeddingService())
     with (
         patch.object(settings, "resource_upload_root", str(upload_root)),
         TestClient(app) as test_client,

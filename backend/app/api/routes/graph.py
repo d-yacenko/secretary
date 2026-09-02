@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, get_embedding_service
+from app.api.deps import get_current_user, get_db, get_user_embedding_service
 from app.api.schemas import (
     ContextOut,
     EdgeCreate,
@@ -14,8 +14,8 @@ from app.api.schemas import (
     ObjectOut,
     ObjectUpdate,
     OpenTargetOut,
-    SearchFacetValueOut,
     SearchFacetsOut,
+    SearchFacetValueOut,
 )
 from app.core.current_user import CurrentUserContext
 from app.llm.embedding_service import EmbeddingService
@@ -28,10 +28,17 @@ from app.services.search_service import SearchService
 router = APIRouter()
 
 
-def _service(
+def _graph_service(
     session: Session = Depends(get_db),
-    embedding_service: EmbeddingService = Depends(get_embedding_service),
     current_user: CurrentUserContext = Depends(get_current_user),
+) -> GraphService:
+    return GraphService(session, current_user.user_id)
+
+
+def _graph_service_with_embedding(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+    embedding_service: EmbeddingService = Depends(get_user_embedding_service),
 ) -> GraphService:
     return GraphService(session, current_user.user_id, embedding_service)
 
@@ -44,7 +51,9 @@ def _not_found(exc: NotFoundError) -> HTTPException:
 
 
 @router.post("/objects", status_code=status.HTTP_201_CREATED, response_model=ObjectOut)
-def create_object(data: ObjectCreate, service: GraphService = Depends(_service)) -> ObjectOut:
+def create_object(
+    data: ObjectCreate, service: GraphService = Depends(_graph_service_with_embedding),
+) -> ObjectOut:
     try:
         obj = service.create_object(data)
     except ConflictError as exc:
@@ -55,7 +64,7 @@ def create_object(data: ObjectCreate, service: GraphService = Depends(_service))
 
 
 @router.get("/objects/{object_id}", response_model=ObjectOut)
-def get_object(object_id: UUID, service: GraphService = Depends(_service)) -> ObjectOut:
+def get_object(object_id: UUID, service: GraphService = Depends(_graph_service)) -> ObjectOut:
     try:
         obj = service.get_object(object_id)
     except NotFoundError as exc:
@@ -67,7 +76,7 @@ def get_object(object_id: UUID, service: GraphService = Depends(_service)) -> Ob
 def patch_object(
     object_id: UUID,
     data: ObjectUpdate,
-    service: GraphService = Depends(_service),
+    service: GraphService = Depends(_graph_service_with_embedding),
 ) -> ObjectOut:
     try:
         obj = service.update_object(object_id, data)
@@ -81,7 +90,7 @@ def patch_object(
 
 
 @router.delete("/objects/{object_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_object(object_id: UUID, service: GraphService = Depends(_service)) -> Response:
+def delete_object(object_id: UUID, service: GraphService = Depends(_graph_service)) -> Response:
     try:
         service.delete_object(object_id)
     except NotFoundError as exc:
@@ -92,7 +101,7 @@ def delete_object(object_id: UUID, service: GraphService = Depends(_service)) ->
 
 
 @router.post("/edges", status_code=status.HTTP_201_CREATED, response_model=EdgeOut)
-def create_edge(data: EdgeCreate, service: GraphService = Depends(_service)) -> EdgeOut:
+def create_edge(data: EdgeCreate, service: GraphService = Depends(_graph_service)) -> EdgeOut:
     try:
         edge = service.create_edge(data)
     except NotFoundError as exc:
@@ -103,7 +112,7 @@ def create_edge(data: EdgeCreate, service: GraphService = Depends(_service)) -> 
 
 
 @router.delete("/edges/{edge_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_edge(edge_id: UUID, service: GraphService = Depends(_service)) -> Response:
+def delete_edge(edge_id: UUID, service: GraphService = Depends(_graph_service)) -> Response:
     try:
         service.delete_edge(edge_id)
     except NotFoundError as exc:
@@ -112,7 +121,7 @@ def delete_edge(edge_id: UUID, service: GraphService = Depends(_service)) -> Res
 
 
 @router.get("/objects/{object_id}/neighbors", response_model=NeighborsOut)
-def get_neighbors(object_id: UUID, service: GraphService = Depends(_service)) -> NeighborsOut:
+def get_neighbors(object_id: UUID, service: GraphService = Depends(_graph_service)) -> NeighborsOut:
     try:
         neighbor_rows = service.get_neighbors(object_id)
     except NotFoundError as exc:
@@ -132,7 +141,7 @@ def get_neighbors(object_id: UUID, service: GraphService = Depends(_service)) ->
 
 
 @router.get("/objects/{object_id}/context", response_model=ContextOut)
-def get_context(object_id: UUID, service: GraphService = Depends(_service)) -> ContextOut:
+def get_context(object_id: UUID, service: GraphService = Depends(_graph_service)) -> ContextOut:
     try:
         obj, edges, neighbors = service.get_context(object_id)
     except NotFoundError as exc:

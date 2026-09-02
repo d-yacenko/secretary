@@ -19,7 +19,7 @@ from app.main import app
 from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-from tests.conftest import AuthTestClient
+from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
 USER_A_KEY = "sk-user-a-28b-transcription-isolation"
 USER_B_KEY = "sk-user-b-28b-transcription-isolation"
@@ -46,7 +46,7 @@ def transcribe_api_client(db_session, fake_embedding_service, auth_headers):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers)
     app.dependency_overrides.clear()

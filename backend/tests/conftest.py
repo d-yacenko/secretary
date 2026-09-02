@@ -19,6 +19,13 @@ from app.services.domain_tool_service import DomainToolService
 from app.users.bootstrap import BOOTSTRAP_DISPLAY_NAME, BOOTSTRAP_USER_ID
 
 
+def apply_embedding_service_overrides(service: FakeEmbeddingService) -> None:
+    from app.api.deps import get_embedding_service, get_user_embedding_service
+
+    app.dependency_overrides[get_embedding_service] = lambda: service
+    app.dependency_overrides[get_user_embedding_service] = lambda: service
+
+
 class AuthTestClient:
     def __init__(self, client: TestClient, headers: dict[str, str]) -> None:
         self._client = client

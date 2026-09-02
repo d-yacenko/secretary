@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from app.api.assistant import AssistantRuntime, get_assistant_runtime
 import app.api.assistant as assistant_api_module
 from app.api.deps import get_db, get_embedding_service
+from tests.conftest import apply_embedding_service_overrides
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
@@ -166,7 +167,7 @@ def fake_assistant_provider() -> FakeAssistantProvider:
 
 @pytest.fixture
 def assistant_client(db_session, fake_embedding_service, auth_headers, fake_assistant_provider):
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     def override_get_db():
         yield db_session
@@ -175,7 +176,7 @@ def assistant_client(db_session, fake_embedding_service, auth_headers, fake_assi
         return fake_assistant_provider
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     _set_assistant_runtime_override(override_provider())
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers), fake_assistant_provider
@@ -198,7 +199,7 @@ def test_assistant_requires_auth(db_session, fake_embedding_service) -> None:
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     _set_assistant_runtime_override(create_fake_assistant_provider())
     with TestClient(app) as client:
         response = client.post(
@@ -215,7 +216,7 @@ def test_assistant_missing_openai_key_returns_502(
     auth_headers,
     monkeypatch,
 ) -> None:
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
 
@@ -223,7 +224,7 @@ def test_assistant_missing_openai_key_returns_502(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.post("/assistant/message", json={"message": "hello"})
@@ -668,7 +669,7 @@ def _install_openai_assistant_client_mock(monkeypatch, fake_responses_class):
 def test_assistant_endpoint_openai_multi_round_no_match_returns_200(
     db_session, fake_embedding_service, auth_headers, monkeypatch
 ) -> None:
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     class FakeResponses:
         def create(self, **kwargs):
@@ -702,7 +703,7 @@ def test_assistant_endpoint_openai_multi_round_no_match_returns_200(
         return OpenAIAssistantProvider(api_key="test", model="gpt-test")
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     _set_assistant_runtime_override(override_provider())
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
@@ -718,7 +719,7 @@ def test_assistant_endpoint_openai_multi_round_no_match_returns_200(
 def test_assistant_endpoint_openai_multi_round_create_task_success(
     db_session, fake_embedding_service, auth_headers, monkeypatch
 ) -> None:
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     class FakeResponses:
         def create(self, **kwargs):
@@ -766,7 +767,7 @@ def test_assistant_endpoint_openai_multi_round_create_task_success(
         return OpenAIAssistantProvider(api_key="test", model="gpt-test")
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     _set_assistant_runtime_override(override_provider())
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)

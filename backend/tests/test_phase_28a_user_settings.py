@@ -25,7 +25,7 @@ from app.services.effective_user_settings_service import (
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-from tests.conftest import AuthTestClient
+from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
 
 def _credential_key() -> str:
@@ -371,7 +371,7 @@ def test_assistant_with_invalid_master_key_and_stored_credential_returns_502(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.post("/assistant/message", json={"message": "hello"})
@@ -441,7 +441,7 @@ def test_action_plan_resume_uses_user_openai_key_when_deployment_empty(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, headers)
         response = client.post(f"/assistant/action-plans/{plan.id}/resume")
@@ -495,7 +495,7 @@ def test_action_plan_resume_user_a_key_not_used_for_user_b(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, headers_b)
         response = client.post(f"/assistant/action-plans/{plan.id}/resume")

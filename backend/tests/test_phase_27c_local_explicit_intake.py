@@ -26,7 +26,7 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 @pytest.fixture
 def phase27c_local_client(db_session, auth_headers, tmp_path: Path):
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     local_mirror = tmp_path / "local-mirror"
     local_mirror.mkdir()
@@ -35,7 +35,7 @@ def phase27c_local_client(db_session, auth_headers, tmp_path: Path):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
+    apply_embedding_service_overrides(FakeEmbeddingService())
     with (
         patch("app.core.config.settings.local_files_root", str(local_mirror)),
         TestClient(app) as client,
@@ -228,7 +228,7 @@ def test_normalized_root_path_is_idempotent(
 def test_cross_user_isolation(
     db_session, issue_bearer, tmp_path: Path
 ) -> None:
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     other_user = uuid.uuid4()
     db_session.add(User(id=other_user, display_name="other"))
@@ -243,7 +243,7 @@ def test_cross_user_isolation(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
+    apply_embedding_service_overrides(FakeEmbeddingService())
 
     with (
         patch("app.core.config.settings.local_files_root", str(local_mirror)),

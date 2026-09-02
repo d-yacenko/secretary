@@ -50,7 +50,7 @@ def oauth_client_file(tmp_path: Path) -> str:
 
 @pytest.fixture
 def closure_client(db_session, auth_headers, tmp_path: Path):
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     local_mirror = tmp_path / "local-mirror"
     local_mirror.mkdir()
@@ -59,7 +59,7 @@ def closure_client(db_session, auth_headers, tmp_path: Path):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
+    apply_embedding_service_overrides(FakeEmbeddingService())
     with (
         patch("app.core.config.settings.local_files_root", str(local_mirror)),
         TestClient(app) as client,

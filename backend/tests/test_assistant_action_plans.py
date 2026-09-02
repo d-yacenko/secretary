@@ -30,7 +30,7 @@ from app.tools.execution_context import ExecutionContext
 from app.tools.gateway import ToolExecutionGateway
 from app.tools.policy import PolicyDecision, ToolPermission, evaluate_policy
 from app.tools.results import ToolExecutionStatus
-from tests.conftest import AuthTestClient
+from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
 ORIGINAL_BUILD_ASSISTANT_RUNTIME = assistant_api_module.build_assistant_runtime
 
@@ -188,7 +188,7 @@ def action_plan_client(db_session, fake_embedding_service, action_plan_user, iss
             raise
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
 
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, headers), action_plan_user

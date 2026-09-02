@@ -32,13 +32,13 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 @pytest.fixture
 def phase26c_client(db_session, auth_headers):
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: FakeEmbeddingService()
+    apply_embedding_service_overrides(FakeEmbeddingService())
     with TestClient(app) as client:
         yield AuthTestClient(client, auth_headers)
     app.dependency_overrides.clear()

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from app.api.assistant import get_transcription_provider
 from app.api.deps import get_db, get_embedding_service
+from tests.conftest import apply_embedding_service_overrides
 from app.db.models import Edge, Job, Object
 from app.llm.fake_transcription_provider import FakeTranscriptionProvider
 from app.llm.openai_transcription_provider import (
@@ -31,7 +32,7 @@ def transcribe_client(
     auth_headers,
     fake_transcription_provider,
 ):
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     def override_get_db():
         yield db_session
@@ -40,7 +41,7 @@ def transcribe_client(
         return fake_transcription_provider
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     app.dependency_overrides[get_transcription_provider] = override_provider
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers), fake_transcription_provider
@@ -80,7 +81,7 @@ def test_transcribe_unauthenticated_returns_401(db_session, fake_embedding_servi
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         response = test_client.post(
             "/assistant/transcribe",
@@ -139,7 +140,7 @@ def test_transcribe_missing_configuration_returns_502(
     auth_headers,
     monkeypatch,
 ) -> None:
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
 
@@ -147,7 +148,7 @@ def test_transcribe_missing_configuration_returns_502(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.post(

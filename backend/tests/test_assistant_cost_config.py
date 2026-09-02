@@ -321,7 +321,7 @@ def test_assistant_invalid_openai_assistant_config_returns_502(
     auth_headers,
     monkeypatch,
 ) -> None:
-    from tests.conftest import AuthTestClient
+    from tests.conftest import apply_embedding_service_overrides, AuthTestClient
 
     monkeypatch.setattr("app.core.config.settings.openai_api_key", "sk-test")
     monkeypatch.setattr("app.core.config.settings.openai_assistant_reasoning_effort", "xhigh")
@@ -330,7 +330,7 @@ def test_assistant_invalid_openai_assistant_config_returns_502(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.post("/assistant/message", json={"message": "hello"})

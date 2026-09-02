@@ -10,7 +10,7 @@ from app.db.models import User
 from app.main import app
 from app.services.graph_service import GraphService
 from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
-from tests.conftest import AuthTestClient, BOOTSTRAP_USER_ID
+from tests.conftest import apply_embedding_service_overrides, AuthTestClient, BOOTSTRAP_USER_ID
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def graph_client(db_session, fake_embedding_service, auth_headers):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers)
     app.dependency_overrides.clear()
@@ -222,7 +222,7 @@ def test_wrong_user_root_returns_404(
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_embedding_service] = lambda: fake_embedding_service
+    apply_embedding_service_overrides(fake_embedding_service)
     with TestClient(app) as test_client:
         client = AuthTestClient(test_client, auth_headers)
         response = client.get(f"/graph/workspace?root_id={task.id}")
