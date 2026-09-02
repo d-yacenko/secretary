@@ -114,15 +114,21 @@ Google recurring history: **Gmail + Calendar complete**.
 
 PHASE 28C-B2-C1-A — Yandex Mail Bounded History Foundation: **accepted** at `cdbd667616cebcab9602be8ab24f31fd0d8f1514`.
 
-PHASE 28C-B2-C1-B — Yandex Mail Bounded History Runtime: **implementation complete, awaiting architect review** on `review/phase-28c-history-yandex-mail-b`.
+PHASE 28C-B2-C1-B — Yandex Mail Bounded History Runtime: **accepted** at `e56526ac2e16b681ac1cffaf94cf42a1804bcab0`.
 
-Next: **architect review of PHASE 28C-B2-C1-B**.
+Yandex Mail recurring history: **complete**.
 
-Approved next after 28C-B2-C1-B acceptance: **PHASE 28C-B2-C2 — Yandex Calendar History Preference Runtime**.
+PHASE 28C-B2-C2-A — Yandex Calendar Past-Coverage Foundation: **implementation complete, awaiting architect review** on `review/phase-28c-history-yandex-calendar-a`.
+
+Next: **architect review of PHASE 28C-B2-C2-A**.
+
+Approved next after 28C-B2-C2-A acceptance: **PHASE 28C-B2-C2-B — Yandex Calendar History Preference Runtime**.
 
 Then: Mattermost history runtime, History Preferences UI (B2-D).
 
-28C history work is **not** complete (Yandex Calendar, Mattermost, UI remain).
+Yandex Calendar history runtime is **not** complete (C2-B remains).
+
+28C history work is **not** complete (Yandex Calendar runtime, Mattermost, UI remain).
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

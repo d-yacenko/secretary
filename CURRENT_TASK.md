@@ -1,32 +1,29 @@
-# Current task — PHASE 28C-B2-C1-B awaiting review
+# Current task — PHASE 28C-B2-C2-A awaiting review
 
 ## Status
 
-PHASE 28C-B2-B2-B: **accepted** at `41fd1b924607d3e8aba4f105d4bacc122a406d2c`.
+PHASE 28C-B2-C1-B: **accepted** at `e56526ac2e16b681ac1cffaf94cf42a1804bcab0`.
 
-PHASE 28C-B2-B2-B-R1: **accepted** at `b40e8fdd1095672bb5451b9528f7511279ae869f`.
+Yandex Mail history: **complete**.
 
-PHASE 28C-B2-C1-A: **accepted** at `cdbd667616cebcab9602be8ab24f31fd0d8f1514`.
+Current: **PHASE 28C-B2-C2-A — Yandex Calendar Past-Coverage Foundation** — implemented, awaiting architect review.
 
-Google recurring history: **Gmail + Calendar complete**.
-
-Current: **PHASE 28C-B2-C1-B — Yandex Mail Bounded History Runtime** — implemented, awaiting architect review.
-
-Do **not** merge, deploy, or start Yandex Calendar / Mattermost history runtime until review.
+Do **not** merge, deploy, or start C2-B runtime until review.
 
 ## Branch
 
-`review/phase-28c-history-yandex-mail-b` from `cdbd667616cebcab9602be8ab24f31fd0d8f1514`.
+`review/phase-28c-history-yandex-calendar-a` from `e56526ac2e16b681ac1cffaf94cf42a1804bcab0`.
 
-## Next after 28C-B2-C1-B acceptance
+## Next after 28C-B2-C2-A acceptance
 
-PHASE 28C-B2-C2 — Yandex Calendar History Preference Runtime.
+PHASE 28C-B2-C2-B — Yandex Calendar History Preference Runtime.
 
 Then: Mattermost history runtime, History Preferences UI (B2-D).
 
-## Not in 28C-B2-C1-B
+## Not in 28C-B2-C2-A
 
-- Yandex Calendar / Mattermost history runtime
+- Yandex Calendar runtime integration (C2-B)
+- Mattermost history runtime
 - Flutter / public coverage fields
 - migration (Alembic stays 0023)
 - deploy / merge
