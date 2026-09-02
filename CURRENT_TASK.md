@@ -1,28 +1,29 @@
-# Current task — PHASE 28C-B2-C2-B awaiting review
+# Current task — PHASE 28C-B2-C3-A awaiting review
 
 ## Status
 
-PHASE 28C-B2-C2-A: **accepted** at `dbcadb3ccbe1f1ca9f6d64bbf0b2ab76ee18ca10`.
+PHASE 28C-B2-C2-B: **accepted** at `fdaf34cbd3764fb8f03c5d19666e15a0401439bb`.
 
-PHASE 28C-B2-C2-A-R1: **accepted** at `0391c813294d0504a898e9bfc6b1ee991c66da54`.
+Yandex Calendar recurring history: **complete**.
 
-Current: **PHASE 28C-B2-C2-B — Yandex Calendar History Preference Runtime** — implemented, awaiting architect review.
+Current: **PHASE 28C-B2-C3-A — Mattermost Stable History Cursor Foundation** — implemented, awaiting architect review.
 
-Do **not** merge, deploy, or start Mattermost history until review.
+Do **not** merge, deploy, or start C3-B runtime until review.
 
 ## Branch
 
-`review/phase-28c-history-yandex-calendar-b` from `0391c813294d0504a898e9bfc6b1ee991c66da54`.
+`review/phase-28c-history-mattermost-a` from `fdaf34cbd3764fb8f03c5d19666e15a0401439bb`.
 
-## Next after 28C-B2-C2-B acceptance
+## Next after 28C-B2-C3-A acceptance
 
-Mattermost history runtime.
+PHASE 28C-B2-C3-B — Mattermost Bounded History Runtime.
 
-Then: History Preferences UI (B2-D).
+Then: PHASE 28C-B2-D — History Preferences UI.
 
-## Not in 28C-B2-C2-B
+## Not in 28C-B2-C3-A
 
-- Mattermost history runtime
+- Mattermost history runtime (C3-B)
 - Flutter / public coverage fields
 - migration (Alembic stays 0023)
 - deploy / merge
+- `MattermostSyncService` runtime changes

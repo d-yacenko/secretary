@@ -51,6 +51,14 @@ class MattermostTransport(Protocol):
     ) -> MattermostPostsPage:
         ...
 
+    def get_posts_before(
+        self,
+        channel_id: str,
+        before_post_id: str,
+        per_page: int,
+    ) -> MattermostPostsPage:
+        ...
+
     def get_posts_since(
         self,
         channel_id: str,
@@ -134,6 +142,21 @@ class MattermostHttpTransport:
         )
         return self._parse_posts_payload(payload)
 
+    def get_posts_before(
+        self,
+        channel_id: str,
+        before_post_id: str,
+        per_page: int,
+    ) -> MattermostPostsPage:
+        _validate_posts_before_params(channel_id, before_post_id, per_page)
+        path = f"/api/v4/channels/{channel_id}/posts"
+        payload = self._request_json(
+            "GET",
+            path,
+            params={"before": before_post_id, "page": 0, "per_page": per_page},
+        )
+        return self._parse_posts_payload(payload)
+
     def get_posts_since(
         self,
         channel_id: str,
@@ -213,6 +236,19 @@ class MattermostHttpTransport:
         normalized_order = [str(item) for item in order]
         normalized_posts = {str(key): value for key, value in posts.items()}
         return MattermostPostsPage(order=normalized_order, posts=normalized_posts)
+
+
+def _validate_posts_before_params(
+    channel_id: str,
+    before_post_id: str,
+    per_page: int,
+) -> None:
+    if not str(channel_id).strip():
+        raise ValueError("channel_id is required")
+    if not str(before_post_id).strip():
+        raise ValueError("before_post_id is required")
+    if per_page <= 0:
+        raise ValueError("per_page must be positive")
 
 
 class FakeMattermostTransport:
@@ -307,6 +343,25 @@ class FakeMattermostTransport:
                 after_index = index
                 break
         slice_posts = posts[after_index + 1 : after_index + 1 + per_page]
+        return self._build_page(slice_posts)
+
+    def get_posts_before(
+        self,
+        channel_id: str,
+        before_post_id: str,
+        per_page: int,
+    ) -> MattermostPostsPage:
+        _validate_posts_before_params(channel_id, before_post_id, per_page)
+        params = {"before": before_post_id, "page": 0, "per_page": per_page}
+        self.calls.append(("GET", f"/api/v4/channels/{channel_id}/posts", params))
+        posts = self._oldest_first_posts(channel_id)
+        before_index = -1
+        for index, post in enumerate(posts):
+            if str(post.get("id")) == before_post_id:
+                before_index = index
+                break
+        older_posts = posts[:before_index] if before_index > 0 else []
+        slice_posts = older_posts[-per_page:] if older_posts else []
         return self._build_page(slice_posts)
 
     def get_posts_since(
