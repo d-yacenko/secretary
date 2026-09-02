@@ -1,9 +1,64 @@
 import imaplib
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
 from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER
 from app.connectors.yandex.errors import YandexImapError
+
+
+@dataclass(frozen=True)
+class YandexMailHistoryUidPage:
+    uids: list[int]
+    next_before_uid: int | None
+    complete: bool
+
+
+def normalize_history_search_uids(
+    search_data: bytes | str | None,
+    before_uid: int,
+) -> list[int]:
+    if not search_data:
+        return []
+    if isinstance(search_data, bytes):
+        search_data = search_data.decode("ascii", errors="replace")
+    unique: set[int] = set()
+    for token in search_data.split():
+        try:
+            uid = int(token)
+        except ValueError as exc:
+            raise YandexImapError("malformed imap uid search response") from exc
+        if uid <= 0:
+            continue
+        if uid >= before_uid:
+            continue
+        unique.add(uid)
+    return sorted(unique)
+
+
+def history_uids_page_from_search(
+    search_data: bytes | str | None,
+    before_uid: int,
+    max_results: int,
+) -> YandexMailHistoryUidPage:
+    if max_results <= 0:
+        raise ValueError("max_results must be positive")
+    if before_uid <= 1:
+        return YandexMailHistoryUidPage(uids=[], next_before_uid=None, complete=True)
+
+    uids = normalize_history_search_uids(search_data, before_uid)
+    if not uids:
+        return YandexMailHistoryUidPage(uids=[], next_before_uid=None, complete=True)
+
+    if len(uids) <= max_results:
+        return YandexMailHistoryUidPage(uids=uids, next_before_uid=None, complete=True)
+
+    page_uids = uids[-max_results:]
+    return YandexMailHistoryUidPage(
+        uids=page_uids,
+        next_before_uid=page_uids[0],
+        complete=False,
+    )
 
 
 def read_uidvalidity_from_response(imap: imaplib.IMAP4_SSL) -> int:
@@ -63,6 +118,16 @@ class ImapTransport(Protocol):
         after_uid: int,
         max_results: int,
     ) -> list[int]:
+        ...
+
+    def search_uids_history_page(
+        self,
+        folder: str,
+        since_date: datetime,
+        before_date: datetime,
+        before_uid: int,
+        max_results: int,
+    ) -> YandexMailHistoryUidPage:
         ...
 
     def fetch_message(self, folder: str, uid: int) -> bytes:
@@ -152,6 +217,33 @@ class ImaplibTransport:
             return []
         return incremental_uids_from_search_result(data[0], after_uid, max_results)
 
+    def search_uids_history_page(
+        self,
+        folder: str,
+        since_date: datetime,
+        before_date: datetime,
+        before_uid: int,
+        max_results: int,
+    ) -> YandexMailHistoryUidPage:
+        if max_results <= 0:
+            raise ValueError("max_results must be positive")
+        if before_uid <= 1:
+            return YandexMailHistoryUidPage(uids=[], next_before_uid=None, complete=True)
+
+        self.select_folder(folder)
+        imap = self._connect()
+        since_str = since_date.strftime("%d-%b-%Y")
+        before_str = before_date.strftime("%d-%b-%Y")
+        uid_upper = before_uid - 1
+        criteria = f"(SINCE {since_str}) (BEFORE {before_str}) (UID 1:{uid_upper})"
+        try:
+            status, data = imap.uid("search", None, criteria)
+        except imaplib.IMAP4.error as exc:
+            raise YandexImapError("failed to search imap messages") from exc
+        if status != "OK" or not data or not data[0]:
+            return YandexMailHistoryUidPage(uids=[], next_before_uid=None, complete=True)
+        return history_uids_page_from_search(data[0], before_uid, max_results)
+
     def fetch_message(self, folder: str, uid: int) -> bytes:
         self.select_folder(folder)
         imap = self._connect()
@@ -175,12 +267,22 @@ class FakeImapTransport:
         messages: dict[int, bytes] | None = None,
         folder: str = DEFAULT_MAIL_FOLDER,
         tx_checker: object | None = None,
+        history_matching_uids: list[int] | None = None,
     ) -> None:
         self._uidvalidity = uidvalidity
         self._messages = messages or {}
         self._folder = folder
         self.fetch_calls: list[int] = []
+        self.history_search_calls: list[dict[str, object]] = []
         self._tx_checker = tx_checker
+        self._history_matching_uids = history_matching_uids
+
+    def _history_candidates(self, before_uid: int) -> list[int]:
+        if self._history_matching_uids is not None:
+            source = self._history_matching_uids
+        else:
+            source = sorted(self._messages.keys())
+        return sorted(uid for uid in source if uid < before_uid)
 
     def _check_tx(self) -> None:
         if self._tx_checker is not None:
@@ -215,6 +317,30 @@ class FakeImapTransport:
         if len(uids) > max_results:
             return uids[:max_results]
         return uids
+
+    def search_uids_history_page(
+        self,
+        folder: str,
+        since_date: datetime,
+        before_date: datetime,
+        before_uid: int,
+        max_results: int,
+    ) -> YandexMailHistoryUidPage:
+        self._check_tx()
+        if before_uid <= 1:
+            return YandexMailHistoryUidPage(uids=[], next_before_uid=None, complete=True)
+        self.history_search_calls.append(
+            {
+                "folder": folder,
+                "since_date": since_date,
+                "before_date": before_date,
+                "before_uid": before_uid,
+                "max_results": max_results,
+            }
+        )
+        candidates = self._history_candidates(before_uid)
+        payload = b" ".join(str(uid).encode() for uid in candidates)
+        return history_uids_page_from_search(payload, before_uid, max_results)
 
     def fetch_message(self, folder: str, uid: int) -> bytes:
         self._check_tx()

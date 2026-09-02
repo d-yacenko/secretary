@@ -108,15 +108,19 @@ PHASE 28C-B2-B2-A-R1 — Stable Calendar Active Pagination Across Time Drift: **
 
 PHASE 28C-B2-B2-B — Google Calendar Bounded History Runtime: **accepted** at `41fd1b924607d3e8aba4f105d4bacc122a406d2c`.
 
-PHASE 28C-B2-B2-B-R1 — Fair Calendar History Rotation Across Multi-Page Backlogs: **implementation complete, awaiting architect review** on `review/phase-28c-history-google-calendar-b-r1`.
+PHASE 28C-B2-B2-B-R1 — Fair Calendar History Rotation Across Multi-Page Backlogs: **accepted** at `b40e8fdd1095672bb5451b9528f7511279ae869f`.
 
-Next: **architect review of PHASE 28C-B2-B2-B-R1**.
+Google recurring history: **Gmail + Calendar complete**.
 
-Approved next after 28C-B2-B2-B-R1 acceptance: **PHASE 28C-B2-C — Yandex Mail / Yandex Calendar / Mattermost history runtime** (split into short provider phases as needed).
+PHASE 28C-B2-C1-A — Yandex Mail Bounded History Foundation: **implementation complete, awaiting architect review** on `review/phase-28c-history-yandex-mail-a`.
 
-Then: **PHASE 28C-B2-D — History Preferences UI**.
+Next: **architect review of PHASE 28C-B2-C1-A**.
 
-B2 history feature is **not** complete (Yandex, Mattermost, UI remain).
+Approved next after 28C-B2-C1-A acceptance: **PHASE 28C-B2-C1-B — Yandex Mail Bounded History Runtime**.
+
+Then: Yandex Calendar, Mattermost, History Preferences UI (B2-D).
+
+Yandex Mail history runtime is **not** complete (C1-B remains).
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
