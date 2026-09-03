@@ -168,11 +168,15 @@ PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3
 
 PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **R2 + R2-R1 implemented and deployed**, **awaiting final user E2E** on `review/phase-29a-bounded-content-extraction`.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **ARCHITECT ACCEPTED / CLOSED** at `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
-PHASE 29A-R2-R1 — Assistant retrieve `kind="all"` normalization: **architect code review PASS**, deployed at `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
+PHASE 29A-R2-R1 — Assistant retrieve `kind="all"` normalization: **included in closure SHA**.
 
-Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** — await user retest after R2-R1 deploy.
+Google Drive real E2E: **PASS**. Yandex Disk real E2E: **PASS**. Blind Assistant XLSX phrase E2E: **PASS**.
+
+Universal Intake & Format Parity — Iteration A: **in progress** on `review/universal-intake-format-parity-a`.
+
+Manual Google Drive / Yandex Disk matched-version E2E: **PASS** (PHASE 29A closure).
 
 Model routing, two-stage Assistant, workload-specific models: **deferred**.
 
@@ -413,4 +417,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await final user E2E on PHASE 29A (deployed R2-R1 at `1562db7`). Do not start Safe External Actions or scheduled_activity implementation.
+Await Universal Intake Iteration A implementation. Do not start Safe External Actions or scheduled_activity implementation.

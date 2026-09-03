@@ -373,3 +373,8 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Assistant:** `get_context` exposes optional `query`; lexical chunk fallback before embeddings complete.
 - **Maintenance:** CLI `reindex_stale_cloud_content` for bounded v1→v2 re-extraction of existing cloud objects.
 
+## PHASE 29A closure
+
+- **Accepted / closed** at application SHA `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
+- Google Drive, Yandex Disk, and blind Assistant XLSX phrase E2E: **PASS**.
+
