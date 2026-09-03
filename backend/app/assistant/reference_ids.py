@@ -34,6 +34,11 @@ def collect_object_ids_from_bounded_tool(
         if edge and bounded.get("changed"):
             _append_uuid(affected_ids, edge.get("source_id"))
             _append_uuid(affected_ids, edge.get("target_id"))
+    elif tool_name == "link_objects":
+        edge = bounded.get("edge")
+        if edge and bounded.get("created"):
+            _append_uuid(affected_ids, edge.get("source_id"))
+            _append_uuid(affected_ids, edge.get("target_id"))
     elif tool_name in ("create_task", "update_task", "set_task_status", "delete_task"):
         obj = bounded.get("object")
         if obj:

@@ -154,11 +154,7 @@ PHASE 28D-A — End-to-End AI Execution Observability: **initial implementation 
 
 PHASE 28D-A matched-version deploy (pre-R1): **complete** at `9090ee8780f33d6b888057919d02b8e0772b1431` (Alembic `0024`).
 
-PHASE 28D-A-R1 — AI Audit Trace Correctness, Privacy & Baseline Readiness Corrective: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-a-r1`.
-
-PHASE 28D-B-R1 application SHA: `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
-
-PHASE 28D-B-R1 matched-version deploy: **complete** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108` (Alembic `0025`).
+PHASE 28D-A-R1 — AI Audit Trace Correctness, Privacy & Baseline Readiness Corrective: **ARCHITECT ACCEPTED** at `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad` (Alembic `0025`).
 
 PHASE 28D-B1/B2 — controlled baseline capture/export: **complete** (private bundle retained locally by user; VDS export deleted).
 
@@ -166,9 +162,9 @@ PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cos
 
 PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
 
-PHASE 28D-B-R1-R1 — architect review checkpoint: **ready for review** on `review/phase-28d-b-r1-tool-contracts` (packages B-R1 for architect; no new implementation).
+PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-b-r1-tool-contracts`.
 
-PHASE 28D-B-R1 matched-version deploy: **complete** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108` (Alembic `0025`).
+Real defects from baseline: relation removal used additive `update_task` evidence; finalization claimed updates on `changed=false`.
 
 PHASE 28D: **NOT fully closed** until architect review.
 

@@ -613,11 +613,18 @@ def _affected_object_ids_from_execution_result(result: dict) -> list[UUID]:
                 obj = output.get("object")
                 if obj:
                     _append_uuid(affected_ids, seen, obj.get("id"))
-        elif tool_name == "link_objects" or tool_name == "remove_relation" and output.get("changed"):
-            edge = output.get("edge")
-            if edge:
-                _append_uuid(affected_ids, seen, edge.get("source_id"))
-                _append_uuid(affected_ids, seen, edge.get("target_id"))
+        elif tool_name == "link_objects":
+            if output.get("created"):
+                edge = output.get("edge")
+                if edge:
+                    _append_uuid(affected_ids, seen, edge.get("source_id"))
+                    _append_uuid(affected_ids, seen, edge.get("target_id"))
+        elif tool_name == "remove_relation":
+            if output.get("changed"):
+                edge = output.get("edge")
+                if edge:
+                    _append_uuid(affected_ids, seen, edge.get("source_id"))
+                    _append_uuid(affected_ids, seen, edge.get("target_id"))
     return affected_ids
 
 

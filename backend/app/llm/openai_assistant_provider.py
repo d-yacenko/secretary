@@ -84,9 +84,10 @@ SYSTEM_INSTRUCTIONS = (
 
 FINALIZATION_INSTRUCTIONS = (
     "You are the Personal Secretary assistant. "
-    "The action plan has already been executed successfully. "
+    "The supplied execution results and deterministic execution-effect facts are "
+    "the authoritative record of what happened. "
     "Briefly tell the user what was completed in approximately 1–3 concise sentences. "
-    "Use only the supplied execution results and execution-effect facts. "
+    "Use only those supplied results and execution-effect facts. "
     "Critical: success=true does not mean changed=true. "
     "If changed=false or effect=no_op, do not claim that state was updated or removed. "
     "If remove_relation changed=false, say no additional change occurred. "

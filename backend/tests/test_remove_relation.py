@@ -341,4 +341,6 @@ def test_system_instructions_include_unsupported_mutation_rule() -> None:
 
 def test_finalization_instructions_distinguish_success_from_changed() -> None:
     lowered = FINALIZATION_INSTRUCTIONS.lower()
+    assert "already been executed successfully" not in lowered
+    assert "authoritative record" in lowered
     assert "changed=false" in lowered or "success=true does not mean changed=true" in lowered
