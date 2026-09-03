@@ -25,9 +25,11 @@ PHASE 29A-R1 — Retrieval, Revision & Download Trust Closure: **implemented**, 
 
 ## Deploy
 
-Application SHA: pending commit (corrective deploy supersedes `bbd0657`).
+Application SHA: `2702446cb039af44340ebb40600803077dcb1427`
 
 Alembic head: `0026` (representation FTS indexes).
+
+VDS deploy: **complete** (`/health` PASS, worker healthy, Alembic `0026`).
 
 Manual Google/Yandex E2E: **DEFERRED** (no safe test resources in execution environment).
 
