@@ -323,10 +323,11 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - SHA: `75142dc6eac2b16d60dd448a7f40f84d529fd2de`
 - Branch: `review/phase-29a-bounded-content-extraction`
 - Deployed: 2026-09-03 (PHASE 29A-R1-R1 streaming trust & retrieval visibility closure)
-- Checkout: detached at `fc8e90b7c9e706691aec7afc30caa4b95825cc51`, clean (no tracked modifications)
-- Alembic current/head: `0026` (`representation_fts_indexes`)
-- `/health`: PASS (`{"status":"ok"}`)
-- Worker: healthy (`worker started`)
+- Checkout: detached at `75142dc6eac2b16d60dd448a7f40f84d529fd2de`, clean
+- Alembic current/head: `0026`
+- `/health`: PASS
+- Worker: healthy
+- Stale v1 reindex: 3 objects enqueued (incl. target `19940b16`), all reached `phase29a-v2` ready
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
