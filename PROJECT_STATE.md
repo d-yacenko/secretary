@@ -164,9 +164,11 @@ PHASE 28D-B1/B2 — controlled baseline capture/export: **complete** (private bu
 
 PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cost accepted; model optimization deferred.
 
-PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-b-r1-tool-contracts`.
+PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
 
-Real defects from baseline: relation removal used additive `update_task` evidence; finalization claimed updates on `changed=false`.
+PHASE 28D-B-R1-R1 — architect review checkpoint: **ready for review** on `review/phase-28d-b-r1-tool-contracts` (packages B-R1 for architect; no new implementation).
+
+PHASE 28D-B-R1 matched-version deploy: **complete** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108` (Alembic `0025`).
 
 PHASE 28D: **NOT fully closed** until architect review.
 

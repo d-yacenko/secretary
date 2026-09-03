@@ -1,4 +1,4 @@
-# Current task — PHASE 28D-B-R1 implemented, awaiting architect review
+# Current task — PHASE 28D-B-R1-R1 architect review checkpoint
 
 ## Status
 
@@ -10,7 +10,9 @@ PHASE 28D-B1/B2 controlled baseline capture: **complete** (private audit bundle 
 
 PHASE 28D controlled interactive audit: **complete** — Luna `gpt-5.6-luna`, reasoning `medium`, verbosity `low` quality/cost **accepted**; aggressive model optimization **deferred**.
 
-PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented and deployed**, **awaiting architect review**.
+PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
+
+PHASE 28D-B-R1-R1 — architect review checkpoint on `review/phase-28d-b-r1-tool-contracts`: **ready for review** (no additional implementation beyond B-R1).
 
 PHASE 28D: **NOT fully closed** until architect review of B-R1.
 
@@ -60,4 +62,4 @@ VDS deploy: **complete** (Alembic `0025`, `/health` PASS).
 
 ## Next
 
-STOP — await architect review of PHASE 28D-B-R1. Do not start 28D-C optimization, 29A, or Safe External Actions.
+STOP — await architect review of PHASE 28D-B-R1-R1. Do not start 28D-C optimization, 29A, or Safe External Actions.
