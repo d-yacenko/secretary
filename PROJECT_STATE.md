@@ -140,11 +140,15 @@ Manual PHASE 28C history E2E: **PASS**.
 
 PHASE 28C-R1 — Inbox Recent Ordering + Stale Sync Banner Cleanup: **accepted** at `b62f7978647d9a4767c6040ff84df0e611e9f1b5`.
 
-PHASE 28C-R1-R1 — Eliminate Sync Banner Settlement Race: **implemented, awaiting architect review** on `review/phase-28c-inbox-recent-ordering-r1-r1`.
+PHASE 28C-R1-R1 — Eliminate Sync Banner Settlement Race: **accepted** at `e0ac78c50e7cb46dff9cf9b786409197977fb728`.
 
-Next after R1-R1 acceptance/deploy: **PHASE 29A — bounded content extraction**.
+PHASE 28C-R1-R1 matched-version deploy: **complete** at `e0ac78c50e7cb46dff9cf9b786409197977fb728` (Alembic `0023`).
 
-R1-R1 is **not** deployed yet.
+Manual PHASE 28C-R1-R1 Inbox sync-banner E2E: **awaiting user verification**.
+
+Next after manual E2E PASS: **PHASE 29A — bounded content extraction**.
+
+PHASE 29A MUST NOT start until the user reports manual E2E result.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -290,8 +294,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `e8680f2105348cdd9220f8de3d9ff8a25ed6f431`
-- Deployed: 2026-09-03 (PHASE 28C final matched-version — history preferences UI + Alembic `0023`)
+- SHA: `e0ac78c50e7cb46dff9cf9b786409197977fb728`
+- Deployed: 2026-09-03 (PHASE 28C-R1-R1 — sync banner settlement race fix, Alembic `0023`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
 - Alembic current/head: `0023` (`google_source_sync_state`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
