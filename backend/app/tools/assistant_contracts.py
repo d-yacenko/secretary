@@ -9,13 +9,21 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "name": "retrieve",
         "description": (
             "Retrieve up to five qualified local objects ranked by relevance. "
-            "Top-K is a maximum, not a target."
+            "Top-K is a maximum, not a target. "
+            "Omit kind to search across all object kinds."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "kind": {"type": "string"},
+                "kind": {
+                    "type": "string",
+                    "description": (
+                        "Optional exact Object.kind filter (e.g. file, email, event, task). "
+                        "Omit to search across all object kinds. "
+                        '"all" is not an Object.kind.'
+                    ),
+                },
                 "time_scope": {
                     "type": "string",
                     "enum": ["auto", "recent", "all"],

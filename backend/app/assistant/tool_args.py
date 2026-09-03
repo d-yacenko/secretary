@@ -16,6 +16,19 @@ from app.services.retrieval_constants import (
 from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import ToolError
 
+_RETRIEVE_KIND_WILDCARDS = frozenset({"all", "any", "*"})
+
+
+def _normalize_retrieve_kind(kind: object) -> str | None:
+    if kind is None:
+        return None
+    if not isinstance(kind, str):
+        raise ToolError("retrieve kind must be a string")
+    normalized = kind.strip()
+    if not normalized or normalized.lower() in _RETRIEVE_KIND_WILDCARDS:
+        return None
+    return normalized
+
 
 def _parse_optional_datetime(value: object, field_name: str) -> datetime | None:
     if value is None:
@@ -81,7 +94,7 @@ def normalize_assistant_tool_arguments(tool_name: str, arguments: dict[str, Any]
             raise ToolError("retrieve time_scope must be auto, recent, or all")
         return {
             "query": arguments["query"],
-            "kind": arguments.get("kind"),
+            "kind": _normalize_retrieve_kind(arguments.get("kind")),
             "time_scope": time_scope,
             "date_from": _parse_optional_datetime(arguments.get("date_from"), "date_from"),
             "date_to": _parse_optional_datetime(arguments.get("date_to"), "date_to"),
