@@ -152,6 +152,8 @@ PHASE 28C: **fully accepted/closed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca
 
 PHASE 28D-A — End-to-End AI Execution Observability: **implemented, awaiting architect review** on `review/phase-28d-ai-execution-observability`.
 
+PHASE 28D-A matched-version deploy: **complete** at `9090ee8780f33d6b888057919d02b8e0772b1431` (Alembic `0024`).
+
 PHASE 29A MUST NOT start until PHASE 28D architect checkpoint.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
@@ -298,10 +300,10 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`
-- Deployed: 2026-09-03 (PHASE 28C-R1-R1-R1 — idle source status + sync banner closure, Alembic `0023`)
+- SHA: `9090ee8780f33d6b888057919d02b8e0772b1431`
+- Deployed: 2026-09-03 (PHASE 28D-A — AI execution observability, Alembic `0024`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
-- Alembic current/head: `0023` (`google_source_sync_state`)
+- Alembic current/head: `0024` (`ai_trace_tables`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
