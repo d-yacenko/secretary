@@ -23,7 +23,7 @@ PHASE 29A-R1-R1 — Streaming Trust & Retrieval Visibility Closure: **implemente
 
 ## Deploy
 
-Application SHA: pending commit (supersedes `2702446`).
+Application SHA: `fc8e90b7c9e706691aec7afc30caa4b95825cc51`
 
 Alembic head: `0026` (no new migration).
 

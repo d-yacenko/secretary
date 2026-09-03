@@ -320,7 +320,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: pending R1-R1 deploy (supersedes `2702446` / `bbd0657`)
+- SHA: `fc8e90b7c9e706691aec7afc30caa4b95825cc51`
 - Branch: `review/phase-29a-bounded-content-extraction`
 - Deployed: 2026-09-03 (PHASE 29A-R1-R1 streaming trust & retrieval visibility closure)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
