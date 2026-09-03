@@ -140,15 +140,15 @@ Manual PHASE 28C history E2E: **PASS**.
 
 PHASE 28C-R1 — Inbox Recent Ordering + Stale Sync Banner Cleanup: **accepted** at `b62f7978647d9a4767c6040ff84df0e611e9f1b5`.
 
-PHASE 28C-R1-R1 — Eliminate Sync Banner Settlement Race: **accepted** at `e0ac78c50e7cb46dff9cf9b786409197977fb728`.
+PHASE 28C-R1-R1 manual E2E: **functionally PASS** except stuck sync-continues banner after visible sync completion.
 
-PHASE 28C-R1-R1 matched-version deploy: **complete** at `e0ac78c50e7cb46dff9cf9b786409197977fb728` (Alembic `0023`).
+PHASE 28C-R1-R1-R1 — Final Sync Banner Closure Corrective: **implemented and deployed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
 
-Manual PHASE 28C-R1-R1 Inbox sync-banner E2E: **awaiting user verification**.
+PHASE 28C-R1-R1-R1 matched-version deploy: **complete** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3` (Alembic `0023`).
 
-Next after manual E2E PASS: **PHASE 29A — bounded content extraction**.
+Final PHASE 28C manual E2E: **awaiting user verification**.
 
-PHASE 29A MUST NOT start until the user reports manual E2E result.
+PHASE 29A MUST NOT start until final user PASS. PHASE 28C is NOT fully closed yet.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -294,8 +294,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `e0ac78c50e7cb46dff9cf9b786409197977fb728`
-- Deployed: 2026-09-03 (PHASE 28C-R1-R1 — sync banner settlement race fix, Alembic `0023`)
+- SHA: `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`
+- Deployed: 2026-09-03 (PHASE 28C-R1-R1-R1 — idle source status + sync banner closure, Alembic `0023`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
 - Alembic current/head: `0023` (`google_source_sync_state`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`

@@ -1,38 +1,40 @@
-# Current task — PHASE 28C-R1-R1 manual E2E awaiting user
+# Current task — PHASE 28C-R1-R1-R1 final manual E2E awaiting user
 
 ## Status
 
-PHASE 28C-R1-R1 — Eliminate Sync Banner Settlement Race: **accepted** at `e0ac78c50e7cb46dff9cf9b786409197977fb728`.
+PHASE 28C-R1-R1 manual E2E: **functionally PASS** except stuck sync banner after visible sync completion.
 
-Matched-version deployment: **complete** at `e0ac78c50e7cb46dff9cf9b786409197977fb728` (Alembic `0023`).
+PHASE 28C-R1-R1-R1 — Final Sync Banner Closure Corrective: **implemented and deployed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
 
-Current: **manual E2E awaiting user verification**.
+Matched-version deployment: **complete** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3` (Alembic `0023`).
 
-Do **not** start **PHASE 29A** until the user reports manual E2E result.
+Current: **final manual E2E awaiting user verification**.
+
+PHASE 29A MUST NOT start until the user reports final manual E2E PASS.
+
+PHASE 28C is NOT fully closed until final user PASS.
 
 ## Branch
 
-`review/phase-28c-inbox-recent-ordering-r1-r1` at `e0ac78c50e7cb46dff9cf9b786409197977fb728`.
+`review/phase-28c-inbox-recent-ordering-r1-r1-r1` at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
 
-## Manual acceptance target
+## Final manual acceptance target
 
-With Inbox open:
+With Inbox open on Flutter client built from `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3` against `https://web-itx.duckdns.org/secretary`:
 
 1. Press **Обновить**.
-2. Allow `/sources/status` polling to reach its bounded timeout while at least one source is still reported as syncing.
-3. If the subsequent Inbox snapshot already shows all sources settled, the message
-   **«Синхронизация источников продолжается»** must **NOT** remain visible.
-4. If sources really are still syncing, the message may appear and must disappear on a later passive Inbox refresh once statuses settle.
-5. Existing Inbox contents must not blank/flicker unnecessarily.
-6. No repeated provider sync should be triggered by passive Inbox refresh.
+2. Allow `/sources/status` polling to reach its bounded timeout while at least one source is still syncing.
+3. Wait until source synchronization has visibly completed.
+4. The message **«Синхронизация источников продолжается»** must disappear automatically (within passive Inbox refresh) without another manual refresh.
+5. If sources are genuinely still syncing after timeout, the message may remain until they settle, then must clear on passive refresh.
+6. Inbox contents must not blank/flicker unnecessarily.
+7. Passive Inbox refresh must not repeatedly POST `/sources/sync`.
 
-Test the Flutter client built from the same SHA (`e0ac78c`) against `https://web-itx.duckdns.org/secretary`.
-
-## Next after manual E2E PASS
+## Next after final manual E2E PASS
 
 **PHASE 29A — bounded content extraction**.
 
 ## Not started
 
-- Phase 29A (until manual E2E reported)
+- Phase 29A (until final manual E2E reported)
 - merge to main
