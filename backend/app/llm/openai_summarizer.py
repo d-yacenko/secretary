@@ -1,7 +1,9 @@
 """OpenAI semantic summarizer for resource representations."""
 
 import logging
+import time
 
+from app.ai_audit.instrumentation import record_simple_model_call
 from app.llm.summarizer import Summarizer
 from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.effective_user_settings_service import EffectiveUserSettings
@@ -36,15 +38,42 @@ class OpenAISummarizer:
 
     def summarize(self, text: str) -> str:
         bounded = text[:4000]
-        response = self._client.responses.create(
-            model=self._model,
-            instructions=_SUMMARY_INSTRUCTIONS,
-            input=bounded,
-            reasoning={"effort": self._reasoning_effort},
-            text={"verbosity": self._verbosity},
-            max_output_tokens=self._max_output_tokens,
-        )
+        started = time.perf_counter()
+        try:
+            response = self._client.responses.create(
+                model=self._model,
+                instructions=_SUMMARY_INSTRUCTIONS,
+                input=bounded,
+                reasoning={"effort": self._reasoning_effort},
+                text={"verbosity": self._verbosity},
+                max_output_tokens=self._max_output_tokens,
+            )
+        except Exception as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            record_simple_model_call(
+                model=self._model,
+                reasoning_effort=self._reasoning_effort,
+                verbosity=self._verbosity,
+                max_output_tokens=self._max_output_tokens,
+                input_chars=len(bounded),
+                output_chars=0,
+                elapsed_ms=elapsed_ms,
+                failed=True,
+                error_category=type(exc).__name__,
+            )
+            raise
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         output = _extract_response_text(response).strip()
+        record_simple_model_call(
+            model=self._model,
+            reasoning_effort=self._reasoning_effort,
+            verbosity=self._verbosity,
+            max_output_tokens=self._max_output_tokens,
+            input_chars=len(bounded),
+            output_chars=len(output),
+            elapsed_ms=elapsed_ms,
+            response=response,
+        )
         if len(output) > self._max_chars:
             return output[: self._max_chars].rstrip() + "…"
         return output

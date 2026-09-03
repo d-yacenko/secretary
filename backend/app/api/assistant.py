@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.ai_audit.constants import WORKLOAD_TRANSCRIPTION
+from app.ai_audit.context import ai_trace_session
 from app.api.deps import get_current_user, get_db
 from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_EXPIRED,
@@ -204,7 +206,8 @@ async def assistant_transcribe(
     provider: TranscriptionProvider = Depends(get_transcription_provider),
 ) -> AssistantTranscribeResponse:
     try:
-        text = await transcribe_audio_upload(audio, provider)
+        with ai_trace_session(current_user.user_id, WORKLOAD_TRANSCRIPTION):
+            text = await transcribe_audio_upload(audio, provider)
     except ValidationError as exc:
         status_code = (
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE

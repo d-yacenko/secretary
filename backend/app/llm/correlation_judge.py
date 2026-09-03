@@ -2,9 +2,11 @@
 
 import json
 import logging
+import time
 from typing import Protocol
 from uuid import UUID
 
+from app.ai_audit.instrumentation import record_simple_model_call
 from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.correlation_constants import CORRELATION_ALLOWED_TYPES
 from app.services.correlation_models import (
@@ -124,16 +126,53 @@ class OpenAICorrelationJudge:
             },
             ensure_ascii=False,
         )
-        response = self._client.responses.create(
-            model=self._model,
-            instructions=instructions,
-            input=user_content,
-            reasoning={"effort": self._reasoning_effort},
-            text={"verbosity": self._verbosity},
-            max_output_tokens=self._max_output_tokens,
-        )
+        started = time.perf_counter()
+        try:
+            response = self._client.responses.create(
+                model=self._model,
+                instructions=instructions,
+                input=user_content,
+                reasoning={"effort": self._reasoning_effort},
+                text={"verbosity": self._verbosity},
+                max_output_tokens=self._max_output_tokens,
+            )
+        except Exception as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            record_simple_model_call(
+                model=self._model,
+                reasoning_effort=self._reasoning_effort,
+                verbosity=self._verbosity,
+                max_output_tokens=self._max_output_tokens,
+                input_chars=len(user_content),
+                output_chars=0,
+                elapsed_ms=elapsed_ms,
+                failed=True,
+                error_category=type(exc).__name__,
+                extra={
+                    "candidate_count": len(candidates),
+                    "candidate_payload_chars": len(user_content),
+                },
+            )
+            raise
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         text = _extract_response_text(response)
-        return _parse_judge_response(text, {str(c.object_id) for c in candidates})
+        parsed = _parse_judge_response(text, {str(c.object_id) for c in candidates})
+        record_simple_model_call(
+            model=self._model,
+            reasoning_effort=self._reasoning_effort,
+            verbosity=self._verbosity,
+            max_output_tokens=self._max_output_tokens,
+            input_chars=len(user_content),
+            output_chars=len(text),
+            elapsed_ms=elapsed_ms,
+            response=response,
+            extra={
+                "candidate_count": len(candidates),
+                "candidate_payload_chars": len(user_content),
+                "decisions_returned": len(parsed.decisions),
+            },
+        )
+        return parsed
 
 
 def _extract_response_text(response) -> str:

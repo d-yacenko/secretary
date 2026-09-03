@@ -1,0 +1,133 @@
+"""Active trace context for in-request / in-job AI audit recording."""
+
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy.orm import Session
+
+from app.ai_audit.constants import EVENT_TRACE_FINISHED, EVENT_TRACE_STARTED
+from app.ai_audit.sanitizer import bounded_json_text, sanitize_for_audit
+from app.ai_audit.trace_service import AITraceService
+from app.db.session import SessionLocal
+
+_active_trace: ContextVar["ActiveTrace | None"] = ContextVar("ai_audit_active_trace", default=None)
+
+
+@dataclass
+class ActiveTrace:
+    trace_id: UUID
+    user_id: UUID
+    workload: str
+    session: Session
+    sequence: int = 0
+    capture_payloads: bool = False
+
+    def record_event(self, event_type: str, metadata: dict[str, Any]) -> None:
+        self.sequence += 1
+        service = AITraceService(self.session)
+        stored_meta = dict(metadata)
+        if self.capture_payloads:
+            payloads = stored_meta.pop("payloads", None)
+            if payloads is not None:
+                stored_meta["payloads"] = sanitize_for_audit(payloads)
+        service.record_event(
+            trace_id=self.trace_id,
+            user_id=self.user_id,
+            sequence=self.sequence,
+            event_type=event_type,
+            metadata=stored_meta,
+        )
+
+    def finish(self, *, success: bool = True, error_category: str | None = None) -> None:
+        service = AITraceService(self.session)
+        service.finish_trace(
+            self.trace_id,
+            self.user_id,
+            success=success,
+            error_category=error_category,
+        )
+        self.record_event(
+            EVENT_TRACE_FINISHED,
+            {"success": success, "error_category": error_category},
+        )
+        self.session.commit()
+
+
+def get_active_trace() -> ActiveTrace | None:
+    return _active_trace.get()
+
+
+@contextmanager
+def ai_trace_session(
+    user_id: UUID,
+    workload: str,
+    *,
+    parent_trace_id: UUID | None = None,
+    job_id: UUID | None = None,
+    object_id: UUID | None = None,
+    session: Session | None = None,
+    commit_on_exit: bool = True,
+):
+    owns_session = session is None
+    db = session or SessionLocal()
+    token = None
+    active: ActiveTrace | None = None
+    try:
+        service = AITraceService(db)
+        capture_payloads = service.is_payload_capture_active(user_id)
+        trace = service.start_trace(
+            user_id=user_id,
+            workload=workload,
+            parent_trace_id=parent_trace_id,
+            job_id=job_id,
+            object_id=object_id,
+        )
+        active = ActiveTrace(
+            trace_id=trace.id,
+            user_id=user_id,
+            workload=workload,
+            session=db,
+            capture_payloads=capture_payloads,
+        )
+        active.record_event(
+            EVENT_TRACE_STARTED,
+            {
+                "workload": workload,
+                "parent_trace_id": str(parent_trace_id) if parent_trace_id else None,
+                "job_id": str(job_id) if job_id else None,
+                "object_id": str(object_id) if object_id else None,
+            },
+        )
+        if commit_on_exit:
+            db.commit()
+        token = _active_trace.set(active)
+        yield active
+        if active is not None:
+            active.finish(success=True)
+    except Exception as exc:
+        if active is not None:
+            category = type(exc).__name__
+            active.finish(success=False, error_category=category)
+        raise
+    finally:
+        if token is not None:
+            _active_trace.reset(token)
+        if owns_session:
+            db.close()
+
+
+def record_if_active(event_type: str, metadata: dict[str, Any]) -> None:
+    active = get_active_trace()
+    if active is None:
+        return
+    active.record_event(event_type, metadata)
+
+
+def maybe_payload_block(label: str, value: Any) -> dict[str, Any] | None:
+    active = get_active_trace()
+    if active is None or not active.capture_payloads:
+        return None
+    return {label: bounded_json_text(value)}

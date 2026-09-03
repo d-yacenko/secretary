@@ -1,10 +1,12 @@
 import hashlib
 import math
 import re
+import time
 from typing import Protocol
 
 from openai import OpenAI
 
+from app.ai_audit.instrumentation import record_simple_model_call
 from app.core.config import settings
 from app.llm.embedding_text import EMBEDDING_DIMENSION
 
@@ -61,8 +63,37 @@ class OpenAIEmbeddingService:
         self._model = model
 
     def embed(self, text: str) -> list[float]:
-        response = self._client.embeddings.create(input=text, model=self._model)
-        return list(response.data[0].embedding)
+        started = time.perf_counter()
+        try:
+            response = self._client.embeddings.create(input=text, model=self._model)
+        except Exception as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            record_simple_model_call(
+                model=self._model,
+                input_chars=len(text),
+                output_chars=0,
+                elapsed_ms=elapsed_ms,
+                failed=True,
+                error_category=type(exc).__name__,
+                extra={"embedding_dimension": EMBEDDING_DIMENSION},
+            )
+            raise
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        vector = list(response.data[0].embedding)
+        usage = getattr(response, "usage", None)
+        extra: dict = {"embedding_dimension": len(vector)}
+        if usage is not None:
+            total_tokens = getattr(usage, "total_tokens", None)
+            if total_tokens is not None:
+                extra["input_tokens"] = int(total_tokens)
+        record_simple_model_call(
+            model=self._model,
+            input_chars=len(text),
+            output_chars=0,
+            elapsed_ms=elapsed_ms,
+            extra=extra,
+        )
+        return vector
 
 
 def create_embedding_service() -> EmbeddingService:

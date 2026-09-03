@@ -146,9 +146,13 @@ PHASE 28C-R1-R1-R1 — Final Sync Banner Closure Corrective: **implemented and d
 
 PHASE 28C-R1-R1-R1 matched-version deploy: **complete** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3` (Alembic `0023`).
 
-Final PHASE 28C manual E2E: **awaiting user verification**.
+Final PHASE 28C manual E2E: **PASS** — sync-continues banner clears after settlement.
 
-PHASE 29A MUST NOT start until final user PASS. PHASE 28C is NOT fully closed yet.
+PHASE 28C: **fully accepted/closed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
+
+PHASE 28D-A — End-to-End AI Execution Observability: **implemented, awaiting architect review** on `review/phase-28d-ai-execution-observability`.
+
+PHASE 29A MUST NOT start until PHASE 28D architect checkpoint.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

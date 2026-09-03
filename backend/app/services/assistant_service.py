@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from app.ai_audit.constants import (
+    WORKLOAD_ASSISTANT_ACTION_PLAN_FINALIZE,
+    WORKLOAD_ASSISTANT_INTERACTIVE,
+)
+from app.ai_audit.context import ai_trace_session
 from app.api.schemas import NotificationOut
 from app.assistant.action_plan_history import build_terminal_action_plan_history_events
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
@@ -156,6 +161,28 @@ class AssistantService:
         )
         self._validate_context_ids(context_object_id, context_notification_id)
         ui_context_result = self._build_ui_context(context_object_id, context_notification_id)
+        with ai_trace_session(self._user_id, WORKLOAD_ASSISTANT_INTERACTIVE):
+            return self._send_message_traced(
+                normalized_message=normalized_message,
+                provider_history=provider_history,
+                context_object_id=context_object_id,
+                context_notification_id=context_notification_id,
+                client_timezone_id=client_timezone_id,
+                client_utc_offset_minutes=client_utc_offset_minutes,
+                ui_context_result=ui_context_result,
+            )
+
+    def _send_message_traced(
+        self,
+        *,
+        normalized_message: str,
+        provider_history: list[AssistantHistoryMessage],
+        context_object_id: UUID | None,
+        context_notification_id: UUID | None,
+        client_timezone_id: str | None,
+        client_utc_offset_minutes: int | None,
+        ui_context_result: UiContextResult,
+    ) -> AssistantMessageResult:
         try:
             tz_name = resolve_assistant_request_timezone(
                 client_timezone_id,
@@ -227,6 +254,14 @@ class AssistantService:
 
     def finalize_executed_plan(self, plan: PendingActionPlanView) -> AssistantResumeResult:
         context = _build_action_plan_finalization_context(plan)
+        with ai_trace_session(self._user_id, WORKLOAD_ASSISTANT_ACTION_PLAN_FINALIZE):
+            return self._finalize_executed_plan_traced(plan, context)
+
+    def _finalize_executed_plan_traced(
+        self,
+        plan: PendingActionPlanView,
+        context: str,
+    ) -> AssistantResumeResult:
         telemetry = AssistantTurnTelemetry()
         started = time.perf_counter()
         try:

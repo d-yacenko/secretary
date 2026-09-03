@@ -4,6 +4,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai_audit.constants import (
+    WORKLOAD_BACKGROUND_CORRELATION,
+    WORKLOAD_BACKGROUND_SUMMARY,
+    WORKLOAD_EMBEDDING,
+)
+from app.ai_audit.context import ai_trace_session
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.config import settings
 from app.db.models import Object
@@ -132,33 +138,34 @@ def handle_embed_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
-    service = embedding_service
-    if service is None:
-        settings_service = EffectiveUserSettingsService.build(session)
-        api_key = settings_service.resolve_openai_api_key(user_id)
-        service = create_embedding_service_for_api_key(api_key)
-    text = _load_embedding_text(object_id, user_id)
-    embedding = service.embed(text)
-    _store_object_embedding(object_id, user_id, embedding)
+    with ai_trace_session(user_id, WORKLOAD_EMBEDDING, object_id=object_id):
+        service = embedding_service
+        if service is None:
+            settings_service = EffectiveUserSettingsService.build(session)
+            api_key = settings_service.resolve_openai_api_key(user_id)
+            service = create_embedding_service_for_api_key(api_key)
+        text = _load_embedding_text(object_id, user_id)
+        embedding = service.embed(text)
+        _store_object_embedding(object_id, user_id, embedding)
 
-    chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
-    if chunk_targets:
-        chunk_embeddings = [
-            (target.representation_id, service.embed(target.text))
-            for target in chunk_targets
-        ]
-        store_representation_embeddings(object_id, user_id, chunk_embeddings)
+        chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
+        if chunk_targets:
+            chunk_embeddings = [
+                (target.representation_id, service.embed(target.text))
+                for target in chunk_targets
+            ]
+            store_representation_embeddings(object_id, user_id, chunk_embeddings)
 
-    lookup_session = SessionLocal()
-    try:
-        obj = lookup_session.scalar(
-            select(Object).where(Object.id == object_id, Object.user_id == user_id)
-        )
-        if obj is not None:
-            enqueue_correlate_object(lookup_session, object_id, user_id, obj.kind)
-            lookup_session.commit()
-    finally:
-        lookup_session.close()
+        lookup_session = SessionLocal()
+        try:
+            obj = lookup_session.scalar(
+                select(Object).where(Object.id == object_id, Object.user_id == user_id)
+            )
+            if obj is not None:
+                enqueue_correlate_object(lookup_session, object_id, user_id, obj.kind)
+                lookup_session.commit()
+        finally:
+            lookup_session.close()
 
 
 def handle_summarize_resource(
@@ -169,26 +176,27 @@ def handle_summarize_resource(
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
     expected_revision = payload.get("expected_revision")
-    lookup_session = SessionLocal()
-    try:
-        obj = lookup_session.scalar(
-            select(Object).where(Object.id == object_id, Object.user_id == user_id)
-        )
-        if obj is None:
-            raise ValueError(f"object ownership mismatch: {object_id}")
-        metadata = obj.metadata_ or {}
-        if expected_revision is not None and metadata.get("content_revision") != expected_revision:
-            return
-        effective = _background_effective_settings(lookup_session, user_id)
-        summarizer = create_openai_summarizer_from_effective(effective)
-        summary = SemanticSummaryService(
-            lookup_session, user_id, summarizer=summarizer
-        ).update_summary_for_object(object_id)
-        if summary is not None:
-            enqueue_embed_object(lookup_session, object_id, user_id)
-        lookup_session.commit()
-    finally:
-        lookup_session.close()
+    with ai_trace_session(user_id, WORKLOAD_BACKGROUND_SUMMARY, object_id=object_id):
+        lookup_session = SessionLocal()
+        try:
+            obj = lookup_session.scalar(
+                select(Object).where(Object.id == object_id, Object.user_id == user_id)
+            )
+            if obj is None:
+                raise ValueError(f"object ownership mismatch: {object_id}")
+            metadata = obj.metadata_ or {}
+            if expected_revision is not None and metadata.get("content_revision") != expected_revision:
+                return
+            effective = _background_effective_settings(lookup_session, user_id)
+            summarizer = create_openai_summarizer_from_effective(effective)
+            summary = SemanticSummaryService(
+                lookup_session, user_id, summarizer=summarizer
+            ).update_summary_for_object(object_id)
+            if summary is not None:
+                enqueue_embed_object(lookup_session, object_id, user_id)
+            lookup_session.commit()
+        finally:
+            lookup_session.close()
 
 
 def handle_correlate_object(
@@ -198,14 +206,15 @@ def handle_correlate_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
-    work_session = SessionLocal()
-    try:
-        effective = _background_effective_settings(session, user_id)
-        judge = create_correlation_judge_from_effective(effective)
-        CorrelationService(work_session, user_id, judge).run_correlation(object_id)
-        work_session.commit()
-    finally:
-        work_session.close()
+    with ai_trace_session(user_id, WORKLOAD_BACKGROUND_CORRELATION, object_id=object_id):
+        work_session = SessionLocal()
+        try:
+            effective = _background_effective_settings(session, user_id)
+            judge = create_correlation_judge_from_effective(effective)
+            CorrelationService(work_session, user_id, judge).run_correlation(object_id)
+            work_session.commit()
+        finally:
+            work_session.close()
 
 
 def handle_ingest_local_file(

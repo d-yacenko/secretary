@@ -1,40 +1,58 @@
-# Current task — PHASE 28C-R1-R1-R1 final manual E2E awaiting user
+# Current task — PHASE 28D-A awaiting architect review
 
 ## Status
 
-PHASE 28C-R1-R1 manual E2E: **functionally PASS** except stuck sync banner after visible sync completion.
+PHASE 28C: **fully accepted/closed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
 
-PHASE 28C-R1-R1-R1 — Final Sync Banner Closure Corrective: **implemented and deployed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
+Final PHASE 28C-R1-R1 manual E2E: **PASS** (sync banner clears after settlement).
 
-Matched-version deployment: **complete** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3` (Alembic `0023`).
+PHASE 28D-A — End-to-End AI Execution Observability: **implemented, awaiting architect review**.
 
-Current: **final manual E2E awaiting user verification**.
-
-PHASE 29A MUST NOT start until the user reports final manual E2E PASS.
-
-PHASE 28C is NOT fully closed until final user PASS.
+PHASE 29A MUST NOT start until PHASE 28D reaches architect-approved checkpoint.
 
 ## Branch
 
-`review/phase-28c-inbox-recent-ordering-r1-r1-r1` at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
+`review/phase-28d-ai-execution-observability`
 
-## Final manual acceptance target
+## Implemented in 28D-A
 
-With Inbox open on Flutter client built from `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3` against `https://web-itx.duckdns.org/secretary`:
+- User-scoped `AITrace` / `AITraceEvent` persistence (Alembic `0024`)
+- Workloads: `assistant_interactive`, `assistant_action_plan_finalize`, `background_summary`, `background_correlation`, `embedding`, `transcription`
+- Per-round Assistant Responses API tracing + tool execution tracing
+- Background AI tracing (summarizer, correlation judge, embeddings, transcription)
+- Bounded full-payload capture session (OFF by default)
+- API: `/me/ai-audit/summary`, `/me/ai-audit/traces/{id}`, `/me/ai-audit/capture`
+- CLI: `python -m app.cli.ai_audit_report`
 
-1. Press **Обновить**.
-2. Allow `/sources/status` polling to reach its bounded timeout while at least one source is still syncing.
-3. Wait until source synchronization has visibly completed.
-4. The message **«Синхронизация источников продолжается»** must disappear automatically (within passive Inbox refresh) without another manual refresh.
-5. If sources are genuinely still syncing after timeout, the message may remain until they settle, then must clear on passive refresh.
-6. Inbox contents must not blank/flicker unnecessarily.
-7. Passive Inbox refresh must not repeatedly POST `/sources/sync`.
+## Not in 28D-A (documented for later subphases)
 
-## Next after final manual E2E PASS
+- **28D-B** controlled cost/behavior audit (no optimizations yet)
+- **28D-C** workload-specific model profiles / routing
+- **28D-D** experimental two-stage Assistant
+- **28D-E** benchmark and closure
 
-**PHASE 29A — bounded content extraction**.
+## Temporary audit capture
+
+```bash
+# Enable 60-minute payload capture (authenticated API):
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  https://web-itx.duckdns.org/secretary/me/ai-audit/capture \
+  -H "Content-Type: application/json" \
+  -d '{"duration_minutes": 60}'
+
+# Sanitized summary (CLI on VDS):
+cd /opt/secretary/backend && python -m app.cli.ai_audit_report summary --hours 24
+
+# Trace waterfall with payloads (only while capture active):
+python -m app.cli.ai_audit_report trace <trace_id> --include-payloads
+```
+
+## Next after 28D-A acceptance
+
+**28D-B** controlled cost/behavior audit using new telemetry baseline.
 
 ## Not started
 
-- Phase 29A (until final manual E2E reported)
+- Phase 29A
+- model routing / reasoning optimization
 - merge to main

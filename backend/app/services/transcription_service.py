@@ -3,6 +3,8 @@ import time
 from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
 
+from app.ai_audit.context import get_active_trace
+from app.ai_audit.instrumentation import record_simple_model_call
 from app.assistant.transcription_audio import read_bounded_transcription_audio
 from app.assistant.transcription_telemetry import log_transcription_telemetry
 from app.core.config import settings
@@ -54,6 +56,14 @@ async def transcribe_audio_upload(
         raise
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if get_active_trace() is not None:
+        record_simple_model_call(
+            model=model,
+            input_chars=len(audio_bytes),
+            output_chars=len(text),
+            elapsed_ms=elapsed_ms,
+            extra={"audio_bytes": len(audio_bytes)},
+        )
     log_transcription_telemetry(
         model=model,
         input_bytes=len(audio_bytes),

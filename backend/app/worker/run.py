@@ -14,6 +14,9 @@ def _run_scheduler_maintenance() -> None:
     session = SessionLocal()
     try:
         SourceSyncScheduler(session).run_maintenance()
+        from app.ai_audit.trace_service import AITraceService
+
+        AITraceService(session).cleanup_expired()
         session.commit()
     except Exception:
         session.rollback()

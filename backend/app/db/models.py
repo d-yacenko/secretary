@@ -701,3 +701,95 @@ class LocalRoot(Base):
             name="uq_local_roots_user_device_root_path",
         ),
     )
+
+
+class AITrace(Base):
+    __tablename__ = "ai_traces"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workload: Mapped[str] = mapped_column(nullable=False)
+    parent_trace_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ai_traces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    object_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    success: Mapped[bool] = mapped_column(
+        nullable=False,
+        server_default=text("true"),
+    )
+    error_category: Mapped[str | None] = mapped_column(nullable=True)
+
+    __table_args__ = (
+        Index("ix_ai_traces_user_started", "user_id", "started_at"),
+    )
+
+
+class AITraceEvent(Base):
+    __tablename__ = "ai_trace_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    trace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ai_traces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(nullable=False)
+    event_type: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    __table_args__ = (
+        Index("ix_ai_trace_events_trace_sequence", "trace_id", "sequence"),
+        Index("ix_ai_trace_events_user_created", "user_id", "created_at"),
+    )
+
+
+class AIAuditCaptureSession(Base):
+    __tablename__ = "ai_audit_capture_sessions"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enabled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    payload_retention_until: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )

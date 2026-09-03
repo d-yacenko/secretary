@@ -1,9 +1,11 @@
 import json
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime
 from uuid import UUID
 
+from app.ai_audit.instrumentation import record_responses_round, record_tool_execution
 from app.assistant.constants import (
     MAX_ASSISTANT_ROUNDS,
     UI_CONTEXT_DELIMITER_END,
@@ -155,7 +157,8 @@ class OpenAIAssistantProvider:
         affected_ids: list[UUID] = []
         usage_totals = ResponsesUsageAccumulated()
 
-        for _ in range(MAX_ASSISTANT_ROUNDS):
+        for round_number in range(1, MAX_ASSISTANT_ROUNDS + 1):
+            round_started = time.perf_counter()
             try:
                 response = self._client.responses.create(
                     model=self._model,
@@ -168,6 +171,22 @@ class OpenAIAssistantProvider:
                     max_output_tokens=self._max_output_tokens,
                 )
             except Exception as exc:
+                elapsed_ms = int((time.perf_counter() - round_started) * 1000)
+                record_responses_round(
+                    response=None,
+                    round_number=round_number,
+                    model=self._model,
+                    reasoning_effort=self._reasoning_effort,
+                    verbosity=self._verbosity,
+                    max_output_tokens=self._max_output_tokens,
+                    instructions=instructions,
+                    input_items=input_items,
+                    tool_definitions=ASSISTANT_TOOL_DEFINITIONS,
+                    elapsed_ms=elapsed_ms,
+                    user_message=message,
+                    failed=True,
+                    error_category=type(exc).__name__,
+                )
                 logger.warning(
                     "assistant OpenAI call failed: %s: %s",
                     type(exc).__name__,
@@ -176,6 +195,20 @@ class OpenAIAssistantProvider:
                 raise AssistantProviderError("assistant provider call failed") from exc
             self._last_store_false = True
             usage_totals.accumulate(response)
+            elapsed_ms = int((time.perf_counter() - round_started) * 1000)
+            record_responses_round(
+                response=response,
+                round_number=round_number,
+                model=self._model,
+                reasoning_effort=self._reasoning_effort,
+                verbosity=self._verbosity,
+                max_output_tokens=self._max_output_tokens,
+                instructions=instructions,
+                input_items=input_items,
+                tool_definitions=ASSISTANT_TOOL_DEFINITIONS,
+                elapsed_ms=elapsed_ms,
+                user_message=message,
+            )
 
             if response_hit_max_output_tokens(response):
                 logger.warning(
@@ -202,7 +235,13 @@ class OpenAIAssistantProvider:
             input_items.extend(_function_call_input_items(output_items))
 
             for call in tool_calls:
+                tool_started = time.perf_counter()
                 result = tool_runner(call["name"], call["arguments"])
+                tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
+                raw_result_chars = None
+                model_visible_chars = None
+                model_visible_payload = None
+                truncated = False
                 if result.success and result.output:
                     if result.model_output_json is not None and result.model_visible_payload is not None:
                         output_text = result.model_output_json
@@ -213,6 +252,10 @@ class OpenAIAssistantProvider:
                         )
                         output_text = model_output.model_output_json
                         bounded_output = model_output.model_visible_payload
+                    raw_result_chars = len(json.dumps(result.output, default=str))
+                    model_visible_chars = len(output_text)
+                    model_visible_payload = bounded_output
+                    truncated = raw_result_chars > model_visible_chars
                     collect_object_ids_from_bounded_tool(
                         call["name"],
                         bounded_output,
@@ -221,6 +264,18 @@ class OpenAIAssistantProvider:
                     )
                 else:
                     output_text = result.error or "error"
+                    model_visible_chars = len(output_text)
+                record_tool_execution(
+                    tool_name=call["name"],
+                    validated_arguments=call["arguments"],
+                    success=result.success,
+                    elapsed_ms=tool_elapsed_ms,
+                    raw_result_chars=raw_result_chars,
+                    model_visible_chars=model_visible_chars,
+                    truncated=truncated,
+                    error_category=result.error if not result.success else None,
+                    model_visible_payload=model_visible_payload,
+                )
                 input_items.append(
                     {
                         "type": "function_call_output",
@@ -258,6 +313,7 @@ class OpenAIAssistantProvider:
         input_items.append({"role": "user", "content": message})
 
         usage_totals = ResponsesUsageAccumulated()
+        round_started = time.perf_counter()
         try:
             response = self._client.responses.create(
                 model=self._model,
@@ -269,6 +325,22 @@ class OpenAIAssistantProvider:
                 max_output_tokens=self._max_output_tokens,
             )
         except Exception as exc:
+            elapsed_ms = int((time.perf_counter() - round_started) * 1000)
+            record_responses_round(
+                response=None,
+                round_number=1,
+                model=self._model,
+                reasoning_effort=self._reasoning_effort,
+                verbosity=self._verbosity,
+                max_output_tokens=self._max_output_tokens,
+                instructions=instructions,
+                input_items=input_items,
+                tool_definitions=None,
+                elapsed_ms=elapsed_ms,
+                user_message=message,
+                failed=True,
+                error_category=type(exc).__name__,
+            )
             logger.warning(
                 "assistant finalize OpenAI call failed: %s: %s",
                 type(exc).__name__,
@@ -277,6 +349,20 @@ class OpenAIAssistantProvider:
             raise AssistantProviderError("assistant provider call failed") from exc
         self._last_store_false = True
         usage_totals.accumulate(response)
+        elapsed_ms = int((time.perf_counter() - round_started) * 1000)
+        record_responses_round(
+            response=response,
+            round_number=1,
+            model=self._model,
+            reasoning_effort=self._reasoning_effort,
+            verbosity=self._verbosity,
+            max_output_tokens=self._max_output_tokens,
+            instructions=instructions,
+            input_items=input_items,
+            tool_definitions=None,
+            elapsed_ms=elapsed_ms,
+            user_message=message,
+        )
 
         if response_hit_max_output_tokens(response):
             logger.warning(
