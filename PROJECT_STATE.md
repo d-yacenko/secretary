@@ -168,7 +168,9 @@ PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3
 
 PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented and deployed** at `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
+
+Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** (no safe public test resources available to execution environment).
 
 Model routing, two-stage Assistant, workload-specific models: **deferred**.
 
@@ -318,8 +320,9 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `c791461287a3b60e34c9474c9df146ea3fd8ea52`
-- Deployed: 2026-09-03 (PHASE 28D-B-R1-R1 — truthful finalization corrective, Alembic `0025`)
+- SHA: `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`
+- Branch: `review/phase-29a-bounded-content-extraction`
+- Deployed: 2026-09-03 (PHASE 29A — bounded explicit resource content extraction, Alembic `0025`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
 - Alembic current/head: `0025` (`ai_trace_event_payload_retention`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`

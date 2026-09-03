@@ -21,7 +21,11 @@ PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented**
 
 ## Deploy
 
-Pending matched-version VDS deploy and manual Google/Yandex E2E (see PROJECT_STATE).
+Application SHA: `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`
+
+VDS deploy: **complete** (Alembic `0025`, `/health` PASS, worker healthy).
+
+Manual Google/Yandex E2E: **DEFERRED** (no safe test resources in execution environment).
 
 ## Next
 
