@@ -267,7 +267,7 @@ class OpenAIAssistantProvider:
                     model_visible_chars = len(output_text)
                 record_tool_execution(
                     tool_name=call["name"],
-                    validated_arguments=call["arguments"],
+                    validated_arguments=result.validated_arguments,
                     success=result.success,
                     elapsed_ms=tool_elapsed_ms,
                     raw_result_chars=raw_result_chars,

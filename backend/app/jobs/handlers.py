@@ -131,6 +131,13 @@ def _background_effective_settings(session: Session, user_id: UUID) -> Effective
         raise BackgroundAIConfigurationError(str(exc)) from exc
 
 
+def _parent_trace_id_from_payload(payload: dict) -> UUID | None:
+    raw = payload.get("parent_trace_id")
+    if not raw:
+        return None
+    return UUID(str(raw))
+
+
 def handle_embed_object(
     session: Session,
     embedding_service,
@@ -138,7 +145,13 @@ def handle_embed_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
-    with ai_trace_session(user_id, WORKLOAD_EMBEDDING, object_id=object_id):
+    parent_trace_id = _parent_trace_id_from_payload(payload)
+    with ai_trace_session(
+        user_id,
+        WORKLOAD_EMBEDDING,
+        object_id=object_id,
+        parent_trace_id=parent_trace_id,
+    ):
         service = embedding_service
         if service is None:
             settings_service = EffectiveUserSettingsService.build(session)
@@ -176,7 +189,13 @@ def handle_summarize_resource(
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
     expected_revision = payload.get("expected_revision")
-    with ai_trace_session(user_id, WORKLOAD_BACKGROUND_SUMMARY, object_id=object_id):
+    parent_trace_id = _parent_trace_id_from_payload(payload)
+    with ai_trace_session(
+        user_id,
+        WORKLOAD_BACKGROUND_SUMMARY,
+        object_id=object_id,
+        parent_trace_id=parent_trace_id,
+    ):
         lookup_session = SessionLocal()
         try:
             obj = lookup_session.scalar(
@@ -206,7 +225,13 @@ def handle_correlate_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
-    with ai_trace_session(user_id, WORKLOAD_BACKGROUND_CORRELATION, object_id=object_id):
+    parent_trace_id = _parent_trace_id_from_payload(payload)
+    with ai_trace_session(
+        user_id,
+        WORKLOAD_BACKGROUND_CORRELATION,
+        object_id=object_id,
+        parent_trace_id=parent_trace_id,
+    ):
         work_session = SessionLocal()
         try:
             effective = _background_effective_settings(session, user_id)

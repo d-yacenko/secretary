@@ -766,10 +766,15 @@ class AITraceEvent(Base):
         nullable=False,
         server_default=text("'{}'::jsonb"),
     )
+    payload_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_ai_trace_events_trace_sequence", "trace_id", "sequence"),
         Index("ix_ai_trace_events_user_created", "user_id", "created_at"),
+        Index("ix_ai_trace_events_payload_expires", "payload_expires_at"),
     )
 
 

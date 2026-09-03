@@ -36,6 +36,7 @@ async def transcribe_audio_upload(
     provider: TranscriptionProvider,
 ) -> str:
     audio_bytes, filename = await read_bounded_transcription_audio(upload)
+    content_type = upload.content_type
     model = _provider_model(provider)
     started = time.perf_counter()
     try:
@@ -43,10 +44,24 @@ async def transcribe_audio_upload(
             provider.transcribe,
             audio_bytes,
             filename,
-            upload.content_type,
+            content_type,
         )
-    except TranscriptionProviderError:
+    except TranscriptionProviderError as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        if get_active_trace() is not None:
+            record_simple_model_call(
+                model=model,
+                input_chars=len(audio_bytes),
+                output_chars=0,
+                elapsed_ms=elapsed_ms,
+                failed=True,
+                error_category=type(exc).__name__,
+                extra={
+                    "audio_bytes": len(audio_bytes),
+                    "filename": filename,
+                    "content_type": content_type,
+                },
+            )
         log_transcription_telemetry(
             model=model,
             input_bytes=len(audio_bytes),
@@ -62,7 +77,12 @@ async def transcribe_audio_upload(
             input_chars=len(audio_bytes),
             output_chars=len(text),
             elapsed_ms=elapsed_ms,
-            extra={"audio_bytes": len(audio_bytes)},
+            extra={
+                "audio_bytes": len(audio_bytes),
+                "filename": filename,
+                "content_type": content_type,
+            },
+            diagnostic_payloads={"transcript_output": text},
         )
     log_transcription_telemetry(
         model=model,

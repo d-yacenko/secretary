@@ -73,6 +73,11 @@ class OpenAISummarizer:
             output_chars=len(output),
             elapsed_ms=elapsed_ms,
             response=response,
+            diagnostic_payloads={
+                "instructions": _SUMMARY_INSTRUCTIONS,
+                "model_input": bounded,
+                "model_output": output,
+            },
         )
         if len(output) > self._max_chars:
             return output[: self._max_chars].rstrip() + "…"

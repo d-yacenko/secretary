@@ -1,4 +1,4 @@
-"""CLI for sanitized AI audit reports (PHASE 28D-A)."""
+"""CLI for sanitized AI audit reports (PHASE 28D-A / 28D-A-R1)."""
 
 import argparse
 import json
@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from app.ai_audit.constants import MAX_TRACE_LIST
 from app.ai_audit.trace_service import AITraceService
 from app.db.session import SessionLocal
 from app.services.job_queue_service import utcnow
@@ -31,6 +32,24 @@ def _print_summary(user_id: UUID, hours: int) -> int:
         session.close()
 
 
+def _print_list(user_id: UUID, hours: int, workload: str | None, limit: int) -> int:
+    now = utcnow()
+    started_after = now - timedelta(hours=hours)
+    session = SessionLocal()
+    try:
+        rows = AITraceService(session).list_traces(
+            user_id,
+            started_after,
+            now,
+            workload=workload,
+            limit=limit,
+        )
+        print(json.dumps(rows, indent=2, default=str))
+        return 0
+    finally:
+        session.close()
+
+
 def _print_trace(user_id: UUID, trace_id: UUID, include_payloads: bool) -> int:
     session = SessionLocal()
     try:
@@ -39,9 +58,6 @@ def _print_trace(user_id: UUID, trace_id: UUID, include_payloads: bool) -> int:
         if trace is None:
             print("trace not found", file=sys.stderr)
             return 1
-        if include_payloads and not service.is_payload_capture_active(user_id):
-            print("payload capture not active; showing metadata only", file=sys.stderr)
-            include_payloads = False
         events = service.list_trace_events(trace_id, user_id, include_payloads=include_payloads)
         payload = {
             "trace_id": str(trace.id),
@@ -51,10 +67,10 @@ def _print_trace(user_id: UUID, trace_id: UUID, include_payloads: bool) -> int:
             "success": trace.success,
             "events": [
                 {
-                    "sequence": event.sequence,
-                    "event_type": event.event_type,
-                    "created_at": event.created_at.isoformat(),
-                    "metadata": event.metadata_ or {},
+                    "sequence": event["sequence"],
+                    "event_type": event["event_type"],
+                    "created_at": event["created_at"].isoformat(),
+                    "metadata": event["metadata"],
                 }
                 for event in events
             ],
@@ -73,13 +89,19 @@ def main(argv: list[str] | None = None) -> int:
     summary_parser.add_argument("--user-id", default=str(BOOTSTRAP_USER_ID))
     summary_parser.add_argument("--hours", type=int, default=24)
 
+    list_parser = sub.add_parser("list", help="Bounded trace listing")
+    list_parser.add_argument("--user-id", default=str(BOOTSTRAP_USER_ID))
+    list_parser.add_argument("--hours", type=int, default=24)
+    list_parser.add_argument("--workload", default=None)
+    list_parser.add_argument("--limit", type=int, default=MAX_TRACE_LIST)
+
     trace_parser = sub.add_parser("trace", help="Single trace waterfall")
     trace_parser.add_argument("trace_id")
     trace_parser.add_argument("--user-id", default=str(BOOTSTRAP_USER_ID))
     trace_parser.add_argument(
         "--include-payloads",
         action="store_true",
-        help="Include retained payloads when capture session is active",
+        help="Include retained payloads when within payload retention window",
     )
 
     cleanup_parser = sub.add_parser("cleanup", help="Expire payloads and old traces")
@@ -90,6 +112,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "summary":
         return _print_summary(user_id, args.hours)
+
+    if args.command == "list":
+        return _print_list(user_id, args.hours, args.workload, args.limit)
 
     if args.command == "trace":
         return _print_trace(user_id, UUID(str(args.trace_id)), args.include_payloads)

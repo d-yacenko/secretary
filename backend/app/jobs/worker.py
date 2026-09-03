@@ -1,5 +1,6 @@
 import logging
 
+from app.ai_audit.context import reset_current_job_id, set_current_job_id
 from app.db.session import SessionLocal
 from app.jobs.handlers import get_handler
 from app.jobs.recurring_job_finalization import (
@@ -65,7 +66,11 @@ def process_one_job(embedding_service: EmbeddingService | None = None) -> bool:
         session = SessionLocal()
         try:
             queue = JobQueueService(session)
-            handler(session, embedding_service, claimed.payload, claimed.user_id)
+            job_token = set_current_job_id(claimed.id)
+            try:
+                handler(session, embedding_service, claimed.payload, claimed.user_id)
+            finally:
+                reset_current_job_id(job_token)
             if queue.is_recurring_source_job(claimed.type):
                 finalize_recurring_job_success(
                     session,

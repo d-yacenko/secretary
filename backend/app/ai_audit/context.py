@@ -1,8 +1,10 @@
 """Active trace context for in-request / in-job AI audit recording."""
 
+import contextvars
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,6 +16,7 @@ from app.ai_audit.trace_service import AITraceService
 from app.db.session import SessionLocal
 
 _active_trace: ContextVar["ActiveTrace | None"] = ContextVar("ai_audit_active_trace", default=None)
+_current_job_id: ContextVar[UUID | None] = ContextVar("ai_audit_current_job_id", default=None)
 
 
 @dataclass
@@ -24,21 +27,25 @@ class ActiveTrace:
     session: Session
     sequence: int = 0
     capture_payloads: bool = False
+    payload_retention_until: datetime | None = None
 
     def record_event(self, event_type: str, metadata: dict[str, Any]) -> None:
         self.sequence += 1
         service = AITraceService(self.session)
         stored_meta = dict(metadata)
+        payload_expires_at = None
         if self.capture_payloads:
             payloads = stored_meta.pop("payloads", None)
             if payloads is not None:
                 stored_meta["payloads"] = sanitize_for_audit(payloads)
+                payload_expires_at = self.payload_retention_until
         service.record_event(
             trace_id=self.trace_id,
             user_id=self.user_id,
             sequence=self.sequence,
             event_type=event_type,
             metadata=stored_meta,
+            payload_expires_at=payload_expires_at,
         )
 
     def finish(self, *, success: bool = True, error_category: str | None = None) -> None:
@@ -60,6 +67,18 @@ def get_active_trace() -> ActiveTrace | None:
     return _active_trace.get()
 
 
+def get_current_job_id() -> UUID | None:
+    return _current_job_id.get()
+
+
+def set_current_job_id(job_id: UUID) -> contextvars.Token:
+    return _current_job_id.set(job_id)
+
+
+def reset_current_job_id(token: contextvars.Token) -> None:
+    _current_job_id.reset(token)
+
+
 @contextmanager
 def ai_trace_session(
     user_id: UUID,
@@ -77,12 +96,17 @@ def ai_trace_session(
     active: ActiveTrace | None = None
     try:
         service = AITraceService(db)
-        capture_payloads = service.is_payload_capture_active(user_id)
+        capture_session = service.get_capture_session(user_id)
+        capture_payloads = capture_session is not None
+        payload_retention_until = (
+            capture_session.payload_retention_until if capture_session is not None else None
+        )
+        effective_job_id = job_id or get_current_job_id()
         trace = service.start_trace(
             user_id=user_id,
             workload=workload,
             parent_trace_id=parent_trace_id,
-            job_id=job_id,
+            job_id=effective_job_id,
             object_id=object_id,
         )
         active = ActiveTrace(
@@ -91,13 +115,14 @@ def ai_trace_session(
             workload=workload,
             session=db,
             capture_payloads=capture_payloads,
+            payload_retention_until=payload_retention_until,
         )
         active.record_event(
             EVENT_TRACE_STARTED,
             {
                 "workload": workload,
                 "parent_trace_id": str(parent_trace_id) if parent_trace_id else None,
-                "job_id": str(job_id) if job_id else None,
+                "job_id": str(effective_job_id) if effective_job_id else None,
                 "object_id": str(object_id) if object_id else None,
             },
         )

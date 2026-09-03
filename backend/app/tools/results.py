@@ -31,6 +31,7 @@ class ToolExecutionResult(BaseModel):
     model_visible_payload: dict[str, Any] | None = None
     staged_action: dict[str, Any] | None = None
     raw_output: Any = Field(default=None, exclude=True)
+    validated_arguments: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _status_matches_success(self) -> "ToolExecutionResult":

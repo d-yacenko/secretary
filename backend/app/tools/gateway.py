@@ -63,6 +63,7 @@ class ToolExecutionGateway:
                     "permission": spec.permission.value,
                     "arguments": validated_arguments,
                 },
+                validated_arguments=validated_arguments,
             )
         if decision == PolicyDecision.DENY:
             return ToolExecutionResult(
@@ -71,6 +72,7 @@ class ToolExecutionGateway:
                 error=policy_block_message(decision),
                 policy_denied=True,
                 status=ToolExecutionStatus.POLICY_DENIED,
+                validated_arguments=validated_arguments,
             )
 
         try:
@@ -81,6 +83,7 @@ class ToolExecutionGateway:
                 output=output_model.model_dump(mode="json"),
                 status=ToolExecutionStatus.SUCCESS,
                 raw_output=output_model,
+                validated_arguments=validated_arguments,
             )
         except ToolError as exc:
             return ToolExecutionResult(

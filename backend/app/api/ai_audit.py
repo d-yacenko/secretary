@@ -1,4 +1,4 @@
-"""Authenticated AI audit read API (PHASE 28D-A)."""
+"""Authenticated AI audit read API (PHASE 28D-A / 28D-A-R1)."""
 
 from datetime import datetime
 from uuid import UUID
@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.ai_audit.constants import DEFAULT_CAPTURE_DURATION_MINUTES, MAX_CAPTURE_DURATION_MINUTES
+from app.ai_audit.constants import (
+    DEFAULT_CAPTURE_DURATION_MINUTES,
+    MAX_CAPTURE_DURATION_MINUTES,
+    MAX_TRACE_LIST,
+)
 from app.ai_audit.trace_service import AITraceService
 from app.api.deps import get_current_user, get_db
 from app.core.current_user import CurrentUserContext
@@ -35,9 +39,7 @@ class AITraceEventOut(BaseModel):
     sequence: int
     event_type: str
     created_at: datetime
-    metadata: dict = Field(alias="metadata_")
-
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    metadata: dict
 
 
 class AITraceDetailOut(BaseModel):
@@ -51,6 +53,24 @@ class AITraceDetailOut(BaseModel):
     success: bool
     error_category: str | None
     events: list[AITraceEventOut]
+
+
+class AITraceListItemOut(BaseModel):
+    trace_id: UUID
+    workload: str
+    started_at: datetime
+    finished_at: datetime | None
+    success: bool
+    error_category: str | None
+    model_call_count: int
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
+    reasoning_tokens: int
+    cache_write_tokens: int
+    job_id: UUID | None
+    object_id: UUID | None
+    parent_trace_id: UUID | None
 
 
 @router.get("/me/ai-audit/summary")
@@ -71,6 +91,29 @@ def get_ai_audit_summary(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
+@router.get("/me/ai-audit/traces", response_model=list[AITraceListItemOut])
+def list_ai_audit_traces(
+    started_after: datetime = Query(...),
+    started_before: datetime = Query(...),
+    workload: str | None = Query(default=None),
+    limit: int = Query(default=MAX_TRACE_LIST, ge=1, le=MAX_TRACE_LIST),
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> list[AITraceListItemOut]:
+    service = AITraceService(session)
+    try:
+        rows = service.list_traces(
+            current_user.user_id,
+            started_after,
+            started_before,
+            workload=workload,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return [AITraceListItemOut.model_validate(row) for row in rows]
+
+
 @router.get("/me/ai-audit/traces/{trace_id}", response_model=AITraceDetailOut)
 def get_ai_audit_trace(
     trace_id: UUID,
@@ -82,8 +125,6 @@ def get_ai_audit_trace(
     trace = service.get_trace(trace_id, current_user.user_id)
     if trace is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="trace not found")
-    if include_payloads and not service.is_payload_capture_active(current_user.user_id):
-        include_payloads = False
     events = service.list_trace_events(
         trace_id,
         current_user.user_id,
@@ -101,10 +142,10 @@ def get_ai_audit_trace(
         error_category=trace.error_category,
         events=[
             AITraceEventOut(
-                sequence=event.sequence,
-                event_type=event.event_type,
-                created_at=event.created_at,
-                metadata_=event.metadata_ or {},
+                sequence=event["sequence"],
+                event_type=event["event_type"],
+                created_at=event["created_at"],
+                metadata=event["metadata"],
             )
             for event in events
         ],

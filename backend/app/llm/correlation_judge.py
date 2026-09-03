@@ -156,6 +156,7 @@ class OpenAICorrelationJudge:
             raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         text = _extract_response_text(response)
+        raw_decisions_count = _count_raw_decisions(text)
         parsed = _parse_judge_response(text, {str(c.object_id) for c in candidates})
         record_simple_model_call(
             model=self._model,
@@ -169,7 +170,13 @@ class OpenAICorrelationJudge:
             extra={
                 "candidate_count": len(candidates),
                 "candidate_payload_chars": len(user_content),
-                "decisions_returned": len(parsed.decisions),
+                "raw_decisions_returned_by_model": raw_decisions_count,
+                "accepted_decisions_after_validation": len(parsed.decisions),
+            },
+            diagnostic_payloads={
+                "instructions": instructions,
+                "trigger_candidate_request": user_content,
+                "raw_model_output": text,
             },
         )
         return parsed
@@ -182,6 +189,17 @@ def _extract_response_text(response) -> str:
                 if content.type == "output_text":
                     return content.text
     return ""
+
+
+def _count_raw_decisions(text: str) -> int:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return 0
+    raw_decisions = payload.get("decisions") if isinstance(payload, dict) else None
+    if not isinstance(raw_decisions, list):
+        return 0
+    return len(raw_decisions)
 
 
 def _parse_judge_response(text: str, allowed_ids: set[str]) -> CorrelationJudgeResult:

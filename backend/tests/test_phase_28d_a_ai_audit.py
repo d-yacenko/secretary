@@ -19,7 +19,7 @@ from app.ai_audit.constants import (
 from app.ai_audit.context import ai_trace_session
 from app.ai_audit.sanitizer import sanitize_for_audit
 from app.ai_audit.trace_service import AITraceService
-from app.db.models import AIAuditCaptureSession, AITrace, AITraceEvent, User
+from app.db.models import AITrace, AITraceEvent, User
 from app.llm.embedding_service import OpenAIEmbeddingService
 from app.llm.openai_assistant_provider import AssistantProviderError, OpenAIAssistantProvider
 from app.tools.executor import ToolExecutionResult
@@ -78,6 +78,7 @@ def test_payload_capture_session_and_cleanup(db_session) -> None:
     service = AITraceService(db_session)
     service.enable_capture(BOOTSTRAP_USER_ID, duration=timedelta(minutes=30))
     assert service.is_payload_capture_active(BOOTSTRAP_USER_ID)
+    retention = service.get_payload_retention_until(BOOTSTRAP_USER_ID)
 
     trace = service.start_trace(BOOTSTRAP_USER_ID, WORKLOAD_TRANSCRIPTION)
     service.record_event(
@@ -86,17 +87,17 @@ def test_payload_capture_session_and_cleanup(db_session) -> None:
         1,
         EVENT_MODEL_ROUND,
         {"payloads": {"instructions": "secret sk-test"}, "input_tokens": 10},
+        payload_expires_at=retention,
     )
     db_session.commit()
 
     events = service.list_trace_events(trace.id, BOOTSTRAP_USER_ID, include_payloads=True)
-    assert "payloads" in events[0].metadata_
+    assert "payloads" in events[0]["metadata"]
 
-    row = db_session.get(AIAuditCaptureSession, BOOTSTRAP_USER_ID)
-    assert row is not None
+    event = db_session.scalar(select(AITraceEvent).where(AITraceEvent.trace_id == trace.id))
     from app.services.job_queue_service import utcnow
 
-    row.payload_retention_until = utcnow() - timedelta(hours=1)
+    event.payload_expires_at = utcnow() - timedelta(hours=1)
     db_session.commit()
 
     stats = service.cleanup_expired()
@@ -104,7 +105,7 @@ def test_payload_capture_session_and_cleanup(db_session) -> None:
     assert stats["scrubbed_payload_events"] >= 1
 
     events_after = service.list_trace_events(trace.id, BOOTSTRAP_USER_ID, include_payloads=True)
-    assert "payloads" not in events_after[0].metadata_
+    assert "payloads" not in events_after[0]["metadata"]
 
 
 def test_assistant_provider_records_rounds_and_tools(db_session, monkeypatch) -> None:

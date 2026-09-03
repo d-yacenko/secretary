@@ -2,19 +2,27 @@
 
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai_audit.context import get_active_trace
+from app.db.models import Job
 from app.jobs.constants import (
+    JOB_STATUS_PENDING,
+    JOB_STATUS_RUNNING,
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_SUMMARIZE_RESOURCE,
-    JOB_STATUS_PENDING,
-    JOB_STATUS_RUNNING,
 )
 from app.services.correlation_constants import CORRELATION_TRIGGER_KINDS
 from app.services.job_queue_service import JobQueueService
-from app.db.models import Job
-from sqlalchemy import select
+
+
+def _active_parent_trace_id() -> str | None:
+    active = get_active_trace()
+    if active is None:
+        return None
+    return str(active.trace_id)
 
 
 def enqueue_summarize_resource(
@@ -31,12 +39,16 @@ def enqueue_summarize_resource(
         {"expected_revision": expected_revision},
     ):
         return
+    payload: dict = {
+        "object_id": str(object_id),
+        "expected_revision": expected_revision,
+    }
+    parent_trace_id = _active_parent_trace_id()
+    if parent_trace_id is not None:
+        payload["parent_trace_id"] = parent_trace_id
     JobQueueService(session).enqueue(
         JOB_TYPE_SUMMARIZE_RESOURCE,
-        {
-            "object_id": str(object_id),
-            "expected_revision": expected_revision,
-        },
+        payload,
         user_id=user_id,
     )
 
@@ -51,9 +63,13 @@ def enqueue_correlate_object(
         return
     if _has_pending_job(session, user_id, JOB_TYPE_CORRELATE_OBJECT, object_id, {}):
         return
+    payload: dict = {"object_id": str(object_id)}
+    parent_trace_id = _active_parent_trace_id()
+    if parent_trace_id is not None:
+        payload["parent_trace_id"] = parent_trace_id
     JobQueueService(session).enqueue(
         JOB_TYPE_CORRELATE_OBJECT,
-        {"object_id": str(object_id)},
+        payload,
         user_id=user_id,
     )
 
@@ -61,9 +77,13 @@ def enqueue_correlate_object(
 def enqueue_embed_object(session: Session, object_id: UUID, user_id: UUID) -> None:
     if _has_pending_job(session, user_id, JOB_TYPE_EMBED_OBJECT, object_id, {}):
         return
+    payload: dict = {"object_id": str(object_id)}
+    parent_trace_id = _active_parent_trace_id()
+    if parent_trace_id is not None:
+        payload["parent_trace_id"] = parent_trace_id
     JobQueueService(session).enqueue(
         JOB_TYPE_EMBED_OBJECT,
-        {"object_id": str(object_id)},
+        payload,
         user_id=user_id,
     )
 

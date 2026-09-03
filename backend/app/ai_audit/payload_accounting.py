@@ -12,6 +12,15 @@ def _char_len(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, default=str))
 
 
+def _is_terminal_action_plan_content(content: str) -> bool:
+    lowered = content.lower()
+    return "terminal action plan" in lowered or "action plan" in lowered
+
+
+def _is_ui_context_content(content: str) -> bool:
+    return "explicit ui context" in content.lower() or "ui context" in content.lower()
+
+
 def compute_assistant_input_component_sizes(
     *,
     instructions: str,
@@ -22,11 +31,22 @@ def compute_assistant_input_component_sizes(
     history_chars = 0
     ui_context_chars = 0
     terminal_action_plan_chars = 0
-    current_user_message_chars = _char_len(user_message)
+    current_user_message_chars = 0
     function_call_chars = 0
     function_output_chars = 0
 
-    for item in input_items:
+    last_plain_user_index: int | None = None
+    for index, item in enumerate(input_items):
+        if item.get("type") == "function_call" or item.get("type") == "function_call_output":
+            continue
+        role = item.get("role")
+        content = item.get("content") or ""
+        if not isinstance(content, str):
+            content = str(content)
+        if role == "user" and not _is_terminal_action_plan_content(content) and not _is_ui_context_content(content):
+            last_plain_user_index = index
+
+    for index, item in enumerate(input_items):
         item_type = item.get("type")
         if item_type == "function_call":
             function_call_chars += _char_len(item)
@@ -39,12 +59,17 @@ def compute_assistant_input_component_sizes(
         if not isinstance(content, str):
             content = str(content)
         if role in ("user", "assistant"):
-            if "terminal action plan" in content.lower() or "action plan" in content.lower():
+            if index == last_plain_user_index:
+                current_user_message_chars += len(content)
+            elif _is_terminal_action_plan_content(content):
                 terminal_action_plan_chars += len(content)
-            elif "explicit ui context" in content.lower() or "ui context" in content.lower():
+            elif _is_ui_context_content(content):
                 ui_context_chars += len(content)
             else:
                 history_chars += len(content)
+
+    if user_message and current_user_message_chars == 0:
+        current_user_message_chars = len(user_message)
 
     tool_definition_chars = _char_len(tool_definitions or [])
 

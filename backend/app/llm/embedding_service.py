@@ -92,6 +92,7 @@ class OpenAIEmbeddingService:
             output_chars=0,
             elapsed_ms=elapsed_ms,
             extra=extra,
+            diagnostic_payloads={"model_input_text": text},
         )
         return vector
 

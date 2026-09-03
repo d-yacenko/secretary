@@ -8,6 +8,7 @@ from app.ai_audit.payload_accounting import (
     compute_assistant_input_component_sizes,
     extract_responses_usage_fields,
 )
+from app.ai_audit.tool_args_privacy import summarize_tool_arguments_for_metadata
 from app.llm.openai_usage import response_hit_max_output_tokens
 
 
@@ -98,7 +99,7 @@ def record_responses_round(
 def record_tool_execution(
     *,
     tool_name: str,
-    validated_arguments: dict,
+    validated_arguments: dict | None,
     success: bool,
     elapsed_ms: int,
     raw_result_chars: int | None,
@@ -112,7 +113,6 @@ def record_tool_execution(
         return
     metadata: dict[str, Any] = {
         "tool_name": tool_name,
-        "validated_arguments": validated_arguments,
         "success": success,
         "elapsed_ms": elapsed_ms,
         "raw_result_chars": raw_result_chars,
@@ -120,10 +120,21 @@ def record_tool_execution(
         "truncated": truncated,
         "error_category": error_category,
     }
+    if validated_arguments is not None:
+        if active.capture_payloads:
+            payloads = maybe_payload_block("validated_arguments", validated_arguments)
+            if payloads:
+                metadata["payloads"] = payloads
+        else:
+            metadata.update(summarize_tool_arguments_for_metadata(validated_arguments))
     if model_visible_payload is not None:
         block = maybe_payload_block("model_visible_output", model_visible_payload)
         if block:
-            metadata["payloads"] = block
+            existing = metadata.get("payloads")
+            if isinstance(existing, dict):
+                existing.update(block)
+            else:
+                metadata["payloads"] = block
     active.record_event(EVENT_TOOL_CALL, metadata)
 
 
@@ -140,6 +151,7 @@ def record_simple_model_call(
     failed: bool = False,
     error_category: str | None = None,
     extra: dict[str, Any] | None = None,
+    diagnostic_payloads: dict[str, Any] | None = None,
 ) -> None:
     active = get_active_trace()
     if active is None:
@@ -157,6 +169,14 @@ def record_simple_model_call(
         metadata.update(extract_responses_usage_fields(response))
     if extra:
         metadata.update(extra)
+    if diagnostic_payloads and active.capture_payloads:
+        payloads: dict[str, Any] = {}
+        for label, value in diagnostic_payloads.items():
+            block = maybe_payload_block(label, value)
+            if block:
+                payloads.update(block)
+        if payloads:
+            metadata["payloads"] = payloads
     if failed:
         metadata["error_category"] = error_category
         active.record_event(EVENT_MODEL_ROUND_FAILED, metadata)

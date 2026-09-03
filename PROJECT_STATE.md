@@ -150,9 +150,15 @@ Final PHASE 28C manual E2E: **PASS** — sync-continues banner clears after sett
 
 PHASE 28C: **fully accepted/closed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
 
-PHASE 28D-A — End-to-End AI Execution Observability: **implemented, awaiting architect review** on `review/phase-28d-ai-execution-observability`.
+PHASE 28D-A — End-to-End AI Execution Observability: **initial implementation required architect corrective** at `9090ee8780f33d6b888057919d02b8e0772b1431`.
 
-PHASE 28D-A matched-version deploy: **complete** at `9090ee8780f33d6b888057919d02b8e0772b1431` (Alembic `0024`).
+PHASE 28D-A matched-version deploy (pre-R1): **complete** at `9090ee8780f33d6b888057919d02b8e0772b1431` (Alembic `0024`).
+
+PHASE 28D-A-R1 — AI Audit Trace Correctness, Privacy & Baseline Readiness Corrective: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-a-r1`.
+
+PHASE 28D-B/C/D/E: **NOT started**.
+
+Model routing, two-stage Assistant: **NOT started**.
 
 PHASE 29A MUST NOT start until PHASE 28D architect checkpoint.
 
