@@ -168,9 +168,11 @@ PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3
 
 PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **R2 corrective implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **R2 + R2-R1 implemented and deployed**, **awaiting final user E2E** on `review/phase-29a-bounded-content-extraction`.
 
-Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** (no safe public test resources available to execution environment).
+PHASE 29A-R2-R1 — Assistant retrieve `kind="all"` normalization: **architect code review PASS**, deployed at `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
+
+Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** — await user retest after R2-R1 deploy.
 
 Model routing, two-stage Assistant, workload-specific models: **deferred**.
 
@@ -320,14 +322,16 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `75142dc6eac2b16d60dd448a7f40f84d529fd2de`
+- SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Branch: `review/phase-29a-bounded-content-extraction`
-- Deployed: 2026-09-03 (PHASE 29A-R1-R1 streaming trust & retrieval visibility closure)
-- Checkout: detached at `75142dc6eac2b16d60dd448a7f40f84d529fd2de`, clean
+- Deployed: 2026-09-03 (PHASE 29A-R2-R1 retrieve kind normalization)
+- Checkout: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Stale v1 reindex: 3 objects enqueued (incl. target `19940b16`), all reached `phase29a-v2` ready
+- Production direct `retrieve(kind="all")`: PASS — `kind` normalized to no filter; `Второе полугодие.xlsx` in top-5
+- Production direct `retrieve(kind="file")`: PASS — same target returned
+- Stale v1 reindex (prior R2 deploy): 3 objects enqueued (incl. target `19940b16`), all reached `phase29a-v2` ready
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
@@ -409,4 +413,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await architect review of PHASE 29A-R2 corrective. Do not start Safe External Actions or scheduled_activity implementation.
+Await final user E2E on PHASE 29A (deployed R2-R1 at `1562db7`). Do not start Safe External Actions or scheduled_activity implementation.
