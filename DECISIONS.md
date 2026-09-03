@@ -387,3 +387,12 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Flutter:** universal «Добавить» screen; note default; explicit task mode; exact-URL → link intake; voice → text field only.
 - **Next:** format parity iterations (TXT…Parquet, legacy Office); not Safe External Actions yet.
 
+## Universal Intake Iteration A-R1 — web completeness + capture safety
+
+- **Redirect identity:** `external_id` stays normalized requested URL; `canonical_uri` / metadata `final_url` follow fetch redirects; content revision handles body changes.
+- **Searchable web text:** no `MAX_WEB_BODY_CHARS` pre-cut; full bounded fetch text → `build_bounded_text_representations()`.
+- **Revision invalidation:** on content hash change, clear mechanical reps, embedding, semantic-summary metadata before new summarize/embed jobs.
+- **Binary sniff:** PDF / ZIP / OLE / PNG / JPEG signatures when Content-Type absent or misleading.
+- **Capture UX:** Note default after successful submit; task context (`context_object_ids` / `depends_on_ids`) forces Task mode and `/capture/task` even for exact URLs.
+- **Status:** deployed at `1e873dbd902ac53a8123328e05e2201d55df6dc8`; Iteration A still **not architect-accepted**.
+

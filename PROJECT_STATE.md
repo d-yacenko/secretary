@@ -174,7 +174,9 @@ PHASE 29A-R2-R1 — Assistant retrieve `kind="all"` normalization: **included in
 
 Google Drive real E2E: **PASS**. Yandex Disk real E2E: **PASS**. Blind Assistant XLSX phrase E2E: **PASS**.
 
-Universal Intake & Format Parity — Iteration A: **implemented and deployed** on `review/universal-intake-format-parity-a`, **awaiting architect review**.
+Universal Intake & Format Parity — Iteration A: **implemented**, **awaiting architect review** on `review/universal-intake-format-parity-a`.
+
+Universal Intake Iteration A-R1 corrective: **implemented and deployed** at `1e873dbd902ac53a8123328e05e2201d55df6dc8`, **awaiting architect review and manual E2E** (Iteration A not accepted).
 
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
@@ -328,14 +330,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `476de0e989944bbadbf7858aa0e6633c490a1999`
+- SHA: `1e873dbd902ac53a8123328e05e2201d55df6dc8`
 - Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-03 (Universal Intake Iteration A)
-- Checkout: `476de0e989944bbadbf7858aa0e6633c490a1999`, clean working tree
+- Deployed: 2026-09-03 (Universal Intake Iteration A-R1 corrective)
+- Checkout: `1e873dbd902ac53a8123328e05e2201d55df6dc8`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Iteration A smoke: note/web_page retrieve PASS, web URL idempotency PASS, open-target PASS
+- Iteration A-R1 smoke: existing note/web_page retrieve PASS, Google/Yandex provider detection unchanged
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
