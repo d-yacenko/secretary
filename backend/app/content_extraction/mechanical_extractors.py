@@ -198,9 +198,12 @@ def _extract_pdf_text(path: Path) -> tuple[str, bool]:
     truncated = len(reader.pages) > MAX_PDF_PAGES
     parts: list[str] = []
     for index, page in enumerate(pages, start=1):
-        page_text = page.extract_text() or ""
-        parts.append(f"[page {index}]\n{page_text}")
+        page_text = (page.extract_text() or "").strip()
+        if page_text:
+            parts.append(f"[page {index}]\n{page_text}")
     text = "\n\n".join(parts).strip()
+    if not text:
+        raise ValueError("no_extractable_text")
     capped, char_truncated = _cap_text(text)
     return capped, truncated or char_truncated
 
@@ -300,7 +303,8 @@ def _build_xlsx_representations(object_id, path: Path) -> tuple[list[Representat
         sample_lines = ["sample"]
         stats_lines = ["statistics"]
         for sheet_name in selected_sheets:
-            rows = _read_xlsx_sheet_rows(archive, sheet_name, shared_strings)
+            rows, sheet_truncated = _read_xlsx_sheet_rows(archive, sheet_name, shared_strings)
+            truncated = truncated or sheet_truncated
             if not rows:
                 schema_lines.append(f"{sheet_name}: (empty)")
                 continue
@@ -425,18 +429,21 @@ def _read_xlsx_sheet_rows(
 
     root = ET.fromstring(archive.read(sheet_path))
     rows: list[list[str]] = []
+    truncated = False
     for row in root.findall(".//main:row", XLSX_NS):
         if len(rows) >= MAX_XLSX_ROWS_PER_SHEET:
+            truncated = True
             break
         values: list[str] = []
         for cell in row.findall("main:c", XLSX_NS):
             if len(values) >= MAX_XLSX_COLUMNS:
+                truncated = True
                 break
             value = _xlsx_cell_value(cell, shared_strings)
             values.append(value)
         if values:
             rows.append(values)
-    return rows
+    return rows, truncated
 
 
 def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str]) -> str:

@@ -24,12 +24,18 @@ from app.connectors.yandex.disk_transport import YandexDiskTransport
 from app.connectors.yandex.disk_url_parser import parse_yandex_disk_share_url
 from app.connectors.yandex.errors import YandexDiskApiError
 from app.content_extraction.constants import EXTRACTION_VERSION
+from app.content_extraction.content_invalidation import invalidate_object_content_immediately
 from app.content_extraction.extract_service import (
     apply_intake_content_metadata,
     extraction_work_needed,
 )
+from app.content_extraction.intake_metadata import (
+    content_revision_changed,
+    is_ready_content_unchanged,
+    merge_intake_metadata,
+    provider_metadata_changed,
+)
 from app.content_extraction.metadata_keys import CONTENT_EXTRACTION_STATUS, STATUS_READY
-from app.content_extraction.revision import derive_explicit_cloud_content_revision
 from app.db.models import GoogleAccount, Object, Representation
 from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
 from app.services.explicit_link_intake_errors import (
@@ -41,7 +47,6 @@ from app.services.pipeline_enqueue import (
     enqueue_embed_object,
     enqueue_extract_explicit_resource_content,
 )
-from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 
 EXPLICIT_INTAKE_MODE = "explicit_link"
 
@@ -188,21 +193,23 @@ class ExplicitLinkIntakeService:
             )
         )
 
-    def _upsert(self, existing: Object | None, normalized: dict[str, Any]) -> tuple[Object, str, int]:
+    def _upsert(
+        self,
+        existing: Object | None,
+        normalized: dict[str, Any],
+    ) -> tuple[Object, str, int]:
         provider = normalized["provider"]
         kind = normalized["kind"]
         title = normalized["title"]
-        content_metadata = apply_intake_content_metadata(
-            normalized["metadata"],
-            provider,
-            kind,
-            title,
-        )
-        normalized = dict(normalized)
-        normalized["metadata"] = content_metadata
+        incoming_provider_meta = dict(normalized["metadata"])
 
-        jobs_enqueued = 0
         if existing is None:
+            content_metadata = apply_intake_content_metadata(
+                incoming_provider_meta,
+                provider,
+                kind,
+                title,
+            )
             obj = Object(
                 user_id=self._user_id,
                 kind=kind,
@@ -218,85 +225,150 @@ class ExplicitLinkIntakeService:
             )
             self._session.add(obj)
             self._session.flush()
-            jobs_enqueued = self._enqueue_content_pipeline(obj, {}, content_metadata, created=True)
+            jobs_enqueued = self._enqueue_new_object_pipeline(obj, content_metadata)
             return obj, "created", jobs_enqueued
 
         was_deleted = existing.status == "deleted"
         prior_meta = dict(existing.metadata_ or {})
-        revision_changed = self._content_revision_changed(prior_meta, content_metadata, provider)
-        metadata_changed = self._object_changed(existing, normalized)
+        had_mechanical = self._has_mechanical_representations(existing.id)
 
-        if not metadata_changed:
-            if was_deleted:
-                existing.status = None
-                return existing, "restored", 0
+        derived_incoming = apply_intake_content_metadata(
+            incoming_provider_meta,
+            provider,
+            kind,
+            title,
+        )
+        revision_changed = content_revision_changed(prior_meta, derived_incoming)
+        title_changed = existing.title != title
+        provider_changed = provider_metadata_changed(prior_meta, incoming_provider_meta)
+        structural_changed = (
+            existing.kind != kind
+            or existing.occurred_at != normalized.get("occurred_at")
+            or existing.canonical_uri != normalized.get("canonical_uri")
+        )
+        ready_unchanged = is_ready_content_unchanged(
+            prior_meta,
+            derived_incoming,
+            had_mechanical,
+        )
+
+        if (
+            not was_deleted
+            and not revision_changed
+            and not title_changed
+            and not provider_changed
+            and not structural_changed
+        ):
             return existing, "unchanged", 0
 
-        if revision_changed:
-            merged = invalidate_semantic_summary_metadata(prior_meta)
-            merged.update(content_metadata)
-            existing.metadata_ = merged
-        else:
-            merged = dict(prior_meta)
-            merged.update(content_metadata)
-            existing.metadata_ = merged
+        merged_meta = merge_intake_metadata(
+            prior_meta,
+            incoming_provider_meta,
+            provider,
+            kind,
+            title,
+            had_mechanical,
+        )
+        work_needed = (
+            extraction_work_needed(
+                provider,
+                kind,
+                title,
+                prior_meta,
+                merged_meta,
+                had_mechanical,
+            )
+            if not ready_unchanged
+            else False
+        )
 
-        self._apply_normalized(existing, normalized)
+        jobs_enqueued = 0
+
+        if revision_changed:
+            invalidate_object_content_immediately(self._session, existing)
+            prior_meta = dict(existing.metadata_ or {})
+            merged_meta = merge_intake_metadata(
+                prior_meta,
+                incoming_provider_meta,
+                provider,
+                kind,
+                title,
+                False,
+            )
+            work_needed = extraction_work_needed(
+                provider,
+                kind,
+                title,
+                prior_meta,
+                merged_meta,
+                False,
+            )
+
+        existing.kind = kind
+        existing.title = title
+        existing.body = normalized.get("body")
+        existing.canonical_uri = normalized.get("canonical_uri")
+        existing.occurred_at = normalized.get("occurred_at")
+        existing.metadata_ = merged_meta
 
         if was_deleted:
             existing.status = None
-            jobs_enqueued = self._enqueue_content_pipeline(
-                existing, prior_meta, dict(existing.metadata_ or {}), created=False
-            )
-            return existing, "restored", jobs_enqueued
 
-        if revision_changed or self._semantic_content_changed(existing, normalized):
-            jobs_enqueued = self._enqueue_content_pipeline(
-                existing, prior_meta, dict(existing.metadata_ or {}), created=False
-            )
-            return existing, "updated", jobs_enqueued
+        self._session.flush()
 
-        return existing, "metadata_updated", 0
-
-    def _enqueue_content_pipeline(
-        self,
-        obj: Object,
-        prior_meta: dict[str, Any],
-        incoming_meta: dict[str, Any],
-        created: bool,
-    ) -> int:
-        had_ready = (
-            prior_meta.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY
-            and self._has_mechanical_representations(obj.id)
-        )
-        if extraction_work_needed(
-            obj.provider,
-            obj.kind,
-            obj.title,
-            prior_meta,
-            incoming_meta,
-            had_ready,
-        ):
-            revision = incoming_meta.get("content_revision")
+        if work_needed:
+            revision = merged_meta.get("content_revision")
             enqueue_extract_explicit_resource_content(
                 self._session,
-                obj.id,
+                existing.id,
                 self._user_id,
                 revision,
                 EXTRACTION_VERSION,
             )
-            incoming_meta[CONTENT_EXTRACTION_STATUS] = "pending"
-            obj.metadata_ = incoming_meta
-            return 1
+            merged_meta[CONTENT_EXTRACTION_STATUS] = "pending"
+            existing.metadata_ = merged_meta
+            jobs_enqueued = 1
+        elif title_changed and merged_meta.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY:
+            enqueue_embed_object(self._session, existing.id, self._user_id)
+            jobs_enqueued = 1
+        elif merged_meta.get(CONTENT_EXTRACTION_STATUS) in {"metadata_only", "unsupported"}:
+            if was_deleted or provider_changed or structural_changed:
+                enqueue_embed_object(self._session, existing.id, self._user_id)
+                jobs_enqueued = 1
 
-        status = incoming_meta.get(CONTENT_EXTRACTION_STATUS)
-        if status in {"metadata_only", "unsupported"}:
+        if was_deleted:
+            return existing, "restored", jobs_enqueued
+        if revision_changed or work_needed:
+            return existing, "updated", jobs_enqueued
+        if title_changed or provider_changed or structural_changed:
+            return existing, "metadata_updated", jobs_enqueued
+        return existing, "unchanged", jobs_enqueued
+
+    def _enqueue_new_object_pipeline(self, obj: Object, content_metadata: dict[str, Any]) -> int:
+        plan_status = content_metadata.get(CONTENT_EXTRACTION_STATUS)
+        if extraction_work_needed(
+            obj.provider,
+            obj.kind,
+            obj.title,
+            {},
+            content_metadata,
+            False,
+        ):
+            enqueue_extract_explicit_resource_content(
+                self._session,
+                obj.id,
+                self._user_id,
+                content_metadata.get("content_revision"),
+                EXTRACTION_VERSION,
+            )
+            content_metadata[CONTENT_EXTRACTION_STATUS] = "pending"
+            obj.metadata_ = content_metadata
+            return 1
+        if plan_status in {"metadata_only", "unsupported"}:
             enqueue_embed_object(self._session, obj.id, self._user_id)
             return 1
-        if created:
-            enqueue_embed_object(self._session, obj.id, self._user_id)
-            return 1
-        return 0
+        enqueue_embed_object(self._session, obj.id, self._user_id)
+        return 1
 
     def _tombstone_existing(self, existing: Object) -> str:
         if existing.status == "deleted":
@@ -329,51 +401,6 @@ class ExplicitLinkIntakeService:
         if internal_status in {"created", "unchanged"}:
             return internal_status
         return "updated"
-
-    @staticmethod
-    def _object_changed(obj: Object, normalized: dict[str, Any]) -> bool:
-        if obj.kind != normalized["kind"]:
-            return True
-        if obj.title != normalized["title"]:
-            return True
-        if obj.occurred_at != normalized.get("occurred_at"):
-            return True
-        if obj.canonical_uri != normalized.get("canonical_uri"):
-            return True
-        return obj.metadata_ != normalized["metadata"]
-
-    @staticmethod
-    def _content_revision_changed(
-        prior_meta: dict[str, Any],
-        incoming_meta: dict[str, Any],
-        provider: str,
-    ) -> bool:
-        prior_revision = prior_meta.get("content_revision")
-        incoming_revision = incoming_meta.get("content_revision")
-        if incoming_revision is None:
-            return False
-        if prior_revision != incoming_revision:
-            return True
-        prior_derived = derive_explicit_cloud_content_revision(provider, prior_meta)
-        incoming_derived = derive_explicit_cloud_content_revision(provider, incoming_meta)
-        return prior_derived != incoming_derived
-
-    @staticmethod
-    def _semantic_content_changed(obj: Object, normalized: dict[str, Any]) -> bool:
-        prior = obj.metadata_ or {}
-        incoming = normalized["metadata"]
-        if obj.title != normalized["title"]:
-            return True
-        return prior.get("content_revision") != incoming.get("content_revision")
-
-    @staticmethod
-    def _apply_normalized(obj: Object, normalized: dict[str, Any]) -> None:
-        obj.kind = normalized["kind"]
-        obj.title = normalized["title"]
-        obj.body = normalized.get("body")
-        obj.canonical_uri = normalized.get("canonical_uri")
-        obj.metadata_ = normalized["metadata"]
-        obj.occurred_at = normalized.get("occurred_at")
 
     def _has_mechanical_representations(self, object_id: UUID) -> bool:
         row = self._session.scalar(

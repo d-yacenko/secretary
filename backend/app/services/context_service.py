@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ContextBuildResult, ContextItem
+from app.content_extraction.content_gating import filter_current_representations
 from app.db.models import Edge, Object, Representation
 from app.llm.embedding_service import EmbeddingService
 from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
@@ -243,13 +244,16 @@ class ContextService:
                 )
 
         for obj_id in sorted(representation_object_ids, key=str):
-            reps = self._representations.list_for_object(obj_id)
-            if not reps:
-                continue
             obj = self._session.scalar(
                 select(Object).where(Object.id == obj_id, Object.user_id == self._user_id)
             )
             if obj is None:
+                continue
+            reps = filter_current_representations(
+                obj,
+                self._representations.list_for_object(obj_id),
+            )
+            if not reps:
                 continue
             slots.extend(
                 self._representation_slots(
@@ -475,15 +479,26 @@ class ContextService:
             parts.append(f"{label}:\n{excerpt}")
         return "\n".join(parts)
 
+    def _filtered_representations(self, obj: Object) -> list[Representation]:
+        return filter_current_representations(
+            obj,
+            self._representations.list_for_object(obj.id),
+        )
+
     def _has_useful_representations(self, object_id: UUID) -> bool:
-        reps = self._representations.list_for_object(object_id)
+        obj = self._session.scalar(
+            select(Object).where(Object.id == object_id, Object.user_id == self._user_id)
+        )
+        if obj is None:
+            return False
+        reps = self._filtered_representations(obj)
         return any(
             rep.kind in USEFUL_REPRESENTATION_KINDS and (rep.text or rep.kind == KIND_SCHEMA)
             for rep in reps
         )
 
     def _target_reference_content(self, obj: Object) -> str:
-        reps = self._representations.list_for_object(obj.id)
+        reps = self._filtered_representations(obj)
         if any(rep.kind in {KIND_CHUNK, KIND_SCHEMA} for rep in reps):
             if obj.canonical_uri:
                 return f"reference: {obj.canonical_uri}"
@@ -495,7 +510,7 @@ class ContextService:
     def _neighbor_reference_content(self, obj: Object) -> str:
         if obj.canonical_uri:
             return f"reference: {obj.canonical_uri}"
-        reps = self._representations.list_for_object(obj.id)
+        reps = self._filtered_representations(obj)
         if any(rep.kind in {KIND_CHUNK, KIND_SCHEMA} for rep in reps):
             return f"{obj.title} (resource with representations)"
         if obj.body and len(obj.body) <= 500:

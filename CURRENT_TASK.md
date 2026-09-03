@@ -1,29 +1,33 @@
-# Current task — PHASE 29A bounded content extraction, awaiting architect review
+# Current task — PHASE 29A-R1 corrective, awaiting architect review
 
 ## Status
 
 PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented**, **awaiting architect review**.
+PHASE 29A initial: **implemented**, architect-reviewed, **not accepted**.
+
+PHASE 29A-R1 — Retrieval, Revision & Download Trust Closure: **implemented**, **awaiting architect acceptance**.
 
 ## Branch
 
 `review/phase-29a-bounded-content-extraction`
 
-## PHASE 29A scope (implemented)
+## PHASE 29A-R1 scope (implemented)
 
-- Explicit cloud link intake enqueues `extract_explicit_resource_content` for supported files
-- Bounded mechanical extraction (no LLM in extractors) → `summarize_resource` → embed → correlate
-- Google Drive: Docs/Sheets/Slides export + binary formats within bounds
-- Yandex Disk: public file download via provider API only
-- `content_status` / `content_jobs_enqueued` on intake link response
-- Local txt/md/csv client intake preserved (no VDS raw upload for PDF/DOCX/etc.)
+- Representation-aware PostgreSQL FTS retrieval (Alembic `0026` GIN indexes)
+- READY re-intake idempotency (same revision preserves indexed content, zero duplicate jobs)
+- Change facts before mutation (`content_revision_changed`, `title_changed`, `provider_metadata_changed`, `extraction_work_needed`)
+- Immediate stale-content invalidation on revision change in intake transaction
+- Defensive current-content gating for cloud providers in retrieval and `ContextService`
+- Yandex download SSRF trust policy (HTTPS-only, manual redirect validation, hop limit)
+- Extraction truthfulness: `no_extractable_text`, truthful `content_truncated`
+- Flutter snackbars keyed on `content_status`
 
 ## Deploy
 
-Application SHA: `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`
+Application SHA: pending commit (corrective deploy supersedes `bbd0657`).
 
-VDS deploy: **complete** (Alembic `0025`, `/health` PASS, worker healthy).
+Alembic head: `0026` (representation FTS indexes).
 
 Manual Google/Yandex E2E: **DEFERRED** (no safe test resources in execution environment).
 

@@ -4,7 +4,7 @@ import httpx
 
 from app.connectors.yandex.constants import YANDEX_DISK_API_BASE, YANDEX_DISK_PUBLIC_RESOURCE_FIELDS
 from app.connectors.yandex.disk_api_errors import raise_for_yandex_disk_response
-from app.content_extraction.bounded_download import bounded_get
+from app.content_extraction.trusted_download import bounded_get_safe_redirects
 
 
 class YandexDiskTransport:
@@ -45,4 +45,4 @@ class YandexDiskTransport:
         return href
 
     def download_bounded_url(self, url: str, *, max_bytes: int) -> bytes:
-        return bounded_get(self._http, url, max_bytes=max_bytes, follow_redirects=True)
+        return bounded_get_safe_redirects(self._http, url, max_bytes=max_bytes)

@@ -19,7 +19,7 @@ from app.content_extraction.bounded_download import DownloadTooLargeError, bound
 from app.content_extraction.constants import EXTRACTION_VERSION, MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES
 from app.content_extraction.extract_service import ExplicitResourceContentExtractor
 from app.content_extraction.mechanical_extractors import extract_from_path
-from app.content_extraction.metadata_keys import STATUS_READY
+from app.content_extraction.metadata_keys import STATUS_FAILED, STATUS_READY
 from app.content_extraction.zip_safety import UnsafeZipError
 from app.db.models import GoogleAccount, Job, Object, Representation, User
 from app.jobs.constants import (
@@ -519,15 +519,15 @@ def test_failed_extraction_preserves_object(
         {
             file_id: {
                 "id": file_id,
-                "name": "note.txt",
-                "mimeType": "text/plain",
+                "name": "broken.pdf",
+                "mimeType": "application/pdf",
                 "md5Checksum": "md5-fail",
                 "modifiedTime": "2024-01-01T00:00:00.000Z",
                 "trashed": False,
             }
         }
     )
-    transport.set_download(file_id, b"not valid for txt extraction corrupt")
+    transport.set_download(file_id, b"%PDF-1.4 corrupt not a valid pdf structure")
     service = build_google_explicit_link_intake_service(
         session=db_session,
         user_id=BOOTSTRAP_USER_ID,
@@ -553,4 +553,4 @@ def test_failed_extraction_preserves_object(
     db_session.refresh(obj)
     service.close()
     assert obj.id == result.object_id
-    assert obj.metadata_["content_extraction_status"] in {"ready", "failed", "unsupported"}
+    assert obj.metadata_["content_extraction_status"] == STATUS_FAILED

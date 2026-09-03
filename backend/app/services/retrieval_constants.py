@@ -44,6 +44,32 @@ MIN_TRIGRAM_QUALIFY_THRESHOLD = 0.25
 
 SHORT_EXCERPT_MAX_CHARS = 300
 
+RETRIEVAL_REPRESENTATION_KINDS = (
+    "full",
+    "chunk",
+    "schema",
+    "sample",
+    "statistics",
+    "summary",
+)
+RETRIEVAL_REPRESENTATION_KINDS_SQL = ", ".join(
+    f"'{kind}'" for kind in RETRIEVAL_REPRESENTATION_KINDS
+)
+
+REPRESENTATION_FTS_WEIGHT = 2.0
+
+# Cloud explicit resources: only READY indexed content is retrieval-eligible.
+CLOUD_CURRENT_CONTENT_SQL = """
+AND (
+    o.provider IS NULL
+    OR o.provider NOT IN ('google_drive', 'yandex_disk')
+    OR (
+        o.metadata->>'content_extraction_status' = 'ready'
+        AND o.metadata->>'content_revision' IS NOT NULL
+    )
+)
+"""
+
 TIME_SCOPE_AUTO = "auto"
 TIME_SCOPE_RECENT = "recent"
 TIME_SCOPE_ALL = "all"

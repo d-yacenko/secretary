@@ -347,3 +347,14 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Intake response:** `content_status` + `content_jobs_enqueued` separate from `created|updated|unchanged`.
 - **No new Assistant tools** in 29A; `retrieve` / `get_context` / existing atomic tools remain sufficient.
 
+## PHASE 29A-R1 — Retrieval, revision & download trust closure
+
+- **Representation-aware retrieval:** PostgreSQL FTS on mechanical/summary Representation kinds joins to Object; cloud gating requires `content_extraction_status=ready` + revision; Alembic `0026` additive GIN indexes on `representations.text`.
+- **READY re-intake:** same `content_revision` + `EXTRACTION_VERSION` + existing mechanical reps preserves READY; zero download/extract/summarize jobs.
+- **Change facts before mutation:** `content_revision_changed`, `title_changed`, `provider_metadata_changed`, `extraction_work_needed` computed before overwriting pipeline-owned metadata.
+- **Immediate invalidation:** revision change in intake transaction clears mechanical/summary reps, semantic-summary metadata, embedding, sets `pending`, enqueues one extraction job — stale phrase unavailable before worker runs.
+- **Title-only change:** updates title and enqueues `embed_object`; does not re-download or re-extract when revision unchanged.
+- **Yandex download trust:** revalidate `intake_url` via canonical parser; HTTPS-only provider URLs; reject userinfo/loopback/private/link-local; manual redirects with hop limit and per-hop validation; no blind `follow_redirects`.
+- **Extraction truthfulness:** PDF without extractable text → `failed` + `no_extractable_text`; `content_truncated` truthful for PDF page caps, PPTX slides, XLSX sheet/row/column caps, text limits.
+- **Flutter UX:** snackbars driven by `content_status` from intake link response.
+

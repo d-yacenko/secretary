@@ -136,6 +136,36 @@ def _minimal_pdf_bytes(text: str) -> bytes:
     return header + body + xref + trailer
 
 
+def write_blank_pdf(path: Path) -> None:
+    """PDF page with no extractable text layer."""
+    path.write_bytes(_blank_pdf_bytes())
+
+
+def _blank_pdf_bytes() -> bytes:
+    objs = [
+        "1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n",
+        "2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n",
+        "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>endobj\n",
+    ]
+    header = b"%PDF-1.4\n"
+    body_parts: list[bytes] = []
+    xref_positions: list[int] = []
+    pos = len(header)
+    for obj in objs:
+        xref_positions.append(pos)
+        chunk = obj.encode()
+        body_parts.append(chunk)
+        pos += len(chunk)
+    body = b"".join(body_parts)
+    xref_start = pos
+    xref_lines = ["xref\n", f"0 {len(objs) + 1}\n", "0000000000 65535 f \n"]
+    for offset in xref_positions:
+        xref_lines.append(f"{offset:010d} 00000 n \n")
+    xref = "".join(xref_lines).encode()
+    trailer = f"trailer<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode()
+    return header + body + xref + trailer
+
+
 def write_zip_bomb(path: Path) -> None:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("bomb.txt", b"0" * (1024 * 1024), compress_type=zipfile.ZIP_DEFLATED)

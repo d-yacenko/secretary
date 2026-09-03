@@ -222,7 +222,7 @@ class InboxScreenState extends State<InboxScreen> {
       if (!mounted) {
         return;
       }
-      _showIntakeSnackBar(_linkIntakeSuccessMessage(result.status));
+      _showIntakeSnackBar(_linkIntakeSuccessMessage(result));
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -237,8 +237,29 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  String _linkIntakeSuccessMessage(String status) {
-    switch (status) {
+  String _linkIntakeSuccessMessage(IntakeLinkResult result) {
+    final contentStatus = result.contentStatus;
+    if (contentStatus == 'ready') {
+      if (result.status == 'unchanged') {
+        return 'Содержимое уже проиндексировано';
+      }
+      return 'Добавлено, содержимое проиндексировано';
+    }
+  switch (contentStatus) {
+      case 'pending':
+        return 'Добавлено, содержимое обрабатывается';
+      case 'metadata_only':
+        return 'Добавлено только как метаданные';
+      case 'unsupported':
+        return 'Добавлено, но содержимое этого формата не индексируется';
+      case 'too_large':
+        return 'Добавлено, но файл слишком большой для индексации';
+      case 'failed':
+        return 'Добавлено, но индексация содержимого не удалась';
+      default:
+        break;
+    }
+    switch (result.status) {
       case 'updated':
         return 'Обновлено';
       case 'unchanged':

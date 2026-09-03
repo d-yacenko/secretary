@@ -10,6 +10,7 @@ from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
     ANCHOR_KINDS,
     BODY_FTS_WEIGHT,
+    CLOUD_CURRENT_CONTENT_SQL,
     DEFAULT_FINAL_HITS,
     FTS_BRANCH_LIMIT,
     FTS_DOCUMENT_SQL,
@@ -25,8 +26,10 @@ from app.services.retrieval_constants import (
     RELAXED_RUSSIAN_FTS_PER_ATOM,
     RELAXED_SIMPLE_FTS_PER_ATOM,
     RELAXED_TRIGRAM_PER_ATOM,
+    REPRESENTATION_FTS_WEIGHT,
     RETRIEVAL_MODE_RELAXED,
     RETRIEVAL_MODE_STRICT,
+    RETRIEVAL_REPRESENTATION_KINDS_SQL,
     RUSSIAN_FTS_DOCUMENT_SQL,
     SHORT_EXCERPT_MAX_CHARS,
     STRICT_FALLBACK_QUOTA,
@@ -132,6 +135,7 @@ def _build_fts_candidate_sql(filter_suffix: str) -> str:
     FROM objects o
     WHERE {_BASE_WHERE}
       {filter_suffix}
+      {CLOUD_CURRENT_CONTENT_SQL}
       AND ({FTS_DOCUMENT_SQL}) @@ plainto_tsquery('simple', :query)
     ORDER BY
       ts_rank(
@@ -149,9 +153,34 @@ def _build_trigram_candidate_sql(filter_suffix: str) -> str:
     FROM objects o
     WHERE {_BASE_WHERE}
       {filter_suffix}
+      {CLOUD_CURRENT_CONTENT_SQL}
       AND o.title % :query
     ORDER BY
       similarity(coalesce(o.title, ''), :query) DESC,
+      o.id
+    LIMIT :branch_limit
+    """
+
+
+def _build_representation_fts_candidate_sql(filter_suffix: str, ts_config: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM representations r
+    INNER JOIN objects o ON o.id = r.object_id
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      {CLOUD_CURRENT_CONTENT_SQL}
+      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+      AND to_tsvector('{ts_config}', coalesce(r.text, ''))
+          @@ plainto_tsquery('{ts_config}', :query)
+    GROUP BY o.id
+    ORDER BY
+      MAX(
+        ts_rank(
+          to_tsvector('{ts_config}', coalesce(r.text, '')),
+          plainto_tsquery('{ts_config}', :query)
+        )
+      ) DESC,
       o.id
     LIMIT :branch_limit
     """
@@ -206,7 +235,7 @@ def _build_atom_trigram_sql(filter_suffix: str) -> str:
 
 
 _RANK_QUERY = text(
-    """
+    f"""
     SELECT
         o.id,
         o.title,
@@ -237,7 +266,58 @@ _RANK_QUERY = text(
                 plainto_tsquery('russian', :query)
             )
         ) AS body_rank,
-        similarity(coalesce(o.title, ''), :query) AS title_sim
+        similarity(coalesce(o.title, ''), :query) AS title_sim,
+        (
+            SELECT MAX(
+                GREATEST(
+                    ts_rank(
+                        to_tsvector('simple', coalesce(r.text, '')),
+                        plainto_tsquery('simple', :query)
+                    ),
+                    ts_rank(
+                        to_tsvector('russian', coalesce(r.text, '')),
+                        plainto_tsquery('russian', :query)
+                    )
+                )
+            )
+            FROM representations r
+            WHERE r.object_id = o.id
+              AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+              AND (
+                o.provider IS NULL
+                OR o.provider NOT IN ('google_drive', 'yandex_disk')
+                OR (
+                    o.metadata->>'content_extraction_status' = 'ready'
+                    AND o.metadata->>'content_revision' IS NOT NULL
+                )
+              )
+        ) AS rep_rank,
+        (
+            SELECT r.text
+            FROM representations r
+            WHERE r.object_id = o.id
+              AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+              AND (
+                o.provider IS NULL
+                OR o.provider NOT IN ('google_drive', 'yandex_disk')
+                OR (
+                    o.metadata->>'content_extraction_status' = 'ready'
+                    AND o.metadata->>'content_revision' IS NOT NULL
+                )
+              )
+            ORDER BY
+              GREATEST(
+                ts_rank(
+                  to_tsvector('simple', coalesce(r.text, '')),
+                  plainto_tsquery('simple', :query)
+                ),
+                ts_rank(
+                  to_tsvector('russian', coalesce(r.text, '')),
+                  plainto_tsquery('russian', :query)
+                )
+              ) DESC
+            LIMIT 1
+        ) AS rep_excerpt
     FROM objects o
     WHERE o.user_id = :user_id
       AND o.id = ANY(:candidate_ids)
@@ -460,10 +540,23 @@ class RetrievalService:
             text(_build_trigram_candidate_sql(filter_suffix)),
             {**params, "branch_limit": TRIGRAM_BRANCH_LIMIT},
         ).scalars()
+        rep_simple_ids = self._session.execute(
+            text(_build_representation_fts_candidate_sql(filter_suffix, "simple")),
+            {**params, "branch_limit": FTS_BRANCH_LIMIT},
+        ).scalars()
+        rep_russian_ids = self._session.execute(
+            text(_build_representation_fts_candidate_sql(filter_suffix, "russian")),
+            {**params, "branch_limit": FTS_BRANCH_LIMIT},
+        ).scalars()
 
         seen: set[UUID] = set()
         candidate_ids: list[UUID] = []
-        for object_id in list(fts_ids) + list(trigram_ids):
+        for object_id in (
+            list(fts_ids)
+            + list(trigram_ids)
+            + list(rep_simple_ids)
+            + list(rep_russian_ids)
+        ):
             if object_id in seen:
                 continue
             seen.add(object_id)
@@ -708,6 +801,8 @@ class RetrievalService:
             title_rank = float(row["title_rank"] or 0.0)
             body_rank = float(row["body_rank"] or 0.0)
             title_sim = float(row["title_sim"] or 0.0)
+            rep_rank = float(row["rep_rank"] or 0.0)
+            rep_excerpt = row.get("rep_excerpt")
 
             best_atom_title_rank = 0.0
             best_atom_body_rank = 0.0
@@ -724,6 +819,7 @@ class RetrievalService:
                 TITLE_FTS_WEIGHT * title_rank
                 + BODY_FTS_WEIGHT * body_rank
                 + TRIGRAM_WEIGHT * title_sim
+                + REPRESENTATION_FTS_WEIGHT * rep_rank
             )
             term_quality = (
                 TITLE_FTS_WEIGHT * best_atom_title_rank
@@ -757,6 +853,7 @@ class RetrievalService:
                 title_rank=effective_title_rank,
                 body_rank=effective_body_rank,
                 title_sim=effective_title_sim,
+                rep_rank=rep_rank,
                 kind=kind_value,
                 recency_signal=recency_signal,
             )
@@ -775,6 +872,7 @@ class RetrievalService:
                     short_excerpt=_short_excerpt(
                         title=str(row["title"]),
                         body=row["body"],
+                        rep_excerpt=rep_excerpt,
                         max_chars=SHORT_EXCERPT_MAX_CHARS,
                     ),
                 )
@@ -837,6 +935,7 @@ def _hit_is_qualified(hit: RetrievalHit) -> bool:
             "title_match",
             "title_candidate",
             "body_match",
+            "representation_match",
             "fuzzy_title",
             "fuzzy_title_candidate",
         )
@@ -844,7 +943,11 @@ def _hit_is_qualified(hit: RetrievalHit) -> bool:
 
 
 def _is_strong_textual_hit(hit: RetrievalHit) -> bool:
-    return "title_match" in hit.reasons or "fuzzy_title" in hit.reasons
+    return (
+        "title_match" in hit.reasons
+        or "fuzzy_title" in hit.reasons
+        or "representation_match" in hit.reasons
+    )
 
 
 def _build_reasons(
@@ -853,6 +956,7 @@ def _build_reasons(
     title_sim: float,
     kind: str,
     recency_signal: bool,
+    rep_rank: float = 0.0,
 ) -> list[str]:
     reasons: list[str] = []
     if title_rank >= STRONG_TITLE_FTS_THRESHOLD:
@@ -861,6 +965,8 @@ def _build_reasons(
         reasons.append("title_candidate")
     if body_rank >= MIN_BODY_FTS_THRESHOLD:
         reasons.append("body_match")
+    if rep_rank >= MIN_BODY_FTS_THRESHOLD:
+        reasons.append("representation_match")
     if title_sim >= STRONG_TRIGRAM_THRESHOLD:
         reasons.append("fuzzy_title")
     elif title_sim >= MIN_TRIGRAM_QUALIFY_THRESHOLD:
@@ -872,8 +978,13 @@ def _build_reasons(
     return reasons
 
 
-def _short_excerpt(title: str, body: str | None, max_chars: int) -> str:
-    source = (body or "").strip() or title.strip()
+def _short_excerpt(
+    title: str,
+    body: str | None,
+    max_chars: int,
+    rep_excerpt: str | None = None,
+) -> str:
+    source = (rep_excerpt or "").strip() or (body or "").strip() or title.strip()
     if len(source) <= max_chars:
         return source
     return source[:max_chars].rstrip() + "…"

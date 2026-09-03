@@ -168,7 +168,7 @@ PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3
 
 PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented and deployed** at `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **R1 corrective implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction` (supersedes initial deploy `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`).
 
 Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** (no safe public test resources available to execution environment).
 
@@ -322,7 +322,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Path: `/opt/secretary`
 - SHA: `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`
 - Branch: `review/phase-29a-bounded-content-extraction`
-- Deployed: 2026-09-03 (PHASE 29A — bounded explicit resource content extraction, Alembic `0025`)
+- Deployed: 2026-09-03 (PHASE 29A initial `bbd0657`; PHASE 29A-R1 corrective pending this cycle — Alembic `0026`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
 - Alembic current/head: `0025` (`ai_trace_event_payload_retention`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -406,4 +406,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await architect review of PHASE 29A. Do not start Safe External Actions or scheduled_activity implementation.
+Await architect review of PHASE 29A-R1 corrective. Do not start Safe External Actions or scheduled_activity implementation.

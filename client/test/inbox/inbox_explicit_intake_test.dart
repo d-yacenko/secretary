@@ -35,6 +35,22 @@ void main() {
     };
   }
 
+  Map<String, dynamic> intakeLinkJson({
+    required String objectId,
+    required String status,
+    String contentStatus = 'metadata_only',
+    int contentJobsEnqueued = 0,
+  }) {
+    return {
+      'object_id': objectId,
+      'provider': 'google_drive',
+      'kind': 'file',
+      'status': status,
+      'content_status': contentStatus,
+      'content_jobs_enqueued': contentJobsEnqueued,
+    };
+  }
+
   Widget buildInbox(
     MockClient mock, {
     GlobalKey<InboxScreenState>? inboxKey,
@@ -105,12 +121,7 @@ void main() {
         if (request.url.path == '/intake/link') {
           intakeBody = request.body;
           return http.Response(
-            jsonEncode({
-              'object_id': 'drive-obj-1',
-              'provider': 'google_drive',
-              'kind': 'file',
-              'status': 'created',
-            }),
+            jsonEncode(intakeLinkJson(objectId: 'drive-obj-1', status: 'created')),
             200,
           );
         }
@@ -154,12 +165,7 @@ void main() {
         }
         if (request.url.path == '/intake/link') {
           return http.Response(
-            jsonEncode({
-              'object_id': 'drive-obj-1',
-              'provider': 'google_drive',
-              'kind': 'file',
-              'status': 'created',
-            }),
+            jsonEncode(intakeLinkJson(objectId: 'drive-obj-1', status: 'created')),
             200,
           );
         }
@@ -177,6 +183,74 @@ void main() {
 
     expect(inboxCalls, greaterThanOrEqualTo(2));
     expect(find.text('Imported drive file'), findsOneWidget);
+  });
+
+  testWidgets('link intake snackbar reflects ready content status', (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response(jsonEncode(inboxJson()), 200);
+        }
+        if (request.url.path == '/intake/link') {
+          return http.Response(
+            jsonEncode({
+              'object_id': 'drive-obj-1',
+              'provider': 'google_drive',
+              'kind': 'file',
+              'status': 'unchanged',
+              'content_status': 'ready',
+              'content_jobs_enqueued': 0,
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('inbox_link_input')),
+      'https://drive.google.com/file/d/abc/view',
+    );
+    await tester.tap(find.byKey(const Key('inbox_link_add_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Содержимое уже проиндексировано'), findsOneWidget);
+  });
+
+  testWidgets('link intake snackbar reflects pending content status', (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response(jsonEncode(inboxJson()), 200);
+        }
+        if (request.url.path == '/intake/link') {
+          return http.Response(
+            jsonEncode({
+              'object_id': 'drive-obj-2',
+              'provider': 'google_drive',
+              'kind': 'file',
+              'status': 'created',
+              'content_status': 'pending',
+              'content_jobs_enqueued': 1,
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('inbox_link_input')),
+      'https://drive.google.com/file/d/abc/view',
+    );
+    await tester.tap(find.byKey(const Key('inbox_link_add_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Добавлено, содержимое обрабатывается'), findsOneWidget);
   });
 
   testWidgets('link intake success statuses keep inbox visible', (tester) async {
@@ -203,12 +277,13 @@ void main() {
         }
         if (request.url.path == '/intake/link') {
           return http.Response(
-            jsonEncode({
-              'object_id': 'drive-obj-1',
-              'provider': 'google_drive',
-              'kind': 'file',
-              'status': 'unchanged',
-            }),
+            jsonEncode(
+              intakeLinkJson(
+                objectId: 'drive-obj-1',
+                status: 'unchanged',
+                contentStatus: 'ready',
+              ),
+            ),
             200,
           );
         }
@@ -225,7 +300,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Existing inbox row'), findsOneWidget);
-    expect(find.text('Уже добавлено'), findsOneWidget);
+    expect(find.text('Содержимое уже проиндексировано'), findsOneWidget);
   });
 
   testWidgets('link intake validation error keeps inbox visible', (tester) async {
@@ -305,12 +380,7 @@ void main() {
 
     intakeCompleter.complete(
       http.Response(
-        jsonEncode({
-          'object_id': 'drive-obj-1',
-          'provider': 'google_drive',
-          'kind': 'file',
-          'status': 'created',
-        }),
+        jsonEncode(intakeLinkJson(objectId: 'drive-obj-1', status: 'created')),
         200,
       ),
     );
@@ -729,12 +799,7 @@ void main() {
         }
         if (request.url.path == '/intake/link') {
           return http.Response(
-            jsonEncode({
-              'object_id': 'drive-obj-1',
-              'provider': 'google_drive',
-              'kind': 'file',
-              'status': 'created',
-            }),
+            jsonEncode(intakeLinkJson(objectId: 'drive-obj-1', status: 'created')),
             200,
           );
         }

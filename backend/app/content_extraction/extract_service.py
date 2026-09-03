@@ -27,6 +27,7 @@ from app.content_extraction.metadata_keys import (
     CONTENT_FORMAT,
     MECHANICAL_REPRESENTATION_COUNT,
     STATUS_FAILED,
+    STATUS_PENDING,
     STATUS_READY,
     STATUS_TOO_LARGE,
     STATUS_UNSUPPORTED,
@@ -238,13 +239,20 @@ def extraction_work_needed(
         return True
     if metadata_extraction_version(prior_metadata) != EXTRACTION_VERSION:
         return True
-    if prior_metadata.get(CONTENT_EXTRACTION_STATUS) != STATUS_READY:
-        return True
+    status = prior_metadata.get(CONTENT_EXTRACTION_STATUS)
+    if status == STATUS_READY and had_ready_mechanical:
+        return False
+    if status == STATUS_PENDING:
+        return False
+    if status in {STATUS_FAILED, STATUS_TOO_LARGE, STATUS_UNSUPPORTED}:
+        return False
     return not had_ready_mechanical
 
 
 def _stable_error_code(exc: Exception) -> str:
     message = str(exc).lower()
+    if isinstance(exc, ValueError) and "no_extractable_text" in message:
+        return "no_extractable_text"
     if isinstance(exc, ValueError) and "encrypted" in message:
         return "encrypted_pdf"
     if "unsupported mechanical" in message:
