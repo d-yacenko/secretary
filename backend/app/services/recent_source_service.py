@@ -70,7 +70,7 @@ class RecentSourceService:
             select(Object.provider)
             .where(eligible_filters, Object.provider.is_not(None))
             .group_by(Object.provider)
-            .order_by(func.max(Object.updated_at).desc(), Object.provider.asc())
+            .order_by(func.max(Object.created_at).desc(), Object.provider.asc())
             .limit(RECENT_SOURCE_MAX_RESERVED_PROVIDERS)
         ).all()
         selected_providers = [row[0] for row in top_provider_rows]
@@ -79,7 +79,7 @@ class RecentSourceService:
         if selected_providers:
             row_number = func.row_number().over(
                 partition_by=Object.provider,
-                order_by=(Object.updated_at.desc(), Object.id.desc()),
+                order_by=(Object.created_at.desc(), Object.id.desc()),
             )
             ranked = (
                 select(Object.id, row_number.label("row_number"))
@@ -99,7 +99,7 @@ class RecentSourceService:
             fill_stmt = (
                 select(Object.id)
                 .where(eligible_filters)
-                .order_by(Object.updated_at.desc(), Object.id.desc())
+                .order_by(Object.created_at.desc(), Object.id.desc())
             )
             if reserved_ids:
                 fill_stmt = fill_stmt.where(Object.id.not_in(reserved_ids))
@@ -113,7 +113,7 @@ class RecentSourceService:
         objects = list(
             self._session.scalars(select(Object).where(Object.id.in_(all_ids)))
         )
-        objects.sort(key=lambda obj: (obj.updated_at, obj.id), reverse=True)
+        objects.sort(key=lambda obj: (obj.created_at, obj.id), reverse=True)
         return objects
 
     @staticmethod

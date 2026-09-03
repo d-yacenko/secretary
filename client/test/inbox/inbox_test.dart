@@ -12,8 +12,16 @@ import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/inbox/inbox_screen.dart';
 import 'package:personal_secretary/inbox/notification_labels.dart';
+import 'package:personal_secretary/sources/source_refresh_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   const baseUrl = 'https://secretary.example';
   const token = 'inbox-token';
 
@@ -62,6 +70,40 @@ void main() {
     };
   }
 
+  List<Map<String, dynamic>> stableRecentSourceRow() => [
+        {
+          'id': 'email-stable',
+          'title': 'Stable inbox row',
+          'kind': 'email',
+          'provider': 'gmail',
+          'state': 'observed',
+          'status': null,
+          'primary_at': '2026-08-31T10:00:00Z',
+          'excerpt': 'stable',
+        },
+      ];
+
+  Future<void> triggerRefreshTimeoutBanner(WidgetTester tester) async {
+    for (var i = 0; i < 100; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Stable inbox row').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.text('Stable inbox row'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 3),
+    );
+    expect(
+      find.text(SourceRefreshService.syncContinuesMessage),
+      findsOneWidget,
+    );
+  }
+
   Map<String, dynamic> syncStatusJson({
     String provider = 'gmail',
     String status = 'error',
@@ -69,6 +111,7 @@ void main() {
     String? lastError = 'RuntimeError',
     String? lastSuccessAt = '2026-09-01T10:00:00Z',
     String? lastAttemptAt = '2026-09-02T09:00:00Z',
+    String? nextSyncAt,
     bool? enabled,
   }) {
     return {
@@ -80,7 +123,7 @@ void main() {
       if (enabled != null) 'enabled': enabled,
       'last_success_at': lastSuccessAt,
       'last_attempt_at': lastAttemptAt,
-      'next_sync_at': null,
+      'next_sync_at': nextSyncAt,
       'last_error': lastError,
     };
   }
@@ -88,6 +131,8 @@ void main() {
   Widget buildInbox(
     MockClient mock, {
     Duration passiveRefreshInterval = const Duration(seconds: 30),
+    Duration? sourceRefreshTimeout,
+    Duration? sourceRefreshPollInterval,
   }) {
     final apiClient = SecretaryApiClient(httpClient: mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
@@ -106,6 +151,8 @@ void main() {
           authController: auth,
           captureController: capture,
           passiveRefreshInterval: passiveRefreshInterval,
+          sourceRefreshTimeout: sourceRefreshTimeout,
+          sourceRefreshPollInterval: sourceRefreshPollInterval,
         ),
       ),
     );
@@ -426,7 +473,10 @@ void main() {
         MockClient((request) async {
           if (request.url.path == '/inbox') {
             inboxCalls++;
-            return http.Response(jsonEncode(inboxJson()), 200);
+            return http.Response(
+              jsonEncode(inboxJson(recentSources: stableRecentSourceRow())),
+              200,
+            );
           }
           if (request.url.path == '/sources/sync') {
             syncCalls++;
@@ -875,6 +925,312 @@ void main() {
     await tester.pump();
     expect(inboxCalls, greaterThan(1));
     expect(find.text('Hidden resume row'), findsOneWidget);
+  });
+
+  testWidgets('manual refresh timeout shows sync continues banner',
+      (tester) async {
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            return http.Response(
+              jsonEncode(inboxJson(recentSources: stableRecentSourceRow())),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            return http.Response(
+              jsonEncode({
+                'sources': [
+                  syncStatusJson(status: 'syncing', lastError: null),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 30),
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pump();
+
+    await triggerRefreshTimeoutBanner(tester);
+  });
+
+  testWidgets('passive refresh clears timeout banner when sources settle',
+      (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            final settled = inboxCalls > 2;
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: stableRecentSourceRow(),
+                syncStatus: settled
+                    ? [syncStatusJson(status: 'scheduled', lastError: null)]
+                    : [syncStatusJson(status: 'syncing', lastError: null)],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            return http.Response(
+              jsonEncode({
+                'sources': [
+                  syncStatusJson(status: 'syncing', lastError: null),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pump();
+
+    await triggerRefreshTimeoutBanner(tester);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(find.text(SourceRefreshService.syncContinuesMessage), findsNothing);
+  });
+
+  testWidgets('passive refresh keeps timeout banner while source still syncing',
+      (tester) async {
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: stableRecentSourceRow(),
+                syncStatus: [
+                  syncStatusJson(status: 'syncing', lastError: null)
+                ],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            return http.Response(
+              jsonEncode({
+                'sources': [
+                  syncStatusJson(status: 'syncing', lastError: null),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pump();
+
+    await triggerRefreshTimeoutBanner(tester);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(
+        find.text(SourceRefreshService.syncContinuesMessage), findsOneWidget);
+  });
+
+  testWidgets(
+      'settled error status clears timeout banner but keeps diagnostics',
+      (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: stableRecentSourceRow(),
+                syncStatus: [
+                  syncStatusJson(
+                    status: inboxCalls > 2 ? 'error' : 'syncing',
+                    lastError: 'RuntimeError',
+                  ),
+                ],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            return http.Response(
+              jsonEncode({
+                'sources': [
+                  syncStatusJson(status: 'syncing', lastError: null),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pump();
+
+    await triggerRefreshTimeoutBanner(tester);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(find.text(SourceRefreshService.syncContinuesMessage), findsNothing);
+    expect(find.textContaining('Ошибка синхронизации'), findsOneWidget);
+  });
+
+  testWidgets('successful manual refresh clears previous timeout banner',
+      (tester) async {
+    var refreshGeneration = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            return http.Response(
+              jsonEncode(inboxJson(recentSources: stableRecentSourceRow())),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            refreshGeneration++;
+            return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            final status = refreshGeneration >= 2 ? 'scheduled' : 'syncing';
+            return http.Response(
+              jsonEncode({
+                'sources': [
+                  syncStatusJson(status: status, lastError: null),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 30),
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pump();
+
+    await triggerRefreshTimeoutBanner(tester);
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 3),
+    );
+
+    expect(find.text(SourceRefreshService.syncContinuesMessage), findsNothing);
+  });
+
+  testWidgets(
+      'passive settlement does not clear arbitrary refresh error message',
+      (tester) async {
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: stableRecentSourceRow(),
+                syncStatus: [
+                  syncStatusJson(status: 'scheduled', lastError: null)
+                ],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            return http.Response(jsonEncode({'detail': 'sync failed'}), 500);
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 5),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pump();
+    expect(find.text('sync failed'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    expect(find.text('sync failed'), findsOneWidget);
   });
 }
 

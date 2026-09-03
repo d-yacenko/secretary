@@ -132,15 +132,17 @@ PHASE 28C-B2-C3-B — Mattermost Bounded History Runtime: **accepted** at `2ccf8
 
 All five recurring-source backend history runtimes are **complete**.
 
-PHASE 28C-B2-D — History Preferences UI: **implementation complete, awaiting architect review** on `review/phase-28c-history-preferences-ui`.
+PHASE 28C-B2-D — History Preferences UI: **accepted** at `e8680f2105348cdd9220f8de3d9ff8a25ed6f431`.
 
-Next: **architect review of PHASE 28C-B2-D**.
+PHASE 28C final matched-version deploy: **complete** at `e8680f2105348cdd9220f8de3d9ff8a25ed6f431` (Alembic `0023`).
 
-Approved next after 28C-B2-D acceptance: **final PHASE 28C deploy + manual Account/history E2E**.
+Manual PHASE 28C history E2E: **PASS**.
 
-Then: **PHASE 29A — bounded content extraction**.
+PHASE 28C-R1 — Inbox Recent Ordering + Stale Sync Banner Cleanup: **implemented, awaiting architect review** on `review/phase-28c-inbox-recent-ordering-r1`.
 
-28C is **not** deployed yet; UI work remains in review.
+Next after R1 acceptance/deploy: **PHASE 29A — bounded content extraction**.
+
+R1 is **not** deployed yet.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -286,10 +288,10 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `d8c17d432b53efcc992001b56840e94c17483936`
-- Deployed: 2026-09-02 (PHASE 28C-A — per-user source preferences, Alembic `0021`)
+- SHA: `e8680f2105348cdd9220f8de3d9ff8a25ed6f431`
+- Deployed: 2026-09-03 (PHASE 28C final matched-version — history preferences UI + Alembic `0023`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
-- Alembic current/head: `0021` (`user_source_preferences`)
+- Alembic current/head: `0023` (`google_source_sync_state`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`

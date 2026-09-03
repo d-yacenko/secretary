@@ -32,6 +32,8 @@ class InboxScreen extends StatefulWidget {
     this.onAskSecretaryAboutNotification,
     this.onShowInGraph,
     this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
+    this.sourceRefreshTimeout,
+    this.sourceRefreshPollInterval,
   });
 
   final SecretaryApiClient apiClient;
@@ -43,6 +45,8 @@ class InboxScreen extends StatefulWidget {
       onAskSecretaryAboutNotification;
   final ShowInGraphHandler? onShowInGraph;
   final Duration passiveRefreshInterval;
+  final Duration? sourceRefreshTimeout;
+  final Duration? sourceRefreshPollInterval;
 
   @override
   State<InboxScreen> createState() => InboxScreenState();
@@ -127,6 +131,11 @@ class InboxScreenState extends State<InboxScreen> {
       setState(() {
         _inbox = snapshot;
         _loadState = InboxLoadState.ready;
+        _refreshStatusMessage =
+            SourceRefreshService.clearSyncContinuesMessageIfSettled(
+          message: _refreshStatusMessage,
+          statuses: snapshot.sourceSyncStatus,
+        );
       });
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
@@ -156,7 +165,12 @@ class InboxScreenState extends State<InboxScreen> {
       }
     });
     try {
-      final result = await _sourceRefreshService.refreshSources();
+      final result = await _sourceRefreshService.refreshSources(
+        timeout:
+            widget.sourceRefreshTimeout ?? SourceRefreshService.defaultTimeout,
+        pollInterval: widget.sourceRefreshPollInterval ??
+            SourceRefreshService.pollInterval,
+      );
       if (!mounted) {
         return;
       }
@@ -166,7 +180,7 @@ class InboxScreenState extends State<InboxScreen> {
       }
       if (result.timedOut) {
         setState(() {
-          _refreshStatusMessage = 'Синхронизация источников продолжается';
+          _refreshStatusMessage = SourceRefreshService.syncContinuesMessage;
         });
       }
     } on AuthenticationException {

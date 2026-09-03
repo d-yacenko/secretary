@@ -4,16 +4,194 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/sources/source_refresh_service.dart';
 
+SourceSyncStatusOut _statusRow({
+  String status = 'pending',
+  String? nextSyncAt,
+}) {
+  return SourceSyncStatusOut.fromJson({
+    'source': 'gmail',
+    'provider': 'gmail',
+    'account_id': '550e8400-e29b-41d4-a716-446655440000',
+    'account_label': 'user@example.com',
+    'status': status,
+    'last_success_at': null,
+    'last_attempt_at': null,
+    'next_sync_at': nextSyncAt,
+    'last_error': null,
+  });
+}
+
 void main() {
+  test('isStatusSettled treats syncing as active', () {
+    expect(
+      SourceRefreshService.isStatusSettled(_statusRow(status: 'syncing')),
+      isFalse,
+    );
+  });
+
+  test('isStatusSettled treats error and scheduled as settled', () {
+    expect(
+      SourceRefreshService.isStatusSettled(_statusRow(status: 'error')),
+      isTrue,
+    );
+    expect(
+      SourceRefreshService.isStatusSettled(_statusRow(status: 'scheduled')),
+      isTrue,
+    );
+  });
+
+  test('pending with future next_sync_at is settled', () {
+    final future =
+        DateTime.now().add(const Duration(hours: 1)).toUtc().toIso8601String();
+    expect(
+      SourceRefreshService.isStatusSettled(
+        _statusRow(status: 'pending', nextSyncAt: future),
+      ),
+      isTrue,
+    );
+  });
+
+  test('pending due now is not settled', () {
+    final past = DateTime.now()
+        .subtract(const Duration(minutes: 1))
+        .toUtc()
+        .toIso8601String();
+    expect(
+      SourceRefreshService.isStatusSettled(
+        _statusRow(status: 'pending', nextSyncAt: past),
+      ),
+      isFalse,
+    );
+    expect(
+      SourceRefreshService.isStatusSettled(_statusRow(status: 'pending')),
+      isFalse,
+    );
+  });
+
+  test('statusesSettled aggregates rows', () {
+    expect(SourceRefreshService.statusesSettled([]), isTrue);
+    expect(
+      SourceRefreshService.statusesSettled([
+        _statusRow(status: 'scheduled'),
+        _statusRow(status: 'error'),
+      ]),
+      isTrue,
+    );
+    expect(
+      SourceRefreshService.statusesSettled([
+        _statusRow(status: 'scheduled'),
+        _statusRow(status: 'syncing'),
+      ]),
+      isFalse,
+    );
+  });
+
+  test('refreshSources times out when statuses stay syncing', () async {
+    final client = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/sources/sync')) {
+          return http.Response(
+            jsonEncode({
+              'triggered': ['gmail:1'],
+              'count': 1
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/sources/status')) {
+          return http.Response(
+            jsonEncode({
+              'sources': [
+                {
+                  'source': 'gmail',
+                  'provider': 'gmail',
+                  'account_id': '1',
+                  'account_label': 'user@example.com',
+                  'status': 'syncing',
+                  'last_success_at': null,
+                  'last_attempt_at': null,
+                  'next_sync_at': null,
+                  'last_error': null,
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    client.configure(baseUrl: 'https://secretary.example', token: 't');
+
+    final service = SourceRefreshService(apiClient: client);
+    final result = await service.refreshSources(
+      timeout: const Duration(milliseconds: 50),
+      pollInterval: const Duration(milliseconds: 10),
+    );
+
+    expect(result.timedOut, isTrue);
+    expect(result.statuses.single.status, 'syncing');
+  });
+
+  test('clearSyncContinuesMessageIfSettled keeps message while syncing', () {
+    final row = _statusRow(status: 'syncing');
+    expect(
+      SourceRefreshService.clearSyncContinuesMessageIfSettled(
+        message: SourceRefreshService.syncContinuesMessage,
+        statuses: [row],
+      ),
+      SourceRefreshService.syncContinuesMessage,
+    );
+  });
+
+  test('clearSyncContinuesMessageIfSettled clears when all settled', () {
+    expect(
+      SourceRefreshService.clearSyncContinuesMessageIfSettled(
+        message: SourceRefreshService.syncContinuesMessage,
+        statuses: [_statusRow(status: 'scheduled')],
+      ),
+      isNull,
+    );
+  });
+
+  test('clearSyncContinuesMessageIfSettled clears on error status', () {
+    expect(
+      SourceRefreshService.clearSyncContinuesMessageIfSettled(
+        message: SourceRefreshService.syncContinuesMessage,
+        statuses: [_statusRow(status: 'error')],
+      ),
+      isNull,
+    );
+  });
+
+  test('clearSyncContinuesMessageIfSettled does not clear arbitrary errors',
+      () {
+    expect(
+      SourceRefreshService.clearSyncContinuesMessageIfSettled(
+        message: 'sync failed',
+        statuses: [_statusRow(status: 'scheduled')],
+      ),
+      'sync failed',
+    );
+  });
+
   test('refreshSources triggers sync and polls until scheduled', () async {
     var statusCalls = 0;
     final client = SecretaryApiClient(
       httpClient: MockClient((request) async {
-        if (request.method == 'POST' && request.url.path.endsWith('/sources/sync')) {
-          return http.Response(jsonEncode({'triggered': ['gmail:1'], 'count': 1}), 200);
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/sources/sync')) {
+          return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200);
         }
         if (request.url.path.endsWith('/sources/status')) {
           statusCalls += 1;
@@ -27,9 +205,11 @@ void main() {
                   'account_id': '1',
                   'account_label': 'user@example.com',
                   'status': status,
-                  'last_success_at': status == 'scheduled' ? '2026-08-31T12:00:00Z' : null,
+                  'last_success_at':
+                      status == 'scheduled' ? '2026-08-31T12:00:00Z' : null,
                   'last_attempt_at': null,
-                  'next_sync_at': status == 'scheduled' ? '2026-08-31T12:05:00Z' : null,
+                  'next_sync_at':
+                      status == 'scheduled' ? '2026-08-31T12:05:00Z' : null,
                   'last_error': null,
                 },
               ],
@@ -87,7 +267,8 @@ void main() {
                   return http.Response('{}', 404);
                 }),
               );
-              client.configure(baseUrl: 'https://secretary.example', token: 't');
+              client.configure(
+                  baseUrl: 'https://secretary.example', token: 't');
               final service = SourceRefreshService(apiClient: client);
               return IconButton(
                 onPressed: () => service.refreshSources(

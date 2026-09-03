@@ -807,7 +807,7 @@ def test_today_excludes_deleted_proposed_task(db_session) -> None:
     assert all(obj.id != task.id for obj in snapshot["tasks"])
 
 
-def test_inbox_recent_orders_by_updated_at_not_semantic_date(db_session) -> None:
+def test_inbox_recent_orders_by_created_at_not_semantic_date(db_session) -> None:
     from zoneinfo import ZoneInfo
 
     moscow = ZoneInfo("Europe/Moscow")
@@ -831,6 +831,7 @@ def test_inbox_recent_orders_by_updated_at_not_semantic_date(db_session) -> None
     event_a = db_session.scalar(
         select(Object).where(Object.title == "Future event A")
     )
+    event_a.created_at = earlier
     event_a.updated_at = earlier
     graph.create_object(
         ObjectCreate(
@@ -848,6 +849,7 @@ def test_inbox_recent_orders_by_updated_at_not_semantic_date(db_session) -> None
     event_b = db_session.scalar(
         select(Object).where(Object.title == "Future event B")
     )
+    event_b.created_at = earlier - timedelta(hours=1)
     event_b.updated_at = earlier - timedelta(hours=1)
 
     graph.create_object(
@@ -862,6 +864,7 @@ def test_inbox_recent_orders_by_updated_at_not_semantic_date(db_session) -> None
         )
     )
     email_c = db_session.scalar(select(Object).where(Object.title == "Fresh email C"))
+    email_c.created_at = later
     email_c.updated_at = later
     db_session.commit()
 
@@ -871,7 +874,9 @@ def test_inbox_recent_orders_by_updated_at_not_semantic_date(db_session) -> None
     assert titles.index("Fresh email C") < titles.index("Future event B")
 
 
-def test_inbox_recent_materially_updated_event_surfaces_near_top(db_session) -> None:
+def test_inbox_recent_materially_updated_event_does_not_promote_above_newer_created(
+    db_session,
+) -> None:
     from zoneinfo import ZoneInfo
 
     moscow = ZoneInfo("Europe/Moscow")
@@ -893,6 +898,7 @@ def test_inbox_recent_materially_updated_event_surfaces_near_top(db_session) -> 
         )
     )
     old_event = db_session.scalar(select(Object).where(Object.title == "Old event updated"))
+    old_event.created_at = stale
     old_event.updated_at = stale
 
     graph.create_object(
@@ -907,6 +913,7 @@ def test_inbox_recent_materially_updated_event_surfaces_near_top(db_session) -> 
         )
     )
     stable_email = db_session.scalar(select(Object).where(Object.title == "Stable email"))
+    stable_email.created_at = fresh - timedelta(hours=1)
     stable_email.updated_at = fresh - timedelta(hours=1)
     db_session.commit()
 
@@ -916,7 +923,7 @@ def test_inbox_recent_materially_updated_event_surfaces_near_top(db_session) -> 
 
     rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()
     titles = [row.title for row in rows]
-    assert titles.index("Old event updated (material)") < titles.index("Stable email")
+    assert titles.index("Stable email") < titles.index("Old event updated (material)")
 
 
 def test_inbox_recent_unchanged_repeat_sync_does_not_reorder(db_session) -> None:
@@ -935,6 +942,7 @@ def test_inbox_recent_unchanged_repeat_sync_does_not_reorder(db_session) -> None
         )
     )
     first = db_session.scalar(select(Object).where(Object.title == "First ingested"))
+    first.created_at = base
     first.updated_at = base
 
     graph.create_object(
@@ -949,6 +957,7 @@ def test_inbox_recent_unchanged_repeat_sync_does_not_reorder(db_session) -> None
         )
     )
     second = db_session.scalar(select(Object).where(Object.title == "Second ingested"))
+    second.created_at = base + timedelta(minutes=30)
     second.updated_at = base + timedelta(minutes=30)
     db_session.commit()
 
@@ -984,6 +993,7 @@ def _create_recent_source(
         )
     )
     obj = db_session.scalar(select(Object).where(Object.title == title))
+    obj.created_at = updated_at
     obj.updated_at = updated_at
     return obj
 
@@ -1197,6 +1207,7 @@ def _create_gmail_with_labels(
         )
     )
     obj = db_session.scalar(select(Object).where(Object.title == title))
+    obj.created_at = updated_at
     obj.updated_at = updated_at
     return obj
 

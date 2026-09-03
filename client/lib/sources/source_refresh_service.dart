@@ -26,24 +26,12 @@ class SourceRefreshService {
   static const Duration defaultTimeout = Duration(seconds: 12);
   static const Duration pollInterval = Duration(milliseconds: 500);
 
-  Future<SourceRefreshResult> refreshSources({
-    Duration timeout = defaultTimeout,
-  }) async {
-    await _apiClient.triggerSourceSync();
-    final deadline = DateTime.now().add(timeout);
-    List<SourceSyncStatusOut> statuses = [];
-    while (DateTime.now().isBefore(deadline)) {
-      statuses = await _apiClient.getSourceStatus();
-      if (statuses.every(_isSettled)) {
-        return SourceRefreshResult(timedOut: false, statuses: statuses);
-      }
-      await Future.delayed(pollInterval);
-    }
-    statuses = await _apiClient.getSourceStatus();
-    return SourceRefreshResult(timedOut: true, statuses: statuses);
-  }
+  /// Local Inbox message shown when manual refresh times out before sources settle.
+  static const String syncContinuesMessage =
+      'Синхронизация источников продолжается';
 
-  bool _isSettled(SourceSyncStatusOut row) {
+  /// Whether a single source row has finished its active sync cycle.
+  static bool isStatusSettled(SourceSyncStatusOut row) {
     if (row.status == 'syncing') {
       return false;
     }
@@ -51,14 +39,56 @@ class SourceRefreshService {
       return true;
     }
     if (row.status == 'pending') {
-      final nextSync = row.nextSyncAt == null
-          ? null
-          : DateTime.tryParse(row.nextSyncAt!);
+      final nextSync =
+          row.nextSyncAt == null ? null : DateTime.tryParse(row.nextSyncAt!);
       if (nextSync != null && nextSync.isAfter(DateTime.now())) {
         return true;
       }
       return false;
     }
     return true;
+  }
+
+  /// Whether every source in a snapshot has settled (empty list => settled).
+  static bool statusesSettled(List<SourceSyncStatusOut> statuses) {
+    return statuses.every(isStatusSettled);
+  }
+
+  /// Clear the timeout/progress banner once all sources in a snapshot settled.
+  static String? clearSyncContinuesMessageIfSettled({
+    required String? message,
+    required List<SourceSyncStatusOut> statuses,
+  }) {
+    if (message == syncContinuesMessage && statusesSettled(statuses)) {
+      return null;
+    }
+    return message;
+  }
+
+  Future<SourceRefreshResult> refreshSources({
+    Duration timeout = defaultTimeout,
+    Duration pollInterval = SourceRefreshService.pollInterval,
+  }) async {
+    await _apiClient.triggerSourceSync();
+    final stopwatch = Stopwatch()..start();
+    List<SourceSyncStatusOut> statuses = [];
+    while (stopwatch.elapsed < timeout) {
+      statuses = await _apiClient.getSourceStatus();
+      if (statusesSettled(statuses)) {
+        return SourceRefreshResult(timedOut: false, statuses: statuses);
+      }
+      final remaining = timeout - stopwatch.elapsed;
+      if (remaining <= Duration.zero) {
+        break;
+      }
+      await Future.delayed(
+        remaining < pollInterval ? remaining : pollInterval,
+      );
+    }
+    statuses = await _apiClient.getSourceStatus();
+    return SourceRefreshResult(
+      timedOut: !statusesSettled(statuses),
+      statuses: statuses,
+    );
   }
 }
