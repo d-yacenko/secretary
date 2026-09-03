@@ -162,7 +162,7 @@ PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cos
 
 PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
 
-PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-b-r1-tool-contracts`.
+PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`, **awaiting architect review** on `review/phase-28d-b-r1-tool-contracts`.
 
 Real defects from baseline: relation removal used additive `update_task` evidence; finalization claimed updates on `changed=false`.
 
@@ -320,14 +320,20 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`
-- Deployed: 2026-09-03 (PHASE 28D-A-R1 — AI audit corrective, Alembic `0025`)
+- SHA: `c791461287a3b60e34c9474c9df146ea3fd8ea52`
+- Deployed: 2026-09-03 (PHASE 28D-B-R1-R1 — truthful finalization corrective, Alembic `0025`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
 - Alembic current/head: `0025` (`ai_trace_event_payload_retention`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
 - Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
+
+### PHASE 28D-B-R1-R1 Luna relation-removal E2E (sanitized)
+
+Task `75d6bfe5-…` with two `references` evidence edges (markers A and B). First message: Assistant READ (`list_neighbors`), proposed `remove_relation` with exact `edge_id` for marker B, approval required. Approve: `changed=true`, `effect=removed`. Finalizer: relation removed/deactivated to rejected (no false “task updated”). Second message: no pending plan; Assistant stated marker B link is no longer present; only marker A remains. No `update_task` approximation; no false second removal success.
+
+- Encrypted architect context blob SHA: `fff4c64272d4234c317cecb32a8520bcb3484937`
 
 ### PHASE 24 deployment note
 

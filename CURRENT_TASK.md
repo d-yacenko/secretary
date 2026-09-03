@@ -12,7 +12,7 @@ PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cos
 
 PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
 
-PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed**, **awaiting architect review**.
+PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`, **awaiting architect review**.
 
 PHASE 28D: **NOT fully closed** until architect review of B-R1-R1.
 
@@ -31,9 +31,9 @@ PHASE 28D-C/D/E, PHASE 29A: **NOT started**.
 
 ## Deploy
 
-Application SHA: _(set after deploy)_
+Application SHA: `c791461287a3b60e34c9474c9df146ea3fd8ea52`
 
-VDS: Alembic `0025`, `/health` PASS expected.
+VDS deploy: **complete** (Alembic `0025`, `/health` PASS, Luna E2E PASS — see PROJECT_STATE).
 
 ## Next
 
