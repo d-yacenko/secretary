@@ -378,3 +378,12 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Accepted / closed** at application SHA `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 - Google Drive, Yandex Disk, and blind Assistant XLSX phrase E2E: **PASS**.
 
+## Universal Intake Iteration A — Quick Capture + generic web links
+
+- **Note capture:** `POST /capture/note` creates `kind=note`, `origin=user`, `state=confirmed`, no task status; one embed job.
+- **Generic web:** non-Google/Yandex absolute URLs dispatch `provider=web` on `POST /intake/link`; bounded fetch + `full`/`chunk` representations; binary → metadata-only.
+- **No new Assistant tools**; `retrieve` / `get_context` / `query_objects` work for `note` and `web_page`.
+- **Inbox recent feed** includes explicit/user `note` and `web_page` (not tasks).
+- **Flutter:** universal «Добавить» screen; note default; explicit task mode; exact-URL → link intake; voice → text field only.
+- **Next:** format parity iterations (TXT…Parquet, legacy Office); not Safe External Actions yet.
+

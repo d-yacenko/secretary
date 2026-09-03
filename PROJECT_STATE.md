@@ -174,7 +174,9 @@ PHASE 29A-R2-R1 — Assistant retrieve `kind="all"` normalization: **included in
 
 Google Drive real E2E: **PASS**. Yandex Disk real E2E: **PASS**. Blind Assistant XLSX phrase E2E: **PASS**.
 
-Universal Intake & Format Parity — Iteration A: **in progress** on `review/universal-intake-format-parity-a`.
+Universal Intake & Format Parity — Iteration A: **implemented and deployed** on `review/universal-intake-format-parity-a`, **awaiting architect review**.
+
+PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
 Manual Google Drive / Yandex Disk matched-version E2E: **PASS** (PHASE 29A closure).
 
@@ -326,16 +328,15 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
-- Branch: `review/phase-29a-bounded-content-extraction`
-- Deployed: 2026-09-03 (PHASE 29A-R2-R1 retrieve kind normalization)
-- Checkout: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`, clean working tree
+- SHA: `476de0e989944bbadbf7858aa0e6633c490a1999`
+- Branch: `review/universal-intake-format-parity-a`
+- Deployed: 2026-09-03 (Universal Intake Iteration A)
+- Checkout: `476de0e989944bbadbf7858aa0e6633c490a1999`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Production direct `retrieve(kind="all")`: PASS — `kind` normalized to no filter; `Второе полугодие.xlsx` in top-5
-- Production direct `retrieve(kind="file")`: PASS — same target returned
-- Stale v1 reindex (prior R2 deploy): 3 objects enqueued (incl. target `19940b16`), all reached `phase29a-v2` ready
+- Iteration A smoke: note/web_page retrieve PASS, web URL idempotency PASS, open-target PASS
+- PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
@@ -417,4 +418,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Universal Intake Iteration A implementation. Do not start Safe External Actions or scheduled_activity implementation.
+Await architect review of Universal Intake Iteration A. Do not start Safe External Actions or scheduled_activity implementation.

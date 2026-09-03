@@ -1,25 +1,38 @@
-# Current task — PHASE 29A CLOSED; Universal Intake Iteration A in progress
+# Current task — Universal Intake Iteration A deployed
 
 ## Status
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **ARCHITECT ACCEPTED / CLOSED** at `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
+PHASE 29A: **ARCHITECT ACCEPTED / CLOSED** at `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
-- Google real E2E: **PASS**
-- Yandex real E2E: **PASS**
-- Blind Assistant E2E (XLSX phrase retrieval): **PASS**
+Universal Intake & Format Parity — Iteration A (Quick Capture + generic web links): **implemented and deployed**, **awaiting architect review and manual E2E**.
 
-PHASE 29A-R2-R1 (retrieve `kind="all"` normalization): included in closure SHA.
+## Branch
 
-Universal Intake & Format Parity — Iteration A: **in progress** on `review/universal-intake-format-parity-a`.
+`review/universal-intake-format-parity-a`
 
-## Closure deploy (29A)
+## Iteration A scope (implemented)
 
-Application SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
+- `POST /capture/note` — user-authored notes (`kind=note`, no task lifecycle)
+- Generic public web URLs via existing `POST /intake/link` (`provider=web`, `kind=web_page`)
+- Bounded `web_fetch` reuse with binary/metadata-only path
+- Inbox recent feed includes `note` and `web_page` (tasks excluded)
+- Universal Flutter «Добавить» capture (note default, explicit task mode, exact-URL link intake)
+- Voice fills text field only (no auto-submit)
 
-Deployed VDS SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
+## Deploy
 
-Alembic: `0026`
+Application SHA: `476de0e989944bbadbf7858aa0e6633c490a1999`
+
+Deployed VDS SHA: `476de0e989944bbadbf7858aa0e6633c490a1999` (clean)
+
+Alembic current/head: `0026`
+
+`/health`: PASS
+
+Worker: healthy
+
+Production smoke: note retrieve PASS, web_page retrieve PASS, URL idempotency PASS, open-target PASS, Google/Yandex provider detection PASS
 
 ## Next
 
-Implement Iteration A (Quick Capture + generic web links). Do not start Safe External Actions.
+STOP — await architect review and manual user E2E. Format parity (DOC/XLS/PPT/ODT/…) is next iteration, not Safe External Actions.
