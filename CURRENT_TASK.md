@@ -25,7 +25,7 @@ PHASE 29A-R2 — XLSX Searchable Content & Context Closure: **implemented**, **a
 
 ## Deploy
 
-Application SHA: pending R2 deploy (supersedes `fc8e90b`).
+Application SHA: `75142dc6eac2b16d60dd448a7f40f84d529fd2de`
 
 Alembic head: `0026` (no new migration).
 
