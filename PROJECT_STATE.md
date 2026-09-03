@@ -310,10 +310,10 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `9090ee8780f33d6b888057919d02b8e0772b1431`
-- Deployed: 2026-09-03 (PHASE 28D-A — AI execution observability, Alembic `0024`)
+- SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`
+- Deployed: 2026-09-03 (PHASE 28D-A-R1 — AI audit corrective, Alembic `0025`)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
-- Alembic current/head: `0024` (`ai_trace_tables`)
+- Alembic current/head: `0025` (`ai_trace_event_payload_retention`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
