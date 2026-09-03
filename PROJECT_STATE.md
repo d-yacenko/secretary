@@ -138,11 +138,13 @@ PHASE 28C final matched-version deploy: **complete** at `e8680f2105348cdd9220f8d
 
 Manual PHASE 28C history E2E: **PASS**.
 
-PHASE 28C-R1 — Inbox Recent Ordering + Stale Sync Banner Cleanup: **implemented, awaiting architect review** on `review/phase-28c-inbox-recent-ordering-r1`.
+PHASE 28C-R1 — Inbox Recent Ordering + Stale Sync Banner Cleanup: **accepted** at `b62f7978647d9a4767c6040ff84df0e611e9f1b5`.
 
-Next after R1 acceptance/deploy: **PHASE 29A — bounded content extraction**.
+PHASE 28C-R1-R1 — Eliminate Sync Banner Settlement Race: **implemented, awaiting architect review** on `review/phase-28c-inbox-recent-ordering-r1-r1`.
 
-R1 is **not** deployed yet.
+Next after R1-R1 acceptance/deploy: **PHASE 29A — bounded content extraction**.
+
+R1-R1 is **not** deployed yet.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 

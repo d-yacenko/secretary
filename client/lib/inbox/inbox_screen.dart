@@ -174,15 +174,12 @@ class InboxScreenState extends State<InboxScreen> {
       if (!mounted) {
         return;
       }
-      await _loadInbox(showFullLoader: _inbox == null);
-      if (!mounted) {
-        return;
-      }
       if (result.timedOut) {
         setState(() {
           _refreshStatusMessage = SourceRefreshService.syncContinuesMessage;
         });
       }
+      await _loadInbox(showFullLoader: _inbox == null);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
