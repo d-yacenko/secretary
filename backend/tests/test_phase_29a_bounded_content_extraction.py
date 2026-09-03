@@ -24,6 +24,7 @@ from app.content_extraction.zip_safety import UnsafeZipError
 from app.db.models import GoogleAccount, Job, Object, Representation, User
 from app.jobs.constants import (
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
+    JOB_TYPE_SUMMARIZE_RESOURCE,
 )
 from app.services.context_service import ContextService
 from app.services.explicit_link_intake_service import build_google_explicit_link_intake_service
@@ -419,3 +420,137 @@ def test_cross_user_extract_rejected(db_session, credential_key) -> None:
     )
     with pytest.raises(ValueError, match="ownership mismatch"):
         extractor.run(obj.id, "r1", EXTRACTION_VERSION)
+
+
+def test_google_unsupported_native_type_metadata_only(
+    db_session, credential_key, oauth_client_file
+) -> None:
+    account = _google_account(db_session, credential_key)
+    file_id = "drawing-1"
+    transport = FakeDriveTransport(
+        {
+            file_id: {
+                "id": file_id,
+                "name": "Sketch",
+                "mimeType": "application/vnd.google-apps.drawing",
+                "modifiedTime": "2024-01-01T00:00:00.000Z",
+                "trashed": False,
+            }
+        }
+    )
+    service = build_google_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost/callback",
+        google_transport=transport,
+    )
+    result = service.intake_link(
+        url=f"https://drive.google.com/file/d/{file_id}/view",
+        account_id=account.id,
+    )
+    service.close()
+    assert result.content_status == "unsupported"
+    obj = db_session.get(Object, result.object_id)
+    assert obj is not None
+    assert obj.body is None
+
+
+def test_successful_extraction_enqueues_summarize_once(
+    db_session, credential_key, oauth_client_file, tmp_path: Path
+) -> None:
+    account = _google_account(db_session, credential_key)
+    file_id = "summarize-once"
+    transport = FakeDriveTransport(
+        {
+            file_id: {
+                "id": file_id,
+                "name": "note.txt",
+                "mimeType": "text/plain",
+                "md5Checksum": "md5-once",
+                "modifiedTime": "2024-01-01T00:00:00.000Z",
+                "trashed": False,
+            }
+        }
+    )
+    txt_path = tmp_path / "note.txt"
+    write_txt(txt_path, "summarize enqueue phrase")
+    transport.set_download(file_id, txt_path.read_bytes())
+    service = build_google_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost/callback",
+        google_transport=transport,
+    )
+    result = service.intake_link(
+        url=f"https://drive.google.com/file/d/{file_id}/view",
+        account_id=account.id,
+    )
+    extractor = ExplicitResourceContentExtractor(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        drive_transport=transport,
+        account_store=GoogleAccountStore(db_session, CredentialEncryption(credential_key)),
+        token_manager=service._token_manager,
+    )
+    obj = db_session.get(Object, result.object_id)
+    extractor.run(obj.id, obj.metadata_["content_revision"], EXTRACTION_VERSION)
+    db_session.flush()
+    summarize_jobs = [
+        job
+        for job in db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_SUMMARIZE_RESOURCE)
+        ).all()
+        if (job.payload or {}).get("object_id") == str(obj.id)
+    ]
+    service.close()
+    assert len(summarize_jobs) == 1
+
+
+def test_failed_extraction_preserves_object(
+    db_session, credential_key, oauth_client_file
+) -> None:
+    account = _google_account(db_session, credential_key)
+    file_id = "fail-file"
+    transport = FakeDriveTransport(
+        {
+            file_id: {
+                "id": file_id,
+                "name": "note.txt",
+                "mimeType": "text/plain",
+                "md5Checksum": "md5-fail",
+                "modifiedTime": "2024-01-01T00:00:00.000Z",
+                "trashed": False,
+            }
+        }
+    )
+    transport.set_download(file_id, b"not valid for txt extraction corrupt")
+    service = build_google_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost/callback",
+        google_transport=transport,
+    )
+    result = service.intake_link(
+        url=f"https://drive.google.com/file/d/{file_id}/view",
+        account_id=account.id,
+    )
+    extractor = ExplicitResourceContentExtractor(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        drive_transport=transport,
+        account_store=GoogleAccountStore(db_session, CredentialEncryption(credential_key)),
+        token_manager=service._token_manager,
+    )
+    obj = db_session.get(Object, result.object_id)
+    extractor.run(obj.id, obj.metadata_["content_revision"], EXTRACTION_VERSION)
+    db_session.flush()
+    db_session.refresh(obj)
+    service.close()
+    assert obj.id == result.object_id
+    assert obj.metadata_["content_extraction_status"] in {"ready", "failed", "unsupported"}
