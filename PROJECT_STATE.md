@@ -176,7 +176,9 @@ Google Drive real E2E: **PASS**. Yandex Disk real E2E: **PASS**. Blind Assistant
 
 Universal Intake & Format Parity — Iteration A: **implemented**, **awaiting architect review** on `review/universal-intake-format-parity-a`.
 
-Universal Intake Iteration A-R1 corrective: **implemented and deployed** at `1e873dbd902ac53a8123328e05e2201d55df6dc8`, **awaiting architect review and manual E2E** (Iteration A not accepted).
+Universal Intake Iteration A-R1 corrective: **implemented and deployed** at `1e873dbd902ac53a8123328e05e2201d55df6dc8`.
+
+Universal Intake Iteration A-R1-R1 corrective: **implemented and deployed** at `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`, **awaiting architect review and manual E2E** (Iteration A not accepted).
 
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
@@ -330,14 +332,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `1e873dbd902ac53a8123328e05e2201d55df6dc8`
+- SHA: `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`
 - Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-03 (Universal Intake Iteration A-R1 corrective)
-- Checkout: `1e873dbd902ac53a8123328e05e2201d55df6dc8`, clean working tree
+- Deployed: 2026-09-03 (Universal Intake Iteration A-R1-R1 corrective)
+- Checkout: `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Iteration A-R1 smoke: existing note/web_page retrieve PASS, Google/Yandex provider detection unchanged
+- Iteration A-R1-R1: web URL userinfo guard + blank Quick Add Note reset deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
@@ -348,7 +350,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 Task `75d6bfe5-…` with two `references` evidence edges (markers A and B). First message: Assistant READ (`list_neighbors`), proposed `remove_relation` with exact `edge_id` for marker B, approval required. Approve: `changed=true`, `effect=removed`. Finalizer: relation removed/deactivated to rejected (no false “task updated”). Second message: no pending plan; Assistant stated marker B link is no longer present; only marker A remains. No `update_task` approximation; no false second removal success.
 
-- Encrypted architect context blob SHA: `fff4c64272d4234c317cecb32a8520bcb3484937`
+- Encrypted architect context blob SHA: `99cb601b147a3e2d2b49c1fc0eab7cd9d9db7f0f`
 
 ### PHASE 24 deployment note
 

@@ -396,3 +396,10 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Capture UX:** Note default after successful submit; task context (`context_object_ids` / `depends_on_ids`) forces Task mode and `/capture/task` even for exact URLs.
 - **Status:** deployed at `1e873dbd902ac53a8123328e05e2201d55df6dc8`; Iteration A still **not architect-accepted**.
 
+## Universal Intake Iteration A-R1-R1 — URL userinfo guard + fresh Quick Add reset
+
+- **Web userinfo:** generic `web_fetch` rejects `username` / `password` in URL before HTTP; redirect targets validated the same way.
+- **Quick Add:** `prepareForGenericAdd()` on shell «+» resets genuinely blank draft to Note; preserves unfinished drafts and task intent.
+- **Architect context:** blob SHA `99cb601b147a3e2d2b49c1fc0eab7cd9d9db7f0f` (commit `427e2e835b1a3a329c3c95a1bb0ce0fe595728b2`); agent did not modify encrypted file.
+- **Status:** deployed at `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`; awaiting architect + manual E2E.
+
