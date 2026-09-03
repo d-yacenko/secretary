@@ -12,6 +12,7 @@ from app.jobs.constants import (
     JOB_STATUS_RUNNING,
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
+    JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
     JOB_TYPE_SUMMARIZE_RESOURCE,
 )
 from app.services.correlation_constants import CORRELATION_TRIGGER_KINDS
@@ -23,6 +24,39 @@ def _active_parent_trace_id() -> str | None:
     if active is None:
         return None
     return str(active.trace_id)
+
+
+def enqueue_extract_explicit_resource_content(
+    session: Session,
+    object_id: UUID,
+    user_id: UUID,
+    expected_revision: str | None,
+    extraction_version: str,
+) -> None:
+    if _has_pending_job(
+        session,
+        user_id,
+        JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
+        object_id,
+        {
+            "expected_content_revision": expected_revision,
+            "extraction_version": extraction_version,
+        },
+    ):
+        return
+    payload: dict = {
+        "object_id": str(object_id),
+        "expected_content_revision": expected_revision,
+        "extraction_version": extraction_version,
+    }
+    parent_trace_id = _active_parent_trace_id()
+    if parent_trace_id is not None:
+        payload["parent_trace_id"] = parent_trace_id
+    JobQueueService(session).enqueue(
+        JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
+        payload,
+        user_id=user_id,
+    )
 
 
 def enqueue_summarize_resource(

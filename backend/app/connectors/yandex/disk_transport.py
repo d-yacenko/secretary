@@ -4,6 +4,7 @@ import httpx
 
 from app.connectors.yandex.constants import YANDEX_DISK_API_BASE, YANDEX_DISK_PUBLIC_RESOURCE_FIELDS
 from app.connectors.yandex.disk_api_errors import raise_for_yandex_disk_response
+from app.content_extraction.bounded_download import bounded_get
 
 
 class YandexDiskTransport:
@@ -28,3 +29,20 @@ class YandexDiskTransport:
         if not isinstance(payload, dict):
             raise TypeError("yandex disk public resource response invalid")
         return payload
+
+    def get_public_resource_download_url(self, public_key: str) -> str:
+        response = self._http.get(
+            f"{YANDEX_DISK_API_BASE}/public/resources/download",
+            params={"public_key": public_key},
+        )
+        raise_for_yandex_disk_response(response, "get_public_resource_download_url")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise TypeError("yandex disk download response invalid")
+        href = payload.get("href")
+        if not href or not isinstance(href, str):
+            raise ValueError("yandex disk download href missing")
+        return href
+
+    def download_bounded_url(self, url: str, *, max_bytes: int) -> bytes:
+        return bounded_get(self._http, url, max_bytes=max_bytes, follow_redirects=True)

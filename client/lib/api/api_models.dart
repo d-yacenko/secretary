@@ -1117,12 +1117,16 @@ class IntakeLinkResult {
     required this.provider,
     required this.kind,
     required this.status,
+    required this.contentStatus,
+    required this.contentJobsEnqueued,
   });
 
   final String objectId;
   final String provider;
   final String kind;
   final String status;
+  final String contentStatus;
+  final int contentJobsEnqueued;
 
   factory IntakeLinkResult.fromJson(Map<String, dynamic> json) {
     return IntakeLinkResult(
@@ -1130,6 +1134,8 @@ class IntakeLinkResult {
       provider: json['provider'] as String,
       kind: json['kind'] as String,
       status: json['status'] as String,
+      contentStatus: json['content_status'] as String,
+      contentJobsEnqueued: json['content_jobs_enqueued'] as int,
     );
   }
 }

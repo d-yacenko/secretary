@@ -32,7 +32,7 @@ GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
 GOOGLE_DRIVE_PROVIDER = "google_drive"
 GOOGLE_DRIVE_MAX_PARENTS = 20
 DRIVE_FILE_METADATA_FIELDS = (
-    "id,name,mimeType,createdTime,modifiedTime,size,md5Checksum,parents,driveId,trashed,webViewLink"
+    "id,name,mimeType,createdTime,modifiedTime,size,md5Checksum,parents,driveId,trashed,webViewLink,version"
 )
 
 EXPLICIT_LINK_MAX_URL_CHARS = 2048

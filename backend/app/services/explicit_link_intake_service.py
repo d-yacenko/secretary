@@ -23,13 +23,25 @@ from app.connectors.yandex.disk_normalize import normalize_yandex_disk_resource
 from app.connectors.yandex.disk_transport import YandexDiskTransport
 from app.connectors.yandex.disk_url_parser import parse_yandex_disk_share_url
 from app.connectors.yandex.errors import YandexDiskApiError
-from app.db.models import GoogleAccount, Object
+from app.content_extraction.constants import EXTRACTION_VERSION
+from app.content_extraction.extract_service import (
+    apply_intake_content_metadata,
+    extraction_work_needed,
+)
+from app.content_extraction.metadata_keys import CONTENT_EXTRACTION_STATUS, STATUS_READY
+from app.content_extraction.revision import derive_explicit_cloud_content_revision
+from app.db.models import GoogleAccount, Object, Representation
+from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
 from app.services.explicit_link_intake_errors import (
     AccountSelectionRequiredError,
     ExplicitLinkIntakeError,
 )
 from app.services.explicit_link_provider import detect_intake_provider
-from app.services.pipeline_enqueue import enqueue_embed_object
+from app.services.pipeline_enqueue import (
+    enqueue_embed_object,
+    enqueue_extract_explicit_resource_content,
+)
+from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 
 EXPLICIT_INTAKE_MODE = "explicit_link"
 
@@ -40,6 +52,8 @@ class IntakeLinkResult:
     provider: str
     kind: str
     status: str
+    content_status: str
+    content_jobs_enqueued: int
 
 
 class ExplicitLinkIntakeService:
@@ -108,8 +122,8 @@ class ExplicitLinkIntakeService:
             internal_status = self._tombstone_existing(existing)
             return self._result(existing, internal_status)
 
-        obj, internal_status = self._upsert(existing, normalized)
-        return self._result(obj, internal_status)
+        obj, internal_status, jobs = self._upsert(existing, normalized)
+        return self._result(obj, internal_status, jobs)
 
     def _intake_yandex_disk(self, url: str) -> IntakeLinkResult:
         if self._yandex_transport is None:
@@ -135,8 +149,8 @@ class ExplicitLinkIntakeService:
             raise ExplicitLinkIntakeError("yandex disk provider metadata error")
 
         existing = self._find_existing(YANDEX_DISK_PROVIDER, normalized["external_id"])
-        obj, internal_status = self._upsert(existing, normalized)
-        return self._result(obj, internal_status)
+        obj, internal_status, jobs = self._upsert(existing, normalized)
+        return self._result(obj, internal_status, jobs)
 
     def _resolve_google_account(self, account_id: UUID | None) -> GoogleAccount:
         assert self._account_store is not None
@@ -174,45 +188,115 @@ class ExplicitLinkIntakeService:
             )
         )
 
-    def _upsert(self, existing: Object | None, normalized: dict[str, Any]) -> tuple[Object, str]:
+    def _upsert(self, existing: Object | None, normalized: dict[str, Any]) -> tuple[Object, str, int]:
+        provider = normalized["provider"]
+        kind = normalized["kind"]
+        title = normalized["title"]
+        content_metadata = apply_intake_content_metadata(
+            normalized["metadata"],
+            provider,
+            kind,
+            title,
+        )
+        normalized = dict(normalized)
+        normalized["metadata"] = content_metadata
+
+        jobs_enqueued = 0
         if existing is None:
             obj = Object(
                 user_id=self._user_id,
-                kind=normalized["kind"],
-                provider=normalized["provider"],
+                kind=kind,
+                provider=provider,
                 external_id=normalized["external_id"],
                 origin=normalized["origin"],
                 state=normalized["state"],
-                title=normalized["title"],
+                title=title,
                 body=normalized.get("body"),
                 canonical_uri=normalized.get("canonical_uri"),
-                metadata_=normalized["metadata"],
+                metadata_=content_metadata,
                 occurred_at=normalized.get("occurred_at"),
             )
             self._session.add(obj)
             self._session.flush()
-            enqueue_embed_object(self._session, obj.id, self._user_id)
-            return obj, "created"
+            jobs_enqueued = self._enqueue_content_pipeline(obj, {}, content_metadata, created=True)
+            return obj, "created", jobs_enqueued
 
         was_deleted = existing.status == "deleted"
-        if not self._object_changed(existing, normalized):
+        prior_meta = dict(existing.metadata_ or {})
+        revision_changed = self._content_revision_changed(prior_meta, content_metadata, provider)
+        metadata_changed = self._object_changed(existing, normalized)
+
+        if not metadata_changed:
             if was_deleted:
                 existing.status = None
-                return existing, "restored"
-            return existing, "unchanged"
+                return existing, "restored", 0
+            return existing, "unchanged", 0
 
-        semantic_changed = self._semantic_content_changed(existing, normalized)
+        if revision_changed:
+            merged = invalidate_semantic_summary_metadata(prior_meta)
+            merged.update(content_metadata)
+            existing.metadata_ = merged
+        else:
+            merged = dict(prior_meta)
+            merged.update(content_metadata)
+            existing.metadata_ = merged
+
         self._apply_normalized(existing, normalized)
+
         if was_deleted:
             existing.status = None
-            if semantic_changed:
-                enqueue_embed_object(self._session, existing.id, self._user_id)
-            return existing, "restored"
+            jobs_enqueued = self._enqueue_content_pipeline(
+                existing, prior_meta, dict(existing.metadata_ or {}), created=False
+            )
+            return existing, "restored", jobs_enqueued
 
-        if semantic_changed:
-            enqueue_embed_object(self._session, existing.id, self._user_id)
-            return existing, "updated"
-        return existing, "metadata_updated"
+        if revision_changed or self._semantic_content_changed(existing, normalized):
+            jobs_enqueued = self._enqueue_content_pipeline(
+                existing, prior_meta, dict(existing.metadata_ or {}), created=False
+            )
+            return existing, "updated", jobs_enqueued
+
+        return existing, "metadata_updated", 0
+
+    def _enqueue_content_pipeline(
+        self,
+        obj: Object,
+        prior_meta: dict[str, Any],
+        incoming_meta: dict[str, Any],
+        created: bool,
+    ) -> int:
+        had_ready = (
+            prior_meta.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY
+            and self._has_mechanical_representations(obj.id)
+        )
+        if extraction_work_needed(
+            obj.provider,
+            obj.kind,
+            obj.title,
+            prior_meta,
+            incoming_meta,
+            had_ready,
+        ):
+            revision = incoming_meta.get("content_revision")
+            enqueue_extract_explicit_resource_content(
+                self._session,
+                obj.id,
+                self._user_id,
+                revision,
+                EXTRACTION_VERSION,
+            )
+            incoming_meta[CONTENT_EXTRACTION_STATUS] = "pending"
+            obj.metadata_ = incoming_meta
+            return 1
+
+        status = incoming_meta.get(CONTENT_EXTRACTION_STATUS)
+        if status in {"metadata_only", "unsupported"}:
+            enqueue_embed_object(self._session, obj.id, self._user_id)
+            return 1
+        if created:
+            enqueue_embed_object(self._session, obj.id, self._user_id)
+            return 1
+        return 0
 
     def _tombstone_existing(self, existing: Object) -> str:
         if existing.status == "deleted":
@@ -220,15 +304,24 @@ class ExplicitLinkIntakeService:
         existing.status = "deleted"
         return "tombstoned"
 
-    def _result(self, obj: Object | None, internal_status: str) -> IntakeLinkResult:
+    def _result(
+        self,
+        obj: Object | None,
+        internal_status: str,
+        content_jobs_enqueued: int = 0,
+    ) -> IntakeLinkResult:
         if obj is None:
             raise ExplicitLinkIntakeError("intake object unavailable")
         public_status = self._public_status(internal_status)
+        metadata = obj.metadata_ or {}
+        content_status = str(metadata.get(CONTENT_EXTRACTION_STATUS) or "metadata_only")
         return IntakeLinkResult(
             object_id=obj.id,
             provider=obj.provider,
             kind=obj.kind,
             status=public_status,
+            content_status=content_status,
+            content_jobs_enqueued=content_jobs_enqueued,
         )
 
     @staticmethod
@@ -250,8 +343,28 @@ class ExplicitLinkIntakeService:
         return obj.metadata_ != normalized["metadata"]
 
     @staticmethod
+    def _content_revision_changed(
+        prior_meta: dict[str, Any],
+        incoming_meta: dict[str, Any],
+        provider: str,
+    ) -> bool:
+        prior_revision = prior_meta.get("content_revision")
+        incoming_revision = incoming_meta.get("content_revision")
+        if incoming_revision is None:
+            return False
+        if prior_revision != incoming_revision:
+            return True
+        prior_derived = derive_explicit_cloud_content_revision(provider, prior_meta)
+        incoming_derived = derive_explicit_cloud_content_revision(provider, incoming_meta)
+        return prior_derived != incoming_derived
+
+    @staticmethod
     def _semantic_content_changed(obj: Object, normalized: dict[str, Any]) -> bool:
-        return obj.title != normalized["title"]
+        prior = obj.metadata_ or {}
+        incoming = normalized["metadata"]
+        if obj.title != normalized["title"]:
+            return True
+        return prior.get("content_revision") != incoming.get("content_revision")
 
     @staticmethod
     def _apply_normalized(obj: Object, normalized: dict[str, Any]) -> None:
@@ -261,6 +374,15 @@ class ExplicitLinkIntakeService:
         obj.canonical_uri = normalized.get("canonical_uri")
         obj.metadata_ = normalized["metadata"]
         obj.occurred_at = normalized.get("occurred_at")
+
+    def _has_mechanical_representations(self, object_id: UUID) -> bool:
+        row = self._session.scalar(
+            select(Representation.id).where(
+                Representation.object_id == object_id,
+                Representation.kind.in_(CLIENT_REPRESENTATION_KINDS),
+            ).limit(1)
+        )
+        return row is not None
 
 
 def build_yandex_explicit_link_intake_service(

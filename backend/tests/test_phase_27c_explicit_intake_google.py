@@ -23,7 +23,7 @@ from app.connectors.google.drive_url_parser import parse_google_drive_file_id
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleApiError
 from app.db.models import GoogleAccount, Job, Object, User
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
 from app.services.connection_status_service import ConnectionStatusService
 from app.services.explicit_link_intake_service import (
     build_explicit_link_intake_service,
@@ -169,6 +169,16 @@ def _embed_jobs_for_object(db_session, object_id: uuid.UUID) -> list[Job]:
     ]
 
 
+def _extract_jobs_for_object(db_session, object_id: uuid.UUID) -> list[Job]:
+    return [
+        job
+        for job in db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT)
+        ).all()
+        if (job.payload or {}).get("object_id") == str(object_id)
+    ]
+
+
 def test_valid_drive_file_url_creates_one_object(
     db_session, credential_key, oauth_client_file, google_settings
 ) -> None:
@@ -208,7 +218,9 @@ def test_valid_drive_file_url_creates_one_object(
         )
     )
     assert count == 1
-    assert len(_embed_jobs_for_object(db_session, obj.id)) == 1
+    assert result.content_status == "pending"
+    assert result.content_jobs_enqueued == 1
+    assert len(_extract_jobs_for_object(db_session, obj.id)) == 1
 
 
 def test_valid_drive_folder_url_creates_folder_object(
@@ -403,7 +415,7 @@ def test_repeated_same_link_returns_same_object(
         )
     )
     assert count == 1
-    assert len(_embed_jobs_for_object(db_session, first.object_id)) == 1
+    assert len(_extract_jobs_for_object(db_session, first.object_id)) == 1
 
 
 def test_metadata_update_same_object_no_extra_embed(
@@ -435,7 +447,7 @@ def test_metadata_update_same_object_no_extra_embed(
     obj = db_session.get(Object, first.object_id)
     assert obj is not None
     assert obj.metadata_["size"] == 9999
-    assert len(_embed_jobs_for_object(db_session, first.object_id)) == 1
+    assert len(_extract_jobs_for_object(db_session, first.object_id)) == 1
 
 
 def test_title_update_same_object_reuses_embed_behavior(
@@ -449,7 +461,7 @@ def test_title_update_same_object_reuses_embed_behavior(
         url=f"https://drive.google.com/file/d/{file_id}/view",
         account_id=account.id,
     )
-    first_jobs = _embed_jobs_for_object(db_session, first.object_id)
+    first_jobs = _extract_jobs_for_object(db_session, first.object_id)
     assert len(first_jobs) == 1
     first_jobs[0].status = "done"
     db_session.flush()
@@ -466,7 +478,7 @@ def test_title_update_same_object_reuses_embed_behavior(
     obj = db_session.get(Object, first.object_id)
     assert obj is not None
     assert obj.title == "New title"
-    assert len(_embed_jobs_for_object(db_session, first.object_id)) == 2
+    assert len(_extract_jobs_for_object(db_session, first.object_id)) == 1
 
 
 def test_malicious_web_view_link_never_controls_open_target(db_session, credential_key) -> None:

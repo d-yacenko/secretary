@@ -326,3 +326,24 @@ Legacy env defaults (`OPENAI_API_KEY`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ASSISTA
 
 Provider connection credentials stay in typed encrypted tables, not a generic JSON settings blob.
 
+## PHASE 28D closure (2026-09-03)
+
+- AI observability accepted; Luna `gpt-5.6-luna` reasoning `medium` verbosity `low` accepted for interactive Assistant.
+- One-time historical mail backfill + correlation is the leading explanation for Sep 3 large spend.
+- Aggressive model optimization, two-stage Assistant, and workload-specific model routing deferred.
+- `remove_relation` / truthful-finalization defects corrected in B-R1-R1 at `c791461`.
+- Accepted application SHA: `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
+
+## PHASE 29A — Bounded explicit resource content extraction
+
+- **Explicit intake only:** one selected Drive/Yandex/local link or file; no crawlers, no folder child enumeration, no arbitrary URL fetch.
+- **Raw cloud bytes:** downloaded transiently only; never persisted in `Object.body`, PostgreSQL byte fields, upload root, Git, audit payloads, or logs.
+- **Local privacy:** txt/md/csv client-assisted indexing preserved; PDF/DOCX/XLSX/PPTX/Parquet local raw files are NOT uploaded to VDS in 29A.
+- **Mechanical extraction:** bounded backend parsers only; **no LLM** inside extractors; semantic `summary` remains `SemanticSummaryService` after extraction.
+- **Pipeline:** explicit intake → `extract_explicit_resource_content` → mechanical Representations → `summarize_resource` → `embed_object` → `correlate_object`.
+- **Revision idempotency:** provider-derived `content_revision` + `EXTRACTION_VERSION` (`phase29a-v1`); unchanged revision skips download/extraction/summarize.
+- **Failure semantics (fail-closed):** extraction failure preserves Object; stale mechanical representations cleared; `content_extraction_status` set (`too_large`, `failed`, `unsupported`); old content not presented as current.
+- **Bounds:** download 20 MiB; representation 64 parts × 16 KiB, 256 KiB total; PDF 50 pages; OOXML ZIP safety; parser-specific caps in `content_extraction/constants.py`.
+- **Intake response:** `content_status` + `content_jobs_enqueued` separate from `created|updated|unchanged`.
+- **No new Assistant tools** in 29A; `retrieve` / `get_context` / existing atomic tools remain sufficient.
+

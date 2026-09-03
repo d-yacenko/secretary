@@ -10,6 +10,7 @@ from app.ai_audit.constants import (
     WORKLOAD_EMBEDDING,
 )
 from app.ai_audit.context import ai_trace_session
+from app.content_extraction.extract_service import build_explicit_resource_content_extractor
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.config import settings
 from app.db.models import Object
@@ -17,6 +18,7 @@ from app.db.session import SessionLocal
 from app.jobs.constants import (
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
+    JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
@@ -346,9 +348,33 @@ def handle_ingest_local_file(
         ingest_session.close()
 
 
+def handle_extract_explicit_resource_content(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    object_id = UUID(str(payload["object_id"]))
+    expected_revision = payload.get("expected_content_revision")
+    extraction_version = payload.get("extraction_version")
+
+    work_session = SessionLocal()
+    extractor = build_explicit_resource_content_extractor(work_session, user_id)
+    try:
+        extractor.run(object_id, expected_revision, extraction_version)
+        work_session.commit()
+    except Exception:
+        work_session.rollback()
+        raise
+    finally:
+        extractor.close()
+        work_session.close()
+
+
 HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_EMBED_OBJECT: handle_embed_object,
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
+    JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT: handle_extract_explicit_resource_content,
     JOB_TYPE_SUMMARIZE_RESOURCE: handle_summarize_resource,
     JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
     JOB_TYPE_SYNC_GOOGLE_GMAIL: handle_sync_google_gmail,

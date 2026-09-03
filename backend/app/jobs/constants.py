@@ -12,6 +12,7 @@ JOB_STATUS_FAILED = "failed"
 JOB_TYPE_EMBED_OBJECT = "embed_object"
 JOB_TYPE_INGEST_LOCAL_FILE = "ingest_local_file"
 JOB_TYPE_SUMMARIZE_RESOURCE = "summarize_resource"
+JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT = "extract_explicit_resource_content"
 JOB_TYPE_CORRELATE_OBJECT = "correlate_object"
 
 JOB_TYPE_SYNC_GOOGLE_GMAIL = "sync_google_gmail"

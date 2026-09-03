@@ -17,7 +17,7 @@ from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.connectors.yandex.disk_transport import YandexDiskTransport
 from app.connectors.yandex.errors import YandexDiskApiError
 from app.db.models import Job, Object
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
+from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
 from app.services.explicit_link_intake_service import build_yandex_explicit_link_intake_service
 from app.services.open_target_service import OpenTargetService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -119,6 +119,16 @@ def _intake_service(
         user_id=BOOTSTRAP_USER_ID,
         yandex_transport=yandex_transport,
     )
+
+
+def _extract_jobs_for_object(db_session, object_id: uuid.UUID) -> list[Job]:
+    return [
+        job
+        for job in db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT)
+        ).all()
+        if (job.payload or {}).get("object_id") == str(object_id)
+    ]
 
 
 def _embed_jobs_for_object(db_session, object_id: uuid.UUID) -> list[Job]:
@@ -422,7 +432,7 @@ def test_metadata_change_same_object_no_extra_embed(
 
     assert second.object_id == first.object_id
     assert second.status == "updated"
-    assert len(_embed_jobs_for_object(db_session, first.object_id)) == 1
+    assert len(_extract_jobs_for_object(db_session, first.object_id)) == 1
 
 
 def test_title_change_same_object_enqueues_embed_once(
@@ -437,7 +447,7 @@ def test_title_change_same_object_enqueues_embed_once(
     )
     service = _intake_service(db_session, transport)
     first = service.intake_link(url=share_url)
-    jobs = _embed_jobs_for_object(db_session, first.object_id)
+    jobs = _extract_jobs_for_object(db_session, first.object_id)
     assert len(jobs) == 1
     jobs[0].status = "done"
     db_session.flush()
@@ -452,7 +462,7 @@ def test_title_change_same_object_enqueues_embed_once(
 
     assert second.object_id == first.object_id
     assert second.status == "updated"
-    assert len(_embed_jobs_for_object(db_session, first.object_id)) == 2
+    assert len(_extract_jobs_for_object(db_session, first.object_id)) == 1
 
 
 def test_malicious_public_url_cannot_control_open_target(db_session) -> None:

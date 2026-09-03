@@ -58,6 +58,7 @@ def normalize_drive_file(
     drive_id = file.get("driveId")
     web_view_link = file.get("webViewLink")
 
+    version = file.get("version")
     metadata: dict[str, Any] = {
         "account_id": str(account_id),
         "file_id": file_id,
@@ -66,6 +67,7 @@ def normalize_drive_file(
         "modified_time": str(modified_time) if modified_time is not None else None,
         "size": int(size) if size is not None else None,
         "md5_checksum": str(md5_checksum) if md5_checksum is not None else None,
+        "version": str(version) if version is not None else None,
         "parents": parents,
         "drive_id": str(drive_id) if drive_id is not None else None,
         "web_view_link": str(web_view_link) if web_view_link is not None else None,

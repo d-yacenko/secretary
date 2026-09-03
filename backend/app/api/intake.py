@@ -34,6 +34,8 @@ class IntakeLinkResponse(BaseModel):
     provider: str
     kind: str
     status: str
+    content_status: str
+    content_jobs_enqueued: int
 
 
 @router.post("/intake/link", response_model=IntakeLinkResponse)
@@ -82,6 +84,8 @@ def intake_link(
             provider=result.provider,
             kind=result.kind,
             status=result.status,
+            content_status=result.content_status,
+            content_jobs_enqueued=result.content_jobs_enqueued,
         )
     except AccountSelectionRequiredError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc

@@ -1,40 +1,28 @@
-# Current task — PHASE 28D-B-R1-R1 corrective, awaiting architect review
+# Current task — PHASE 29A bounded content extraction, awaiting architect review
 
 ## Status
 
-PHASE 28C: **fully accepted/closed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
+PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
 
-PHASE 28D-A-R1: **ARCHITECT ACCEPTED** at `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`.
-
-PHASE 28D-B1/B2 controlled baseline capture: **complete**.
-
-PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cost accepted.
-
-PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
-
-PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`, **awaiting architect review**.
-
-PHASE 28D: **NOT fully closed** until architect review of B-R1-R1.
-
-PHASE 28D-C/D/E, PHASE 29A: **NOT started**.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented**, **awaiting architect review**.
 
 ## Branch
 
-`review/phase-28d-b-r1-tool-contracts`
+`review/phase-29a-bounded-content-extraction`
 
-## R1-R1 corrective scope
+## PHASE 29A scope (implemented)
 
-- Remove unconditional finalization success claim; authoritative execution-effect facts
-- Fix `link_objects` no-op affected-object semantics (`created=false`)
-- Restore `secretary_architect_context_encrypted.md` from docs HEAD `24626cc`
-- Real Luna Assistant relation-removal E2E (documented in PROJECT_STATE)
+- Explicit cloud link intake enqueues `extract_explicit_resource_content` for supported files
+- Bounded mechanical extraction (no LLM in extractors) → `summarize_resource` → embed → correlate
+- Google Drive: Docs/Sheets/Slides export + binary formats within bounds
+- Yandex Disk: public file download via provider API only
+- `content_status` / `content_jobs_enqueued` on intake link response
+- Local txt/md/csv client intake preserved (no VDS raw upload for PDF/DOCX/etc.)
 
 ## Deploy
 
-Application SHA: `c791461287a3b60e34c9474c9df146ea3fd8ea52`
-
-VDS deploy: **complete** (Alembic `0025`, `/health` PASS, Luna E2E PASS — see PROJECT_STATE).
+Pending matched-version VDS deploy and manual Google/Yandex E2E (see PROJECT_STATE).
 
 ## Next
 
-STOP — await architect review. Do not start 28D-C, 29A, or scheduled_activity implementation.
+STOP — await architect review. Do not start Safe External Actions or scheduled_activity.

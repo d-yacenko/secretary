@@ -162,19 +162,17 @@ PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cos
 
 PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
 
-PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`, **awaiting architect review** on `review/phase-28d-b-r1-tool-contracts`.
+PHASE 28D-B-R1-R1 — truthful finalization / affected-object corrective: **implemented and deployed** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
 
-Real defects from baseline: relation removal used additive `update_task` evidence; finalization claimed updates on `changed=false`.
+PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
 
-PHASE 28D: **NOT fully closed** until architect review.
+PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 28D-C/D/E: **NOT started**.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
 
 Model routing, two-stage Assistant, workload-specific models: **deferred**.
 
 `scheduled_activity` temporal knowledge: **documented only** (`docs/SECRETARY_TOOLSET_MATRIX.md`).
-
-PHASE 29A MUST NOT start until PHASE 28D architect checkpoint.
 
 Safe External Actions follow Source Completion (PHASE 27C explicit intake track).
 
@@ -405,4 +403,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-PHASE 26C — Graph Topology & Search Ordering. **ARCHITECT CONTEXT REFRESH CHECKPOINT** before start. Do not implement until architect context refresh is complete.
+Await architect review of PHASE 29A. Do not start Safe External Actions or scheduled_activity implementation.
