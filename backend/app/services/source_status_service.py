@@ -130,7 +130,7 @@ class SourceStatusService:
                         account_id=account.account_id,
                         account_label=account.account_label,
                         enabled=True,
-                        status="pending",
+                        status="scheduled",
                         last_success_at=last_success_at,
                         last_attempt_at=last_attempt_at,
                         next_sync_at=None,

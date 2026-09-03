@@ -1041,6 +1041,78 @@ void main() {
     expect(find.text(SourceRefreshService.syncContinuesMessage), findsNothing);
   });
 
+  testWidgets(
+      'manual refresh clears timeout banner when inbox reports idle pending without next_sync',
+      (tester) async {
+    int inboxCalls = 0;
+    await tester.pumpWidget(
+      buildInbox(
+        MockClient((request) async {
+          if (request.url.path == '/inbox') {
+            inboxCalls++;
+            return http.Response(
+              jsonEncode(inboxJson(
+                recentSources: stableRecentSourceRow(),
+                syncStatus: inboxCalls > 1
+                    ? [
+                        syncStatusJson(
+                          status: 'pending',
+                          lastError: null,
+                          nextSyncAt: null,
+                        ),
+                      ]
+                    : [syncStatusJson(status: 'syncing', lastError: null)],
+              )),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/sources/sync')) {
+            return http.Response(
+              jsonEncode({
+                'triggered': ['gmail:1'],
+                'count': 1
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/sources/status')) {
+            return http.Response(
+              jsonEncode({
+                'sources': [
+                  syncStatusJson(status: 'syncing', lastError: null),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+        passiveRefreshInterval: const Duration(seconds: 30),
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pump();
+
+    for (var i = 0; i < 100; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if (find.text('Stable inbox row').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.text('Stable inbox row'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Обновить'));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 3),
+    );
+
+    expect(find.text(SourceRefreshService.syncContinuesMessage), findsNothing);
+  });
+
   testWidgets('passive refresh clears timeout banner when sources settle',
       (tester) async {
     int inboxCalls = 0;

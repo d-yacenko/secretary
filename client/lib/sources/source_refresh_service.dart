@@ -39,8 +39,11 @@ class SourceRefreshService {
       return true;
     }
     if (row.status == 'pending') {
-      final nextSync =
-          row.nextSyncAt == null ? null : DateTime.tryParse(row.nextSyncAt!);
+      if (row.nextSyncAt == null) {
+        // Idle connected source with no active recurring job row.
+        return true;
+      }
+      final nextSync = DateTime.tryParse(row.nextSyncAt!);
       if (nextSync != null && nextSync.isAfter(DateTime.now())) {
         return true;
       }

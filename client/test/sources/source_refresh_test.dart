@@ -55,6 +55,13 @@ void main() {
     );
   });
 
+  test('pending without next_sync_at is settled idle state', () {
+    expect(
+      SourceRefreshService.isStatusSettled(_statusRow(status: 'pending')),
+      isTrue,
+    );
+  });
+
   test('pending due now is not settled', () {
     final past = DateTime.now()
         .subtract(const Duration(minutes: 1))
@@ -64,10 +71,6 @@ void main() {
       SourceRefreshService.isStatusSettled(
         _statusRow(status: 'pending', nextSyncAt: past),
       ),
-      isFalse,
-    );
-    expect(
-      SourceRefreshService.isStatusSettled(_statusRow(status: 'pending')),
       isFalse,
     );
   });
@@ -182,6 +185,10 @@ void main() {
 
   test('refreshSources triggers sync and polls until scheduled', () async {
     var statusCalls = 0;
+    final pastDue = DateTime.now()
+        .subtract(const Duration(minutes: 1))
+        .toUtc()
+        .toIso8601String();
     final client = SecretaryApiClient(
       httpClient: MockClient((request) async {
         if (request.method == 'POST' &&
@@ -208,8 +215,9 @@ void main() {
                   'last_success_at':
                       status == 'scheduled' ? '2026-08-31T12:00:00Z' : null,
                   'last_attempt_at': null,
-                  'next_sync_at':
-                      status == 'scheduled' ? '2026-08-31T12:05:00Z' : null,
+                  'next_sync_at': status == 'scheduled'
+                      ? '2026-08-31T12:05:00Z'
+                      : pastDue,
                   'last_error': null,
                 },
               ],
