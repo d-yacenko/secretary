@@ -1,53 +1,63 @@
-# Current task — PHASE 28D-A-R1 corrective deployed, awaiting architect review
+# Current task — PHASE 28D-B-R1 implemented, awaiting architect review
 
 ## Status
 
 PHASE 28C: **fully accepted/closed** at `8b02c32a3ad653e24f3cb11309f2875ccaf7dca3`.
 
-PHASE 28D-A initial implementation (`9090ee8`): **architect corrective required** — observability foundation good but not baseline-ready.
+PHASE 28D-A-R1: **implemented and deployed** at `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`, **awaiting architect review**.
 
-PHASE 28D-A-R1 — AI Audit Trace Correctness, Privacy & Baseline Readiness Corrective: **implemented and deployed**, **awaiting architect review**.
+PHASE 28D-B1/B2 controlled baseline capture: **complete** (private audit bundle exported locally; VDS export deleted).
 
-PHASE 28D-B/C/D/E: **NOT started**.
+PHASE 28D controlled interactive audit: **complete** — Luna `gpt-5.6-luna`, reasoning `medium`, verbosity `low` quality/cost **accepted**; aggressive model optimization **deferred**.
+
+PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented and deployed**, **awaiting architect review**.
+
+PHASE 28D: **NOT fully closed** until architect review of B-R1.
+
+PHASE 28D-C/D/E optimization tracks: **NOT started**.
 
 PHASE 29A: **NOT started**.
 
-Model routing, two-stage Assistant, workload-specific models: **NOT started**.
+Model routing, two-stage Assistant, workload-specific models: **deferred**.
+
+`scheduled_activity` / temporal extraction: **documented only** (Proactive Secretary roadmap).
 
 ## Branch
 
-`review/phase-28d-a-r1`
+`review/phase-28d-b-r1-tool-contracts`
 
-## R1 corrective scope (observability correctness only)
+## PHASE 28D-B-R1 scope
 
-- Non-destructive metadata-only trace reads (no ORM mutation / DB payload loss)
-- Per-event `payload_expires_at` retention (Alembic `0025`)
-- Full diagnostic payload capture for all AI workloads when capture active
-- Canonical validated tool-argument tracing + capture-OFF structural privacy
-- Summary metrics distinguish traces vs model/API calls
-- Bounded trace listing API + CLI `list`
-- Background `job_id` + `parent_trace_id` provenance
-- Assistant input component accounting without user-message double-count
-- Correlation raw vs accepted decision counts
-- Transcription failure model-call events
-- Failure-path consistency across instrumented workloads
+- `remove_relation(edge_id)` — canonical destructive internal write; `state=rejected`; idempotent; protected structural/source edges
+- Explicit additive semantics for `update_task(evidence_object_ids)`
+- Read-before-remove Assistant flow (`list_neighbors` → exact `edge_id`)
+- Unsupported-mutation Assistant invariant
+- Truthful finalization (`success` ≠ `changed`; execution-effect facts)
+- Toolset completeness matrix: `docs/SECRETARY_TOOLSET_MATRIX.md`
 
-## Not changed in R1
+## Historical mail backfill attribution (VDS metadata, 2026-09-03T04:30–06:30Z)
 
-- Assistant model / medium reasoning configuration
-- AI behavior optimization
-- PHASE 28D-B controlled baseline export
+Supporting evidence only (no message bodies inspected):
+
+- `embed_object` jobs: 138
+- `correlate_object` jobs: 138
+- `summarize_resource` jobs: 0
+- Objects created in window: 138 total, 101 `kind=email`
+- Per-provider Gmail/Yandex split not fully attributed from available metadata
+
+Leading explanation for Sep 3 one-day AI spend: one-time historical mail backfill + background correlation (user-accepted at that scale).
+
+## Not changed
+
+- `gpt-5.6-luna`, reasoning `medium`, verbosity `low`
+- Assistant round / tool-call budgets, retrieval, correlation, summarizer, embedding models, source cadence
 
 ## Deploy
 
-Application SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`
+Application SHA: _(set after deploy commit)_
 
-VDS deploy: **complete** (Alembic `0025`, `/health` PASS).
+VDS: Alembic `0025`, `/health` PASS expected.
 
+## Next
 
-```bash
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  https://web-itx.duckdns.org/secretary/me/ai-audit/capture \
-  -H "Content-Type: application/json" \
-  -d '{"duration_minutes":60}'
-```
+STOP — await architect review of PHASE 28D-B-R1. Do not start 28D-C optimization, 29A, or Safe External Actions.

@@ -17,6 +17,7 @@ from app.tools.schemas import (
     ListNeighborsOutput,
     ListNotificationsOutput,
     QueryObjectsOutput,
+    RemoveRelationOutput,
     SearchObjectsOutput,
     SetTaskStatusOutput,
     ToolError,
@@ -217,6 +218,15 @@ def create_mcp_server() -> MCPServer:
                 "relation_type": relation_type,
                 "confidence": confidence,
             },
+        )
+
+    @mcp.tool()
+    def remove_relation(edge_id: str) -> RemoveRelationOutput:
+        """Deactivate a semantic graph relation by exact edge_id (requires approval)."""
+        return _run_tool(
+            "remove_relation",
+            "remove_relation",
+            {"edge_id": edge_id},
         )
 
     @mcp.tool()

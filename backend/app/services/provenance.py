@@ -7,6 +7,7 @@ ALLOWED_ORIGINS = frozenset({"source", "user", "agent", "system"})
 ALLOWED_STATES = frozenset({"observed", "proposed", "confirmed", "rejected"})
 
 AGENT_ORIGIN = "agent"
+USER_ORIGIN = "user"
 PROPOSED_STATE = "proposed"
 CONFIRMED_STATE = "confirmed"
 REJECTED_STATE = "rejected"

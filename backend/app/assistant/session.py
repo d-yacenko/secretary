@@ -1,6 +1,10 @@
 from typing import Any
 from uuid import UUID
 
+from app.assistant.execution_effects import (
+    classify_tool_execution_effect,
+    describe_execution_effect,
+)
 from app.assistant.tool_args import normalize_assistant_tool_arguments
 from app.db.session import SessionLocal
 from app.services.domain_tool_service import DomainToolService
@@ -83,6 +87,8 @@ def execute_approved_actions_with_tools(
                 "tool_name": tool_name,
                 "success": True,
                 "output": result.output,
+                "effect": classify_tool_execution_effect(tool_name, result.output),
+                "effect_description": describe_execution_effect(tool_name, result.output),
             }
         )
     return {"actions": action_results}

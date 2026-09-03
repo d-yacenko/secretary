@@ -246,6 +246,31 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             "created": raw_output.get("created", True),
         }
 
+    if tool_name == "remove_relation":
+        edge = raw_output.get("edge")
+        return {
+            "edge": {
+                "id": edge.get("id"),
+                "source_id": edge.get("source_id"),
+                "target_id": edge.get("target_id"),
+                "type": edge.get("type"),
+                "origin": edge.get("origin"),
+                "state": edge.get("state"),
+            }
+            if edge
+            else None,
+            "changed": raw_output.get("changed", False),
+            "previous_state": raw_output.get("previous_state"),
+            "new_state": raw_output.get("new_state"),
+        }
+
+    if tool_name in ("set_task_status", "delete_task"):
+        obj = raw_output.get("object")
+        return {
+            "object": _bounded_object(obj) if obj else None,
+            "changed": raw_output.get("changed", False),
+        }
+
     if tool_name == "get_today":
         return raw_output
 

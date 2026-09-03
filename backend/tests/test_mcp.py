@@ -226,6 +226,31 @@ async def test_mcp_delete_task_requires_approval(db_session, mcp_server) -> None
 
 
 @pytest.mark.asyncio
+async def test_mcp_remove_relation_requires_approval(db_session, mcp_server) -> None:
+    from app.api.schemas import EdgeCreate
+    from app.db.models import Edge
+
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _create_task(graph, "MCP remove source")
+    target = _create_task(graph, "MCP remove target")
+    edge = graph.create_edge(
+        EdgeCreate(
+            source_id=source.id,
+            target_id=target.id,
+            type="related_to",
+            origin="user",
+            state="confirmed",
+        )
+    )
+    async with Client(mcp_server) as client:
+        result = await client.call_tool("remove_relation", {"edge_id": str(edge.id)})
+    assert result.is_error
+    assert "approval" in result.content[0].text.lower()
+    db_session.expire_all()
+    assert db_session.get(Edge, edge.id).state == "confirmed"
+
+
+@pytest.mark.asyncio
 async def test_mcp_invalid_object_id_returns_tool_error(mcp_server) -> None:
     missing_id = uuid.uuid4()
 

@@ -34,6 +34,7 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "set_task_status",
         "delete_task",
         "link_objects",
+        "remove_relation",
         "get_today",
     }
 )
@@ -67,6 +68,7 @@ def test_registry_covers_executor_dispatch_tools():
         "set_task_status",
         "delete_task",
         "link_objects",
+        "remove_relation",
         "get_today",
     }
     assert registered_tool_names() == expected
@@ -111,10 +113,13 @@ def test_permission_classifications():
         "get_today",
     }
     internal_write = {"create_task", "update_task", "link_objects"}
+    destructive = {"delete_task", "remove_relation"}
     for name in read_tools:
         assert TOOL_REGISTRY[name].permission == ToolPermission.READ
     for name in internal_write:
         assert TOOL_REGISTRY[name].permission == ToolPermission.INTERNAL_WRITE
+    for name in destructive:
+        assert TOOL_REGISTRY[name].permission == ToolPermission.DESTRUCTIVE_INTERNAL_WRITE
 
 
 def test_baseline_policy_allows_read_and_internal_write():

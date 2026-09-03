@@ -1300,6 +1300,37 @@ def test_finalization_context_preserves_execution_results_under_truncation():
     assert CONFIRMED_STATE in context
 
 
+def test_finalization_context_includes_execution_effects():
+    from app.services.action_plan_service import PendingActionPlanView
+    from app.services.assistant_service import _build_action_plan_finalization_context
+
+    plan = PendingActionPlanView(
+        id=uuid.uuid4(),
+        status=PENDING_ACTION_PLAN_STATUS_EXECUTED,
+        expires_at=datetime.now(UTC),
+        actions=[
+            {
+                "tool_name": "update_task",
+                "arguments": {"object_id": "00000000-0000-0000-0000-000000000001"},
+            }
+        ],
+        result={
+            "actions": [
+                {
+                    "tool_name": "update_task",
+                    "success": True,
+                    "output": {"changed": False, "object": {"id": "1", "kind": "task"}},
+                    "effect": "no_op",
+                    "effect_description": "update_task: no state change; changed=false",
+                }
+            ]
+        },
+    )
+    context = _build_action_plan_finalization_context(plan)
+    assert "Execution effects" in context
+    assert "changed=false" in context
+
+
 def test_finalization_instructions_mark_context_as_untrusted_data():
     from app.llm.openai_assistant_provider import FINALIZATION_INSTRUCTIONS
 

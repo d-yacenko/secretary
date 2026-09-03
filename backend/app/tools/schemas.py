@@ -218,6 +218,17 @@ class LinkObjectsOutput(BaseModel):
     created: bool = True
 
 
+class RemoveRelationInput(BaseModel):
+    edge_id: UUID
+
+
+class RemoveRelationOutput(BaseModel):
+    edge: EdgeOut
+    changed: bool = False
+    previous_state: str
+    new_state: str
+
+
 class GetTodayOutput(BaseModel):
     datetime: datetime
     timezone: str

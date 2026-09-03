@@ -29,15 +29,16 @@ def collect_object_ids_from_bounded_tool(
             obj = neighbor.get("object")
             if obj:
                 _append_uuid(candidate_ids, obj.get("id"))
+    elif tool_name == "remove_relation":
+        edge = bounded.get("edge")
+        if edge and bounded.get("changed"):
+            _append_uuid(affected_ids, edge.get("source_id"))
+            _append_uuid(affected_ids, edge.get("target_id"))
     elif tool_name in ("create_task", "update_task", "set_task_status", "delete_task"):
         obj = bounded.get("object")
         if obj:
             _append_uuid(candidate_ids, obj.get("id"))
-            if tool_name == "create_task":
-                _append_uuid(affected_ids, obj.get("id"))
-            elif tool_name == "update_task" and bounded.get("changed"):
-                _append_uuid(affected_ids, obj.get("id"))
-            elif tool_name in ("set_task_status", "delete_task") and bounded.get("changed"):
+            if tool_name == "create_task" or tool_name == "update_task" and bounded.get("changed") or tool_name in ("set_task_status", "delete_task") and bounded.get("changed"):
                 _append_uuid(affected_ids, obj.get("id"))
 
 
@@ -75,6 +76,23 @@ def collect_seen_object_ids_from_bounded_tool(
         obj = bounded.get("object")
         if obj:
             _append_uuid(seen_ids, obj.get("id"))
+    return seen_ids
+
+
+def collect_seen_edge_ids_from_bounded_tool(
+    tool_name: str,
+    bounded: dict[str, Any],
+) -> list[UUID]:
+    seen_ids: list[UUID] = []
+    if tool_name == "list_neighbors":
+        for neighbor in bounded.get("neighbors", []):
+            edge = neighbor.get("edge")
+            if edge:
+                _append_uuid(seen_ids, edge.get("id"))
+    elif tool_name == "remove_relation":
+        edge = bounded.get("edge")
+        if edge:
+            _append_uuid(seen_ids, edge.get("id"))
     return seen_ids
 
 

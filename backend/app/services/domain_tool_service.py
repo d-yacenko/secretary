@@ -33,6 +33,7 @@ from app.services.provenance import (
     PROPOSED_STATE,
     REJECTED_STATE,
 )
+from app.services.relation_removal import is_edge_removable, removable_edge_rejection_reason
 from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.services.task_mutation_service import TaskMutationService
@@ -58,6 +59,8 @@ from app.tools.schemas import (
     QueryObjectItemOut,
     QueryObjectsInput,
     QueryObjectsOutput,
+    RemoveRelationInput,
+    RemoveRelationOutput,
     RetrievalHitOut,
     RetrieveInput,
     RetrieveOutput,
@@ -479,6 +482,34 @@ class DomainToolService:
         except ValidationError as exc:
             raise ToolError(exc.message) from exc
         return LinkObjectsOutput(edge=EdgeOut.from_model(edge), created=True)
+
+    def remove_relation(self, input: RemoveRelationInput) -> RemoveRelationOutput:
+        edge = self._session.scalar(
+            select(Edge).where(Edge.id == input.edge_id, Edge.user_id == self._user_id)
+        )
+        if edge is None:
+            raise ToolError(f"edge not found: {input.edge_id}")
+        reason = removable_edge_rejection_reason(edge.origin, edge.type)
+        if reason is not None:
+            raise ToolError(reason)
+        if not is_edge_removable(edge.origin, edge.type):
+            raise ToolError("relation cannot be removed through remove_relation")
+        previous_state = edge.state
+        if previous_state == REJECTED_STATE:
+            return RemoveRelationOutput(
+                edge=EdgeOut.from_model(edge),
+                changed=False,
+                previous_state=previous_state,
+                new_state=REJECTED_STATE,
+            )
+        edge.state = REJECTED_STATE
+        self._session.flush()
+        return RemoveRelationOutput(
+            edge=EdgeOut.from_model(edge),
+            changed=True,
+            previous_state=previous_state,
+            new_state=REJECTED_STATE,
+        )
 
     def get_today(self) -> GetTodayOutput:
         tz_name = self._client_timezone

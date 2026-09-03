@@ -120,7 +120,10 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
     "list_neighbors": {
         "type": "function",
         "name": "list_neighbors",
-        "description": "List direct graph neighbors for an object (bounded).",
+        "description": (
+            "List direct graph neighbors for an object (bounded). "
+            "Each neighbor includes edge.id — required before remove_relation."
+        ),
         "parameters": {
             "type": "object",
             "properties": {"object_id": {"type": "string"}},
@@ -174,6 +177,9 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "name": "update_task",
         "description": (
             "Update task title, body, due date, or attach evidence references. "
+            "evidence_object_ids is ADDITIVE only: attach these evidence objects if not "
+            "already attached. Omitting an existing evidence object never removes it. "
+            "To remove a relation, use remove_relation(edge_id) after list_neighbors. "
             "Does not change lifecycle status — use set_task_status for that."
         ),
         "parameters": {
@@ -243,6 +249,24 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             },
             "required": ["source_id", "target_id", "relation_type", "confidence"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "remove_relation": {
+        "type": "function",
+        "name": "remove_relation",
+        "description": (
+            "Deactivate a semantic/user/agent graph relation by exact edge_id. "
+            "Requires user approval. Call list_neighbors first to obtain edge.id; "
+            "never invent edge IDs. Sets edge state to rejected without physical deletion. "
+            "Do not use update_task(evidence_object_ids) to remove evidence — that field is "
+            "additive only."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"edge_id": {"type": "string"}},
+            "required": ["edge_id"],
             "additionalProperties": False,
         },
         "strict": False,

@@ -160,9 +160,21 @@ PHASE 28D-A-R1 application SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`.
 
 PHASE 28D-A-R1 matched-version deploy: **complete** at `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad` (Alembic `0025`).
 
-PHASE 28D-B/C/D/E: **NOT started**.
+PHASE 28D-B1/B2 — controlled baseline capture/export: **complete** (private bundle retained locally by user; VDS export deleted).
 
-Model routing, two-stage Assistant: **NOT started**.
+PHASE 28D controlled interactive audit: **complete** — Luna medium quality/cost accepted; model optimization deferred.
+
+PHASE 28D-B-R1 — Agent Tool Contract Completeness & Truthful Finalization: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-b-r1-tool-contracts`.
+
+Real defects from baseline: relation removal used additive `update_task` evidence; finalization claimed updates on `changed=false`.
+
+PHASE 28D: **NOT fully closed** until architect review.
+
+PHASE 28D-C/D/E: **NOT started**.
+
+Model routing, two-stage Assistant, workload-specific models: **deferred**.
+
+`scheduled_activity` temporal knowledge: **documented only** (`docs/SECRETARY_TOOLSET_MATRIX.md`).
 
 PHASE 29A MUST NOT start until PHASE 28D architect checkpoint.
 
