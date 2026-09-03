@@ -365,3 +365,11 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Retrieval visibility:** cloud Object title/body/trigram branches use normal visibility; only Representation FTS uses `CLOUD_CURRENT_REPRESENTATION_SQL` (READY + revision).
 - **Candidate pool:** strict branch merge capped at `MAX_CANDIDATE_POOL` (100) via deterministic round-robin.
 
+## PHASE 29A-R2 — XLSX searchable content & context closure
+
+- **XLSX extraction:** sparse column preservation, searchable full/chunk reps from all bounded rows; sample remains small preview.
+- **Extraction version:** `phase29a-v2`; stale v1 Representation text excluded from retrieval; title retrieval unchanged.
+- **Intake:** same-revision v1→v2 triggers invalidate + one extraction job.
+- **Assistant:** `get_context` exposes optional `query`; lexical chunk fallback before embeddings complete.
+- **Maintenance:** CLI `reindex_stale_cloud_content` for bounded v1→v2 re-extraction of existing cloud objects.
+

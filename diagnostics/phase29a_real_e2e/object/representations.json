@@ -1,0 +1,34 @@
+[
+  {
+    "id": "b97fe701-cc3a-4b76-8450-dcb264a5b30c",
+    "kind": "sample",
+    "part_index": null,
+    "text_length": 337,
+    "metadata": {"sheet_count": 1},
+    "text_preview": "sample\n[Учебный план]\n\n,,,,,\nРаздел,№ занятия,,Тема,Академические часы,Формат занятия,Предложения,64.0\n,,Модуль 1. Компьютерное зрение в ML,,,\nУчебная часть,1.0,Введение в компьютерное зрение. Задачи классификации изображений,2.0,Лекция\nУчебная часть,2.0,,Изображение как массив и тензор. Размерности, каналы, форматы данных,2.0,Семинар "
+  },
+  {
+    "id": "b51fea0c-c191-4cd3-be87-4d224b40bf8d",
+    "kind": "schema",
+    "part_index": null,
+    "text_length": 21,
+    "metadata": {"sheet_count": 1},
+    "text_preview": "schema\nУчебный план: "
+  },
+  {
+    "id": "1d5bda63-b92e-41de-bc0a-025c5a59499b",
+    "kind": "statistics",
+    "part_index": null,
+    "text_length": 43,
+    "metadata": {"sheet_count": 1},
+    "text_preview": "statistics\nУчебный план: rows=46, columns=1"
+  },
+  {
+    "id": "7e45ac78-b2d4-44fd-9602-ba0907dff364",
+    "kind": "summary",
+    "part_index": null,
+    "text_length": 21,
+    "metadata": {},
+    "text_preview": "Второе полугодие.xlsx"
+  }
+]

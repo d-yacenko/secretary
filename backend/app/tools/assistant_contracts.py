@@ -104,12 +104,15 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "name": "get_context",
         "description": (
             "Build bounded context for one object by id. "
-            "Use retrieve(query) first to discover object ids."
+            "Use retrieve(query) first to discover object ids. "
+            "When opening a content-backed retrieve hit, pass the relevant search "
+            "question or phrase as query so relevant chunks can be selected."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "object_id": {"type": "string"},
+                "query": {"type": "string"},
                 "max_chars": {"type": "integer", "minimum": 1, "maximum": 8000},
             },
             "required": ["object_id"],

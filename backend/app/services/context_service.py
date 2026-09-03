@@ -407,23 +407,46 @@ class ContextService:
 
     def _rank_chunks(self, chunk_reps: list[Representation], query: str) -> list[Representation]:
         embedded = [rep for rep in chunk_reps if rep.embedding is not None]
-        if not embedded or self._embedding_service is None:
-            return []
+        if embedded and self._embedding_service is not None:
+            try:
+                query_vector = self._embedding_service.embed(query)
+                return sorted(
+                    embedded,
+                    key=lambda rep: (
+                        _cosine_distance(list(rep.embedding), query_vector),
+                        rep.part_index or 0,
+                        str(rep.id),
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("chunk ranking embedding failed; using lexical fallback")
 
-        try:
-            query_vector = self._embedding_service.embed(query)
-        except Exception:  # noqa: BLE001
-            logger.warning("chunk ranking embedding failed; omitting semantic chunks")
-            return []
+        return self._rank_chunks_lexical(chunk_reps, query)
 
-        return sorted(
-            embedded,
-            key=lambda rep: (
-                _cosine_distance(list(rep.embedding), query_vector),
-                rep.part_index or 0,
+    def _rank_chunks_lexical(
+        self,
+        chunk_reps: list[Representation],
+        query: str,
+    ) -> list[Representation]:
+        query_norm = _normalize_lexical_text(query)
+        query_tokens = _lexical_tokens(query_norm)
+
+        def score(rep: Representation) -> tuple[float, float, int, str]:
+            text_norm = _normalize_lexical_text(rep.text or "")
+            substring = 1.0 if query_norm and query_norm in text_norm else 0.0
+            if not query_tokens:
+                coverage = 0.0
+            else:
+                text_tokens = _lexical_tokens(text_norm)
+                coverage = len(query_tokens & text_tokens) / len(query_tokens)
+            return (
+                substring,
+                coverage,
+                -(rep.part_index or 0),
                 str(rep.id),
-            ),
-        )
+            )
+
+        return sorted(chunk_reps, key=score, reverse=True)
 
     def _object_item(
         self,
@@ -638,3 +661,16 @@ def _cosine_distance(left: list[float], right: list[float]) -> float:
     if left_norm == 0.0 or right_norm == 0.0:
         return 1.0
     return 1.0 - dot / (left_norm * right_norm)
+
+
+def _normalize_lexical_text(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def _lexical_tokens(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for token in text.split():
+        cleaned = token.strip(".,;:!?\"'«»()[]{}")
+        if len(cleaned) >= 3:
+            tokens.add(cleaned)
+    return tokens

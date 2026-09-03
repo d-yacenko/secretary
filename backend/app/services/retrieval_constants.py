@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+from app.content_extraction.constants import EXTRACTION_VERSION
+
 TIME_SENSITIVE_SOURCE_KINDS = frozenset(
     {"email", "event", "chat_message"}
 )
@@ -58,15 +60,21 @@ RETRIEVAL_REPRESENTATION_KINDS_SQL = ", ".join(
 
 REPRESENTATION_FTS_WEIGHT = 2.0
 
-# Only Representation.text from cloud explicit resources requires READY/current revision.
-CLOUD_CURRENT_REPRESENTATION_SQL = """
-AND (
+# Cloud explicit resources: Representation FTS only when ready + current revision + version.
+CLOUD_CURRENT_REPRESENTATION_GATE_SQL = f"""
     o.provider IS NULL
     OR o.provider NOT IN ('google_drive', 'yandex_disk')
     OR (
         o.metadata->>'content_extraction_status' = 'ready'
         AND o.metadata->>'content_revision' IS NOT NULL
+        AND o.metadata->>'content_extraction_version' = '{EXTRACTION_VERSION}'
     )
+"""
+
+# Only Representation.text from cloud explicit resources requires READY/current revision/version.
+CLOUD_CURRENT_REPRESENTATION_SQL = f"""
+AND (
+{CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
 )
 """
 

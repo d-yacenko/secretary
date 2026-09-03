@@ -1,0 +1,27 @@
+Object: 19940b16-893b-49be-969c-5b430063e6ac (Второе полугодие.xlsx)
+Sheet statistics: rows=46, columns=1 (from statistics representation)
+
+--- schema (21 chars) ---
+schema
+Учебный план: 
+
+--- sample (337 chars) — ONLY rows 1-5 persisted ---
+sample
+[Учебный план]
+
+,,,,,
+Раздел,№ занятия,,Тема,Академические часы,Формат занятия,Предложения,64.0
+,,Модуль 1. Компьютерное зрение в ML,,,
+Учебная часть,1.0,Введение в компьютерное зрение. Задачи классификации изображений,2.0,Лекция
+Учебная часть,2.0,,Изображение как массив и тензор. Размерности, каналы, форматы данных,2.0,Семинар
+
+--- statistics (43 chars) ---
+statistics
+Учебный план: rows=46, columns=1
+
+--- summary (21 chars) ---
+Второе полугодие.xlsx
+
+NOTE: Target phrase "Контрольное мероприятие №1: Классификация на ручных признаках"
+is NOT present in any representation text. Sample ends at row 2.0 (seminar topic).
+User reports target phrase is visually around row 15 in the workbook.

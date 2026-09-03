@@ -76,6 +76,62 @@ def write_minimal_xlsx(path: Path) -> None:
         zf.writestr("xl/worksheets/sheet2.xml", sheet2)
 
 
+def write_xlsx_search_regression_workbook(
+    path: Path,
+    *,
+    target_phrase: str = "phase29a_row15_target_phrase_marker",
+    data_rows: int = 46,
+    header_row: int = 14,
+) -> None:
+    """Synthetic workbook: preamble rows, sparse columns, target phrase at first data row."""
+    workbook = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Учебный план" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+    rows_xml: list[str] = []
+    for preamble_row in range(1, header_row):
+        rows_xml.append(f'<row r="{preamble_row}"></row>')
+    rows_xml.append(
+        f'<row r="{header_row}">'
+        f'<c r="A{header_row}" t="inlineStr"><is><t>Раздел</t></is></c>'
+        f'<c r="D{header_row}" t="inlineStr"><is><t>Тема</t></is></c>'
+        f'<c r="H{header_row}" t="inlineStr"><is><t>Часы</t></is></c>'
+        f"</row>"
+    )
+    for offset in range(data_rows):
+        row_num = header_row + 1 + offset
+        topic = target_phrase if offset == 0 else f"topic_row_{row_num}"
+        rows_xml.append(
+            f'<row r="{row_num}">'
+            f'<c r="A{row_num}" t="inlineStr"><is><t>Учебная часть</t></is></c>'
+            f'<c r="D{row_num}" t="inlineStr"><is><t>{topic}</t></is></c>'
+            f'<c r="H{row_num}" t="inlineStr"><is><t>2</t></is></c>'
+            f"</row>"
+        )
+    sheet1 = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData>"
+        + "".join(rows_xml)
+        + "</sheetData></worksheet>"
+    )
+    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+</Types>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+
+
 def write_minimal_pptx(path: Path, slide_text: str = "slide distinctive phrase gamma") -> None:
     slide = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"

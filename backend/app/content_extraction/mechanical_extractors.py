@@ -1,5 +1,6 @@
 """Bounded mechanical text/dataset/office extractors — no LLM."""
 
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -9,6 +10,7 @@ from app.content_extraction.constants import (
     MAX_EXTRACTED_TEXT_CHARS,
     MAX_PDF_PAGES,
     MAX_PPTX_SLIDES,
+    MAX_REPRESENTATION_PARTS,
     MAX_XLSX_COLUMNS,
     MAX_XLSX_ROWS_PER_SHEET,
     MAX_XLSX_SHEETS,
@@ -50,6 +52,61 @@ def _cap_text(text: str) -> tuple[str, bool]:
     if len(text) <= MAX_EXTRACTED_TEXT_CHARS:
         return text, False
     return text[:MAX_EXTRACTED_TEXT_CHARS], True
+
+
+XLSX_CELL_REF_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+XLSX_STRUCTURAL_PARTS = 3
+
+
+def build_bounded_text_representations(
+    object_id,
+    text: str,
+    max_parts: int,
+    source_meta: dict[str, Any] | None = None,
+) -> tuple[list[Representation], bool]:
+    """Build full/chunk reps using only the remaining mechanical part budget."""
+    if max_parts <= 0 or not text.strip():
+        return [], False
+
+    extra_meta = dict(source_meta or {})
+    capped, truncated = _cap_text(text)
+    if len(capped) <= SMALL_TEXT_MAX_CHARS:
+        return [
+            Representation(
+                object_id=object_id,
+                kind=KIND_FULL,
+                text=capped,
+                metadata_={**extra_meta, "truncated": truncated},
+            )
+        ], truncated
+
+    all_chunks = chunk_text(capped, 800, 100)
+    max_chunks = min(max_parts, MAX_INDEXED_TEXT_CHUNKS)
+    selected_chunks, selected_indices = select_bounded_chunks(all_chunks, max_chunks)
+    indexing_meta = build_indexing_metadata(
+        source_chars=len(capped),
+        total_chunks=len(all_chunks),
+        indexed_chunks=len(selected_chunks),
+    )
+    reps: list[Representation] = []
+    for part_index, (source_index, chunk) in enumerate(
+        zip(selected_indices, selected_chunks, strict=True)
+    ):
+        reps.append(
+            Representation(
+                object_id=object_id,
+                kind=KIND_CHUNK,
+                part_index=part_index,
+                text=chunk,
+                metadata_={
+                    **indexing_meta,
+                    **extra_meta,
+                    "truncated": truncated,
+                    "source_chunk_index": source_index,
+                },
+            )
+        )
+    return reps, truncated or indexing_meta["indexing_truncated"]
 
 
 def build_text_representations(
@@ -302,26 +359,44 @@ def _build_xlsx_representations(object_id, path: Path) -> tuple[list[Representat
         schema_lines = ["schema"]
         sample_lines = ["sample"]
         stats_lines = ["statistics"]
+        searchable_lines: list[str] = []
         for sheet_name in selected_sheets:
-            rows, sheet_truncated = _read_xlsx_sheet_rows(archive, sheet_name, shared_strings)
+            parsed_rows, sheet_truncated, max_used_cols = _read_xlsx_sheet_parsed(
+                archive, sheet_name, shared_strings
+            )
             truncated = truncated or sheet_truncated
-            if not rows:
+            if not parsed_rows:
                 schema_lines.append(f"{sheet_name}: (empty)")
+                stats_lines.append(f"{sheet_name}: rows=0, columns=0")
                 continue
-            header = rows[0]
-            schema_lines.append(f"{sheet_name}: {', '.join(header)}")
+
+            header_index = _xlsx_header_row_index(parsed_rows)
+            header_row_num, header_cells = parsed_rows[header_index]
+            data_rows = parsed_rows[header_index + 1 :]
+
+            schema_cols = _format_xlsx_sparse_columns(header_cells)
+            schema_lines.append(f"{sheet_name}: {schema_cols}")
+
             sample_lines.append(f"[{sheet_name}]")
-            sample_lines.append(",".join(header))
-            for row in rows[1:6]:
-                sample_lines.append(",".join(row))
-            stats_lines.append(f"{sheet_name}: rows={len(rows) - 1}, columns={len(header)}")
+            sample_lines.append(_format_xlsx_sparse_row(header_row_num, header_cells))
+            for row_num, cells in data_rows[:5]:
+                sample_lines.append(_format_xlsx_sparse_row(row_num, cells))
+
+            stats_lines.append(
+                f"{sheet_name}: rows={len(data_rows)}, columns={max_used_cols}"
+            )
+
+            for row_num, cells in parsed_rows:
+                searchable_lines.append(
+                    _format_xlsx_searchable_row(sheet_name, row_num, cells)
+                )
 
         schema_text, schema_trunc = _cap_text("\n".join(schema_lines))
         sample_text, sample_trunc = _cap_text("\n".join(sample_lines))
         stats_text, stats_trunc = _cap_text("\n".join(stats_lines))
         truncated = truncated or schema_trunc or sample_trunc or stats_trunc
 
-        return [
+        structural_reps = [
             Representation(
                 object_id=object_id,
                 kind=KIND_SCHEMA,
@@ -340,7 +415,19 @@ def _build_xlsx_representations(object_id, path: Path) -> tuple[list[Representat
                 text=stats_text,
                 metadata_={"sheet_count": len(selected_sheets)},
             ),
-        ], truncated
+        ]
+
+        remaining_parts = max(0, MAX_REPRESENTATION_PARTS - XLSX_STRUCTURAL_PARTS)
+        searchable_text = "\n".join(searchable_lines)
+        searchable_reps, searchable_trunc = build_bounded_text_representations(
+            object_id,
+            searchable_text,
+            remaining_parts,
+            {"sheet_count": len(selected_sheets)},
+        )
+        truncated = truncated or searchable_trunc
+
+        return structural_reps + searchable_reps, truncated
 
 
 def _build_pptx_representations(object_id, path: Path) -> tuple[list[Representation], bool]:
@@ -396,11 +483,58 @@ def _read_xlsx_sheet_names(archive: zipfile.ZipFile) -> list[str]:
     return names
 
 
-def _read_xlsx_sheet_rows(
+def _col_letter_to_index(letters: str) -> int:
+    index = 0
+    for char in letters.upper():
+        index = index * 26 + (ord(char) - ord("A") + 1)
+    return index - 1
+
+
+def _index_to_col_letter(index: int) -> str:
+    index += 1
+    letters: list[str] = []
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters))
+
+
+def _parse_xlsx_cell_ref(ref: str) -> tuple[str, int] | None:
+    match = XLSX_CELL_REF_RE.match(ref)
+    if match is None:
+        return None
+    return match.group(1).upper(), int(match.group(2))
+
+
+def _xlsx_header_row_index(parsed_rows: list[tuple[int, dict[str, str]]]) -> int:
+    for index, (_, cells) in enumerate(parsed_rows):
+        if len(cells) >= 2:
+            return index
+    return 0
+
+
+def _format_xlsx_sparse_columns(cells: dict[str, str]) -> str:
+    ordered = sorted(cells.items(), key=lambda item: _col_letter_to_index(item[0]))
+    return ", ".join(f"{col}={value}" for col, value in ordered)
+
+
+def _format_xlsx_sparse_row(row_num: int, cells: dict[str, str]) -> str:
+    ordered = sorted(cells.items(), key=lambda item: _col_letter_to_index(item[0]))
+    parts = [f"{col}={value}" for col, value in ordered]
+    return f"row={row_num} " + " | ".join(parts)
+
+
+def _format_xlsx_searchable_row(sheet_name: str, row_num: int, cells: dict[str, str]) -> str:
+    ordered = sorted(cells.items(), key=lambda item: _col_letter_to_index(item[0]))
+    parts = [f"{col}={value}" for col, value in ordered]
+    return f"[sheet={sheet_name} row={row_num}]\n" + " | ".join(parts)
+
+
+def _read_xlsx_sheet_parsed(
     archive: zipfile.ZipFile,
     sheet_name: str,
     shared_strings: list[str],
-) -> list[list[str]]:
+) -> tuple[list[tuple[int, dict[str, str]]], bool, int]:
     workbook = ET.fromstring(archive.read("xl/workbook.xml"))
     sheet_id = None
     for sheet in workbook.findall(".//main:sheet", XLSX_NS):
@@ -411,7 +545,7 @@ def _read_xlsx_sheet_rows(
             sheet_id = rel_id
             break
     if sheet_id is None:
-        return []
+        return [], False, 0
 
     rels_root = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
     target = None
@@ -420,30 +554,46 @@ def _read_xlsx_sheet_rows(
             target = rel.attrib.get("Target")
             break
     if not target:
-        return []
+        return [], False, 0
     sheet_path = target if target.startswith("worksheets/") else f"worksheets/{target}"
     if not sheet_path.startswith("xl/"):
         sheet_path = f"xl/{sheet_path}"
     if sheet_path not in archive.namelist():
-        return []
+        return [], False, 0
 
     root = ET.fromstring(archive.read(sheet_path))
-    rows: list[list[str]] = []
+    parsed_rows: list[tuple[int, dict[str, str]]] = []
     truncated = False
-    for row in root.findall(".//main:row", XLSX_NS):
-        if len(rows) >= MAX_XLSX_ROWS_PER_SHEET:
+    max_used_cols = 0
+    for row_elem in root.findall(".//main:row", XLSX_NS):
+        if len(parsed_rows) >= MAX_XLSX_ROWS_PER_SHEET:
             truncated = True
             break
-        values: list[str] = []
-        for cell in row.findall("main:c", XLSX_NS):
-            if len(values) >= MAX_XLSX_COLUMNS:
+        row_num = int(row_elem.attrib.get("r", str(len(parsed_rows) + 1)))
+        cells: dict[str, str] = {}
+        row_truncated = False
+        for cell in row_elem.findall("main:c", XLSX_NS):
+            ref = cell.attrib.get("r")
+            if not ref:
+                continue
+            parsed_ref = _parse_xlsx_cell_ref(ref)
+            if parsed_ref is None:
+                continue
+            col_letter, _ = parsed_ref
+            col_index = _col_letter_to_index(col_letter)
+            if col_index >= MAX_XLSX_COLUMNS:
+                row_truncated = True
                 truncated = True
                 break
-            value = _xlsx_cell_value(cell, shared_strings)
-            values.append(value)
-        if values:
-            rows.append(values)
-    return rows, truncated
+            value = _xlsx_cell_value(cell, shared_strings).strip()
+            if value:
+                cells[col_letter] = value
+                max_used_cols = max(max_used_cols, col_index + 1)
+        if row_truncated:
+            break
+        if cells:
+            parsed_rows.append((row_num, cells))
+    return parsed_rows, truncated, min(max_used_cols, MAX_XLSX_COLUMNS)
 
 
 def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str]) -> str:

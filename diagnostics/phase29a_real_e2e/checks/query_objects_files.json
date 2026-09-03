@@ -1,0 +1,12 @@
+{
+  "query": {"kinds": ["file"], "limit": 20},
+  "target_found": true,
+  "target_position": 1,
+  "target": {"object_id": "19940b16-893b-49be-969c-5b430063e6ac", "title": "Второе полугодие.xlsx", "provider": "google_drive"},
+  "google_drive_files": [
+    {"object_id": "19940b16-893b-49be-969c-5b430063e6ac", "title": "Второе полугодие.xlsx", "is_target": true},
+    {"object_id": "2f4f406e-bc9c-46e1-a2d1-b69dd9b2d536", "title": "Приемная кампания 2026", "is_target": false},
+    {"object_id": "2757aeb9-dc95-4364-ad7e-7aa6b553307a", "title": "Бриф на кейсы ТОП ИТ АренаДата.xlsx", "is_target": false},
+    {"object_id": "51885ffa-91ff-445b-8a48-b2be912fdae2", "title": "Дела", "is_target": false}
+  ]
+}

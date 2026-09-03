@@ -1,0 +1,401 @@
+{
+  "generated_at_utc": "2026-09-03T17:34:04.048072+00:00",
+  "application_sha": "fc8e90b7c9e706691aec7afc30caa4b95825cc51",
+  "target_object": {
+    "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+    "title": "Второе полугодие.xlsx",
+    "provider": "google_drive",
+    "kind": "file",
+    "state": "observed",
+    "status": null,
+    "external_id": "1eCpR_nkGsatEsyHirclJNs499YZ8Jqxo",
+    "canonical_uri": "https://drive.google.com/open?id=1eCpR_nkGsatEsyHirclJNs499YZ8Jqxo",
+    "created_at": "2026-09-03 17:10:01.076195+00:00",
+    "updated_at": "2026-09-03 17:10:03.923592+00:00",
+    "content_extraction_status": "ready",
+    "content_revision": "gdrive:md5:182842f56683449a8e1e3a04c4bea88b",
+    "content_extraction_version": "phase29a-v1",
+    "content_truncated": false,
+    "mechanical_representation_count": 3,
+    "semantic_summary_revision": "gdrive:md5:182842f56683449a8e1e3a04c4bea88b",
+    "content_format": ".xlsx",
+    "has_embedding": true
+  },
+  "representations": [
+    {
+      "id": "b97fe701-cc3a-4b76-8450-dcb264a5b30c",
+      "kind": "sample",
+      "part_index": null,
+      "text_length": 337,
+      "metadata": {
+        "sheet_count": 1
+      },
+      "text_preview": "sample\n[Учебный план]\n\n,,,,,\nРаздел,№ занятия,,Тема,Академические часы,Формат занятия,Предложения,64.0\n,,Модуль 1. Компьютерное зрение в ML,,,\nУчебная часть,1.0,Введение в компьютерное зрение. Задачи классификации изображений,2.0,Лекция\nУчебная часть,2.0,,Изображение как массив и тензор. Размерности, каналы, форматы данных,2.0,Семинар "
+    },
+    {
+      "id": "b51fea0c-c191-4cd3-be87-4d224b40bf8d",
+      "kind": "schema",
+      "part_index": null,
+      "text_length": 21,
+      "metadata": {
+        "sheet_count": 1
+      },
+      "text_preview": "schema\nУчебный план: "
+    },
+    {
+      "id": "1d5bda63-b92e-41de-bc0a-025c5a59499b",
+      "kind": "statistics",
+      "part_index": null,
+      "text_length": 43,
+      "metadata": {
+        "sheet_count": 1
+      },
+      "text_preview": "statistics\nУчебный план: rows=46, columns=1"
+    },
+    {
+      "id": "7e45ac78-b2d4-44fd-9602-ba0907dff364",
+      "kind": "summary",
+      "part_index": null,
+      "text_length": 21,
+      "metadata": {},
+      "text_preview": "Второе полугодие.xlsx"
+    }
+  ],
+  "phrase_presence": {
+    "Классификация на ручных признаках": {
+      "present": false,
+      "matches": []
+    },
+    "Контрольное мероприятие": {
+      "present": false,
+      "matches": []
+    },
+    "ручных признаках": {
+      "present": false,
+      "matches": []
+    },
+    "Классификация": {
+      "present": false,
+      "matches": []
+    },
+    "_global_ilike_Классификация_на_ручных": 0
+  },
+  "retrieve_checks": [
+    {
+      "label": "exact_phrase",
+      "query": "Контрольное мероприятие №1 Классификация на ручных признаках",
+      "kind": null,
+      "time_scope": "all",
+      "hit_count": 10,
+      "target_in_hits": false,
+      "hits": [
+        {
+          "object_id": "857f1fda-6c93-4e07-a6f6-bf037a3b30be",
+          "title": "Архитектура платформы данных",
+          "provider": "yandex_calendar"
+        },
+        {
+          "object_id": "cad89871-f3c9-4180-bfa4-90f628fb0a2c",
+          "title": "Добро пожаловать в Инструктаж по контрольно-пропускному режиму",
+          "provider": "gmail"
+        },
+        {
+          "object_id": "79de3dcb-cb02-47fc-9f15-8f94841194ba",
+          "title": "v.elagin-arenadata.io: Как вариант, поднять ванильный PG, мигрировать в него ручным запуском контейнера ADCM. Потом дамп ванильного PG перенести в ADPG который в контейнере.",
+          "provider": "mattermost"
+        },
+        {
+          "object_id": "312615aa-3533-4b9c-8fce-1a4e1feaf807",
+          "title": "m.shumatbaev-arenadata.io: Всем привет!",
+          "provider": "mattermost"
+        },
+        {
+          "object_id": "8c3b5504-87e5-456d-a0fc-efd7fb34af24",
+          "title": "v.elagin-arenadata.io: > Причём на вкладке jobs не было ни одного задания, хотя так не должно быть раз имеются установленные мониторинг и ADB.",
+          "provider": "mattermost"
+        },
+        {
+          "object_id": "82f1b2df-577f-4a7f-a2ad-4f5c3ebd03ae",
+          "title": "Re: MIREA and me",
+          "provider": "yandex_mail"
+        },
+        {
+          "object_id": "8e5d506c-2a1d-45f6-8a05-88d338a06f87",
+          "title": "Re: MIREA and me",
+          "provider": "yandex_mail"
+        },
+        {
+          "object_id": "ec482622-ccfc-454c-9ee1-023fdd811808",
+          "title": "Re: MIREA and me",
+          "provider": "yandex_mail"
+        },
+        {
+          "object_id": "7406739e-2723-473f-ac10-453782455ba5",
+          "title": "MIREA and me",
+          "provider": "yandex_mail"
+        },
+        {
+          "object_id": "b8516341-6bf8-48b0-81e6-428d0ff4d829",
+          "title": "Дайджест безопасника #27 | Практикумы, исследования и кейсы — главное за неделю",
+          "provider": "gmail"
+        }
+      ]
+    },
+    {
+      "label": "short_phrase",
+      "query": "Классификация на ручных признаках",
+      "kind": null,
+      "time_scope": "all",
+      "hit_count": 10,
+      "target_in_hits": false,
+      "hits": [
+        {
+          "object_id": "857f1fda-6c93-4e07-a6f6-bf037a3b30be",
+          "title": "Архитектура платформы данных",
+          "provider": "yandex_calendar"
+        },
+        {
+          "object_id": "79de3dcb-cb02-47fc-9f15-8f94841194ba",
+          "title": "v.elagin-arenadata.io: Как вариант, поднять ванильный PG, мигрировать в него ручным запуском контейнера ADCM. Потом дамп ванильного PG перенести в ADPG который в контейнере.",
+          "provider": "mattermost"
+        },
+        {
+          "object_id": "312615aa-3533-4b9c-8fce-1a4e1feaf807",
+          "title": "m.shumatbaev-arenadata.io: Всем привет!",
+          "provider": "mattermost"
+        },
+        {
+          "object_id": "b8516341-6bf8-48b0-81e6-428d0ff4d829",
+          "title": "Дайджест безопасника #27 | Практикумы, исследования и кейсы — главное за неделю",
+          "provider": "gmail"
+        },
+        {
+          "object_id": "4aa4028e-6dd3-4752-8912-2a49c2cd082c",
+          "title": "Покупатели ищут подарки 👀",
+          "provider": "gmail"
+        },
+        {
+          "object_id": "06fb28e4-45ab-4879-b6d9-bcec79e28fd9",
+          "title": "🎁ПАО \"РОСТЕЛЕКОМ\" 13.08.2026 09:03",
+          "provider": "gmail"
+        },
+        {
+          "object_id": "1fbdc293-7a7b-4f38-ab58-896f2b276892",
+          "title": "🎁ПАО \"РОСТЕЛЕКОМ\" 13.07.2026 09:02",
+          "provider": "gmail"
+        },
+        {
+          "object_id": "8c3b5504-87e5-456d-a0fc-efd7fb34af24",
+          "title": "v.elagin-arenadata.io: > Причём на вкладке jobs не было ни одного задания, хотя так не должно быть раз имеются установленные мониторинг и ADB.",
+          "provider": "mattermost"
+        },
+        {
+          "object_id": "10482344-a314-4bfa-acb3-0200376e86e9",
+          "title": "Обращение по заявке 2026104377",
+          "provider": "gmail"
+        },
+        {
+          "object_id": "51c4811c-8661-4c7f-822f-45de4f41a5cb",
+          "title": "Fwd: Обращение по заявке 2026104377",
+          "provider": "gmail"
+        }
+      ]
+    },
+    {
+      "label": "title",
+      "query": "Второе полугодие",
+      "kind": null,
+      "time_scope": "all",
+      "hit_count": 1,
+      "target_in_hits": true,
+      "hits": [
+        {
+          "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+          "title": "Второе полугодие.xlsx",
+          "provider": "google_drive"
+        }
+      ]
+    }
+  ],
+  "query_objects_files": [
+    {
+      "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+      "title": "Второе полугодие.xlsx",
+      "provider": "google_drive",
+      "is_target": true
+    },
+    {
+      "object_id": "2dd6a8d0-2e32-4541-8c57-2cdf0e00a5ac",
+      "title": "Программа обуч. семинара - ADC - DQF.xlsx",
+      "provider": "yandex_disk",
+      "is_target": false
+    },
+    {
+      "object_id": "2f4f406e-bc9c-46e1-a2d1-b69dd9b2d536",
+      "title": "Приемная кампания 2026",
+      "provider": "google_drive",
+      "is_target": false
+    },
+    {
+      "object_id": "4e6321ca-5e4d-4d3d-a443-d9786b8d85e0",
+      "title": "Баннер почта.png",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "2b763c90-c3ad-4075-90b2-26e6c086a31b",
+      "title": "6441b4ec-d8d5-4488-a507-255a50cb9058",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "5c73ae5f-2d23-483f-a52d-aec3ac2f7bae",
+      "title": "80091514-2fe8-4db2-a705-9828b72c0bba",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "8647d16d-d73c-4f82-9f31-be924fbbb90a",
+      "title": "84c4bc68-b054-467d-8fd7-bbe2c46cdb2f",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "8914b4d2-27f1-4033-9d8a-ee5d34cd8497",
+      "title": "b756c160-9cd2-4849-bb60-b1491e766ae9",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "c46ebe2d-d240-411b-b7e2-1695d003c83e",
+      "title": "e4daa75e-5704-447c-a9ee-0f22e44e5a2a",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "dea42a83-6fff-4468-a0a6-421a87e2a10d",
+      "title": "74b2f7e6-dfb0-409f-8c66-cbdab0dfc5d1",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "ef94786f-a03c-4c1e-846f-e30b2699894c",
+      "title": "29a0828e-c88e-49ac-8900-4c8317bfc6fb",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "05b86b69-dcfb-4809-b70e-e05045aac95b",
+      "title": "e0a78cfe-fd14-4adc-b612-b74e8ee6c3ba",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "295f33c8-aa59-4ab6-a571-b3fa4ee24c4d",
+      "title": "947d2479-a82c-449c-b62b-47b5910bfe92",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "56edf4a8-bc0e-4cd6-bdb7-6719d9a6534f",
+      "title": "89c9732e-6223-4f98-ac9a-ea66dcc48a6e",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "69d4a126-59d6-42d2-b512-cd9f19be556c",
+      "title": "aeda3a75-4bda-45cc-9e64-326be19733be",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "706a2583-0da8-4c11-a2a5-9137798e2389",
+      "title": "870a9043-8a6b-49ee-bd12-7293f9f41fcc",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "f0cfcf7e-3e06-4f3e-acd4-390b0081af8d",
+      "title": "f06825b0-d580-4827-b3d4-3aa701cca49a",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "f3148ff0-2d2b-4743-a8e9-89e8b293f305",
+      "title": "08e520d0-27fd-4778-88ca-ef4279fd9eb4",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "f8ee356a-5ed8-45f8-a611-95b3e27396f9",
+      "title": "51899a41-fa05-42e0-81e7-ea150a5cb0c3",
+      "provider": "gmail",
+      "is_target": false
+    },
+    {
+      "object_id": "111b6061-42d1-4bc6-bd4a-63c67c87d647",
+      "title": "image001.png",
+      "provider": "gmail",
+      "is_target": false
+    }
+  ],
+  "query_objects_google_drive": [
+    {
+      "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+      "title": "Второе полугодие.xlsx",
+      "is_target": true
+    },
+    {
+      "object_id": "2f4f406e-bc9c-46e1-a2d1-b69dd9b2d536",
+      "title": "Приемная кампания 2026",
+      "is_target": false
+    },
+    {
+      "object_id": "2757aeb9-dc95-4364-ad7e-7aa6b553307a",
+      "title": "Бриф на кейсы ТОП ИТ АренаДата.xlsx",
+      "is_target": false
+    },
+    {
+      "object_id": "51885ffa-91ff-445b-8a48-b2be912fdae2",
+      "title": "Дела",
+      "is_target": false
+    }
+  ],
+  "get_context": {
+    "total_chars": 679,
+    "truncated": false,
+    "target_phrase_present": false,
+    "items": [
+      {
+        "kind": "file",
+        "why_included": "target object",
+        "content_length": 77,
+        "content_preview": "reference: https://drive.google.com/open?id=1eCpR_nkGsatEsyHirclJNs499YZ8Jqxo"
+      },
+      {
+        "kind": "file",
+        "why_included": "document summary",
+        "content_length": 21,
+        "content_preview": "Второе полугодие.xlsx"
+      },
+      {
+        "kind": "file",
+        "why_included": "dataset schema",
+        "content_length": 21,
+        "content_preview": "schema\nУчебный план: "
+      },
+      {
+        "kind": "file",
+        "why_included": "dataset statistics",
+        "content_length": 43,
+        "content_preview": "statistics\nУчебный план: rows=46, columns=1"
+      },
+      {
+        "kind": "file",
+        "why_included": "dataset sample",
+        "content_length": 337,
+        "content_preview": "sample\n[Учебный план]\n\n,,,,,\nРаздел,№ занятия,,Тема,Академические часы,Формат занятия,Предложения,64.0\n,,Модуль 1. Компьютерное зрение в ML,,,\nУчебная часть,1.0,Введение в компьютерное зрение. Задачи классификации изображений,2.0,Лекция\nУчебная часть,2.0,,Изображение как массив и тензор. Размерности, каналы, форматы данных,2.0,Семинар "
+      }
+    ]
+  }
+}

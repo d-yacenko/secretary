@@ -1,0 +1,290 @@
+{
+  "trace_id": "5d13e0f1-3555-4352-b629-186ff73dca1f",
+  "workload": "assistant_interactive",
+  "started_at": "2026-09-03T17:11:10.070828+00:00",
+  "finished_at": "2026-09-03T17:11:23.556662+00:00",
+  "success": true,
+  "events": [
+    {
+      "sequence": 1,
+      "event_type": "trace_started",
+      "created_at": "2026-09-03T17:11:10.070371+00:00",
+      "metadata": {
+        "job_id": null,
+        "workload": "assistant_interactive",
+        "object_id": null,
+        "parent_trace_id": null
+      }
+    },
+    {
+      "sequence": 2,
+      "event_type": "model_round",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "model": "gpt-5.6-luna",
+        "verbosity": "low",
+        "elapsed_ms": 2285,
+        "input_tokens": 3015,
+        "round_number": 1,
+        "output_tokens": 61,
+        "response_chars": 0,
+        "reasoning_effort": "medium",
+        "reasoning_tokens": 15,
+        "max_output_tokens": 1600,
+        "cache_write_tokens": 3012,
+        "cached_input_tokens": 0,
+        "incomplete_max_output": false,
+        "tool_definition_chars": 6345,
+        "explicit_ui_context_chars": 0,
+        "system_instructions_chars": 4415,
+        "conversation_history_chars": 1070,
+        "current_user_message_chars": 92,
+        "accumulated_function_call_chars": 0,
+        "accumulated_function_output_chars": 0,
+        "terminal_action_plan_history_chars": 2708
+      }
+    },
+    {
+      "sequence": 3,
+      "event_type": "tool_call",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "success": true,
+        "tool_name": "retrieve",
+        "truncated": true,
+        "elapsed_ms": 44,
+        "argument_keys": [
+          "date_from",
+          "date_to",
+          "kind",
+          "limit",
+          "query",
+          "time_scope"
+        ],
+        "error_category": null,
+        "raw_result_chars": 160,
+        "argument_structure": {
+          "kind": "file",
+          "limit": 5,
+          "query": {
+            "type": "string",
+            "chars": 68
+          },
+          "date_to": null,
+          "date_from": null,
+          "time_scope": "recent"
+        },
+        "model_visible_chars": 61
+      }
+    },
+    {
+      "sequence": 4,
+      "event_type": "model_round",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "model": "gpt-5.6-luna",
+        "verbosity": "low",
+        "elapsed_ms": 2409,
+        "input_tokens": 3089,
+        "round_number": 2,
+        "output_tokens": 75,
+        "response_chars": 0,
+        "reasoning_effort": "medium",
+        "reasoning_tokens": 39,
+        "max_output_tokens": 1600,
+        "cache_write_tokens": 74,
+        "cached_input_tokens": 3012,
+        "incomplete_max_output": false,
+        "tool_definition_chars": 6345,
+        "explicit_ui_context_chars": 0,
+        "system_instructions_chars": 4415,
+        "conversation_history_chars": 1070,
+        "current_user_message_chars": 92,
+        "accumulated_function_call_chars": 246,
+        "accumulated_function_output_chars": 61,
+        "terminal_action_plan_history_chars": 2708
+      }
+    },
+    {
+      "sequence": 5,
+      "event_type": "tool_call",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "success": true,
+        "tool_name": "retrieve",
+        "truncated": true,
+        "elapsed_ms": 205,
+        "argument_keys": [
+          "date_from",
+          "date_to",
+          "kind",
+          "limit",
+          "query",
+          "time_scope"
+        ],
+        "error_category": null,
+        "raw_result_chars": 9885,
+        "argument_structure": {
+          "kind": null,
+          "limit": 5,
+          "query": {
+            "type": "string",
+            "chars": 33
+          },
+          "date_to": null,
+          "date_from": null,
+          "time_scope": "all"
+        },
+        "model_visible_chars": 3220
+      }
+    },
+    {
+      "sequence": 6,
+      "event_type": "model_round",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "model": "gpt-5.6-luna",
+        "verbosity": "low",
+        "elapsed_ms": 1939,
+        "input_tokens": 4286,
+        "round_number": 3,
+        "output_tokens": 62,
+        "response_chars": 0,
+        "reasoning_effort": "medium",
+        "reasoning_tokens": 11,
+        "max_output_tokens": 1600,
+        "cache_write_tokens": 1197,
+        "cached_input_tokens": 3086,
+        "incomplete_max_output": false,
+        "tool_definition_chars": 6345,
+        "explicit_ui_context_chars": 0,
+        "system_instructions_chars": 4415,
+        "conversation_history_chars": 1070,
+        "current_user_message_chars": 92,
+        "accumulated_function_call_chars": 436,
+        "accumulated_function_output_chars": 3281,
+        "terminal_action_plan_history_chars": 2708
+      }
+    },
+    {
+      "sequence": 7,
+      "event_type": "tool_call",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "success": true,
+        "tool_name": "get_context",
+        "truncated": true,
+        "elapsed_ms": 21,
+        "argument_keys": [
+          "max_chars",
+          "object_id"
+        ],
+        "error_category": null,
+        "raw_result_chars": 5691,
+        "argument_structure": {
+          "max_chars": 6000,
+          "object_id": "857f1fda-6c93-4e07-a6f6-bf037a3b30be"
+        },
+        "model_visible_chars": 1747
+      }
+    },
+    {
+      "sequence": 8,
+      "event_type": "model_round",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "model": "gpt-5.6-luna",
+        "verbosity": "low",
+        "elapsed_ms": 2151,
+        "input_tokens": 4969,
+        "round_number": 4,
+        "output_tokens": 96,
+        "response_chars": 0,
+        "reasoning_effort": "medium",
+        "reasoning_tokens": 57,
+        "max_output_tokens": 1600,
+        "cache_write_tokens": 683,
+        "cached_input_tokens": 4283,
+        "incomplete_max_output": false,
+        "tool_definition_chars": 6345,
+        "explicit_ui_context_chars": 0,
+        "system_instructions_chars": 4415,
+        "conversation_history_chars": 1070,
+        "current_user_message_chars": 92,
+        "accumulated_function_call_chars": 620,
+        "accumulated_function_output_chars": 5028,
+        "terminal_action_plan_history_chars": 2708
+      }
+    },
+    {
+      "sequence": 9,
+      "event_type": "tool_call",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "success": true,
+        "tool_name": "retrieve",
+        "truncated": true,
+        "elapsed_ms": 266,
+        "argument_keys": [
+          "date_from",
+          "date_to",
+          "kind",
+          "limit",
+          "query",
+          "time_scope"
+        ],
+        "error_category": null,
+        "raw_result_chars": 9090,
+        "argument_structure": {
+          "kind": null,
+          "limit": 5,
+          "query": {
+            "type": "string",
+            "chars": 55
+          },
+          "date_to": null,
+          "date_from": null,
+          "time_scope": "all"
+        },
+        "model_visible_chars": 3013
+      }
+    },
+    {
+      "sequence": 10,
+      "event_type": "model_round",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "model": "gpt-5.6-luna",
+        "verbosity": "low",
+        "elapsed_ms": 4115,
+        "input_tokens": 6096,
+        "round_number": 5,
+        "output_tokens": 220,
+        "response_chars": 535,
+        "reasoning_effort": "medium",
+        "reasoning_tokens": 49,
+        "max_output_tokens": 1600,
+        "cache_write_tokens": 1127,
+        "cached_input_tokens": 4966,
+        "incomplete_max_output": false,
+        "tool_definition_chars": 6345,
+        "explicit_ui_context_chars": 0,
+        "system_instructions_chars": 4415,
+        "conversation_history_chars": 1070,
+        "current_user_message_chars": 92,
+        "accumulated_function_call_chars": 832,
+        "accumulated_function_output_chars": 8041,
+        "terminal_action_plan_history_chars": 2708
+      }
+    },
+    {
+      "sequence": 11,
+      "event_type": "trace_finished",
+      "created_at": "2026-09-03T17:11:12.360949+00:00",
+      "metadata": {
+        "success": true,
+        "error_category": null
+      }
+    }
+  ]
+}

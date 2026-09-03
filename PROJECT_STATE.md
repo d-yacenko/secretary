@@ -168,7 +168,7 @@ PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3
 
 PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **R1-R1 corrective implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **R2 corrective implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
 
 Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** (no safe public test resources available to execution environment).
 
@@ -408,4 +408,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await architect review of PHASE 29A-R1-R1 corrective. Do not start Safe External Actions or scheduled_activity implementation.
+Await architect review of PHASE 29A-R2 corrective. Do not start Safe External Actions or scheduled_activity implementation.

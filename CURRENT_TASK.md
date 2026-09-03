@@ -1,33 +1,35 @@
-# Current task — PHASE 29A-R1-R1 corrective, awaiting architect review
+# Current task — PHASE 29A-R2 corrective, awaiting architect review
 
 ## Status
 
 PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
 
-PHASE 29A initial + R1: **implemented**, architect-reviewed, **not accepted**.
+PHASE 29A initial + R1 + R1-R1: **implemented**, production E2E failure diagnosed, **not accepted**.
 
-PHASE 29A-R1-R1 — Streaming Trust & Retrieval Visibility Closure: **implemented**, **awaiting architect acceptance**.
+PHASE 29A-R2 — XLSX Searchable Content & Context Closure: **implemented**, **awaiting architect acceptance**.
 
 ## Branch
 
 `review/phase-29a-bounded-content-extraction`
 
-## PHASE 29A-R1-R1 scope (implemented)
+## PHASE 29A-R2 scope (implemented)
 
-- True streaming Yandex download (`http.stream` + `iter_bytes` byte bound)
-- Complete Yandex host/DNS/redirect trust policy (documented provider domains + resolved-address checks)
-- Cloud Object title/body/trigram retrieval independent of extraction status
-- Representation FTS gating only via `CLOUD_CURRENT_REPRESENTATION_SQL`
-- Strict candidate pool bounded to `MAX_CANDIDATE_POOL` via deterministic round-robin merge
-- Google Docs/Sheets/Slides adapter + Yandex streamed adapter + Parquet fixture tests
+- XLSX sparse cell parsing with real row numbers and column positions
+- Searchable full/chunk representations from all bounded worksheet rows
+- `EXTRACTION_VERSION` bump to `phase29a-v2`
+- Version-aware cloud Representation retrieval gate
+- Same-revision v1→v2 re-intake schedules extraction
+- Assistant `get_context` optional `query` parameter
+- Lexical chunk ranking fallback without embeddings
+- CLI bounded stale-v1 cloud reindex maintenance path
 
 ## Deploy
 
-Application SHA: `fc8e90b7c9e706691aec7afc30caa4b95825cc51`
+Application SHA: pending R2 deploy (supersedes `fc8e90b`).
 
 Alembic head: `0026` (no new migration).
 
-Manual Google/Yandex E2E: **DEFERRED**.
+Manual Google/Yandex E2E: **DEFERRED** until architect acceptance + user retest.
 
 ## Next
 

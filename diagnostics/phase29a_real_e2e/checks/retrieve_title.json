@@ -1,0 +1,11 @@
+{
+  "query": "Второе полугодие",
+  "kind": null,
+  "time_scope": "all",
+  "hit_count": 1,
+  "target_object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+  "target_in_hits": true,
+  "hits": [
+    {"object_id": "19940b16-893b-49be-969c-5b430063e6ac", "title": "Второе полугодие.xlsx", "provider": "google_drive"}
+  ]
+}

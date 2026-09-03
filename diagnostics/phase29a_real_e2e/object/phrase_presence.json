@@ -1,0 +1,12 @@
+{
+  "target_phrase": "Классификация на ручных признаках",
+  "exact_phrase_in_any_representation": false,
+  "normalized_token_checks": {
+    "Классификация на ручных признаках": {"present": false, "matches": []},
+    "Контрольное мероприятие": {"present": false, "matches": []},
+    "ручных признаках": {"present": false, "matches": []},
+    "Классификация": {"present": false, "matches": []}
+  },
+  "global_db_ilike_Классификация_на_ручных": 0,
+  "note": "Sample contains unrelated token 'классификации изображений' (row 1.0 topic) — different phrase, not target control-event text."
+}

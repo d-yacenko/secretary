@@ -1,0 +1,18 @@
+Hypothesis: rows[1:6] in _build_xlsx_representations() causes row-15 phrase to never be persisted.
+
+Source: backend/app/content_extraction/mechanical_extractors.py
+
+    for row in rows[1:6]:
+        sample_lines.append(",".join(row))
+
+Evidence from production DB:
+- statistics representation: rows=46 (full sheet read mechanically)
+- sample representation: only 5 data rows persisted (rows 1.0 and 2.0 visible)
+- phrase "Классификация на ручных признаках": NOT in any representation
+- global ILIKE search for phrase: 0 rows
+
+Conclusion: DIRECT CAUSE CONFIRMED.
+The workbook was read (46 rows counted) but searchable sample text
+only includes header + rows[1:6] (first 5 data rows).
+Target phrase at ~row 15 was never written to Representation.text,
+so FTS/trigram retrieval cannot match it.

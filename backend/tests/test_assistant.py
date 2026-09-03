@@ -1247,7 +1247,7 @@ def test_assistant_list_neighbors_execution_bounded(
     assert len(output.neighbors) <= 20
 
 
-def test_assistant_get_context_rejects_query(db_session, fake_embedding_service) -> None:
+def test_assistant_get_context_accepts_query(db_session, fake_embedding_service) -> None:
     graph = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding_service)
     obj = graph.create_object(ObjectCreate(kind="task", title="Ctx task", origin="user"))
     result = run_assistant_tool(
@@ -1255,8 +1255,7 @@ def test_assistant_get_context_rejects_query(db_session, fake_embedding_service)
         "get_context",
         {"object_id": str(obj.id), "query": "budget", "max_chars": 1000},
     )
-    assert not result.success
-    assert "query" in (result.error or "").lower()
+    assert result.success
 
 
 def test_assistant_get_context_requires_object_id() -> None:
@@ -1287,10 +1286,10 @@ def test_assistant_get_context_clamps_max_chars(db_session, fake_embedding_servi
     assert output.total_chars <= 8000
 
 
-def test_assistant_openai_tool_schema_get_context_has_no_query() -> None:
+def test_assistant_openai_tool_schema_get_context_has_query() -> None:
     get_context = next(defn for defn in TOOL_DEFINITIONS if defn["name"] == "get_context")
     props = get_context["parameters"]["properties"]
-    assert "query" not in props
+    assert "query" in props
     assert "object_id" in get_context["parameters"]["required"]
     assert props["max_chars"]["maximum"] == 8000
 

@@ -1,0 +1,13 @@
+{
+  "query": "Контрольное мероприятие №1 Классификация на ручных признаках",
+  "kind": null,
+  "time_scope": "all",
+  "hit_count": 10,
+  "target_object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+  "target_in_hits": false,
+  "hits": [
+    {"object_id": "857f1fda-6c93-4e07-a6f6-bf037a3b30be", "title": "Архитектура платформы данных", "provider": "yandex_calendar"},
+    {"object_id": "cad89871-f3c9-4180-bfa4-90f628fb0a2c", "title": "Добро пожаловать в Инструктаж по контрольно-пропускному режиму", "provider": "gmail"},
+    {"object_id": "79de3dcb-cb02-47fc-9f15-8f94841194ba", "title": "v.elagin-arenadata.io: Как вариант, поднять ванильный PG...", "provider": "mattermost"}
+  ]
+}

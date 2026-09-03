@@ -1,0 +1,42 @@
+{
+  "generated_at_utc": "2026-09-03T17:34:04Z",
+  "production": {
+    "application_sha": "fc8e90b7c9e706691aec7afc30caa4b95825cc51",
+    "branch": "review/phase-29a-bounded-content-extraction",
+    "docs_head": "1af91c0a0f3b809f7c20885fec74cefa95fb4584",
+    "alembic": "0026"
+  },
+  "incident": {
+    "target_object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+    "target_title": "Второе полугодие.xlsx",
+    "failed_phrase": "Контрольное мероприятие №1: Классификация на ручных признаках"
+  },
+  "primary_traces": [
+    "5d13e0f1-3555-4352-b629-186ff73dca1f",
+    "9aaba601-235f-4db3-8dc1-3e8a7f785f66"
+  ],
+  "supplementary_traces": [
+    "31764060-7c4c-4634-8342-8347e84f4971"
+  ],
+  "payload_capture_active": false,
+  "controlled_reproduction": "not_required — cause established from existing traces + DB + direct checks",
+  "files": [
+    "README.md",
+    "manifest.json",
+    "traces/trace_list.json",
+    "traces/5d13e0f1-3555-4352-b629-186ff73dca1f.json",
+    "traces/9aaba601-235f-4db3-8dc1-3e8a7f785f66.json",
+    "traces/31764060-7c4c-4634-8342-8347e84f4971_supplementary.json",
+    "object/target_object.json",
+    "object/representations.json",
+    "object/phrase_presence.json",
+    "checks/retrieve_exact_phrase.json",
+    "checks/retrieve_short_phrase.json",
+    "checks/retrieve_title.json",
+    "checks/query_objects_files.json",
+    "checks/get_context.json",
+    "analysis/tool_sequence.md",
+    "analysis/xlsx_representation_policy.md",
+    "analysis/conclusion.md"
+  ]
+}

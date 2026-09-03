@@ -1,0 +1,25 @@
+{
+  "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+  "title": "Второе полугодие.xlsx",
+  "provider": "google_drive",
+  "kind": "file",
+  "content_extraction_status": "ready",
+  "content_revision": "gdrive:md5:182842f56683449a8e1e3a04c4bea88b",
+  "content_extraction_version": "phase29a-v1",
+  "content_format": ".xlsx",
+  "mechanical_representation_count": "3",
+  "created_at": "2026-09-03 17:10:01.076195+00:00",
+  "representations": [
+    {"kind": "schema", "part_index": null, "text_length": 21, "metadata": {"sheet_count": 1}},
+    {"kind": "sample", "part_index": null, "text_length": 337, "metadata": {"sheet_count": 1}},
+    {"kind": "statistics", "part_index": null, "text_length": 43, "metadata": {"sheet_count": 1}},
+    {"kind": "summary", "part_index": null, "text_length": 21, "metadata": {}}
+  ],
+  "phrase_search": {
+    "Классификация на ручных признаках": "NOT_FOUND in any representation",
+    "Контрольное мероприятие": "NOT_FOUND in any representation"
+  },
+  "global_representation_search": {
+    "Классификация на ручных": "0 rows across entire database"
+  }
+}

@@ -32,4 +32,4 @@ TEXT_SUFFIXES = frozenset({".txt", ".md"})
 DATASET_SUFFIXES = frozenset({".csv", ".parquet"})
 OFFICE_SUFFIXES = frozenset({".docx", ".xlsx", ".pptx"})
 
-EXTRACTION_VERSION = "phase29a-v1"
+EXTRACTION_VERSION = "phase29a-v2"

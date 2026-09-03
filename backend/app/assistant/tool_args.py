@@ -106,8 +106,6 @@ def normalize_assistant_tool_arguments(tool_name: str, arguments: dict[str, Any]
         }
 
     if tool_name == "get_context":
-        if "query" in arguments:
-            raise ToolError("get_context does not accept query; use retrieve first")
         object_id = arguments.get("object_id")
         if not object_id:
             raise ToolError("get_context requires object_id")
@@ -116,9 +114,15 @@ def normalize_assistant_tool_arguments(tool_name: str, arguments: dict[str, Any]
             raise ToolError("get_context max_chars must be an integer")
         if max_chars < 1:
             raise ToolError("get_context max_chars must be at least 1")
-        return {
+        query = arguments.get("query")
+        if query is not None and not isinstance(query, str):
+            raise ToolError("get_context query must be a string")
+        normalized: dict[str, Any] = {
             "object_id": object_id,
             "max_chars": min(max_chars, MAX_ASSISTANT_CONTEXT_CHARS),
         }
+        if query is not None and query.strip():
+            normalized["query"] = query.strip()
+        return normalized
 
     return arguments

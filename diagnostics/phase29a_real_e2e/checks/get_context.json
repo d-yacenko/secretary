@@ -1,0 +1,14 @@
+{
+  "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+  "max_chars": 8000,
+  "total_chars": 679,
+  "truncated": false,
+  "target_phrase_present": false,
+  "items": [
+    {"why_included": "target object", "content_length": 77, "content_preview": "reference: https://drive.google.com/open?id=1eCpR_nkGsatEsyHirclJNs499YZ8Jqxo"},
+    {"why_included": "document summary", "content_length": 21, "content_preview": "Второе полугодие.xlsx"},
+    {"why_included": "dataset schema", "content_length": 21, "content_preview": "schema\nУчебный план: "},
+    {"why_included": "dataset statistics", "content_length": 43, "content_preview": "statistics\nУчебный план: rows=46, columns=1"},
+    {"why_included": "dataset sample", "content_length": 337, "content_preview": "sample\n[Учебный план]\n...rows 1.0-2.0 only (see representations.json)"}
+  ]
+}

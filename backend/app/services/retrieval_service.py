@@ -10,6 +10,7 @@ from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
     ANCHOR_KINDS,
     BODY_FTS_WEIGHT,
+    CLOUD_CURRENT_REPRESENTATION_GATE_SQL,
     CLOUD_CURRENT_REPRESENTATION_SQL,
     DEFAULT_FINAL_HITS,
     FTS_BRANCH_LIMIT,
@@ -305,12 +306,7 @@ _RANK_QUERY = text(
             WHERE r.object_id = o.id
               AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
               AND (
-                o.provider IS NULL
-                OR o.provider NOT IN ('google_drive', 'yandex_disk')
-                OR (
-                    o.metadata->>'content_extraction_status' = 'ready'
-                    AND o.metadata->>'content_revision' IS NOT NULL
-                )
+                {CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
               )
         ) AS rep_rank,
         (
@@ -319,12 +315,7 @@ _RANK_QUERY = text(
             WHERE r.object_id = o.id
               AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
               AND (
-                o.provider IS NULL
-                OR o.provider NOT IN ('google_drive', 'yandex_disk')
-                OR (
-                    o.metadata->>'content_extraction_status' = 'ready'
-                    AND o.metadata->>'content_revision' IS NOT NULL
-                )
+                {CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
               )
             ORDER BY
               GREATEST(

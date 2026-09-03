@@ -1,0 +1,50 @@
+{
+  "target_object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+  "queries": [
+    {
+      "query": "Контрольное мероприятие №1: Классификация на ручных признаках",
+      "kind": null,
+      "time_scope": "all",
+      "hits": 10,
+      "found_target": false,
+      "top_titles": ["Архитектура платформы данных", "Добро пожаловать в Инструктаж по контрольно-пропускному режиму", "..."]
+    },
+    {
+      "query": "Контрольное мероприятие №1: Классификация на ручных признаках",
+      "kind": "file",
+      "time_scope": "all",
+      "hits": 0,
+      "found_target": false
+    },
+    {
+      "query": "Контрольное мероприятие №1: Классификация на ручных признаках",
+      "kind": "file",
+      "time_scope": "recent",
+      "hits": 0,
+      "found_target": false
+    },
+    {
+      "query": "Классификация на ручных признаках",
+      "kind": null,
+      "time_scope": "all",
+      "hits": 10,
+      "found_target": false,
+      "top_titles": ["Архитектура платформы данных", "..."]
+    },
+    {
+      "query": "Второе полугодие",
+      "kind": "file",
+      "time_scope": "all",
+      "hits": 1,
+      "found_target": true,
+      "top_titles": ["Второе полугодие.xlsx"]
+    }
+  ],
+  "misleading_hit_object": {
+    "object_id": "857f1fda-6c93-4e07-a6f6-bf037a3b30be",
+    "title": "Архитектура платформы данных",
+    "why_ranked": "Partial token overlap: contains 'Классификация' in different context ('Классификация применяемого ПО')",
+    "get_context_phrase_present": false,
+    "get_context_excerpt": "event: Архитектура платформы данных / Модуль 1. Инструментарий. / Классификация применяемого ПО с точки зрения архитектуры."
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "object_id": "19940b16-893b-49be-969c-5b430063e6ac",
+  "title": "Второе полугодие.xlsx",
+  "provider": "google_drive",
+  "kind": "file",
+  "state": "observed",
+  "status": null,
+  "external_id": "1eCpR_nkGsatEsyHirclJNs499YZ8Jqxo",
+  "canonical_uri": "https://drive.google.com/open?id=1eCpR_nkGsatEsyHirclJNs499YZ8Jqxo",
+  "created_at": "2026-09-03 17:10:01.076195+00:00",
+  "updated_at": "2026-09-03 17:10:03.923592+00:00",
+  "content_extraction_status": "ready",
+  "content_revision": "gdrive:md5:182842f56683449a8e1e3a04c4bea88b",
+  "content_extraction_version": "phase29a-v1",
+  "content_truncated": false,
+  "mechanical_representation_count": 3,
+  "semantic_summary_revision": "gdrive:md5:182842f56683449a8e1e3a04c4bea88b",
+  "content_format": ".xlsx",
+  "has_embedding": true
+}
