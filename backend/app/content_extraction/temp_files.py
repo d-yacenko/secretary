@@ -3,6 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
+from typing import Self
 
 
 class SecureTempFile:
@@ -35,7 +36,7 @@ class SecureTempFile:
         finally:
             self._path = None
 
-    def __enter__(self) -> "SecureTempFile":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:
