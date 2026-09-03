@@ -511,4 +511,77 @@ void main() {
     await controller.submit();
     expect(path, '/capture/note');
   });
+
+  test('fresh controller defaults to note mode', () {
+    final apiClient = SecretaryApiClient(httpClient: MockClient((request) async {
+      return http.Response('{}', 404);
+    }));
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    final controller = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
+    expect(controller.mode, CaptureMode.note);
+  });
+
+  test('after successful task submit next mode is note', () async {
+    final controller = buildController(MockClient((request) async {
+      return http.Response(
+        jsonEncode({
+          'task_id': 't-after',
+          'context_edge_ids': [],
+          'dependency_edge_ids': [],
+        }),
+        201,
+      );
+    }));
+    controller.setMode(CaptureMode.task);
+    controller.setText('task to complete');
+    await controller.submit();
+    expect(controller.mode, CaptureMode.note);
+    expect(controller.draft.text, isEmpty);
+  });
+
+  test('attach context switches to task mode', () {
+    final controller = buildController(MockClient((request) async {
+      return http.Response('{}', 404);
+    }));
+    controller.setMode(CaptureMode.note);
+    controller.attachContext(
+      CaptureContextRef(id: 'obj-1', title: 'Context object', kind: 'email'),
+    );
+    expect(controller.mode, CaptureMode.task);
+    expect(controller.hasTaskIntent, isTrue);
+  });
+
+  test('task context with exact url submits capture task not link', () async {
+    String? path;
+    Map<String, dynamic>? body;
+    final controller = buildController(MockClient((request) async {
+      path = request.url.path;
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(
+        jsonEncode({
+          'task_id': 'task-url',
+          'context_edge_ids': ['edge-1'],
+          'dependency_edge_ids': [],
+        }),
+        201,
+      );
+    }));
+    controller.attachContext(
+      CaptureContextRef(id: 'ctx-1', title: 'Related', kind: 'email'),
+    );
+    controller.setText('https://example.org/article');
+    await controller.submit();
+    expect(path, '/capture/task');
+    expect(body!['text'], 'https://example.org/article');
+    expect(body!['context_object_ids'], ['ctx-1']);
+    expect(controller.lastSubmitKind, CaptureSubmitKind.task);
+  });
 }

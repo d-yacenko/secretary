@@ -27,6 +27,8 @@ class CaptureDraft {
 
   bool get canSubmit => !isBlank && !isTextTooLong && !isTitleTooLong;
 
+  bool get hasTaskIntent => contextObjectIds.isNotEmpty || dependsOnIds.isNotEmpty;
+
   CaptureDraft copyWith({
     String? text,
     String? title,

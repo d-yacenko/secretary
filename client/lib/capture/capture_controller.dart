@@ -67,7 +67,10 @@ class CaptureController extends ChangeNotifier {
   CaptureDraft get draft => _draft;
   CaptureMode get mode => _mode;
 
-  bool get isExactLinkInput => isExactHttpUrl(_draft.text);
+  bool get hasTaskIntent => _draft.hasTaskIntent;
+
+  bool get isExactLinkInput =>
+      !hasTaskIntent && isExactHttpUrl(_draft.text);
 
   String get primaryActionLabel {
     if (isExactLinkInput) {
@@ -127,6 +130,9 @@ class CaptureController extends ChangeNotifier {
     _draft = draft;
     submitState = CaptureSubmitState.idle;
     errorMessage = null;
+    if (_draft.hasTaskIntent) {
+      _mode = CaptureMode.task;
+    }
     notifyListeners();
   }
 
@@ -141,6 +147,7 @@ class CaptureController extends ChangeNotifier {
       refs[index] = ref;
     }
     _draft = _draft.copyWith(contextObjectIds: ids, contextRefs: refs);
+    _mode = CaptureMode.task;
     if (submitState != CaptureSubmitState.submitting) {
       submitState = CaptureSubmitState.idle;
       errorMessage = null;
@@ -194,6 +201,11 @@ class CaptureController extends ChangeNotifier {
       return;
     }
 
+    if (hasTaskIntent) {
+      await _submitTask();
+      return;
+    }
+
     final trimmed = _draft.text.trim();
     if (isExactHttpUrl(trimmed)) {
       await _submitLink(trimmed);
@@ -206,6 +218,14 @@ class CaptureController extends ChangeNotifier {
     }
   }
 
+  void _completeSuccess(CaptureSubmitKind kind) {
+    lastSubmitKind = kind;
+    _draft = CaptureDraft.empty;
+    _mode = CaptureMode.note;
+    submitState = CaptureSubmitState.success;
+    notifyListeners();
+  }
+
   Future<void> _submitTask() async {
     submitState = CaptureSubmitState.submitting;
     errorMessage = null;
@@ -216,10 +236,7 @@ class CaptureController extends ChangeNotifier {
       lastTaskResult = result;
       lastNoteResult = null;
       lastLinkResult = null;
-      lastSubmitKind = CaptureSubmitKind.task;
-      _draft = CaptureDraft.empty;
-      submitState = CaptureSubmitState.success;
-      notifyListeners();
+      _completeSuccess(CaptureSubmitKind.task);
     } on AuthenticationException catch (e) {
       submitState = CaptureSubmitState.authError;
       errorMessage = e.message;
@@ -244,10 +261,7 @@ class CaptureController extends ChangeNotifier {
       lastNoteResult = result;
       lastTaskResult = null;
       lastLinkResult = null;
-      lastSubmitKind = CaptureSubmitKind.note;
-      _draft = CaptureDraft.empty;
-      submitState = CaptureSubmitState.success;
-      notifyListeners();
+      _completeSuccess(CaptureSubmitKind.note);
     } on AuthenticationException catch (e) {
       submitState = CaptureSubmitState.authError;
       errorMessage = e.message;
@@ -272,10 +286,7 @@ class CaptureController extends ChangeNotifier {
       lastLinkResult = result;
       lastTaskResult = null;
       lastNoteResult = null;
-      lastSubmitKind = CaptureSubmitKind.link;
-      _draft = CaptureDraft.empty;
-      submitState = CaptureSubmitState.success;
-      notifyListeners();
+      _completeSuccess(CaptureSubmitKind.link);
     } on AuthenticationException catch (e) {
       submitState = CaptureSubmitState.authError;
       errorMessage = e.message;

@@ -8,8 +8,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app.content_extraction.constants import MAX_EXTRACTED_TEXT_CHARS
 from app.resources.constants import (
-    MAX_WEB_BODY_CHARS,
     MAX_WEB_FETCH_BYTES,
     MAX_WEB_REDIRECTS,
     REDIRECT_STATUS_CODES,
@@ -56,6 +56,20 @@ BINARY_CONTENT_TYPES = frozenset(
         "application/vnd.ms-powerpoint",
     }
 )
+
+
+def _is_binary_signature(raw: bytes) -> bool:
+    if len(raw) < 4:
+        return False
+    if raw.startswith(b"%PDF"):
+        return True
+    if raw.startswith(b"PK\x03\x04"):
+        return True
+    if raw.startswith(bytes([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])):
+        return True
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return True
+    return bool(raw.startswith(b"\xff\xd8\xff"))
 
 
 def _is_binary_content_type(content_type: str | None) -> bool:
@@ -137,8 +151,8 @@ def _extract_text(html: str) -> str:
     stripped = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html)
     stripped = re.sub(r"(?s)<[^>]+>", " ", stripped)
     text = unescape(re.sub(r"\s+", " ", stripped)).strip()
-    if len(text) > MAX_WEB_BODY_CHARS:
-        return text[:MAX_WEB_BODY_CHARS]
+    if len(text) > MAX_EXTRACTED_TEXT_CHARS:
+        return text[:MAX_EXTRACTED_TEXT_CHARS]
     return text
 
 
@@ -154,6 +168,7 @@ def _read_response_body(response: httpx.Response) -> tuple[str, str | None, bool
         chunks.append(chunk)
     raw = b"".join(chunks)
     content_hash = hashlib.sha256(raw).hexdigest()
+    is_binary = _is_binary_content_type(content_type) or _is_binary_signature(raw)
     if is_binary:
         return "", content_type, True, content_hash
     return raw.decode("utf-8", errors="replace"), content_type, False, content_hash

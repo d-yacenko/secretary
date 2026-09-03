@@ -108,6 +108,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final inputDisabled = isSubmitting || controller.isVoiceBusy;
     final intakeActions = _intakeActions;
     final isLink = controller.isExactLinkInput;
+    final hasTaskContext = controller.hasTaskIntent;
 
     final body = Scaffold(
       appBar: AppBar(
@@ -122,7 +123,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!isLink)
+            if (!isLink && !hasTaskContext)
               SegmentedButton<CaptureMode>(
                 segments: const [
                   ButtonSegment(
@@ -143,7 +144,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         controller.setMode(selection.first);
                       },
               ),
-            if (!isLink) const SizedBox(height: 12),
+            if (!isLink && !hasTaskContext) const SizedBox(height: 12),
             if (controller.voiceState == VoiceState.recording)
               Material(
                 color: Theme.of(context).colorScheme.errorContainer,
