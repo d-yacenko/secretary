@@ -128,6 +128,8 @@ def _validate_url_target(url: str) -> str:
     parsed = urlparse(url.strip())
     if parsed.scheme not in {"http", "https"}:
         raise WebFetchError("web url must use http or https")
+    if parsed.username is not None or parsed.password is not None:
+        raise WebFetchError("web url credentials are not allowed")
     hostname = parsed.hostname
     if not hostname:
         raise WebFetchError("web url hostname missing")

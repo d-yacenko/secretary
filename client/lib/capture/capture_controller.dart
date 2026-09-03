@@ -165,6 +165,23 @@ class CaptureController extends ChangeNotifier {
     );
   }
 
+  /// Prepare shared capture state before the generic «+» / «Добавить» entry point.
+  void prepareForGenericAdd() {
+    if (_draft.isGenuinelyEmpty) {
+      _mode = CaptureMode.note;
+      if (submitState != CaptureSubmitState.submitting) {
+        submitState = CaptureSubmitState.idle;
+        errorMessage = null;
+      }
+      notifyListeners();
+      return;
+    }
+    if (_draft.hasTaskIntent) {
+      _mode = CaptureMode.task;
+      notifyListeners();
+    }
+  }
+
   Future<void> startVoiceRecording() async {
     if (submitState == CaptureSubmitState.submitting || isVoiceBusy) {
       return;

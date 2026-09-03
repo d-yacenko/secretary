@@ -584,4 +584,60 @@ void main() {
     expect(body!['context_object_ids'], ['ctx-1']);
     expect(controller.lastSubmitKind, CaptureSubmitKind.task);
   });
+
+  group('prepareForGenericAdd', () {
+    test('blank task mode resets to note', () {
+      final controller = buildController(MockClient((request) async {
+        return http.Response('{}', 404);
+      }));
+      controller.setMode(CaptureMode.task);
+      controller.prepareForGenericAdd();
+      expect(controller.mode, CaptureMode.note);
+    });
+
+    test('nonempty task draft preserved with task mode', () {
+      final controller = buildController(MockClient((request) async {
+        return http.Response('{}', 404);
+      }));
+      controller.setMode(CaptureMode.task);
+      controller.setText('unfinished task body');
+      controller.prepareForGenericAdd();
+      expect(controller.mode, CaptureMode.task);
+      expect(controller.draft.text, 'unfinished task body');
+    });
+
+    test('nonempty note draft preserved with note mode', () {
+      final controller = buildController(MockClient((request) async {
+        return http.Response('{}', 404);
+      }));
+      controller.setMode(CaptureMode.note);
+      controller.setText('unfinished note');
+      controller.prepareForGenericAdd();
+      expect(controller.mode, CaptureMode.note);
+      expect(controller.draft.text, 'unfinished note');
+    });
+
+    test('task context draft remains task', () {
+      final controller = buildController(MockClient((request) async {
+        return http.Response('{}', 404);
+      }));
+      controller.attachContext(
+        CaptureContextRef(id: 'ctx-1', title: 'Email', kind: 'email'),
+      );
+      controller.prepareForGenericAdd();
+      expect(controller.mode, CaptureMode.task);
+      expect(controller.draft.contextObjectIds, ['ctx-1']);
+    });
+
+    test('exact url unfinished draft preserved', () {
+      final controller = buildController(MockClient((request) async {
+        return http.Response('{}', 404);
+      }));
+      controller.setMode(CaptureMode.note);
+      controller.setText('https://example.org/pending-link');
+      controller.prepareForGenericAdd();
+      expect(controller.draft.text, 'https://example.org/pending-link');
+      expect(controller.mode, CaptureMode.note);
+    });
+  });
 }
