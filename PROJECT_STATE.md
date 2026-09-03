@@ -156,6 +156,10 @@ PHASE 28D-A matched-version deploy (pre-R1): **complete** at `9090ee8780f33d6b88
 
 PHASE 28D-A-R1 — AI Audit Trace Correctness, Privacy & Baseline Readiness Corrective: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-a-r1`.
 
+PHASE 28D-A-R1 application SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`.
+
+PHASE 28D-A-R1 matched-version deploy: **complete** at `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad` (Alembic `0025`).
+
 PHASE 28D-B/C/D/E: **NOT started**.
 
 Model routing, two-stage Assistant: **NOT started**.

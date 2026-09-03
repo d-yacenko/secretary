@@ -38,7 +38,12 @@ Model routing, two-stage Assistant, workload-specific models: **NOT started**.
 - AI behavior optimization
 - PHASE 28D-B controlled baseline export
 
-## Temporary audit capture
+## Deploy
+
+Application SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`
+
+VDS deploy: **complete** (Alembic `0025`, `/health` PASS).
+
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
