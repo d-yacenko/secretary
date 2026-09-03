@@ -53,5 +53,12 @@ class CaptureDraft {
     );
   }
 
+  CaptureNoteRequest toNoteRequest() {
+    return CaptureNoteRequest(
+      text: text,
+      title: title,
+    );
+  }
+
   static const empty = CaptureDraft();
 }

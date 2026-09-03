@@ -27,6 +27,11 @@ class CaptureTaskResult:
     dependency_edge_ids: list[UUID]
 
 
+@dataclass(frozen=True)
+class CaptureNoteResult:
+    note_id: UUID
+
+
 class CaptureService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
@@ -119,6 +124,42 @@ class CaptureService:
             context_edge_ids=context_edge_ids,
             dependency_edge_ids=dependency_edge_ids,
         )
+
+    def capture_note(self, text: str, title: str | None = None) -> CaptureNoteResult:
+        if not text.strip():
+            raise ValidationError("text must not be empty")
+        if len(text) > MAX_CAPTURE_TEXT_CHARS:
+            raise ValidationError("text exceeds maximum length")
+
+        if title is not None:
+            if not title.strip():
+                raise ValidationError("title must not be empty when provided")
+            if len(title) > MAX_CAPTURE_TITLE_CHARS:
+                raise ValidationError("title exceeds maximum length")
+            resolved_title = title
+        else:
+            resolved_title = _derive_title(text)
+        if not resolved_title:
+            raise ValidationError("title could not be derived from text")
+
+        note = self._graph.create_object(
+            ObjectCreate(
+                kind="note",
+                title=resolved_title,
+                body=text,
+                origin="user",
+                state="confirmed",
+                status=None,
+            )
+        )
+
+        self._job_queue.enqueue(
+            JOB_TYPE_EMBED_OBJECT,
+            {"object_id": str(note.id)},
+            user_id=self._user_id,
+        )
+
+        return CaptureNoteResult(note_id=note.id)
 
     def _validate_owned_objects(self, object_ids: list[UUID]) -> None:
         for object_id in object_ids:

@@ -4,6 +4,7 @@ from app.connectors.google.constants import GOOGLE_DRIVE_PROVIDER
 from app.connectors.google.drive_url_parser import GOOGLE_DRIVE_URL_HOSTS
 from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
 from app.connectors.yandex.disk_url_parser import YANDEX_DISK_ALLOWED_HOSTS
+from app.resources.constants import PROVIDER_WEB
 from app.services.explicit_link_intake_errors import ExplicitLinkIntakeError
 
 
@@ -23,4 +24,4 @@ def detect_intake_provider(url: str) -> str:
         return GOOGLE_DRIVE_PROVIDER
     if host in YANDEX_DISK_ALLOWED_HOSTS:
         return YANDEX_DISK_PROVIDER
-    raise ExplicitLinkIntakeError("unsupported link url")
+    return PROVIDER_WEB

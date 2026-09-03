@@ -273,6 +273,33 @@ class CaptureTaskResponse {
   }
 }
 
+class CaptureNoteRequest {
+  CaptureNoteRequest({
+    required this.text,
+    this.title,
+  });
+
+  final String text;
+  final String? title;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'text': text,
+      if (title != null) 'title': title,
+    };
+  }
+}
+
+class CaptureNoteResponse {
+  CaptureNoteResponse({required this.noteId});
+
+  final String noteId;
+
+  factory CaptureNoteResponse.fromJson(Map<String, dynamic> json) {
+    return CaptureNoteResponse(noteId: json['note_id'] as String);
+  }
+}
+
 class HealthStatus {
   HealthStatus({required this.status});
   final String status;

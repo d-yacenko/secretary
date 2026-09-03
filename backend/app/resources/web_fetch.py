@@ -1,3 +1,4 @@
+import hashlib
 import ipaddress
 import re
 import socket
@@ -27,6 +28,51 @@ class WebFetchResult:
     title: str | None
     text: str
     final_url: str
+    content_type: str | None = None
+    is_binary: bool = False
+    content_hash: str | None = None
+
+
+TEXTUAL_CONTENT_TYPES = frozenset(
+    {
+        "text/html",
+        "text/plain",
+        "application/xhtml+xml",
+        "application/xml",
+        "text/xml",
+        "application/json",
+    }
+)
+
+BINARY_CONTENT_TYPES = frozenset(
+    {
+        "application/octet-stream",
+        "application/pdf",
+        "application/zip",
+        "application/gzip",
+        "application/x-gzip",
+        "application/msword",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+    }
+)
+
+
+def _is_binary_content_type(content_type: str | None) -> bool:
+    if not content_type:
+        return False
+    main = content_type.split(";")[0].strip().lower()
+    if main in TEXTUAL_CONTENT_TYPES or main.startswith("text/"):
+        return False
+    if main in BINARY_CONTENT_TYPES:
+        return True
+    if main.startswith(("image/", "audio/", "video/")):
+        return True
+    return main.startswith("application/") and main not in {
+        "application/json",
+        "application/xml",
+        "application/xhtml+xml",
+    }
 
 
 def _ip_is_blocked(ip_str: str) -> bool:
@@ -96,7 +142,9 @@ def _extract_text(html: str) -> str:
     return text
 
 
-def _read_response_body(response: httpx.Response) -> str:
+def _read_response_body(response: httpx.Response) -> tuple[str, str | None, bool, str | None]:
+    content_type = response.headers.get("Content-Type") or response.headers.get("content-type")
+    is_binary = _is_binary_content_type(content_type)
     chunks: list[bytes] = []
     total = 0
     for chunk in response.iter_bytes():
@@ -104,7 +152,11 @@ def _read_response_body(response: httpx.Response) -> str:
         if total > MAX_WEB_FETCH_BYTES:
             raise WebFetchError("web fetch exceeded size limit")
         chunks.append(chunk)
-    return b"".join(chunks).decode("utf-8", errors="replace")
+    raw = b"".join(chunks)
+    content_hash = hashlib.sha256(raw).hexdigest()
+    if is_binary:
+        return "", content_type, True, content_hash
+    return raw.decode("utf-8", errors="replace"), content_type, False, content_hash
 
 
 def fetch_web_page(url: str) -> WebFetchResult:
@@ -127,12 +179,28 @@ def fetch_web_page(url: str) -> WebFetchResult:
                         raise WebFetchError(
                             f"web fetch failed with status {response.status_code}"
                         )
-                    html = _read_response_body(response)
+                    html, content_type, is_binary, content_hash = _read_response_body(response)
+                    if is_binary:
+                        return WebFetchResult(
+                            title=None,
+                            text="",
+                            final_url=current_url,
+                            content_type=content_type,
+                            is_binary=True,
+                            content_hash=content_hash,
+                        )
                     title = _extract_title(html)
                     text = _extract_text(html)
                     if not text:
                         text = title or current_url
-                    return WebFetchResult(title=title, text=text, final_url=current_url)
+                    return WebFetchResult(
+                        title=title,
+                        text=text,
+                        final_url=current_url,
+                        content_type=content_type,
+                        is_binary=False,
+                        content_hash=content_hash,
+                    )
             except httpx.TimeoutException as exc:
                 raise WebFetchError("web fetch timed out") from exc
             except httpx.RequestError as exc:

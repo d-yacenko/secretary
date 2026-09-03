@@ -78,3 +78,26 @@ class CaptureTaskOut(BaseModel):
     task_id: UUID
     context_edge_ids: list[UUID]
     dependency_edge_ids: list[UUID]
+
+
+class CaptureNoteRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=MAX_CAPTURE_TEXT_CHARS)
+    title: str | None = Field(default=None, max_length=MAX_CAPTURE_TITLE_CHARS)
+
+    @field_validator("text")
+    @classmethod
+    def text_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("text must not be empty")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank_when_present(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("title must not be empty when provided")
+        return value
+
+
+class CaptureNoteOut(BaseModel):
+    note_id: UUID

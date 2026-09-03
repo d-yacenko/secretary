@@ -9,6 +9,7 @@ const Map<String, String> objectKindLabels = {
   'event': 'Событие',
   'project': 'Проект',
   'note': 'Заметка',
+  'web_page': 'Веб-страница',
   'file': 'Файл',
   'folder': 'Папка',
   'document': 'Документ',
@@ -85,6 +86,8 @@ IconData iconForObjectKind(String kind) {
       return Icons.table_chart_outlined;
     case 'note':
       return Icons.sticky_note_2_outlined;
+    case 'web_page':
+      return Icons.language_outlined;
     case 'folder':
       return Icons.folder_outlined;
     case 'chat':

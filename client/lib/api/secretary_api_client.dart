@@ -228,6 +228,16 @@ class SecretaryApiClient {
     return CaptureTaskResponse.fromJson(body);
   }
 
+  Future<CaptureNoteResponse> captureNote(CaptureNoteRequest request) async {
+    final body = await _request(
+      'POST',
+      '/capture/note',
+      jsonBody: request.toJson(),
+      successStatuses: {201},
+    );
+    return CaptureNoteResponse.fromJson(body);
+  }
+
   Future<List<NotificationOut>> listUnresolvedNotifications() async {
     final body = await _request(
       'GET',

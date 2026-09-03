@@ -14,6 +14,7 @@ import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/capture/capture_draft.dart';
+import 'package:personal_secretary/capture/capture_mode.dart';
 import 'package:personal_secretary/objects/object_detail_screen.dart';
 import 'package:personal_secretary/voice/voice_transcription_controller.dart';
 
@@ -36,6 +37,7 @@ void main() {
       voiceTempFiles: VoiceTempFiles(
         directory: Directory.systemTemp.createTempSync('capture_voice_test'),
       ),
+      initialMode: CaptureMode.task,
     );
   }
 
@@ -163,6 +165,7 @@ void main() {
       return CaptureController(
         apiClient: auth.apiClient,
         authController: auth,
+        initialMode: CaptureMode.task,
       );
     }
 
@@ -437,5 +440,75 @@ void main() {
     }
 
     expect(controller.draft.text, 'Уже есть текст дополнение');
+  });
+
+  test('default note mode posts capture note', () async {
+    Map<String, dynamic>? body;
+    String? path;
+    final controller = buildController(MockClient((request) async {
+      path = request.url.path;
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(jsonEncode({'note_id': 'n1'}), 201);
+    }));
+    controller.setMode(CaptureMode.note);
+    controller.setText('Note body marker');
+    await controller.submit();
+    expect(path, '/capture/note');
+    expect(body!['text'], 'Note body marker');
+    expect(controller.lastSubmitKind, CaptureSubmitKind.note);
+  });
+
+  test('task mode still posts capture task', () async {
+    String? path;
+    final controller = buildController(MockClient((request) async {
+      path = request.url.path;
+      return http.Response(
+        jsonEncode({
+          'task_id': 't1',
+          'context_edge_ids': [],
+          'dependency_edge_ids': [],
+        }),
+        201,
+      );
+    }));
+    controller.setMode(CaptureMode.task);
+    controller.setText('Task body');
+    await controller.submit();
+    expect(path, '/capture/task');
+    expect(controller.lastSubmitKind, CaptureSubmitKind.task);
+  });
+
+  test('exact url routes to intake link', () async {
+    String? path;
+    final controller = buildController(MockClient((request) async {
+      path = request.url.path;
+      return http.Response(
+        jsonEncode({
+          'object_id': 'obj-1',
+          'provider': 'web',
+          'kind': 'web_page',
+          'status': 'created',
+          'content_status': 'ready',
+          'content_jobs_enqueued': 1,
+        }),
+        200,
+      );
+    }));
+    controller.setText('https://example.org/article');
+    await controller.submit();
+    expect(path, '/intake/link');
+    expect(controller.lastSubmitKind, CaptureSubmitKind.link);
+  });
+
+  test('text with embedded url stays note', () async {
+    String? path;
+    final controller = buildController(MockClient((request) async {
+      path = request.url.path;
+      return http.Response(jsonEncode({'note_id': 'n2'}), 201);
+    }));
+    controller.setMode(CaptureMode.note);
+    controller.setText('Посмотреть https://example.org/article завтра');
+    await controller.submit();
+    expect(path, '/capture/note');
   });
 }

@@ -11,6 +11,7 @@ from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
 from app.connectors.yandex.errors import YandexDiskApiError
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
+from app.resources.constants import PROVIDER_WEB
 from app.services.explicit_link_intake_errors import (
     AccountSelectionRequiredError,
     ExplicitLinkIntakeError,
@@ -20,6 +21,7 @@ from app.services.explicit_link_intake_service import (
     build_yandex_explicit_link_intake_service,
 )
 from app.services.explicit_link_provider import detect_intake_provider
+from app.services.web_explicit_link_intake_service import WebExplicitLinkIntakeService
 
 router = APIRouter(tags=["intake"])
 
@@ -73,6 +75,8 @@ def intake_link(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=exc.message,
             ) from exc
+    elif provider == PROVIDER_WEB:
+        service = WebExplicitLinkIntakeService(session=session, user_id=current_user.user_id)
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported link url")
 

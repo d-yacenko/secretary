@@ -20,6 +20,17 @@ RECENT_SOURCE_KINDS = frozenset(
     }
 )
 
+RECENT_INTAKE_KINDS = frozenset(
+    {
+        "note",
+        "web_page",
+        "file",
+        "document",
+        "dataset",
+        "folder",
+    }
+)
+
 RECENT_SOURCE_DEFAULT_LIMIT = 30
 RECENT_SOURCE_MAX_LIMIT = 50
 RECENT_SOURCE_RESERVED_PER_PROVIDER = 3
@@ -52,13 +63,25 @@ class RecentSourceService:
             ~noise_any,
         )
 
+    def _source_feed_clause(self) -> object:
+        return and_(
+            Object.origin == "source",
+            Object.kind.in_(tuple(RECENT_SOURCE_KINDS)),
+        )
+
+    def _intake_feed_clause(self) -> object:
+        return and_(
+            or_(Object.origin == "explicit", Object.origin == "user"),
+            Object.kind.in_(tuple(RECENT_INTAKE_KINDS)),
+            Object.kind != "task",
+        )
+
     def _eligible_filters(self) -> object:
         return and_(
             Object.user_id == self._user_id,
-            Object.origin == "source",
+            or_(self._source_feed_clause(), self._intake_feed_clause()),
             Object.state != "rejected",
             or_(Object.status.is_(None), Object.status != "deleted"),
-            Object.kind.in_(tuple(RECENT_SOURCE_KINDS)),
             self._gmail_feed_eligible_clause(),
         )
 
