@@ -54,9 +54,9 @@ Leading explanation for Sep 3 one-day AI spend: one-time historical mail backfil
 
 ## Deploy
 
-Application SHA: _(set after deploy commit)_
+Application SHA: `6550b16b71ed79f8b74a7ccadc3727eb1e537108`
 
-VDS: Alembic `0025`, `/health` PASS expected.
+VDS deploy: **complete** (Alembic `0025`, `/health` PASS).
 
 ## Next
 

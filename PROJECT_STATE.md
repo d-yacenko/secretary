@@ -156,9 +156,9 @@ PHASE 28D-A matched-version deploy (pre-R1): **complete** at `9090ee8780f33d6b88
 
 PHASE 28D-A-R1 — AI Audit Trace Correctness, Privacy & Baseline Readiness Corrective: **implemented and deployed**, **awaiting architect review** on `review/phase-28d-a-r1`.
 
-PHASE 28D-A-R1 application SHA: `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad`.
+PHASE 28D-B-R1 application SHA: `6550b16b71ed79f8b74a7ccadc3727eb1e537108`.
 
-PHASE 28D-A-R1 matched-version deploy: **complete** at `fab0b0ff400dfee19ca3277ec6e4fe9063ba76ad` (Alembic `0025`).
+PHASE 28D-B-R1 matched-version deploy: **complete** at `6550b16b71ed79f8b74a7ccadc3727eb1e537108` (Alembic `0025`).
 
 PHASE 28D-B1/B2 — controlled baseline capture/export: **complete** (private bundle retained locally by user; VDS export deleted).
 
