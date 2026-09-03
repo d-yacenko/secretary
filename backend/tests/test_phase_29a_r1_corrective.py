@@ -25,7 +25,7 @@ from app.content_extraction.metadata_keys import (
 from app.content_extraction.trusted_download import (
     UnsafeDownloadUrlError,
     bounded_get_safe_redirects,
-    validate_https_download_url,
+    validate_download_url,
 )
 from app.db.models import Job, Object, Representation
 from app.jobs.constants import (
@@ -47,6 +47,15 @@ from tests.test_phase_29a_bounded_content_extraction import (
     FakeDriveTransport,
     _google_account,
 )
+
+TRUSTED_DOWNLOAD_URL = "https://downloader.disk.yandex.ru/disk/test"
+
+
+def _public_resolver(host: str) -> list[str]:
+    return ["93.158.134.8"]
+
+
+PUBLIC_RESOLVER = _public_resolver
 
 
 @pytest.fixture
@@ -403,32 +412,28 @@ def test_extractor_records_no_extractable_text_failure(
 
 def test_trusted_download_rejects_unsafe_urls() -> None:
     with pytest.raises(UnsafeDownloadUrlError):
-        validate_https_download_url("http://disk.yandex.ru/d/abc")
+        validate_download_url("http://disk.yandex.ru/d/abc", resolver=PUBLIC_RESOLVER)
     with pytest.raises(UnsafeDownloadUrlError):
-        validate_https_download_url("https://user:pass@disk.yandex.ru/d/abc")
+        validate_download_url("https://user:pass@disk.yandex.ru/d/abc", resolver=PUBLIC_RESOLVER)
     with pytest.raises(UnsafeDownloadUrlError):
-        validate_https_download_url("https://localhost/d/abc")
+        validate_download_url("https://localhost/d/abc", resolver=PUBLIC_RESOLVER)
     with pytest.raises(UnsafeDownloadUrlError):
-        validate_https_download_url("https://127.0.0.1/d/abc")
+        validate_download_url("https://127.0.0.1/d/abc", resolver=PUBLIC_RESOLVER)
     with pytest.raises(UnsafeDownloadUrlError):
-        validate_https_download_url("https://10.0.0.5/file")
+        validate_download_url("https://10.0.0.5/file", resolver=PUBLIC_RESOLVER)
 
 
 def test_trusted_download_rejects_redirect_to_private() -> None:
-    calls = 0
-
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return httpx.Response(302, headers={"Location": "https://10.0.0.8/private"})
+        return httpx.Response(302, headers={"Location": "https://10.0.0.8/private"})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     with pytest.raises(UnsafeDownloadUrlError):
         bounded_get_safe_redirects(
             client,
-            "https://getfile.dokpub.com/yandex/get/test",
+            TRUSTED_DOWNLOAD_URL,
             max_bytes=1024,
+            resolver=PUBLIC_RESOLVER,
         )
 
 
@@ -440,15 +445,16 @@ def test_trusted_download_enforces_redirect_hop_limit() -> None:
         hop += 1
         return httpx.Response(
             302,
-            headers={"Location": f"https://getfile.dokpub.com/yandex/get/hop{hop}"},
+            headers={"Location": f"https://downloader.disk.yandex.ru/hop{hop}"},
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     with pytest.raises(UnsafeDownloadUrlError, match="redirect_hop_limit"):
         bounded_get_safe_redirects(
             client,
-            "https://getfile.dokpub.com/yandex/get/loop",
+            TRUSTED_DOWNLOAD_URL,
             max_bytes=1024,
+            resolver=PUBLIC_RESOLVER,
         )
 
 
@@ -459,8 +465,9 @@ def test_trusted_download_accepts_valid_https_provider_url() -> None:
     client = httpx.Client(transport=httpx.MockTransport(handler))
     data = bounded_get_safe_redirects(
         client,
-        "https://getfile.dokpub.com/yandex/get/ok",
+        TRUSTED_DOWNLOAD_URL,
         max_bytes=1024,
+        resolver=PUBLIC_RESOLVER,
     )
     assert data == b"provider-bytes"
 

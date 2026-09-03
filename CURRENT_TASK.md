@@ -1,37 +1,33 @@
-# Current task — PHASE 29A-R1 corrective, awaiting architect review
+# Current task — PHASE 29A-R1-R1 corrective, awaiting architect review
 
 ## Status
 
 PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3fd8ea52`.
 
-PHASE 29A initial: **implemented**, architect-reviewed, **not accepted**.
+PHASE 29A initial + R1: **implemented**, architect-reviewed, **not accepted**.
 
-PHASE 29A-R1 — Retrieval, Revision & Download Trust Closure: **implemented**, **awaiting architect acceptance**.
+PHASE 29A-R1-R1 — Streaming Trust & Retrieval Visibility Closure: **implemented**, **awaiting architect acceptance**.
 
 ## Branch
 
 `review/phase-29a-bounded-content-extraction`
 
-## PHASE 29A-R1 scope (implemented)
+## PHASE 29A-R1-R1 scope (implemented)
 
-- Representation-aware PostgreSQL FTS retrieval (Alembic `0026` GIN indexes)
-- READY re-intake idempotency (same revision preserves indexed content, zero duplicate jobs)
-- Change facts before mutation (`content_revision_changed`, `title_changed`, `provider_metadata_changed`, `extraction_work_needed`)
-- Immediate stale-content invalidation on revision change in intake transaction
-- Defensive current-content gating for cloud providers in retrieval and `ContextService`
-- Yandex download SSRF trust policy (HTTPS-only, manual redirect validation, hop limit)
-- Extraction truthfulness: `no_extractable_text`, truthful `content_truncated`
-- Flutter snackbars keyed on `content_status`
+- True streaming Yandex download (`http.stream` + `iter_bytes` byte bound)
+- Complete Yandex host/DNS/redirect trust policy (documented provider domains + resolved-address checks)
+- Cloud Object title/body/trigram retrieval independent of extraction status
+- Representation FTS gating only via `CLOUD_CURRENT_REPRESENTATION_SQL`
+- Strict candidate pool bounded to `MAX_CANDIDATE_POOL` via deterministic round-robin merge
+- Google Docs/Sheets/Slides adapter + Yandex streamed adapter + Parquet fixture tests
 
 ## Deploy
 
-Application SHA: `2702446cb039af44340ebb40600803077dcb1427`
+Application SHA: pending commit (supersedes `2702446`).
 
-Alembic head: `0026` (representation FTS indexes).
+Alembic head: `0026` (no new migration).
 
-VDS deploy: **complete** (`/health` PASS, worker healthy, Alembic `0026`).
-
-Manual Google/Yandex E2E: **DEFERRED** (no safe test resources in execution environment).
+Manual Google/Yandex E2E: **DEFERRED**.
 
 ## Next
 

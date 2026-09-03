@@ -58,8 +58,8 @@ RETRIEVAL_REPRESENTATION_KINDS_SQL = ", ".join(
 
 REPRESENTATION_FTS_WEIGHT = 2.0
 
-# Cloud explicit resources: only READY indexed content is retrieval-eligible.
-CLOUD_CURRENT_CONTENT_SQL = """
+# Only Representation.text from cloud explicit resources requires READY/current revision.
+CLOUD_CURRENT_REPRESENTATION_SQL = """
 AND (
     o.provider IS NULL
     OR o.provider NOT IN ('google_drive', 'yandex_disk')

@@ -10,7 +10,7 @@ from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
     ANCHOR_KINDS,
     BODY_FTS_WEIGHT,
-    CLOUD_CURRENT_CONTENT_SQL,
+    CLOUD_CURRENT_REPRESENTATION_SQL,
     DEFAULT_FINAL_HITS,
     FTS_BRANCH_LIMIT,
     FTS_DOCUMENT_SQL,
@@ -135,7 +135,6 @@ def _build_fts_candidate_sql(filter_suffix: str) -> str:
     FROM objects o
     WHERE {_BASE_WHERE}
       {filter_suffix}
-      {CLOUD_CURRENT_CONTENT_SQL}
       AND ({FTS_DOCUMENT_SQL}) @@ plainto_tsquery('simple', :query)
     ORDER BY
       ts_rank(
@@ -153,7 +152,6 @@ def _build_trigram_candidate_sql(filter_suffix: str) -> str:
     FROM objects o
     WHERE {_BASE_WHERE}
       {filter_suffix}
-      {CLOUD_CURRENT_CONTENT_SQL}
       AND o.title % :query
     ORDER BY
       similarity(coalesce(o.title, ''), :query) DESC,
@@ -169,7 +167,7 @@ def _build_representation_fts_candidate_sql(filter_suffix: str, ts_config: str) 
     INNER JOIN objects o ON o.id = r.object_id
     WHERE {_BASE_WHERE}
       {filter_suffix}
-      {CLOUD_CURRENT_CONTENT_SQL}
+      {CLOUD_CURRENT_REPRESENTATION_SQL}
       AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
       AND to_tsvector('{ts_config}', coalesce(r.text, ''))
           @@ plainto_tsquery('{ts_config}', :query)
@@ -232,6 +230,29 @@ def _build_atom_trigram_sql(filter_suffix: str) -> str:
       o.id
     LIMIT :branch_limit
     """
+
+
+def _bounded_round_robin_merge(branches: list[list[UUID]], limit: int) -> list[UUID]:
+    seen: set[UUID] = set()
+    merged: list[UUID] = []
+    indices = [0] * len(branches)
+    while len(merged) < limit:
+        progressed = False
+        for branch_index, branch in enumerate(branches):
+            while indices[branch_index] < len(branch):
+                object_id = branch[indices[branch_index]]
+                indices[branch_index] += 1
+                if object_id in seen:
+                    continue
+                seen.add(object_id)
+                merged.append(object_id)
+                progressed = True
+                if len(merged) >= limit:
+                    return merged
+                break
+        if not progressed:
+            break
+    return merged
 
 
 _RANK_QUERY = text(
@@ -549,19 +570,15 @@ class RetrievalService:
             {**params, "branch_limit": FTS_BRANCH_LIMIT},
         ).scalars()
 
-        seen: set[UUID] = set()
-        candidate_ids: list[UUID] = []
-        for object_id in (
-            list(fts_ids)
-            + list(trigram_ids)
-            + list(rep_simple_ids)
-            + list(rep_russian_ids)
-        ):
-            if object_id in seen:
-                continue
-            seen.add(object_id)
-            candidate_ids.append(object_id)
-        return candidate_ids
+        return _bounded_round_robin_merge(
+            [
+                list(fts_ids),
+                list(trigram_ids),
+                list(rep_simple_ids),
+                list(rep_russian_ids),
+            ],
+            MAX_CANDIDATE_POOL,
+        )
 
     def _collect_relaxed_candidate_ids(
         self,

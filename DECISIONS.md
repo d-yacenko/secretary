@@ -358,3 +358,10 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Extraction truthfulness:** PDF without extractable text → `failed` + `no_extractable_text`; `content_truncated` truthful for PDF page caps, PPTX slides, XLSX sheet/row/column caps, text limits.
 - **Flutter UX:** snackbars driven by `content_status` from intake link response.
 
+## PHASE 29A-R1-R1 — Streaming trust & retrieval visibility closure
+
+- **Streaming download:** `bounded_get_safe_redirects` uses `http.stream` + bounded `iter_bytes`; no full-body preload before byte cap.
+- **Yandex trust:** documented provider download host allowlist + DNS resolution checks on every hop; rejects arbitrary HTTPS hosts and private/loopback/link-local resolved addresses.
+- **Retrieval visibility:** cloud Object title/body/trigram branches use normal visibility; only Representation FTS uses `CLOUD_CURRENT_REPRESENTATION_SQL` (READY + revision).
+- **Candidate pool:** strict branch merge capped at `MAX_CANDIDATE_POOL` (100) via deterministic round-robin.
+

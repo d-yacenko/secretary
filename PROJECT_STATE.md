@@ -168,7 +168,7 @@ PHASE 28D: **ARCHITECT ACCEPTED / CLOSED** at `c791461287a3b60e34c9474c9df146ea3
 
 PHASE 28D-C/D/E: **NOT started** (optimization/model routing deferred per architect acceptance).
 
-PHASE 29A — Bounded Content Extraction for Explicit Resources: **R1 corrective implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction` (supersedes initial deploy `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`).
+PHASE 29A — Bounded Content Extraction for Explicit Resources: **R1-R1 corrective implemented**, **awaiting architect review** on `review/phase-29a-bounded-content-extraction`.
 
 Manual Google Drive / Yandex Disk matched-version E2E: **DEFERRED** (no safe public test resources available to execution environment).
 
@@ -320,11 +320,11 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `bbd0657deba56bfbfc9649ad37ec1d5db678fd45`
+- SHA: pending R1-R1 deploy (supersedes `2702446` / `bbd0657`)
 - Branch: `review/phase-29a-bounded-content-extraction`
-- Deployed: 2026-09-03 (PHASE 29A initial `bbd0657`; PHASE 29A-R1 corrective pending this cycle — Alembic `0026`)
+- Deployed: 2026-09-03 (PHASE 29A-R1-R1 streaming trust & retrieval visibility closure)
 - Checkout: detached at deploy SHA, clean (no tracked modifications)
-- Alembic current/head: `0025` (`ai_trace_event_payload_retention`)
+- Alembic current/head: `0026` (`representation_fts_indexes`)
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
@@ -406,4 +406,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await architect review of PHASE 29A-R1 corrective. Do not start Safe External Actions or scheduled_activity implementation.
+Await architect review of PHASE 29A-R1-R1 corrective. Do not start Safe External Actions or scheduled_activity implementation.

@@ -166,6 +166,19 @@ def _blank_pdf_bytes() -> bytes:
     return header + body + xref + trailer
 
 
+def write_minimal_parquet(path: Path, marker: str = "parquet_marker_alpha") -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    table = pa.table(
+        {
+            "marker": [marker, "row_two"],
+            "value": [1, 2],
+        }
+    )
+    pq.write_table(table, path)
+
+
 def write_zip_bomb(path: Path) -> None:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("bomb.txt", b"0" * (1024 * 1024), compress_type=zipfile.ZIP_DEFLATED)
