@@ -362,6 +362,8 @@ def extraction_work_needed(
         return True
     if prior_revision != incoming_revision:
         return True
+    if metadata_extraction_version(prior_metadata) != EXTRACTION_VERSION:
+        return True
     status = prior_metadata.get(CONTENT_EXTRACTION_STATUS)
     if status == STATUS_READY and had_ready_mechanical:
         return False

@@ -32,11 +32,11 @@ from app.content_extraction.extract_service import (
 from app.content_extraction.intake_metadata import (
     content_revision_changed,
     is_ready_content_unchanged,
-    is_stable_ready_revision,
     merge_intake_metadata,
     provider_metadata_changed,
 )
 from app.content_extraction.metadata_keys import CONTENT_EXTRACTION_STATUS, STATUS_READY
+from app.content_extraction.revision import metadata_extraction_version
 from app.db.models import GoogleAccount, Object, Representation
 from app.domain.object_visibility import (
     is_object_hidden_from_active_reads,
@@ -256,11 +256,7 @@ class ExplicitLinkIntakeService:
             derived_incoming,
             had_mechanical,
         )
-        stable_ready_revision = is_stable_ready_revision(
-            prior_meta,
-            derived_incoming,
-            had_mechanical,
-        )
+        version_stale = metadata_extraction_version(prior_meta) != EXTRACTION_VERSION
 
         if (
             not was_deleted
@@ -268,23 +264,8 @@ class ExplicitLinkIntakeService:
             and not title_changed
             and not provider_changed
             and not structural_changed
-            and stable_ready_revision
+            and not version_stale
         ):
-            merged_meta = merge_intake_metadata(
-                prior_meta,
-                incoming_provider_meta,
-                provider,
-                kind,
-                title,
-                had_mechanical,
-            )
-            existing.kind = kind
-            existing.title = title
-            existing.body = normalized.get("body")
-            existing.canonical_uri = normalized.get("canonical_uri")
-            existing.occurred_at = normalized.get("occurred_at")
-            existing.metadata_ = merged_meta
-            self._session.flush()
             return existing, "unchanged", 0
 
         merged_meta = merge_intake_metadata(
@@ -310,7 +291,7 @@ class ExplicitLinkIntakeService:
 
         jobs_enqueued = 0
 
-        if revision_changed:
+        if revision_changed or version_stale:
             invalidate_object_content_immediately(self._session, existing)
             prior_meta = dict(existing.metadata_ or {})
             merged_meta = merge_intake_metadata(
@@ -328,7 +309,7 @@ class ExplicitLinkIntakeService:
                 prior_meta,
                 merged_meta,
                 False,
-            )
+            ) or version_stale
 
         existing.kind = kind
         existing.title = title
@@ -364,7 +345,7 @@ class ExplicitLinkIntakeService:
 
         if was_deleted:
             return existing, "restored", jobs_enqueued
-        if revision_changed or work_needed:
+        if revision_changed or version_stale or work_needed:
             return existing, "updated", jobs_enqueued
         if title_changed or provider_changed or structural_changed:
             return existing, "metadata_updated", jobs_enqueued

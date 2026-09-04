@@ -203,7 +203,7 @@ def test_assistant_get_context_schema_exposes_query() -> None:
     assert len(ASSISTANT_TOOL_DEFINITIONS) == len({d["name"] for d in ASSISTANT_TOOL_DEFINITIONS})
 
 
-def test_same_revision_v1_reintake_is_unchanged_without_version_backfill(db_session, monkeypatch) -> None:
+def test_same_revision_v1_reintake_schedules_one_current_version_job(db_session, monkeypatch) -> None:
     obj = _make_file_object(db_session, "reintake.xlsx")
     meta = dict(obj.metadata_ or {})
     meta.update(
@@ -241,10 +241,10 @@ def test_same_revision_v1_reintake_is_unchanged_without_version_backfill(db_sess
         "metadata": dict(meta),
     }
     _, status, jobs = service._upsert(obj, normalized)
-    assert status == "unchanged"
-    assert jobs == 0
-    assert enqueue_calls == []
-    assert obj.metadata_["content_extraction_version"] == "phase29a-v1"
+    assert status != "unchanged"
+    assert jobs == 1
+    assert len(enqueue_calls) == 1
+    assert enqueue_calls[0][2] == EXTRACTION_VERSION
 
 
 def test_v2_ready_reintake_is_noop(db_session, monkeypatch) -> None:
