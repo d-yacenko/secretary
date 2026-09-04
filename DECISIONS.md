@@ -487,3 +487,13 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **NEXT:** User Identity Profile / Self Resolution (after architect acceptance).
 - **Status:** deployed at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`; **awaiting architect review**.
 
+## Universal Object Delete final closure — transactional restore + visibility + UX refresh
+
+- **Motivation:** architect closure defects: web restore before fetch; missing explicit local restore; legacy `status=deleted` visibility gaps; graph context exposing tombstoned edges; Flutter delete not refreshing originating views.
+- **Web restore:** `WebExplicitLinkIntakeService` restores tombstone only after successful fetch/classification.
+- **Local restore:** explicit `ClientFileIntakeService` / `FolderObjectService` restore tombstones; passive `LocalFileSyncService` report keeps them.
+- **Legacy visibility:** `is_object_hidden_from_active_reads` unifies `deleted_at` and `status=deleted`; explicit restore clears both.
+- **Graph context:** `get_context` filters incident edges to tombstoned neighbors regardless of `include_rejected`.
+- **Flutter:** `ObjectDetailNavigationResult` wired through Inbox/Search/Today/Graph/parent detail; Mattermost/local-folder confirmation copy.
+- **Status:** APPLICATION `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`; **awaiting deploy + architect review**.
+
