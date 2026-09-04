@@ -543,20 +543,6 @@ class _AccountScreenState extends State<AccountScreen>
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    'Пример структуры:',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    identityProfileTemplateExample,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                  const SizedBox(height: 12),
                   if (_identityLoading)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 16),
@@ -566,8 +552,9 @@ class _AccountScreenState extends State<AccountScreen>
                     TextField(
                       key: const Key('identity_profile_text'),
                       controller: _identityController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Профиль идентичности',
+                        hintText: identityProfileTemplateExample,
                         alignLabelWithHint: true,
                       ),
                       minLines: 8,

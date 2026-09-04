@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:personal_secretary/account/account_screen.dart';
+import 'package:personal_secretary/account/identity_profile_template.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
@@ -357,6 +358,52 @@ void main() {
 Варианты имени: Яценко
 ''';
 
+    testWidgets('empty identity profile shows template as field hint', (tester) async {
+      final client = buildAccountApiClient();
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          identityJson: accountIdentityJson(profileText: ''),
+        ),
+      );
+
+      expect(find.text('Пример структуры:'), findsNothing);
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('identity_profile_text')),
+      );
+      expect(field.controller?.text, '');
+      expect(field.decoration?.hintText, identityProfileTemplateExample);
+      expect(find.text('Сохранить идентичность'), findsOneWidget);
+    });
+
+    testWidgets('entered text replaces template hint', (tester) async {
+      final client = buildAccountApiClient();
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          identityJson: accountIdentityJson(profileText: ''),
+        ),
+      );
+
+      const edited = 'Имя: Тест';
+      await tester.enterText(find.byKey(const Key('identity_profile_text')), edited);
+      await tester.pump();
+
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('identity_profile_text')),
+      );
+      expect(field.controller?.text, edited);
+      expect(find.text('Пример структуры:'), findsNothing);
+    });
+
     testWidgets('loads existing identity profile text unchanged', (tester) async {
       final client = buildAccountApiClient();
       client.configure(baseUrl: _baseUrl, token: _token);
@@ -371,6 +418,7 @@ void main() {
       );
 
       expect(find.text('Моя идентичность'), findsOneWidget);
+      expect(find.text('Пример структуры:'), findsNothing);
       final field = tester.widget<TextField>(
         find.byKey(const Key('identity_profile_text')),
       );
@@ -472,26 +520,6 @@ Email:
       );
       expect(field.controller?.text, edited);
       expect(find.textContaining('profile_text exceeds maximum length'), findsOneWidget);
-    });
-
-    testWidgets('empty identity profile is safe', (tester) async {
-      final client = buildAccountApiClient();
-      client.configure(baseUrl: _baseUrl, token: _token);
-
-      await _pumpAccountReady(
-        tester,
-        buildAccountScreen(
-          apiClient: client,
-          authController: _buildAuth(client),
-          identityJson: accountIdentityJson(profileText: ''),
-        ),
-      );
-
-      final field = tester.widget<TextField>(
-        find.byKey(const Key('identity_profile_text')),
-      );
-      expect(field.controller?.text, '');
-      expect(find.text('Сохранить идентичность'), findsOneWidget);
     });
   });
 }
