@@ -265,6 +265,59 @@ def bounded_parquet_stats(
     return stats_meta, lines
 
 
+def count_csv_rows(path: Path) -> int:
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        return sum(1 for _ in reader)
+
+
+def read_csv_rows_at_indices(
+    path: Path,
+    fieldnames: list[str],
+    indices: list[int],
+) -> list[dict[str, str]]:
+    if not indices:
+        return []
+    wanted = set(indices)
+    max_index = max(indices)
+    rows: dict[int, dict[str, str]] = {}
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row_index, row in enumerate(reader):
+            if row_index in wanted:
+                rows[row_index] = row
+            if row_index >= max_index:
+                break
+    return [rows[i] for i in indices if i in rows]
+
+
+def read_parquet_rows_at_indices(
+    path: Path,
+    indices: list[int],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    if not indices:
+        parquet_file = pq.ParquetFile(path)
+        return list(parquet_file.schema_arrow.names), []
+
+    parquet_file = pq.ParquetFile(path)
+    fieldnames = list(parquet_file.schema_arrow.names)
+    wanted = set(indices)
+    max_index = max(indices)
+    rows: dict[int, dict[str, Any]] = {}
+    current = 0
+    for batch in parquet_file.iter_batches(batch_size=1024):
+        batch_rows = batch.to_pylist()
+        for row in batch_rows:
+            if current in wanted:
+                rows[current] = row
+            current += 1
+            if current > max_index and len(rows) == len(wanted):
+                break
+        if current > max_index and len(rows) == len(wanted):
+            break
+    return fieldnames, [rows[i] for i in indices if i in rows]
+
+
 def query_csv_columns(path: Path, columns: list[str], limit: int) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)

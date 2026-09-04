@@ -166,7 +166,7 @@ def test_mechanical_extractors_supported_formats(tmp_path: Path) -> None:
     csv_path = tmp_path / "sample.csv"
     write_csv(csv_path)
     reps, _ = extract_from_path(object_id, csv_path)
-    assert {rep.kind for rep in reps} == {"schema", "sample", "statistics"}
+    assert {rep.kind for rep in reps} >= {"schema", "sample", "statistics"}
 
     pdf_path = tmp_path / "sample.pdf"
     write_minimal_pdf(pdf_path)

@@ -23,13 +23,33 @@ MAX_XLSX_SHEETS = 16
 MAX_XLSX_ROWS_PER_SHEET = 200
 MAX_XLSX_COLUMNS = 64
 MAX_PPTX_SLIDES = 40
+MAX_ODF_SHEETS = 16
+MAX_ODF_ROWS_PER_SHEET = 200
+MAX_ODF_COLUMNS = 64
+MAX_ODF_REPEAT_EXPANSION = 64
+MAX_ODP_SLIDES = 40
 
 SUPPORTED_BINARY_SUFFIXES = frozenset(
-    {".txt", ".md", ".csv", ".pdf", ".docx", ".xlsx", ".pptx", ".parquet"}
+    {
+        ".txt",
+        ".md",
+        ".csv",
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".odt",
+        ".ods",
+        ".odp",
+        ".parquet",
+    }
 )
 
 TEXT_SUFFIXES = frozenset({".txt", ".md"})
 DATASET_SUFFIXES = frozenset({".csv", ".parquet"})
 OFFICE_SUFFIXES = frozenset({".docx", ".xlsx", ".pptx"})
+ODF_SUFFIXES = frozenset({".odt", ".ods", ".odp"})
 
-EXTRACTION_VERSION = "phase29a-v2"
+DATASET_STRUCTURAL_PARTS = 3
+
+EXTRACTION_VERSION = "format-parity-a-v1"

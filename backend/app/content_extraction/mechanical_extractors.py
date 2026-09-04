@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.content_extraction.constants import (
-    MAX_EXTRACTED_TEXT_CHARS,
+    DATASET_STRUCTURAL_PARTS,
     MAX_PDF_PAGES,
     MAX_PPTX_SLIDES,
     MAX_REPRESENTATION_PARTS,
@@ -15,31 +15,43 @@ from app.content_extraction.constants import (
     MAX_XLSX_ROWS_PER_SHEET,
     MAX_XLSX_SHEETS,
 )
+from app.content_extraction.dataset_sampling import (
+    build_dataset_sample_metadata,
+    estimate_structural_bytes,
+    fit_sample_to_part_limit,
+    format_searchable_dataset_rows,
+    plan_dataset_sampling,
+)
+from app.content_extraction.odf_extractors import (
+    extract_odp_representations,
+    extract_ods_representations,
+    extract_odt_representations,
+)
+from app.content_extraction.text_representation import (
+    build_bounded_text_representations,
+    build_text_representations,
+)
+from app.content_extraction.text_representation import (
+    cap_text as _cap_text,
+)
 from app.content_extraction.zip_safety import validate_zip_archive
 from app.db.models import Representation
 from app.local.bounded_io import (
     bounded_parquet_stats,
+    count_csv_rows,
     read_bounded_text,
     read_csv_header,
+    read_csv_rows_at_indices,
     read_csv_sample_rows,
+    read_parquet_rows_at_indices,
     read_parquet_sample_rows,
     read_parquet_schema,
     stream_csv_stats,
 )
-from app.services.bounded_chunks import (
-    MAX_INDEXED_TEXT_CHUNKS,
-    build_indexing_metadata,
-    chunk_text,
-    select_bounded_chunks,
-)
 from app.services.representation_service import (
-    KIND_CHUNK,
-    KIND_FULL,
     KIND_SAMPLE,
     KIND_SCHEMA,
     KIND_STATISTICS,
-    SMALL_TEXT_MAX_CHARS,
-    _format_sample_text,
     _format_schema_text,
 )
 
@@ -47,113 +59,8 @@ DOCX_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 PPTX_NS = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
 XLSX_NS = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
-
-def _cap_text(text: str) -> tuple[str, bool]:
-    if len(text) <= MAX_EXTRACTED_TEXT_CHARS:
-        return text, False
-    return text[:MAX_EXTRACTED_TEXT_CHARS], True
-
-
 XLSX_CELL_REF_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 XLSX_STRUCTURAL_PARTS = 3
-
-
-def build_bounded_text_representations(
-    object_id,
-    text: str,
-    max_parts: int,
-    source_meta: dict[str, Any] | None = None,
-) -> tuple[list[Representation], bool]:
-    """Build full/chunk reps using only the remaining mechanical part budget."""
-    if max_parts <= 0 or not text.strip():
-        return [], False
-
-    extra_meta = dict(source_meta or {})
-    capped, truncated = _cap_text(text)
-    if len(capped) <= SMALL_TEXT_MAX_CHARS:
-        return [
-            Representation(
-                object_id=object_id,
-                kind=KIND_FULL,
-                text=capped,
-                metadata_={**extra_meta, "truncated": truncated},
-            )
-        ], truncated
-
-    all_chunks = chunk_text(capped, 800, 100)
-    max_chunks = min(max_parts, MAX_INDEXED_TEXT_CHUNKS)
-    selected_chunks, selected_indices = select_bounded_chunks(all_chunks, max_chunks)
-    indexing_meta = build_indexing_metadata(
-        source_chars=len(capped),
-        total_chunks=len(all_chunks),
-        indexed_chunks=len(selected_chunks),
-    )
-    reps: list[Representation] = []
-    for part_index, (source_index, chunk) in enumerate(
-        zip(selected_indices, selected_chunks, strict=True)
-    ):
-        reps.append(
-            Representation(
-                object_id=object_id,
-                kind=KIND_CHUNK,
-                part_index=part_index,
-                text=chunk,
-                metadata_={
-                    **indexing_meta,
-                    **extra_meta,
-                    "truncated": truncated,
-                    "source_chunk_index": source_index,
-                },
-            )
-        )
-    return reps, truncated or indexing_meta["indexing_truncated"]
-
-
-def build_text_representations(
-    object_id,
-    text: str,
-    source_meta: dict[str, Any] | None = None,
-) -> tuple[list[Representation], bool]:
-    extra_meta = dict(source_meta or {})
-    capped, truncated = _cap_text(text)
-    if len(capped) <= SMALL_TEXT_MAX_CHARS:
-        return [
-            Representation(
-                object_id=object_id,
-                kind=KIND_FULL,
-                text=capped,
-                metadata_={**extra_meta, "truncated": truncated},
-            )
-        ], truncated
-
-    all_chunks = chunk_text(capped, 800, 100)
-    selected_chunks, selected_indices = select_bounded_chunks(
-        all_chunks, MAX_INDEXED_TEXT_CHUNKS
-    )
-    indexing_meta = build_indexing_metadata(
-        source_chars=len(capped),
-        total_chunks=len(all_chunks),
-        indexed_chunks=len(selected_chunks),
-    )
-    reps: list[Representation] = []
-    for part_index, (source_index, chunk) in enumerate(
-        zip(selected_indices, selected_chunks, strict=True)
-    ):
-        reps.append(
-            Representation(
-                object_id=object_id,
-                kind=KIND_CHUNK,
-                part_index=part_index,
-                text=chunk,
-                metadata_={
-                    **indexing_meta,
-                    **extra_meta,
-                    "truncated": truncated,
-                    "source_chunk_index": source_index,
-                },
-            )
-        )
-    return reps, truncated
 
 
 def extract_from_path(object_id, path: Path) -> tuple[list[Representation], dict[str, Any]]:
@@ -173,23 +80,25 @@ def extract_from_path(object_id, path: Path) -> tuple[list[Representation], dict
         }
 
     if suffix == ".csv":
-        reps = _build_csv_representations(object_id, path)
+        reps, dataset_meta = _build_csv_representations(object_id, path)
         extracted_chars = sum(len(rep.text) for rep in reps)
         return reps, {
             "content_format": ".csv",
-            "content_truncated": False,
+            "content_truncated": dataset_meta.get("dataset_sampling_truncated", False),
             "content_source_bytes": source_bytes,
             "content_extracted_chars": extracted_chars,
+            **dataset_meta,
         }
 
     if suffix == ".parquet":
-        reps = _build_parquet_representations(object_id, path)
+        reps, dataset_meta = _build_parquet_representations(object_id, path)
         extracted_chars = sum(len(rep.text) for rep in reps)
         return reps, {
             "content_format": ".parquet",
-            "content_truncated": False,
+            "content_truncated": dataset_meta.get("dataset_sampling_truncated", False),
             "content_source_bytes": source_bytes,
             "content_extracted_chars": extracted_chars,
+            **dataset_meta,
         }
 
     if suffix == ".pdf":
@@ -237,6 +146,36 @@ def extract_from_path(object_id, path: Path) -> tuple[list[Representation], dict
         extracted_chars = sum(len(rep.text) for rep in reps)
         return reps, {
             "content_format": ".pptx",
+            "content_truncated": truncated,
+            "content_source_bytes": source_bytes,
+            "content_extracted_chars": extracted_chars,
+        }
+
+    if suffix == ".odt":
+        reps, truncated = extract_odt_representations(object_id, path, source_bytes)
+        extracted_chars = sum(len(rep.text) for rep in reps)
+        return reps, {
+            "content_format": ".odt",
+            "content_truncated": truncated,
+            "content_source_bytes": source_bytes,
+            "content_extracted_chars": extracted_chars,
+        }
+
+    if suffix == ".ods":
+        reps, truncated = extract_ods_representations(object_id, path)
+        extracted_chars = sum(len(rep.text) for rep in reps)
+        return reps, {
+            "content_format": ".ods",
+            "content_truncated": truncated,
+            "content_source_bytes": source_bytes,
+            "content_extracted_chars": extracted_chars,
+        }
+
+    if suffix == ".odp":
+        reps, truncated = extract_odp_representations(object_id, path, source_bytes)
+        extracted_chars = sum(len(rep.text) for rep in reps)
+        return reps, {
+            "content_format": ".odp",
             "content_truncated": truncated,
             "content_source_bytes": source_bytes,
             "content_extracted_chars": extracted_chars,
@@ -292,11 +231,43 @@ def _extract_docx_text(path: Path) -> tuple[str, bool]:
     return capped, truncated
 
 
-def _build_csv_representations(object_id, path: Path) -> list[Representation]:
+def _build_csv_representations(
+    object_id, path: Path
+) -> tuple[list[Representation], dict[str, Any]]:
     fieldnames = read_csv_header(path)
-    _, sample_rows = read_csv_sample_rows(path, 5)
     stats_meta, stats_lines, column_types = stream_csv_stats(path, fieldnames)
-    return [
+    total_rows = stats_meta.get("row_count")
+    if total_rows is None:
+        total_rows = count_csv_rows(path)
+
+    _, estimate_rows = read_csv_sample_rows(path, 1)
+    structural_bytes = estimate_structural_bytes(fieldnames, stats_lines)
+    indices, _, _ = plan_dataset_sampling(
+        total_rows=total_rows,
+        fieldnames=fieldnames,
+        sample_rows_for_estimate=estimate_rows,
+        structural_bytes=structural_bytes,
+    )
+    raw_rows = read_csv_rows_at_indices(path, fieldnames, indices)
+    rows_by_index = {index: row for index, row in zip(indices, raw_rows, strict=True)}
+    sample_rows, fit_indices, sample_text, sampling_mode, sampling_truncated = (
+        fit_sample_to_part_limit(
+            fieldnames=fieldnames,
+            rows_by_index=rows_by_index,
+            indices=indices,
+            total_rows=total_rows,
+        )
+    )
+
+    dataset_meta = build_dataset_sample_metadata(
+        total_rows=total_rows,
+        represented_rows=len(sample_rows),
+        sampling_mode=sampling_mode,
+        sampling_truncated=sampling_truncated,
+        sampled_indices=fit_indices,
+    )
+
+    structural_reps = [
         Representation(
             object_id=object_id,
             kind=KIND_SCHEMA,
@@ -308,8 +279,8 @@ def _build_csv_representations(object_id, path: Path) -> list[Representation]:
         Representation(
             object_id=object_id,
             kind=KIND_SAMPLE,
-            text=_format_sample_text(sample_rows, fieldnames),
-            metadata_={"row_count_in_sample": len(sample_rows)},
+            text=sample_text,
+            metadata_=dataset_meta,
         ),
         Representation(
             object_id=object_id,
@@ -319,12 +290,51 @@ def _build_csv_representations(object_id, path: Path) -> list[Representation]:
         ),
     ]
 
+    remaining_parts = max(0, MAX_REPRESENTATION_PARTS - DATASET_STRUCTURAL_PARTS)
+    searchable_text = format_searchable_dataset_rows(sample_rows, fieldnames, fit_indices)
+    searchable_reps, _ = build_bounded_text_representations(
+        object_id,
+        searchable_text,
+        remaining_parts,
+        dataset_meta,
+    )
+    return structural_reps + searchable_reps, dataset_meta
 
-def _build_parquet_representations(object_id, path: Path) -> list[Representation]:
+
+def _build_parquet_representations(
+    object_id, path: Path
+) -> tuple[list[Representation], dict[str, Any]]:
     fieldnames, column_types, row_count = read_parquet_schema(path)
-    _, sample_rows = read_parquet_sample_rows(path, 5)
     stats_meta, stats_lines = bounded_parquet_stats(path, fieldnames, column_types, row_count)
-    return [
+
+    _, estimate_rows = read_parquet_sample_rows(path, 1)
+    structural_bytes = estimate_structural_bytes(fieldnames, stats_lines)
+    indices, _, _ = plan_dataset_sampling(
+        total_rows=row_count,
+        fieldnames=fieldnames,
+        sample_rows_for_estimate=estimate_rows,
+        structural_bytes=structural_bytes,
+    )
+    _, raw_rows = read_parquet_rows_at_indices(path, indices)
+    rows_by_index = {index: row for index, row in zip(indices, raw_rows, strict=True)}
+    sample_rows, fit_indices, sample_text, sampling_mode, sampling_truncated = (
+        fit_sample_to_part_limit(
+            fieldnames=fieldnames,
+            rows_by_index=rows_by_index,
+            indices=indices,
+            total_rows=row_count,
+        )
+    )
+
+    dataset_meta = build_dataset_sample_metadata(
+        total_rows=row_count,
+        represented_rows=len(sample_rows),
+        sampling_mode=sampling_mode,
+        sampling_truncated=sampling_truncated,
+        sampled_indices=fit_indices,
+    )
+
+    structural_reps = [
         Representation(
             object_id=object_id,
             kind=KIND_SCHEMA,
@@ -336,8 +346,8 @@ def _build_parquet_representations(object_id, path: Path) -> list[Representation
         Representation(
             object_id=object_id,
             kind=KIND_SAMPLE,
-            text=_format_sample_text(sample_rows, fieldnames),
-            metadata_={"row_count_in_sample": len(sample_rows)},
+            text=sample_text,
+            metadata_=dataset_meta,
         ),
         Representation(
             object_id=object_id,
@@ -346,6 +356,16 @@ def _build_parquet_representations(object_id, path: Path) -> list[Representation
             metadata_=stats_meta,
         ),
     ]
+
+    remaining_parts = max(0, MAX_REPRESENTATION_PARTS - DATASET_STRUCTURAL_PARTS)
+    searchable_text = format_searchable_dataset_rows(sample_rows, fieldnames, fit_indices)
+    searchable_reps, _ = build_bounded_text_representations(
+        object_id,
+        searchable_text,
+        remaining_parts,
+        dataset_meta,
+    )
+    return structural_reps + searchable_reps, dataset_meta
 
 
 def _build_xlsx_representations(object_id, path: Path) -> tuple[list[Representation], bool]:
