@@ -68,9 +68,6 @@ def derive_web_content_revision(metadata: dict[str, Any]) -> str | None:
     content_hash = metadata.get("content_hash")
     if content_hash:
         return f"web:sha256:{content_hash}"
-    final_url = metadata.get("final_url")
-    if final_url and content_length is not None:
-        return f"web:url-cl:{final_url}:{content_length}"
     return None
 
 

@@ -5,6 +5,7 @@ import socket
 from dataclasses import dataclass
 from enum import Enum
 from html import unescape
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -16,8 +17,9 @@ from app.content_extraction.bounded_download import (
 from app.content_extraction.constants import (
     MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES,
     MAX_EXTRACTED_TEXT_CHARS,
+    SUPPORTED_BINARY_SUFFIXES,
 )
-from app.content_extraction.format_resolver import detect_supported_file_suffix
+from app.content_extraction.format_resolver import MIME_SUFFIX_MAP, detect_supported_file_suffix
 from app.resources.constants import (
     MAX_WEB_FETCH_BYTES,
     MAX_WEB_REDIRECTS,
@@ -194,24 +196,64 @@ def _extract_text(html: str) -> str:
     return text
 
 
+_HEADER_SUFFIX_TEXT_MIMES = frozenset({"text/plain", "text/markdown"})
+
+
+def _classify_from_headers(
+    content_type: str | None,
+    url: str,
+) -> tuple[WebResourceClass | None, str | None]:
+    mime = content_type.split(";")[0].strip().lower() if content_type else None
+    path_suffix = Path(urlparse(url).path).suffix.lower()
+    if mime and mime in MIME_SUFFIX_MAP:
+        suffix = MIME_SUFFIX_MAP[mime]
+        if suffix in SUPPORTED_BINARY_SUFFIXES:
+            if mime in _HEADER_SUFFIX_TEXT_MIMES:
+                if path_suffix == suffix:
+                    return WebResourceClass.SUPPORTED_FILE, suffix
+            else:
+                return WebResourceClass.SUPPORTED_FILE, suffix
+    if path_suffix in SUPPORTED_BINARY_SUFFIXES:
+        return WebResourceClass.SUPPORTED_FILE, path_suffix
+    return None, None
+
+
 def _classify_resource(
     content_type: str | None,
     content_length: int | None,
     prefix: bytes,
     url: str,
 ) -> tuple[WebResourceClass, str | None]:
-    is_binary = _is_binary_content_type(content_type) or _is_binary_signature(prefix)
-    if not is_binary:
-        return WebResourceClass.HTML_PAGE, None
-
     detected_suffix = detect_supported_file_suffix(
         content_type=content_type,
         prefix=prefix,
         url=url,
     )
     if detected_suffix is not None:
+        mime = content_type.split(";")[0].strip().lower() if content_type else None
+        if mime and mime in MIME_SUFFIX_MAP:
+            if mime in _HEADER_SUFFIX_TEXT_MIMES:
+                path_suffix = Path(urlparse(url).path).suffix.lower()
+                if path_suffix == MIME_SUFFIX_MAP[mime]:
+                    return WebResourceClass.SUPPORTED_FILE, detected_suffix
+            else:
+                return WebResourceClass.SUPPORTED_FILE, detected_suffix
+        path_suffix = Path(urlparse(url).path).suffix.lower()
+        if path_suffix in SUPPORTED_BINARY_SUFFIXES:
+            return WebResourceClass.SUPPORTED_FILE, detected_suffix
+        if _is_binary_signature(prefix):
+            return WebResourceClass.SUPPORTED_FILE, detected_suffix
+
+    is_binary = _is_binary_content_type(content_type) or _is_binary_signature(prefix)
+    if not is_binary:
+        return WebResourceClass.HTML_PAGE, None
+
+    if detected_suffix is not None:
         return WebResourceClass.SUPPORTED_FILE, detected_suffix
     return WebResourceClass.UNSUPPORTED_BINARY, None
+
+
+_PROBE_CHUNK_SIZE = 4096
 
 
 def _consume_response_body(
@@ -220,21 +262,24 @@ def _consume_response_body(
     content_type: str | None,
     content_length: int | None,
 ) -> tuple[WebResourceClass, str | None, list[bytes]]:
+    header_class, header_suffix = _classify_from_headers(content_type, current_url)
+    if header_class == WebResourceClass.SUPPORTED_FILE:
+        return header_class, header_suffix, []
+
+    prefix_buf = bytearray()
     chunks: list[bytes] = []
-    total = 0
     classified = False
     resource_class = WebResourceClass.HTML_PAGE
     detected_suffix: str | None = None
-    store = True
+    total_html = 0
 
-    for chunk in response.iter_bytes():
+    for chunk in response.iter_bytes(chunk_size=_PROBE_CHUNK_SIZE):
         if not chunk:
             continue
         if not classified:
-            chunks.append(chunk)
-            total += len(chunk)
-            if total >= WEB_CLASSIFY_PREFIX_BYTES:
-                prefix = b"".join(chunks)[:WEB_CLASSIFY_PREFIX_BYTES]
+            prefix_buf.extend(chunk)
+            if len(prefix_buf) >= WEB_CLASSIFY_PREFIX_BYTES:
+                prefix = bytes(prefix_buf[:WEB_CLASSIFY_PREFIX_BYTES])
                 resource_class, detected_suffix = _classify_resource(
                     content_type,
                     content_length,
@@ -243,23 +288,26 @@ def _consume_response_body(
                 )
                 classified = True
                 if resource_class != WebResourceClass.HTML_PAGE:
-                    store = False
-                    chunks = []
-        elif store:
-            total += len(chunk)
-            if total > MAX_WEB_FETCH_BYTES:
+                    break
+                chunks = [bytes(prefix_buf)]
+                total_html = len(prefix_buf)
+        else:
+            total_html += len(chunk)
+            if total_html > MAX_WEB_FETCH_BYTES:
                 raise WebFetchError("web fetch exceeded size limit")
             chunks.append(chunk)
 
     if not classified:
-        prefix = b"".join(chunks)
+        prefix = bytes(prefix_buf)
         resource_class, detected_suffix = _classify_resource(
             content_type,
             content_length,
             prefix,
             current_url,
         )
-        if resource_class != WebResourceClass.HTML_PAGE:
+        if resource_class == WebResourceClass.HTML_PAGE:
+            chunks = [prefix] if prefix else []
+        else:
             chunks = []
 
     return resource_class, detected_suffix, chunks

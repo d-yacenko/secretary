@@ -202,10 +202,6 @@ class WebExplicitLinkIntakeService:
         if fetched.last_modified:
             metadata["last_modified"] = fetched.last_modified
 
-        revision = derive_web_content_revision(metadata)
-        if revision is not None:
-            metadata["content_revision"] = revision
-
         title = _resolve_file_title(fetched, normalized_requested)
         created = existing is None
         obj = existing or self._create_object(
@@ -218,14 +214,10 @@ class WebExplicitLinkIntakeService:
 
         prior_meta = dict(obj.metadata_ or {})
         prior_revision = prior_meta.get("content_revision")
-        incoming_meta = apply_intake_content_metadata(
-            metadata,
-            PROVIDER_WEB,
-            "file",
-            title,
-        )
-        if fetched.file_too_large:
-            incoming_meta[CONTENT_EXTRACTION_STATUS] = STATUS_TOO_LARGE
+
+        revision = derive_web_content_revision(metadata)
+        if revision is not None:
+            metadata["content_revision"] = revision
 
         same_revision = (
             revision is not None
@@ -237,25 +229,55 @@ class WebExplicitLinkIntakeService:
         obj.kind = "file"
         obj.body = None
         obj.canonical_uri = fetched.final_url
-        merged = dict(prior_meta)
-        merged.update(incoming_meta)
-        obj.metadata_ = merged
         obj.title = title
 
         if same_revision:
+            merged = dict(prior_meta)
+            for key in (
+                "intake_mode",
+                "requested_url",
+                "normalized_requested_url",
+                "final_url",
+                "fetched_at",
+                "mime_type",
+                "detected_suffix",
+                "content_length",
+                "etag",
+                "last_modified",
+            ):
+                if key in metadata:
+                    merged[key] = metadata[key]
+            obj.metadata_ = merged
+            self.session.flush()
             return IntakeLinkResult(
                 object_id=obj.id,
                 provider=PROVIDER_WEB,
                 kind=obj.kind,
                 status="unchanged",
-                content_status=(obj.metadata_ or {}).get(
-                    CONTENT_EXTRACTION_STATUS, STATUS_PENDING
-                ),
+                content_status=merged.get(CONTENT_EXTRACTION_STATUS, STATUS_PENDING),
                 content_jobs_enqueued=0,
             )
 
+        incoming_meta = apply_intake_content_metadata(
+            metadata,
+            PROVIDER_WEB,
+            "file",
+            title,
+        )
+        if fetched.file_too_large:
+            incoming_meta[CONTENT_EXTRACTION_STATUS] = STATUS_TOO_LARGE
+
+        merged = dict(prior_meta)
+        merged.update(incoming_meta)
+        obj.metadata_ = merged
+
         if not created and prior_revision != revision:
             invalidate_object_content_immediately(self.session, obj)
+
+        had_ready_mechanical = (
+            prior_meta.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY
+            and int(prior_meta.get(MECHANICAL_REPRESENTATION_COUNT) or 0) > 0
+        )
 
         jobs = 0
         status = "updated" if not created else "created"
@@ -267,7 +289,7 @@ class WebExplicitLinkIntakeService:
             title,
             prior_meta,
             merged,
-            False,
+            had_ready_mechanical,
         ):
             enqueue_extract_explicit_resource_content(
                 self.session,

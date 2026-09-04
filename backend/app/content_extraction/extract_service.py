@@ -234,11 +234,11 @@ def extraction_work_needed(
 ) -> bool:
     prior_revision = prior_metadata.get("content_revision")
     incoming_revision = incoming_metadata.get("content_revision")
-    if incoming_revision is None:
-        return False
     plan = resolve_content_extraction_plan(provider, kind, incoming_metadata, title)
     if not plan.eligible:
         return False
+    if incoming_revision is None:
+        return True
     if prior_revision != incoming_revision:
         return True
     if metadata_extraction_version(prior_metadata) != EXTRACTION_VERSION:

@@ -395,7 +395,7 @@ def test_web_fetch_pdf_mislabeled_text_plain_is_binary(mock_resolve) -> None:
 
 
 @patch("app.resources.web_fetch.socket.getaddrinfo")
-def test_web_fetch_text_plain_remains_text(mock_resolve) -> None:
+def test_web_fetch_text_plain_txt_url_classifies_as_direct_file(mock_resolve) -> None:
     mock_resolve.return_value = [
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))
     ]
@@ -415,5 +415,5 @@ def test_web_fetch_text_plain_remains_text(mock_resolve) -> None:
         ),
     ):
         result = fetch_web_page("http://example.com/readme.txt")
-    assert not result.is_binary
-    assert "plain readable text" in result.text
+    assert result.is_direct_file
+    assert result.detected_suffix == ".txt"
