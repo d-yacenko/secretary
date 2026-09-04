@@ -348,14 +348,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`
+- SHA: `1401351e4fd146e376b3b702352bc10deac00e1b`
 - Branch: `review/user-identity-profile`
-- Deployed: 2026-09-04 (Assistant Failure Taxonomy + User Identity Profile closure)
-- Checkout: `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`, clean working tree
-- Alembic current/head: `0028`
+- Deployed: 2026-09-04 (User-Configurable Assistant Max Rounds)
+- Checkout: `1401351e4fd146e376b3b702352bc10deac00e1b`, clean working tree
+- Alembic current/head: `0029`
 - `/health`: PASS (`{"status":"ok"}`)
 - Worker: healthy
-- `GET /me/identity`: **200** (production smoke; profile intact)
+- `GET /me/settings`: **200** (`assistant_max_rounds` fields present; effective default 6)
 - `POST /assistant/message`: **200** (simple smoke)
 - Android minSdk: `23`
 - Encrypted architect context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`

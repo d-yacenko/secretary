@@ -514,7 +514,20 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Codes:** `assistant_configuration`, `openai_connection`, `openai_rate_limit`, `openai_service`, `assistant_round_limit`, `assistant_output_limit`, `assistant_internal`.
 - **API:** structured `{"detail": {"code", "message"}}`; legacy string `detail` still supported by client.
 - **Telemetry:** AI audit `error_category` uses stable code (e.g. `assistant_round_limit`), not generic `AssistantProviderError`.
-- **Constraints:** `MAX_ASSISTANT_ROUNDS` remains **6**; no retry/budget/model behavior changes.
+- **Constraints:** `assistant_round_limit` means the user's effective round budget was exhausted; tool-call guardrail `MAX_ASSISTANT_TOOL_CALLS_PER_TURN` remains **12** separately.
 - **Production smoke:** `POST /assistant/message` simple prompt **200** after deploy.
 - **Status:** **accepted / deployed** at `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`.
+
+## User-Configurable Assistant Max Rounds
+
+- **Motivation:** round count is a bounded per-user cost/quality preference (depth vs latency/tokens), not permission policy.
+- **Storage:** nullable `user_settings.assistant_max_rounds`; Alembic `0029`; `NULL` → deployment default.
+- **Bounds:** effective range **1..12**; system default **6** (`DEFAULT_ASSISTANT_MAX_ROUNDS`).
+- **API:** `GET/PATCH /me/settings` expose effective value, optional override, and default/min/max metadata; explicit `null` clears override.
+- **Runtime:** `OpenAIAssistantProvider` loop uses per-user effective max rounds; AI audit `model_round` metadata records `effective_max_rounds`.
+- **Tool-call guardrail:** `MAX_ASSISTANT_TOOL_CALLS_PER_TURN` remains **12** (unchanged, code-controlled).
+- **Deferred:** graceful budget exhaustion / forced final tool-free synthesis — revisit only with telemetry from real `assistant_round_limit` events.
+- **Flutter:** Account → ИИ → «Максимум шагов Секретаря» dropdown (`По умолчанию (6)` or 1..12).
+- **Production smoke:** `GET /me/settings` **200** with `assistant_max_rounds`; simple Assistant **200** after deploy.
+- **Status:** **implemented / deployed** at `1401351e4fd146e376b3b702352bc10deac00e1b`.
 
