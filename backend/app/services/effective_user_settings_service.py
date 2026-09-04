@@ -7,6 +7,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
+from app.assistant.constants import (
+    DEFAULT_ASSISTANT_MAX_ROUNDS,
+    MAX_ASSISTANT_MAX_ROUNDS,
+    MIN_ASSISTANT_MAX_ROUNDS,
+)
 from app.core.assistant_openai_config import (
     ALLOWED_ASSISTANT_REASONING_EFFORTS,
     ALLOWED_ASSISTANT_VERBOSITY,
@@ -32,6 +37,8 @@ class EffectiveUserSettings:
     assistant_model: str
     assistant_reasoning_effort: str
     assistant_verbosity: str
+    assistant_max_rounds: int
+    assistant_max_rounds_override: int | None
     openai_key_configured: bool
     allowed_assistant_models: list[str]
     openai_api_key: str | None = field(default=None, repr=False)
@@ -56,6 +63,7 @@ class EffectiveUserSettingsService:
             row, deployment.reasoning_effort
         )
         assistant_verbosity = self._resolve_verbosity(row, deployment.verbosity)
+        assistant_max_rounds = self._resolve_assistant_max_rounds(row)
         openai_key_configured = self._credential_store.is_configured(user_id)
         resolved_key = self._resolve_openai_api_key(user_id, openai_key_configured)
         return EffectiveUserSettings(
@@ -63,6 +71,8 @@ class EffectiveUserSettingsService:
             assistant_model=assistant_model,
             assistant_reasoning_effort=assistant_reasoning_effort,
             assistant_verbosity=assistant_verbosity,
+            assistant_max_rounds=assistant_max_rounds,
+            assistant_max_rounds_override=self._stored_assistant_max_rounds_override(row),
             openai_key_configured=openai_key_configured,
             allowed_assistant_models=allowed_models,
             openai_api_key=resolved_key,
@@ -81,6 +91,8 @@ class EffectiveUserSettingsService:
                 row, deployment.reasoning_effort
             ),
             assistant_verbosity=self._resolve_verbosity(row, deployment.verbosity),
+            assistant_max_rounds=self._resolve_assistant_max_rounds(row),
+            assistant_max_rounds_override=self._stored_assistant_max_rounds_override(row),
             openai_key_configured=openai_key_configured,
             allowed_assistant_models=allowed_models,
             openai_api_key=None,
@@ -101,6 +113,8 @@ class EffectiveUserSettingsService:
         assistant_model: str | None = None,
         assistant_reasoning_effort: str | None = None,
         assistant_verbosity: str | None = None,
+        assistant_max_rounds: int | None = None,
+        assistant_max_rounds_set: bool = False,
     ) -> EffectiveUserSettings:
         row = self.get_or_create_settings_row(user_id)
         allowed_models = settings.allowed_assistant_models
@@ -126,6 +140,13 @@ class EffectiveUserSettingsService:
                 row.assistant_verbosity = validate_assistant_verbosity(assistant_verbosity)
             except AssistantOpenAIConfigError as exc:
                 raise ValidationError(str(exc)) from exc
+        if assistant_max_rounds_set:
+            if assistant_max_rounds is None:
+                row.assistant_max_rounds = None
+            else:
+                row.assistant_max_rounds = self._validate_assistant_max_rounds(
+                    assistant_max_rounds
+                )
         row.updated_at = utcnow()
         self._session.flush()
         return self.get_settings_view(user_id)
@@ -180,6 +201,28 @@ class EffectiveUserSettingsService:
             if stored in ALLOWED_ASSISTANT_VERBOSITY:
                 return stored
         return deployment_verbosity
+
+    def _resolve_assistant_max_rounds(self, row: UserSettings | None) -> int:
+        override = self._stored_assistant_max_rounds_override(row)
+        if override is not None:
+            return override
+        return DEFAULT_ASSISTANT_MAX_ROUNDS
+
+    def _stored_assistant_max_rounds_override(self, row: UserSettings | None) -> int | None:
+        if row is None or row.assistant_max_rounds is None:
+            return None
+        stored = row.assistant_max_rounds
+        if MIN_ASSISTANT_MAX_ROUNDS <= stored <= MAX_ASSISTANT_MAX_ROUNDS:
+            return stored
+        return None
+
+    def _validate_assistant_max_rounds(self, value: int) -> int:
+        if value < MIN_ASSISTANT_MAX_ROUNDS or value > MAX_ASSISTANT_MAX_ROUNDS:
+            raise ValidationError(
+                f"assistant_max_rounds must be between "
+                f"{MIN_ASSISTANT_MAX_ROUNDS} and {MAX_ASSISTANT_MAX_ROUNDS}"
+            )
+        return value
 
     def _resolve_timezone(self, row: UserSettings | None) -> str:
         if row is not None and row.timezone:

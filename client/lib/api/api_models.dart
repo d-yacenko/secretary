@@ -21,6 +21,11 @@ class UserSettings {
     required this.assistantModel,
     required this.assistantReasoningEffort,
     required this.assistantVerbosity,
+    required this.assistantMaxRounds,
+    required this.assistantMaxRoundsOverride,
+    required this.defaultAssistantMaxRounds,
+    required this.minAssistantMaxRounds,
+    required this.maxAssistantMaxRounds,
     required this.openaiKeyConfigured,
     required this.allowedAssistantModels,
   });
@@ -29,6 +34,11 @@ class UserSettings {
   final String assistantModel;
   final String assistantReasoningEffort;
   final String assistantVerbosity;
+  final int assistantMaxRounds;
+  final int? assistantMaxRoundsOverride;
+  final int defaultAssistantMaxRounds;
+  final int minAssistantMaxRounds;
+  final int maxAssistantMaxRounds;
   final bool openaiKeyConfigured;
   final List<String> allowedAssistantModels;
 
@@ -38,6 +48,11 @@ class UserSettings {
       assistantModel: json['assistant_model'] as String,
       assistantReasoningEffort: json['assistant_reasoning_effort'] as String,
       assistantVerbosity: json['assistant_verbosity'] as String,
+      assistantMaxRounds: json['assistant_max_rounds'] as int,
+      assistantMaxRoundsOverride: json['assistant_max_rounds_override'] as int?,
+      defaultAssistantMaxRounds: json['default_assistant_max_rounds'] as int,
+      minAssistantMaxRounds: json['min_assistant_max_rounds'] as int,
+      maxAssistantMaxRounds: json['max_assistant_max_rounds'] as int,
       openaiKeyConfigured: json['openai_key_configured'] as bool,
       allowedAssistantModels:
           (json['allowed_assistant_models'] as List<dynamic>)

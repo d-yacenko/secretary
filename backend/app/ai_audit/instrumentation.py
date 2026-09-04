@@ -34,6 +34,7 @@ def record_responses_round(
     user_message: str | None = None,
     failed: bool = False,
     error_category: str | None = None,
+    effective_max_rounds: int | None = None,
 ) -> None:
     active = get_active_trace()
     if active is None:
@@ -54,6 +55,8 @@ def record_responses_round(
         "elapsed_ms": elapsed_ms,
         **component_sizes,
     }
+    if effective_max_rounds is not None:
+        metadata["effective_max_rounds"] = effective_max_rounds
     if response is not None:
         usage = extract_responses_usage_fields(response)
         metadata.update(usage)

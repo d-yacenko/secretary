@@ -68,6 +68,8 @@ class SecretaryApiClient {
     String? assistantModel,
     String? assistantReasoningEffort,
     String? assistantVerbosity,
+    int? assistantMaxRounds,
+    bool patchAssistantMaxRounds = false,
   }) async {
     final jsonBody = <String, dynamic>{};
     if (timezone != null) {
@@ -81,6 +83,9 @@ class SecretaryApiClient {
     }
     if (assistantVerbosity != null) {
       jsonBody['assistant_verbosity'] = assistantVerbosity;
+    }
+    if (patchAssistantMaxRounds) {
+      jsonBody['assistant_max_rounds'] = assistantMaxRounds;
     }
     final body = await _request('PATCH', '/me/settings', jsonBody: jsonBody);
     return UserSettings.fromJson(body);

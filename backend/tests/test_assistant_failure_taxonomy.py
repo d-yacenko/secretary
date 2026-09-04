@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.ai_audit.constants import WORKLOAD_ASSISTANT_INTERACTIVE
 from app.ai_audit.context import ai_trace_session
-from app.assistant.constants import MAX_ASSISTANT_ROUNDS
+from app.assistant.constants import DEFAULT_ASSISTANT_MAX_ROUNDS
 from app.db.models import AITrace
 from app.llm.assistant_provider_errors import (
     ASSISTANT_CONFIGURATION,
@@ -291,4 +291,4 @@ def test_openai_provider_classifies_connection_error(monkeypatch) -> None:
 
 
 def test_max_assistant_rounds_constant_unchanged() -> None:
-    assert MAX_ASSISTANT_ROUNDS == 6
+    assert DEFAULT_ASSISTANT_MAX_ROUNDS == 6

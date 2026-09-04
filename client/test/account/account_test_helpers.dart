@@ -33,6 +33,11 @@ Map<String, dynamic> accountSettingsJson({
   String assistantModel = 'gpt-5.6-luna',
   String assistantReasoningEffort = 'low',
   String assistantVerbosity = 'low',
+  int assistantMaxRounds = 6,
+  int? assistantMaxRoundsOverride,
+  int defaultAssistantMaxRounds = 6,
+  int minAssistantMaxRounds = 1,
+  int maxAssistantMaxRounds = 12,
   bool openaiKeyConfigured = false,
   List<String> allowedAssistantModels = const ['gpt-5.6-luna', 'gpt-5.6-terra'],
 }) {
@@ -41,6 +46,11 @@ Map<String, dynamic> accountSettingsJson({
     'assistant_model': assistantModel,
     'assistant_reasoning_effort': assistantReasoningEffort,
     'assistant_verbosity': assistantVerbosity,
+    'assistant_max_rounds': assistantMaxRounds,
+    'assistant_max_rounds_override': assistantMaxRoundsOverride,
+    'default_assistant_max_rounds': defaultAssistantMaxRounds,
+    'min_assistant_max_rounds': minAssistantMaxRounds,
+    'max_assistant_max_rounds': maxAssistantMaxRounds,
     'openai_key_configured': openaiKeyConfigured,
     'allowed_assistant_models': allowedAssistantModels,
   };

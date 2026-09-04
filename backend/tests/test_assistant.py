@@ -81,6 +81,8 @@ def _default_test_effective_settings() -> EffectiveUserSettings:
         assistant_model="gpt-5.6-luna",
         assistant_reasoning_effort="low",
         assistant_verbosity="low",
+        assistant_max_rounds=6,
+        assistant_max_rounds_override=None,
         openai_api_key=None,
         openai_key_configured=False,
         allowed_assistant_models=["gpt-5.6-luna"],

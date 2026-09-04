@@ -14,6 +14,7 @@ from app.api.schemas import NotificationOut
 from app.assistant.action_plan_history import build_terminal_action_plan_history_events
 from app.assistant.canonical_uri import sanitize_canonical_uri_for_assistant
 from app.assistant.constants import (
+    DEFAULT_ASSISTANT_MAX_ROUNDS,
     MAX_ACTION_PLAN_FINALIZATION_CONTEXT_CHARS,
     MAX_ASSISTANT_HISTORY_MESSAGE_CHARS,
     MAX_ASSISTANT_HISTORY_MESSAGES,
@@ -738,6 +739,7 @@ def create_assistant_provider_from_effective(
         reasoning_effort=effective.assistant_reasoning_effort,
         verbosity=effective.assistant_verbosity,
         max_output_tokens=deployment_settings.max_output_tokens,
+        max_rounds=effective.assistant_max_rounds,
     )
 
 
@@ -754,6 +756,7 @@ def create_assistant_provider() -> OpenAIAssistantProvider:
         reasoning_effort=assistant_settings.reasoning_effort,
         verbosity=assistant_settings.verbosity,
         max_output_tokens=assistant_settings.max_output_tokens,
+        max_rounds=DEFAULT_ASSISTANT_MAX_ROUNDS,
     )
 
 

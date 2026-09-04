@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.api.auth_schemas import UserMeOut
 from app.api.deps import get_current_user, get_db
+from app.assistant.constants import (
+    DEFAULT_ASSISTANT_MAX_ROUNDS,
+    MAX_ASSISTANT_MAX_ROUNDS,
+    MIN_ASSISTANT_MAX_ROUNDS,
+)
 from app.core.current_user import CurrentUserContext
 from app.db.models import User
 from app.services.effective_user_settings_service import (
@@ -38,6 +43,11 @@ class UserSettingsOut(BaseModel):
     assistant_model: str
     assistant_reasoning_effort: str
     assistant_verbosity: str
+    assistant_max_rounds: int
+    assistant_max_rounds_override: int | None
+    default_assistant_max_rounds: int
+    min_assistant_max_rounds: int
+    max_assistant_max_rounds: int
     openai_key_configured: bool
     allowed_assistant_models: list[str]
 
@@ -49,6 +59,7 @@ class UserSettingsPatch(BaseModel):
     assistant_model: str | None = None
     assistant_reasoning_effort: str | None = None
     assistant_verbosity: str | None = None
+    assistant_max_rounds: int | None = None
 
 
 class OpenAICredentialPut(BaseModel):
@@ -116,6 +127,11 @@ def _serialize_settings(effective: EffectiveUserSettings) -> UserSettingsOut:
         assistant_model=effective.assistant_model,
         assistant_reasoning_effort=effective.assistant_reasoning_effort,
         assistant_verbosity=effective.assistant_verbosity,
+        assistant_max_rounds=effective.assistant_max_rounds,
+        assistant_max_rounds_override=effective.assistant_max_rounds_override,
+        default_assistant_max_rounds=DEFAULT_ASSISTANT_MAX_ROUNDS,
+        min_assistant_max_rounds=MIN_ASSISTANT_MAX_ROUNDS,
+        max_assistant_max_rounds=MAX_ASSISTANT_MAX_ROUNDS,
         openai_key_configured=effective.openai_key_configured,
         allowed_assistant_models=effective.allowed_assistant_models,
     )
@@ -196,6 +212,12 @@ def patch_my_settings(
                 if "assistant_verbosity" in payload.model_fields_set
                 else None
             ),
+            assistant_max_rounds=(
+                payload.assistant_max_rounds
+                if "assistant_max_rounds" in payload.model_fields_set
+                else None
+            ),
+            assistant_max_rounds_set="assistant_max_rounds" in payload.model_fields_set,
         )
     except ValidationError as exc:
         raise HTTPException(

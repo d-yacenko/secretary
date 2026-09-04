@@ -363,6 +363,8 @@ class _AccountScreenState extends State<AccountScreen>
     String? assistantModel,
     String? assistantReasoningEffort,
     String? assistantVerbosity,
+    int? assistantMaxRounds,
+    bool patchAssistantMaxRounds = false,
   }) async {
     if (_settingsSaving) {
       return;
@@ -373,6 +375,8 @@ class _AccountScreenState extends State<AccountScreen>
         assistantModel: assistantModel,
         assistantReasoningEffort: assistantReasoningEffort,
         assistantVerbosity: assistantVerbosity,
+        assistantMaxRounds: assistantMaxRounds,
+        patchAssistantMaxRounds: patchAssistantMaxRounds,
       );
       if (mounted) {
         setState(() {
@@ -706,6 +710,58 @@ class _AccountScreenState extends State<AccountScreen>
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    AccountLabeledControl(
+                      label: 'Максимум шагов Секретаря',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          DropdownButton<String>(
+                            value: _dropdownAssistantMaxRounds(settings),
+                            items: [
+                              DropdownMenuItem(
+                                value: _assistantMaxRoundsDefaultValue,
+                                child: Text(
+                                  'По умолчанию (${settings.defaultAssistantMaxRounds})',
+                                ),
+                              ),
+                              for (var value = settings.minAssistantMaxRounds;
+                                  value <= settings.maxAssistantMaxRounds;
+                                  value++)
+                                DropdownMenuItem(
+                                  value: value.toString(),
+                                  child: Text(value.toString()),
+                                ),
+                            ],
+                            onChanged: _settingsSaving
+                                ? null
+                                : (value) {
+                                    if (value == null) {
+                                      return;
+                                    }
+                                    if (value == _assistantMaxRoundsDefaultValue) {
+                                      _saveAiPreferences(
+                                        patchAssistantMaxRounds: true,
+                                      );
+                                      return;
+                                    }
+                                    final parsed = int.tryParse(value);
+                                    if (parsed != null) {
+                                      _saveAiPreferences(
+                                        assistantMaxRounds: parsed,
+                                        patchAssistantMaxRounds: true,
+                                      );
+                                    }
+                                  },
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Больше шагов — более глубокий поиск, но выше время ответа и расход токенов.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -813,6 +869,15 @@ String _dropdownVerbosity(UserSettings settings) {
     return settings.assistantVerbosity;
   }
   return 'low';
+}
+
+const _assistantMaxRoundsDefaultValue = '__default__';
+
+String _dropdownAssistantMaxRounds(UserSettings settings) {
+  if (settings.assistantMaxRoundsOverride == null) {
+    return _assistantMaxRoundsDefaultValue;
+  }
+  return settings.assistantMaxRoundsOverride.toString();
 }
 
 String googleOAuthButtonLabel(GoogleConnection google) {

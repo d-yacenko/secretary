@@ -350,6 +350,162 @@ void main() {
       expect(find.text('gpt-5.6-luna'), findsWidgets);
       expect(find.text('gpt-disallowed'), findsNothing);
     });
+
+    testWidgets('assistant max rounds default option renders', (tester) async {
+      final client = buildAccountApiClient();
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      expect(find.text('Максимум шагов Секретаря'), findsOneWidget);
+      expect(find.text('По умолчанию (6)'), findsOneWidget);
+    });
+
+    testWidgets('selecting explicit max rounds sends PATCH value', (tester) async {
+      int? patchedMaxRounds;
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/me/settings') && request.method == 'PATCH') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            patchedMaxRounds = body['assistant_max_rounds'] as int?;
+            return http.Response(
+              jsonEncode(
+                accountSettingsJson(
+                  assistantMaxRounds: patchedMaxRounds ?? 6,
+                  assistantMaxRoundsOverride: patchedMaxRounds,
+                ),
+              ),
+              200,
+            );
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      await tester.tap(find.text('По умолчанию (6)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('4').last);
+      await tester.pumpAndSettle();
+
+      expect(patchedMaxRounds, 4);
+      expect(find.text('4'), findsWidgets);
+    });
+
+    testWidgets('selecting default sends PATCH null', (tester) async {
+      Object? patchedMaxRounds;
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/me/settings') && request.method == 'PATCH') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            patchedMaxRounds = body['assistant_max_rounds'];
+            return http.Response(
+              jsonEncode(accountSettingsJson()),
+              200,
+            );
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(
+              jsonEncode(
+                accountSettingsJson(
+                  assistantMaxRounds: 5,
+                  assistantMaxRoundsOverride: 5,
+                ),
+              ),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          settingsJson: accountSettingsJson(
+            assistantMaxRounds: 5,
+            assistantMaxRoundsOverride: 5,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('5'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('По умолчанию (6)'));
+      await tester.pumpAndSettle();
+
+      expect(patchedMaxRounds, isNull);
+    });
+
+    testWidgets('assistant max rounds save failure does not fake state', (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/me/settings') && request.method == 'PATCH') {
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({'detail': 'assistant_max_rounds must be between 1 and 12'}),
+              ),
+              422,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      await tester.tap(find.text('По умолчанию (6)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('4').last);
+      await tester.pumpAndSettle();
+
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (find
+            .textContaining('assistant_max_rounds must be between 1 and 12')
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+      }
+
+      expect(
+        find.textContaining('assistant_max_rounds must be between 1 and 12'),
+        findsOneWidget,
+      );
+      expect(find.text('По умолчанию (6)'), findsOneWidget);
+    });
   });
 
   group('Identity profile UX', () {

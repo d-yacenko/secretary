@@ -7,7 +7,7 @@ from uuid import UUID
 
 from app.ai_audit.instrumentation import record_responses_round, record_tool_execution
 from app.assistant.constants import (
-    MAX_ASSISTANT_ROUNDS,
+    DEFAULT_ASSISTANT_MAX_ROUNDS,
     UI_CONTEXT_DELIMITER_END,
     UI_CONTEXT_DELIMITER_START,
 )
@@ -130,6 +130,7 @@ class OpenAIAssistantProvider:
         reasoning_effort: str = "low",
         verbosity: str = "low",
         max_output_tokens: int = 1600,
+        max_rounds: int = DEFAULT_ASSISTANT_MAX_ROUNDS,
     ) -> None:
         from openai import OpenAI
 
@@ -138,8 +139,13 @@ class OpenAIAssistantProvider:
         self._reasoning_effort = reasoning_effort
         self._verbosity = verbosity
         self._max_output_tokens = max_output_tokens
+        self._max_rounds = max_rounds
         self._last_store_false = False
         self._last_instructions: str = ""
+
+    @property
+    def max_rounds(self) -> int:
+        return self._max_rounds
 
     @property
     def last_store_false(self) -> bool:
@@ -186,7 +192,7 @@ class OpenAIAssistantProvider:
         affected_ids: list[UUID] = []
         usage_totals = ResponsesUsageAccumulated()
 
-        for round_number in range(1, MAX_ASSISTANT_ROUNDS + 1):
+        for round_number in range(1, self._max_rounds + 1):
             round_started = time.perf_counter()
             try:
                 response = self._client.responses.create(
@@ -216,6 +222,7 @@ class OpenAIAssistantProvider:
                     user_message=message,
                     failed=True,
                     error_category=classified.code,
+                    effective_max_rounds=self._max_rounds,
                 )
                 logger.warning(
                     "assistant OpenAI call failed: %s: %s",
@@ -238,6 +245,7 @@ class OpenAIAssistantProvider:
                 tool_definitions=ASSISTANT_TOOL_DEFINITIONS,
                 elapsed_ms=elapsed_ms,
                 user_message=message,
+                effective_max_rounds=self._max_rounds,
             )
 
             if response_hit_max_output_tokens(response):

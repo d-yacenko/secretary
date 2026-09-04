@@ -536,6 +536,7 @@ class UserSettings(Base):
     assistant_model: Mapped[str | None] = mapped_column(nullable=True)
     assistant_reasoning_effort: Mapped[str | None] = mapped_column(nullable=True)
     assistant_verbosity: Mapped[str | None] = mapped_column(nullable=True)
+    assistant_max_rounds: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
