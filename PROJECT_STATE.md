@@ -182,6 +182,8 @@ Universal Intake Iteration A-R1-R1 corrective: **implemented and deployed** at `
 
 Universal Intake Iteration A-R2 corrective: **implemented and deployed** at `057627ae6a0c610b1a801ea2798a293ef1453c5c`, **awaiting architect review and manual E2E** (Iteration A not accepted). Global «+» restored to task-only Capture; Inbox intake bar is universal explicit incoming-object entry (note / link / file / folder / voice).
 
+Universal Intake Iteration A-R3 corrective: **implemented and deployed** at `4abf5f82da7f566cd09ecc371e701cf62e619c45`, **awaiting architect review and manual E2E**. Direct public web files (e.g. large PDFs without `.pdf` suffix) hand off to bounded `provider=web` `kind=file` extraction instead of the 3 MiB HTML fetch cap.
+
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
 Manual Google Drive / Yandex Disk matched-version E2E: **PASS** (PHASE 29A closure).
@@ -334,14 +336,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `057627ae6a0c610b1a801ea2798a293ef1453c5c`
+- SHA: `4abf5f82da7f566cd09ecc371e701cf62e619c45`
 - Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-04 (Universal Intake Iteration A-R2 corrective)
-- Checkout: `057627ae6a0c610b1a801ea2798a293ef1453c5c`, clean working tree
+- Deployed: 2026-09-04 (Universal Intake Iteration A-R3 corrective)
+- Checkout: `4abf5f82da7f566cd09ecc371e701cf62e619c45`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Iteration A-R2: task-only Capture + Inbox universal intake deployed
+- Iteration A-R3: direct web file handoff + arXiv PDF closure deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)

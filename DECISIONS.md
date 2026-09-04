@@ -415,3 +415,13 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Architect context:** blob SHA `99cb601b147a3e2d2b49c1fc0eab7cd9d9db7f0f` unchanged.
 - **Status:** deployed at `057627ae6a0c610b1a801ea2798a293ef1453c5c`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
 
+## Universal Intake Iteration A-R3 — direct web file handoff
+
+- **Motivation:** user E2E PASS for Google file / note / voice / HTML web link; FAIL for `https://arxiv.org/pdf/1506.04214` with «web fetch exceeded size limit» because generic web fetch capped body at 3 MiB before binary handling.
+- **Early classification:** shared public HTTP transport inspects Content-Type, Content-Length, and bounded magic prefix; HTML/text continues through 3 MiB cap; supported direct files probe-only at intake then download up to 20 MiB in worker.
+- **Semantics:** `provider=web`, `kind=file`, `origin=explicit`, `external_id` = normalized requested URL; `canonical_uri` = final URL; revision via ETag/Last-Modified/Content-Length and/or content hash.
+- **Extraction:** extend `ExplicitResourceContentExtractor` + `resolve_content_extraction_plan(provider=web)`; reuse `MIME_SUFFIX_MAP` / `SUPPORTED_BINARY_SUFFIXES`; no arXiv adapter; no global HTML cap raise.
+- **Production:** arXiv URL intake succeeds, `kind=file`, `content_status=ready` after worker extraction.
+- **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
+- **Status:** deployed at `4abf5f82da7f566cd09ecc371e701cf62e619c45`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+
