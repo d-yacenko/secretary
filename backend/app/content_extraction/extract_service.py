@@ -16,6 +16,7 @@ from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
 from app.connectors.yandex.disk_transport import YandexDiskTransport
 from app.content_extraction.bounded_download import DownloadTooLargeError
 from app.content_extraction.constants import EXTRACTION_VERSION
+from app.content_extraction.extraction_baseline import worker_extraction_authoritative
 from app.content_extraction.format_resolver import resolve_content_extraction_plan
 from app.content_extraction.google_drive_content import fetch_google_drive_content
 from app.content_extraction.mechanical_extractors import extract_from_path
@@ -76,6 +77,7 @@ class ExplicitResourceContentExtractor:
         object_id: UUID,
         expected_revision: str | None,
         extraction_version: str | None,
+        expected_baseline: str | None = None,
     ) -> None:
         obj = self._session.scalar(
             select(Object).where(Object.id == object_id, Object.user_id == self._user_id)
@@ -84,12 +86,17 @@ class ExplicitResourceContentExtractor:
             raise ValueError(f"object ownership mismatch: {object_id}")
 
         metadata = dict(obj.metadata_ or {})
-        current_revision = metadata.get("content_revision")
-        if expected_revision is not None and current_revision != expected_revision:
+        if not worker_extraction_authoritative(
+            provider=obj.provider,
+            metadata=metadata,
+            expected_revision=expected_revision,
+            expected_baseline=expected_baseline,
+        ):
             return
         if extraction_version is not None and metadata_extraction_version(metadata) != extraction_version:
             return
 
+        current_revision = metadata.get("content_revision")
         if (
             metadata.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY
             and metadata_extraction_version(metadata) == EXTRACTION_VERSION
@@ -109,17 +116,17 @@ class ExplicitResourceContentExtractor:
 
         suffix = plan.suffix or ".bin"
         temp = SecureTempFile(suffix=suffix)
-        intake_snapshot = _intake_baseline_snapshot(metadata)
         try:
             raw = self._download_bytes(obj, metadata, plan)
 
             self._session.refresh(obj)
             fresh_metadata = dict(obj.metadata_ or {})
-            if not _intake_baseline_matches(intake_snapshot, fresh_metadata):
-                return
-            if expected_revision is not None and fresh_metadata.get(
-                "content_revision"
-            ) != expected_revision:
+            if not worker_extraction_authoritative(
+                provider=obj.provider,
+                metadata=fresh_metadata,
+                expected_revision=expected_revision,
+                expected_baseline=expected_baseline,
+            ):
                 return
 
             resolved_revision = fresh_metadata.get("content_revision")
@@ -154,11 +161,25 @@ class ExplicitResourceContentExtractor:
                 resolved_revision,
             )
         except DownloadTooLargeError:
-            self._fail(obj, metadata, STATUS_TOO_LARGE, "download_too_large", clear=True)
+            self._fail_if_authoritative(
+                obj,
+                expected_revision=expected_revision,
+                expected_baseline=expected_baseline,
+                status=STATUS_TOO_LARGE,
+                error_code="download_too_large",
+                clear=True,
+            )
         except Exception as exc:  # noqa: BLE001
             error_code = _stable_error_code(exc)
             status = STATUS_UNSUPPORTED if error_code in {"encrypted_pdf", "unsupported_format"} else STATUS_FAILED
-            self._fail(obj, metadata, status, error_code, clear=True)
+            self._fail_if_authoritative(
+                obj,
+                expected_revision=expected_revision,
+                expected_baseline=expected_baseline,
+                status=status,
+                error_code=error_code,
+                clear=True,
+            )
         finally:
             temp.cleanup()
 
@@ -210,6 +231,27 @@ class ExplicitResourceContentExtractor:
             merged[CONTENT_FORMAT] = content_format
         obj.metadata_ = merged
         self._session.flush()
+
+    def _fail_if_authoritative(
+        self,
+        obj: Object,
+        *,
+        expected_revision: str | None,
+        expected_baseline: str | None,
+        status: str,
+        error_code: str,
+        clear: bool,
+    ) -> None:
+        self._session.refresh(obj)
+        metadata = dict(obj.metadata_ or {})
+        if not worker_extraction_authoritative(
+            provider=obj.provider,
+            metadata=metadata,
+            expected_revision=expected_revision,
+            expected_baseline=expected_baseline,
+        ):
+            return
+        self._fail(obj, metadata, status, error_code, clear)
 
     def _fail(
         self,
@@ -276,20 +318,6 @@ def extraction_work_needed(
     if status in {STATUS_FAILED, STATUS_TOO_LARGE, STATUS_UNSUPPORTED}:
         return False
     return not had_ready_mechanical
-
-
-def _intake_baseline_snapshot(metadata: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "content_revision": metadata.get("content_revision"),
-        "fetched_at": metadata.get("fetched_at"),
-        "etag": metadata.get("etag"),
-        "last_modified": metadata.get("last_modified"),
-        "content_length": metadata.get("content_length"),
-    }
-
-
-def _intake_baseline_matches(snapshot: dict[str, Any], current: dict[str, Any]) -> bool:
-    return all(snapshot.get(key) == current.get(key) for key in snapshot)
 
 
 def _stable_error_code(exc: Exception) -> str:

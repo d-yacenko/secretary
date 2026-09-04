@@ -15,11 +15,16 @@ from app.content_extraction.extract_service import (
     apply_intake_content_metadata,
     extraction_work_needed,
 )
+from app.content_extraction.extraction_baseline import (
+    EXTRACTION_BASELINE_METADATA_KEY,
+    derive_web_extraction_baseline,
+)
 from app.content_extraction.mechanical_extractors import build_bounded_text_representations
 from app.content_extraction.mechanical_persistence import MechanicalRepresentationPersistence
 from app.content_extraction.metadata_keys import (
     CONTENT_EXTRACTION_STATUS,
     MECHANICAL_REPRESENTATION_COUNT,
+    MECHANICAL_REPRESENTATION_KINDS,
     STATUS_FAILED,
     STATUS_METADATA_ONLY,
     STATUS_PENDING,
@@ -325,12 +330,16 @@ class WebExplicitLinkIntakeService:
             merged,
             had_ready_mechanical,
         ):
+            baseline = derive_web_extraction_baseline(merged)
+            merged[EXTRACTION_BASELINE_METADATA_KEY] = baseline
+            obj.metadata_ = merged
             enqueue_extract_explicit_resource_content(
                 self.session,
                 obj.id,
                 self.user_id,
                 merged.get("content_revision"),
                 EXTRACTION_VERSION,
+                extraction_baseline=baseline,
             )
             merged[CONTENT_EXTRACTION_STATUS] = STATUS_PENDING
             obj.metadata_ = merged
@@ -431,7 +440,10 @@ def _mechanical_rep_count(session: Session, object_id: UUID) -> int:
         session.scalar(
             select(func.count())
             .select_from(Representation)
-            .where(Representation.object_id == object_id)
+            .where(
+                Representation.object_id == object_id,
+                Representation.kind.in_(MECHANICAL_REPRESENTATION_KINDS),
+            )
         )
         or 0
     )

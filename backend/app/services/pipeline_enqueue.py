@@ -32,6 +32,7 @@ def enqueue_extract_explicit_resource_content(
     user_id: UUID,
     expected_revision: str | None,
     extraction_version: str,
+    extraction_baseline: str | None = None,
 ) -> None:
     if _has_pending_job(
         session,
@@ -41,6 +42,7 @@ def enqueue_extract_explicit_resource_content(
         {
             "expected_content_revision": expected_revision,
             "extraction_version": extraction_version,
+            "extraction_baseline": extraction_baseline,
         },
     ):
         return
@@ -48,6 +50,7 @@ def enqueue_extract_explicit_resource_content(
         "object_id": str(object_id),
         "expected_content_revision": expected_revision,
         "extraction_version": extraction_version,
+        "extraction_baseline": extraction_baseline,
     }
     parent_trace_id = _active_parent_trace_id()
     if parent_trace_id is not None:

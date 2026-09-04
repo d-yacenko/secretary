@@ -357,11 +357,12 @@ def handle_extract_explicit_resource_content(
     object_id = UUID(str(payload["object_id"]))
     expected_revision = payload.get("expected_content_revision")
     extraction_version = payload.get("extraction_version")
+    expected_baseline = payload.get("extraction_baseline")
 
     work_session = SessionLocal()
     extractor = build_explicit_resource_content_extractor(work_session, user_id)
     try:
-        extractor.run(object_id, expected_revision, extraction_version)
+        extractor.run(object_id, expected_revision, extraction_version, expected_baseline)
         work_session.commit()
     except Exception:
         work_session.rollback()

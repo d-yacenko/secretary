@@ -38,6 +38,17 @@ def _patch_addr(mock_resolve) -> None:
     ]
 
 
+def _latest_extract_job(db_session, object_id):
+    return db_session.scalars(
+        select(Job)
+        .where(
+            Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
+            Job.payload["object_id"].as_string() == str(object_id),
+        )
+        .order_by(Job.created_at.desc())
+    ).first()
+
+
 def _pdf_handler(body: bytes, **headers):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -426,6 +437,57 @@ def test_no_validator_queue_dedupe(mock_resolve, db_session) -> None:
 
 
 @patch("app.resources.web_fetch.socket.getaddrinfo")
+def test_worker_survives_fetched_at_only_probe_during_download(mock_resolve, db_session) -> None:
+    _patch_addr(mock_resolve)
+    marker = f"race_fetch_{uuid.uuid4().hex}"
+    body = _large_pdf_bytes(marker, MAX_WEB_FETCH_BYTES + 32 * 1024)
+    transport = httpx.MockTransport(_pdf_handler(body, ETag='"race-start"'))
+    with patch(
+        "app.resources.web_fetch.httpx.Client",
+        side_effect=lambda *args, **kwargs: _REAL_HTTPX_CLIENT(
+            transport=transport, follow_redirects=False
+        ),
+    ):
+        service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
+        result = service.intake_link(ARXIV_STYLE_URL)
+        db_session.commit()
+
+        obj = db_session.get(Object, result.object_id)
+        real_download = ExplicitResourceContentExtractor._download_bytes
+        job = _latest_extract_job(db_session, obj.id)
+        start_revision = job.payload.get("expected_content_revision")
+        start_baseline = job.payload.get("extraction_baseline")
+
+        def racing_download(self, obj_arg, metadata, plan):
+            raw = real_download(self, obj_arg, metadata, plan)
+            fresh = self._session.get(Object, obj_arg.id)
+            meta = dict(fresh.metadata_ or {})
+            meta["fetched_at"] = "2026-09-04T10:00:00+00:00"
+            fresh.metadata_ = meta
+            self._session.flush()
+            return raw
+
+        extractor = ExplicitResourceContentExtractor(session=db_session, user_id=BOOTSTRAP_USER_ID)
+        with patch.object(ExplicitResourceContentExtractor, "_download_bytes", racing_download):
+            extractor.run(
+                obj.id,
+                expected_revision=start_revision,
+                extraction_version=EXTRACTION_VERSION,
+                expected_baseline=start_baseline,
+            )
+        db_session.commit()
+
+    refreshed = db_session.get(Object, obj.id)
+    assert refreshed.metadata_[CONTENT_EXTRACTION_STATUS] == "ready"
+    rep_count = db_session.scalar(
+        select(func.count()).select_from(Representation).where(
+            Representation.object_id == obj.id
+        )
+    )
+    assert rep_count > 0
+
+
+@patch("app.resources.web_fetch.socket.getaddrinfo")
 def test_worker_race_guard_aborts_stale_result(mock_resolve, db_session) -> None:
     _patch_addr(mock_resolve)
     marker = f"race_{uuid.uuid4().hex}"
@@ -443,13 +505,14 @@ def test_worker_race_guard_aborts_stale_result(mock_resolve, db_session) -> None
 
         obj = db_session.get(Object, result.object_id)
         real_download = ExplicitResourceContentExtractor._download_bytes
-        start_revision = obj.metadata_.get("content_revision")
+        job = _latest_extract_job(db_session, obj.id)
+        start_revision = job.payload.get("expected_content_revision")
+        start_baseline = job.payload.get("extraction_baseline")
 
         def racing_download(self, obj_arg, metadata, plan):
             raw = real_download(self, obj_arg, metadata, plan)
             fresh = self._session.get(Object, obj_arg.id)
             meta = dict(fresh.metadata_ or {})
-            meta["fetched_at"] = "2026-09-04T10:00:00+00:00"
             meta["etag"] = '"race-new"'
             meta["content_revision"] = 'web:etag:"race-new"'
             fresh.metadata_ = meta
@@ -462,6 +525,7 @@ def test_worker_race_guard_aborts_stale_result(mock_resolve, db_session) -> None
                 obj.id,
                 expected_revision=start_revision,
                 extraction_version=EXTRACTION_VERSION,
+                expected_baseline=start_baseline,
             )
         db_session.commit()
 
