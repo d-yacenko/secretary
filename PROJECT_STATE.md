@@ -180,6 +180,8 @@ Universal Intake Iteration A-R1 corrective: **implemented and deployed** at `1e8
 
 Universal Intake Iteration A-R1-R1 corrective: **implemented and deployed** at `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`, **awaiting architect review and manual E2E** (Iteration A not accepted).
 
+Universal Intake Iteration A-R2 corrective: **implemented and deployed** at `057627ae6a0c610b1a801ea2798a293ef1453c5c`, **awaiting architect review and manual E2E** (Iteration A not accepted). Global «+» restored to task-only Capture; Inbox intake bar is universal explicit incoming-object entry (note / link / file / folder / voice).
+
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
 Manual Google Drive / Yandex Disk matched-version E2E: **PASS** (PHASE 29A closure).
@@ -332,14 +334,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`
+- SHA: `057627ae6a0c610b1a801ea2798a293ef1453c5c`
 - Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-03 (Universal Intake Iteration A-R1-R1 corrective)
-- Checkout: `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`, clean working tree
+- Deployed: 2026-09-04 (Universal Intake Iteration A-R2 corrective)
+- Checkout: `057627ae6a0c610b1a801ea2798a293ef1453c5c`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Iteration A-R1-R1: web URL userinfo guard + blank Quick Add Note reset deployed
+- Iteration A-R2: task-only Capture + Inbox universal intake deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)

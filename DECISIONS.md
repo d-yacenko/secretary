@@ -403,3 +403,15 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Architect context:** blob SHA `99cb601b147a3e2d2b49c1fc0eab7cd9d9db7f0f` (commit `427e2e835b1a3a329c3c95a1bb0ce0fe595728b2`); agent did not modify encrypted file.
 - **Status:** deployed at `304094a73dca0e5eafa28a2e3ee84a92a5defaf3`; awaiting architect + manual E2E.
 
+## Universal Intake Iteration A-R2 — product boundary corrective
+
+- **Supersedes** prior Universal Capture UI interpretation (user product clarification): global «+» opens **task capture only**; notes, web pages, and provider links are **Inbox incoming objects**, not Capture modes.
+- **Capture:** AppBar «Создание задачи»; `POST /capture/task` only; exact URL in task text stays a task; task context / voice preserved; removed `CaptureMode`, `prepareForGenericAdd()`, note/link branches.
+- **Inbox intake bar:** single explicit entry — deterministic dispatch: trimmed exact `http`/`https` → `POST /intake/link`; any other text → `POST /capture/note`; no client provider classification.
+- **Voice:** microphone beside Inbox input; transcript fills same field; user presses «Добавить»; no auto-submit.
+- **File/folder:** unchanged Inbox local intake; Linux drag/drop unchanged.
+- **Inbox list:** heading «Последние входящие»; API field `recent_source_objects` unchanged; `InboxSourceObjectOut.origin` exposed for truthful Assistant context.
+- **Backend A/R1/R1-R1** generic web intake preserved; Alembic `0026`; no new Assistant tools.
+- **Architect context:** blob SHA `99cb601b147a3e2d2b49c1fc0eab7cd9d9db7f0f` unchanged.
+- **Status:** deployed at `057627ae6a0c610b1a801ea2798a293ef1453c5c`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+
