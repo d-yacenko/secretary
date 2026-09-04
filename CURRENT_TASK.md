@@ -1,66 +1,78 @@
-# Current task — Universal Object Delete final closure deployed
+# Current task — User Identity Profile / Self Resolution
 
 ## Status
 
-PHASE 29A: **ARCHITECT ACCEPTED / CLOSED** at `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
+Backend/runtime pass: **ARCHITECT REVIEW PENDING** at `b05e357e3939d54fd7f68b45d7c95a41e6797d7e`.
 
-Universal Intake Iteration A: **ARCHITECT ACCEPTED / CLOSED** at `f5b76856b4c967ef0673798bd6e9334c77fd2522`.
-
-Universal Object Delete initial delivery: deployed at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`.
-
-Universal Object Delete final closure: **implemented and deployed**, **awaiting architect review**.
+UI + final hardening pass: **implemented**, **deploy pending** (VDS unreachable from build host).
 
 ## Branch
 
-`review/universal-object-delete`
-
-## Closure defects fixed
-
-1. Web explicit re-add restores only after successful fetch (failed fetch leaves tombstone)
-2. Explicit local file/folder re-add restores same `object_id`; passive local report keeps tombstone
-3. Legacy `status=deleted` hidden consistently across active reads; explicit re-add clears it
-4. Graph `get_context` hides tombstoned neighbors and incident edges
-5. Flutter delete returns `ObjectDetailNavigationResult`; Inbox/Search/Today/Graph/parent detail refresh immediately
-6. Confirmation copy: Mattermost, local folder, Drive/Disk folder wording
+`review/user-identity-profile`
 
 ## SHAs
 
-Application SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`
+Backend-pass application SHA: `b05e357e3939d54fd7f68b45d7c95a41e6797d7e`
 
-Deployed VDS SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c` (clean)
+Final application SHA: `45483a665cbdb9eebfe4622fefd6197809f4b9e8`
+
+Deployed VDS SHA: **pending** — VDS host not reachable from build environment (`ya-site.duckdns.org` DNS failure; `adcm-bundle` has no `/opt/secretary`).
+
+Docs HEAD (after this commit): pending push
 
 Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
-Alembic current/head: `0027`
+Alembic current/head: `0028`
 
-## Verification
+Android minSdk: `23`
 
-Backend `test_universal_object_delete.py`: **20 passed**
+## Delivered
 
-Flutter delete UX/navigation tests: **6 passed**
+### Backend hardening (45483a6)
+
+- `bound_runtime_identity_facts()` at final serialization boundary (scalars, list items/counts, connected identifiers, merged emails, JSON cap)
+- Unconditional first-person semantics in assistant instructions even when no identity facts; no invented name when facts absent
+- Removed `display_name` fallback from runtime facts
+
+### Flutter
+
+- API: `GET/PUT /me/identity` (`UserIdentity`)
+- Account section **«Моя идентичность»** with structured multiline editor, Russian explanation, visible template example
+- Load/save/error states; connected-account data not injected into editable field
+
+## Verification (build host)
+
+Backend `test_user_identity_profile.py`: **24 passed**
+
+Backend `test_assistant.py`: **51 passed**, 1 pre-existing failure (`test_assistant_nornickel_kursy_nl_provider`)
+
+Flutter `test/account/profile_account_test.dart`: **13 passed**
+
+Flutter analyze (changed files): 8 info/warning, 0 errors
 
 Ruff (changed backend files): **PASS**
 
-Flutter analyze (changed files): 7 info/warning, 0 errors
+## Deploy (manual on VDS)
 
-`/health`: **PASS**
+```bash
+cd /opt/secretary
+git fetch origin review/user-identity-profile
+git checkout review/user-identity-profile
+git pull
+cd infra
+docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build
+```
 
-Worker: **healthy**
+Post-deploy checks:
 
-## Production API E2E (disposable web)
-
-URL: `https://example.com/?secretary_delete_e2e=e2e-1788518292-75bc7268`
-
-- explicit intake → `object_id` `9a564686-3cf6-4b52-8704-2276b7218a72` — **PASS**
-- `DELETE /objects/{id}` — **PASS**
-- tombstoned: `GET /objects/{id}` → 404; absent from search — **PASS**
-- explicit same URL re-add → **same** `object_id`; `deleted_at` cleared; visible again — **PASS**
-- failed re-add (`example.invalid`) → 400; tombstone unchanged (`GET` → 404) — **PASS**
+- `git rev-parse HEAD` = `45483a665cbdb9eebfe4622fefd6197809f4b9e8`
+- Alembic `0028`
+- `curl -sS http://127.0.0.1:18080/health`
+- worker healthy
+- production smoke: `GET /me/identity`, assistant message (no profile overwrite)
 
 ## Next
 
-STOP — await architect review.
+STOP — await architect review and manual semantic E2E with explicitly configured profile.
 
-NEXT after acceptance: User Identity Profile / Self Resolution.
-
-Do not start Format Parity B or Safe External Actions.
+Do not start Format Parity.
