@@ -6,6 +6,7 @@ YANDEX_DOWNLOAD_HOST_EXACT = frozenset(
         "downloader.disk.yandex.ru",
         "downloader.disk.yandex.com",
         "cloud-api.yandex.net",
+        "storage.yandex.net",
     }
 )
 
@@ -13,6 +14,7 @@ YANDEX_DOWNLOAD_HOST_EXACT = frozenset(
 YANDEX_DOWNLOAD_HOST_SUFFIXES = (
     ".disk.yandex.ru",
     ".disk.yandex.com",
+    ".storage.yandex.net",
     ".yandexcloud.net",
 )
 

@@ -148,6 +148,53 @@ def test_trusted_yandex_hostname_with_public_resolver_allowed() -> None:
     validate_download_url(TRUSTED_DOWNLOAD_URL, resolver=PUBLIC_RESOLVER)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://storage.yandex.net/object",
+        "https://abc123.storage.yandex.net/object",
+    ],
+)
+def test_trusted_yandex_storage_hosts_allowed(url: str) -> None:
+    validate_download_url(url, resolver=PUBLIC_RESOLVER)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://abc123.storage.yandex.net/object",
+        "https://storage.yandex.net.evil.example/object",
+        "https://foo.storage.yandex.net.evil.example/object",
+        "https://evilstorage.yandex.net/object",
+        "https://unrelated.example/object",
+    ],
+)
+def test_untrusted_yandex_storage_like_hosts_rejected(url: str) -> None:
+    with pytest.raises(UnsafeDownloadUrlError):
+        validate_download_url(url, resolver=PUBLIC_RESOLVER)
+
+
+def test_downloader_redirect_to_yandex_storage_shard_succeeds() -> None:
+    payload = b"yandex-storage-shard-ok"
+    storage_url = "https://abc123.storage.yandex.net/disk/object"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "downloader.disk.yandex.ru":
+            return httpx.Response(302, headers={"Location": storage_url})
+        if request.url.host == "abc123.storage.yandex.net":
+            return httpx.Response(200, content=payload)
+        raise AssertionError(f"unexpected host: {request.url.host}")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    data = bounded_get_safe_redirects(
+        client,
+        TRUSTED_DOWNLOAD_URL,
+        max_bytes=1024,
+        resolver=PUBLIC_RESOLVER,
+    )
+    assert data == payload
+
+
 def test_arbitrary_public_hostname_rejected() -> None:
     with pytest.raises(UnsafeDownloadUrlError, match="untrusted_download_host"):
         validate_download_url("https://evil.example/file", resolver=PUBLIC_RESOLVER)
