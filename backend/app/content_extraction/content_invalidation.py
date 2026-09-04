@@ -23,5 +23,6 @@ def invalidate_object_content_immediately(session: Session, obj: Object) -> None
     merged[CONTENT_EXTRACTION_STATUS] = STATUS_PENDING
     merged[CONTENT_EXTRACTION_VERSION] = EXTRACTION_VERSION
     merged[MECHANICAL_REPRESENTATION_COUNT] = 0
+    merged.pop("content_extraction_error", None)
     obj.metadata_ = merged
     session.flush()

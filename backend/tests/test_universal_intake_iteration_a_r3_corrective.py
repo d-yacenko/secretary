@@ -240,6 +240,7 @@ def test_existing_web_page_upgrades_to_file_on_pdf_reintake(mock_resolve, db_ses
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))
     ]
     body = _large_pdf_bytes("upgrade_marker", MAX_WEB_FETCH_BYTES + 64 * 1024)
+    url = f"https://example.test/upgrade-{uuid.uuid4().hex}.pdf"
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -265,15 +266,15 @@ def test_existing_web_page_upgrades_to_file_on_pdf_reintake(mock_resolve, db_ses
             origin="explicit",
             state="observed",
             provider=PROVIDER_WEB,
-            external_id=normalize_explicit_web_url(ARXIV_STYLE_URL),
-            canonical_uri=ARXIV_STYLE_URL,
+            external_id=normalize_explicit_web_url(url),
+            canonical_uri=url,
             metadata_={"content_extraction_status": "metadata_only"},
         )
         db_session.add(prior)
         db_session.commit()
 
         service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
-        result = service.intake_link(ARXIV_STYLE_URL)
+        result = service.intake_link(url)
 
     refreshed = db_session.get(Object, prior.id)
     assert result.object_id == prior.id

@@ -16,7 +16,10 @@ from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
 from app.connectors.yandex.disk_transport import YandexDiskTransport
 from app.content_extraction.bounded_download import DownloadTooLargeError
 from app.content_extraction.constants import EXTRACTION_VERSION
-from app.content_extraction.extraction_baseline import worker_extraction_authoritative
+from app.content_extraction.extraction_baseline import (
+    acquire_worker_final_authority,
+    worker_extraction_authoritative,
+)
 from app.content_extraction.format_resolver import resolve_content_extraction_plan
 from app.content_extraction.google_drive_content import fetch_google_drive_content
 from app.content_extraction.mechanical_extractors import extract_from_path
@@ -91,9 +94,8 @@ class ExplicitResourceContentExtractor:
             metadata=metadata,
             expected_revision=expected_revision,
             expected_baseline=expected_baseline,
+            extraction_version=extraction_version,
         ):
-            return
-        if extraction_version is not None and metadata_extraction_version(metadata) != extraction_version:
             return
 
         current_revision = metadata.get("content_revision")
@@ -126,45 +128,39 @@ class ExplicitResourceContentExtractor:
                 metadata=fresh_metadata,
                 expected_revision=expected_revision,
                 expected_baseline=expected_baseline,
+                extraction_version=extraction_version,
             ):
                 return
 
-            resolved_revision = fresh_metadata.get("content_revision")
+            resolved_content_hash: str | None = None
+            resolved_revision: str | None = None
             if (
                 obj.provider == PROVIDER_WEB
                 and derive_web_remote_content_revision(fresh_metadata) is None
             ):
-                content_hash = hashlib.sha256(raw).hexdigest()
-                fresh_metadata["content_hash"] = content_hash
-                fresh_metadata["content_revision"] = f"web:sha256:{content_hash}"
-                obj.metadata_ = fresh_metadata
-                self._session.flush()
-                resolved_revision = fresh_metadata["content_revision"]
+                resolved_content_hash = hashlib.sha256(raw).hexdigest()
+                resolved_revision = f"web:sha256:{resolved_content_hash}"
 
             temp.write(raw)
             reps, extract_meta = extract_from_path(obj.id, temp.path)
-            count = self._persistence.replace_mechanical_for_object(obj.id, reps)
-            merged = invalidate_semantic_summary_metadata(fresh_metadata)
-            merged.update(extract_meta)
-            merged[CONTENT_EXTRACTION_STATUS] = STATUS_READY
-            merged[CONTENT_EXTRACTION_VERSION] = EXTRACTION_VERSION
-            merged[CONTENT_EXTRACTED_AT] = datetime.now(UTC).isoformat()
-            merged[CONTENT_FORMAT] = extract_meta.get("content_format") or plan.content_format
-            merged[MECHANICAL_REPRESENTATION_COUNT] = count
-            merged.pop(CONTENT_EXTRACTION_ERROR, None)
-            obj.metadata_ = merged
-            self._session.flush()
-            enqueue_summarize_resource(
-                self._session,
-                obj.id,
-                self._user_id,
-                resolved_revision,
+            self._persist_success_if_authoritative(
+                object_id=obj.id,
+                provider=obj.provider,
+                expected_revision=expected_revision,
+                expected_baseline=expected_baseline,
+                extraction_version=extraction_version,
+                resolved_content_hash=resolved_content_hash,
+                resolved_revision=resolved_revision,
+                plan=plan,
+                reps=reps,
+                extract_meta=extract_meta,
             )
         except DownloadTooLargeError:
             self._fail_if_authoritative(
                 obj,
                 expected_revision=expected_revision,
                 expected_baseline=expected_baseline,
+                extraction_version=extraction_version,
                 status=STATUS_TOO_LARGE,
                 error_code="download_too_large",
                 clear=True,
@@ -176,6 +172,7 @@ class ExplicitResourceContentExtractor:
                 obj,
                 expected_revision=expected_revision,
                 expected_baseline=expected_baseline,
+                extraction_version=extraction_version,
                 status=status,
                 error_code=error_code,
                 clear=True,
@@ -232,26 +229,83 @@ class ExplicitResourceContentExtractor:
         obj.metadata_ = merged
         self._session.flush()
 
+    def _persist_success_if_authoritative(
+        self,
+        *,
+        object_id: UUID,
+        provider: str,
+        expected_revision: str | None,
+        expected_baseline: str | None,
+        extraction_version: str | None,
+        resolved_content_hash: str | None,
+        resolved_revision: str | None,
+        plan,
+        reps,
+        extract_meta: dict[str, Any],
+    ) -> bool:
+        authority = acquire_worker_final_authority(
+            self._session,
+            user_id=self._user_id,
+            object_id=object_id,
+            provider=provider,
+            expected_revision=expected_revision,
+            expected_baseline=expected_baseline,
+            extraction_version=extraction_version,
+        )
+        if authority is None:
+            return False
+
+        obj = authority.obj
+        merged = dict(authority.metadata)
+        final_revision = resolved_revision or merged.get("content_revision")
+        if resolved_content_hash is not None:
+            merged["content_hash"] = resolved_content_hash
+        if resolved_revision is not None:
+            merged["content_revision"] = resolved_revision
+
+        count = self._persistence.replace_mechanical_for_object(obj.id, reps)
+        merged = invalidate_semantic_summary_metadata(merged)
+        merged.update(extract_meta)
+        merged[CONTENT_EXTRACTION_STATUS] = STATUS_READY
+        merged[CONTENT_EXTRACTION_VERSION] = EXTRACTION_VERSION
+        merged[CONTENT_EXTRACTED_AT] = datetime.now(UTC).isoformat()
+        merged[CONTENT_FORMAT] = extract_meta.get("content_format") or plan.content_format
+        merged[MECHANICAL_REPRESENTATION_COUNT] = count
+        merged.pop(CONTENT_EXTRACTION_ERROR, None)
+        obj.metadata_ = merged
+        self._session.flush()
+        enqueue_summarize_resource(
+            self._session,
+            obj.id,
+            self._user_id,
+            final_revision,
+        )
+        return True
+
     def _fail_if_authoritative(
         self,
         obj: Object,
         *,
         expected_revision: str | None,
         expected_baseline: str | None,
+        extraction_version: str | None,
         status: str,
         error_code: str,
         clear: bool,
-    ) -> None:
-        self._session.refresh(obj)
-        metadata = dict(obj.metadata_ or {})
-        if not worker_extraction_authoritative(
+    ) -> bool:
+        authority = acquire_worker_final_authority(
+            self._session,
+            user_id=self._user_id,
+            object_id=obj.id,
             provider=obj.provider,
-            metadata=metadata,
             expected_revision=expected_revision,
             expected_baseline=expected_baseline,
-        ):
-            return
-        self._fail(obj, metadata, status, error_code, clear)
+            extraction_version=extraction_version,
+        )
+        if authority is None:
+            return False
+        self._fail(authority.obj, authority.metadata, status, error_code, clear)
+        return True
 
     def _fail(
         self,

@@ -17,7 +17,9 @@ from app.content_extraction.extract_service import (
 )
 from app.content_extraction.extraction_baseline import (
     EXTRACTION_BASELINE_METADATA_KEY,
+    WEB_REVALIDATION_GENERATION_METADATA_KEY,
     derive_web_extraction_baseline,
+    resolve_web_revalidation_generation,
 )
 from app.content_extraction.mechanical_extractors import build_bounded_text_representations
 from app.content_extraction.mechanical_persistence import MechanicalRepresentationPersistence
@@ -322,14 +324,30 @@ class WebExplicitLinkIntakeService:
         status = "updated" if not created else "created"
         if fetched.file_too_large:
             status = "updated" if not created else "created"
-        elif extraction_work_needed(
-            PROVIDER_WEB,
-            "file",
-            title,
-            prior_meta,
-            merged,
-            had_ready_mechanical,
+        elif (
+            extraction_work_needed(
+                PROVIDER_WEB,
+                "file",
+                title,
+                prior_meta,
+                merged,
+                had_ready_mechanical,
+            )
+            or (
+                no_validator_reintake
+                and derive_web_remote_content_revision(merged) is None
+            )
         ):
+            has_remote_revision = derive_web_remote_content_revision(merged) is not None
+            if not has_remote_revision:
+                generation = resolve_web_revalidation_generation(
+                    prior_metadata=prior_meta,
+                    created=created,
+                    requires_revalidation=no_validator_reintake,
+                    has_remote_revision=False,
+                )
+                if generation is not None:
+                    merged[WEB_REVALIDATION_GENERATION_METADATA_KEY] = generation
             baseline = derive_web_extraction_baseline(merged)
             merged[EXTRACTION_BASELINE_METADATA_KEY] = baseline
             obj.metadata_ = merged

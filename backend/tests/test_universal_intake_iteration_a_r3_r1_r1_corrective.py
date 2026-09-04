@@ -10,6 +10,10 @@ from sqlalchemy import func, select
 
 from app.content_extraction.constants import EXTRACTION_VERSION
 from app.content_extraction.extract_service import ExplicitResourceContentExtractor
+from app.content_extraction.extraction_baseline import (
+    WEB_REVALIDATION_GENERATION_METADATA_KEY,
+    derive_web_extraction_baseline,
+)
 from app.content_extraction.metadata_keys import CONTENT_EXTRACTION_STATUS
 from app.db.models import Job, Object, Representation
 from app.jobs.constants import JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
@@ -404,7 +408,7 @@ def test_no_validator_reintake_replaces_content_a_to_b(mock_resolve, db_session)
 def test_no_validator_queue_dedupe(mock_resolve, db_session) -> None:
     _patch_addr(mock_resolve)
     body = b"dedupe marker\n"
-    url = "https://example.test/dedupe.txt"
+    url = f"https://example.test/dedupe-{uuid.uuid4().hex}.txt"
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -423,6 +427,14 @@ def test_no_validator_queue_dedupe(mock_resolve, db_session) -> None:
         service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
         first = service.intake_link(url)
         db_session.commit()
+        obj = db_session.get(Object, first.object_id)
+        baseline_1 = derive_web_extraction_baseline(obj.metadata_)
+        job_1 = db_session.scalars(
+            select(Job).where(
+                Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
+                Job.payload["object_id"].as_string() == str(first.object_id),
+            )
+        ).first()
         second = service.intake_link(url)
         db_session.commit()
 
@@ -432,8 +444,13 @@ def test_no_validator_queue_dedupe(mock_resolve, db_session) -> None:
             Job.payload["object_id"].as_string() == str(first.object_id),
         )
     ).all()
+    refreshed = db_session.get(Object, first.object_id)
     assert second.object_id == first.object_id
-    assert len(jobs) == 1
+    assert refreshed.metadata_.get(WEB_REVALIDATION_GENERATION_METADATA_KEY) == 2
+    assert len(jobs) == 2
+    assert jobs[0].payload.get("extraction_baseline") != jobs[1].payload.get("extraction_baseline")
+    assert job_1 is not None
+    assert baseline_1 != derive_web_extraction_baseline(refreshed.metadata_)
 
 
 @patch("app.resources.web_fetch.socket.getaddrinfo")
