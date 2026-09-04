@@ -20,7 +20,7 @@ Assistant Failure Taxonomy application SHA: `89cdb996f5b4bea8d7830750a9b7b80a70d
 
 Deployed VDS SHA: `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`
 
-Docs HEAD (after this commit): pending push
+Docs HEAD: `9624b1b3cbfd8195a331ef6b7505d0e8dcf89ff5`
 
 Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
