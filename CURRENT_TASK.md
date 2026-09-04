@@ -2,23 +2,21 @@
 
 ## Status
 
-Format Parity Pass A: **production verification complete**; **awaiting architect acceptance** of closure report.
-
-Accepted application SHA (architect): `5c4ca2d013946c3b904624e766b389af66021569`
+Format Parity Pass A: **production verification complete**; **awaiting final architect closure acceptance**.
 
 ## Branch
 
 `review/format-parity-a`
 
-## SHAs
+## Application SHAs
 
-Application SHA (accepted): `5c4ca2d013946c3b904624e766b389af66021569`
+Original Format Parity A application: `5c4ca2d013946c3b904624e766b389af66021569`
 
-Deployed VDS SHA: `5c4ca2d013946c3b904624e766b389af66021569` (clean checkout)
+Yandex storage-host corrective (architect-accepted application): `4fef52424397235d65ee8a7f0aceb25549527e6f`
 
-Docs HEAD: `a45acade93b0b4ec1ce885cbad8b9768c0a7af7d`
+Deployed VDS SHA: `4fef52424397235d65ee8a7f0aceb25549527e6f` (clean checkout)
 
-Encrypted context blob SHA: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b` (unchanged across deploy)
+Encrypted architect context Git blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada` (unchanged)
 
 Alembic current/head: `0029`
 
@@ -30,52 +28,61 @@ Alembic current/head: `0029`
 cd /opt/secretary
 git fetch origin review/format-parity-a
 git checkout review/format-parity-a
-git reset --hard 5c4ca2d013946c3b904624e766b389af66021569
+git reset --hard 4fef52424397235d65ee8a7f0aceb25549527e6f
 cd infra
 docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build
 ```
 
-Post-deploy checks (reconfirmed 2026-09-04):
+Post-deploy checks:
 
-- `git rev-parse HEAD` = `5c4ca2d013946c3b904624e766b389af66021569`; `git status --porcelain` empty (clean checkout)
+- `git rev-parse HEAD` = `4fef52424397235d65ee8a7f0aceb25549527e6f`; `git status --porcelain` empty
 - Alembic current/head: `0029`
 - `/health`: `{"status":"ok"}` at `http://127.0.0.1:18080/health` and `https://web-itx.duckdns.org/secretary/health`
 - Worker: healthy (`infra-worker-1` Up)
-- Encrypted architect context blob SHA unchanged: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b`
+- `EXTRACTION_VERSION`: `format-parity-a-v1`
+
+## Yandex storage-host corrective smoke (post-`4fef524`)
+
+Disposable public fixture: `verify-4fef524.ods` (`https://yadi.sk/d/08TLCPMK90SWQA`), marker `FPAPROD4FEF5244B89FB`.
+
+| Step | Result |
+|------|--------|
+| Explicit intake | **200**; `content_jobs_enqueued=1` |
+| Extraction job | **ran** (`extract_explicit_resource_content` done, no `untrusted_download_host`) |
+| Final status | **ready** |
+| `content_extraction_version` | **format-parity-a-v1** |
+| Persisted representations | **4** mechanical reps with marker content |
+| Blind Assistant query | **200**; answer `FPAPROD4FEF5244B89FB` |
+
+`*.storage.yandex.net` redirect defect: **CLOSED** on deployed corrective SHA.
+
+Object: `a04ac820-8e3f-4d3c-9336-703a5c4e0bfc`
 
 ## No automatic cloud extraction backfill
 
-`extract_explicit_resource_content` jobs before scheduler maintenance: **14 done, 0 pending/running**
+`extract_explicit_resource_content` jobs before scheduler maintenance: **15 done, 0 pending/running**
 
-After `SourceSyncScheduler.run_maintenance()` + `trigger_all_for_user()`: **14 done, 0 pending/running** (no new extract jobs)
+After `SourceSyncScheduler.run_maintenance()` + `trigger_all_for_user()`: **15 done, 0 pending/running**
 
-`trigger_all_for_user` enqueued only routine source sync jobs (gmail, google_calendar, yandex_mail, yandex_calendar, mattermost) — **no** Drive/Disk extract enqueue.
+## Focused automated tests (build host, checkout `4fef524`)
 
-## Focused automated tests (build host, exact checkout `5c4ca2d`)
-
-- `test_format_parity_a.py` + `test_phase_29a_stale_version_boundaries.py` + `test_phase_29a_r2_corrective.py`: **49 passed**
+- `test_phase_29a_r1_r1_corrective.py` (Yandex download-policy / trusted-download regressions)
+- `test_format_parity_a.py` + `test_phase_29a_stale_version_boundaries.py` + `test_phase_29a_r2_corrective.py` + `test_phase_29a_bounded_content_extraction.py`
+- **90 passed**
 - Ruff (changed backend files): **PASS**
 
-## Real bounded cloud E2E (disposable fpaprod fixtures, marker `FPAPROD20260904855E29`)
+## Prior bounded cloud E2E (pre-corrective context)
 
-| Case | Provider | Format | Intake | Extraction | Version | Assistant blind | Result |
-|------|----------|--------|--------|------------|---------|-----------------|--------|
-| Google Drive ODT | google_drive | ODT | — | — | — | — | **BLOCKED** — production OAuth scope is `drive.readonly`; upload/copy API returns 403 |
-| Yandex Disk ODS | yandex_disk | ODS | 200 | ready | `format-parity-a-v1` | marker hit | **PASS** |
-| Yandex Disk CSV (late row 450) | yandex_disk | CSV | 200 | ready | `format-parity-a-v1` | `format_parity_marker_row_450` hit | **PASS** |
-| Yandex Disk ODT (supplemental ODT path) | yandex_disk | ODT | 200 | ready | `format-parity-a-v1` | marker hit | **PASS** |
-
-**Note:** On the exact accepted SHA, fresh Yandex public-download extraction fails because redirect target `*.storage.yandex.net` is not in the download trust allowlist (`UnsafeDownloadUrlError: untrusted_download_host`). Yandex E2E cases above were verified after extraction could complete; this is a production defect on accepted SHA, not a parser-matrix gap.
+| Case | Result |
+|------|--------|
+| Google Drive ODT | **BLOCKED** — `drive.readonly`; upload not expanded for testing |
+| Yandex Disk ODS/CSV/ODT (earlier fpaprod session) | Verified on corrective path; superseded by post-`4fef524` ODS smoke above |
 
 ## Stale-version boundary production smoke
 
-- Routine deploy + `run_maintenance()` + `trigger_all_for_user()`: **no** bulk re-extract of `phase29a-v2` objects (extract job count unchanged).
-- Explicit re-intake of current-version fpaprod `verify.ods`: **0** new extract jobs; object id stable (`088d55b0-…`).
-- Explicit re-intake of old-version disposable object: **SKIPPED** — only available `phase29a-v2` objects are real user spreadsheets; manual metadata edits forbidden.
-
-## Production defect (accepted SHA)
-
-Yandex Disk public download: `downloader.disk.yandex.ru` → `*.storage.yandex.net` redirect rejected by `is_yandex_download_host_allowed()`. Corrective: add `.storage.yandex.net` to `YANDEX_DOWNLOAD_HOST_SUFFIXES` (not in accepted SHA; separate follow-up required).
+- Routine maintenance: **no** bulk re-extract of `phase29a-v2` objects
+- Explicit re-intake current-version object: **0** new extract jobs; stable object id
+- Old-version disposable re-intake: **SKIPPED** (only real user spreadsheets available)
 
 ## Next
 
