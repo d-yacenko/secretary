@@ -14,7 +14,6 @@ import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/capture/capture_draft.dart';
-import 'package:personal_secretary/capture/capture_mode.dart';
 import 'package:personal_secretary/objects/object_detail_screen.dart';
 import 'package:personal_secretary/voice/voice_transcription_controller.dart';
 
@@ -37,7 +36,6 @@ void main() {
       voiceTempFiles: VoiceTempFiles(
         directory: Directory.systemTemp.createTempSync('capture_voice_test'),
       ),
-      initialMode: CaptureMode.task,
     );
   }
 
@@ -165,7 +163,6 @@ void main() {
       return CaptureController(
         apiClient: auth.apiClient,
         authController: auth,
-        initialMode: CaptureMode.task,
       );
     }
 
@@ -442,124 +439,28 @@ void main() {
     expect(controller.draft.text, 'Уже есть текст дополнение');
   });
 
-  test('default note mode posts capture note', () async {
-    Map<String, dynamic>? body;
+  test('exact url in task capture posts capture task not intake link', () async {
     String? path;
+    Map<String, dynamic>? body;
     final controller = buildController(MockClient((request) async {
       path = request.url.path;
       body = jsonDecode(request.body) as Map<String, dynamic>;
-      return http.Response(jsonEncode({'note_id': 'n1'}), 201);
-    }));
-    controller.setMode(CaptureMode.note);
-    controller.setText('Note body marker');
-    await controller.submit();
-    expect(path, '/capture/note');
-    expect(body!['text'], 'Note body marker');
-    expect(controller.lastSubmitKind, CaptureSubmitKind.note);
-  });
-
-  test('task mode still posts capture task', () async {
-    String? path;
-    final controller = buildController(MockClient((request) async {
-      path = request.url.path;
       return http.Response(
         jsonEncode({
-          'task_id': 't1',
+          'task_id': 'task-url',
           'context_edge_ids': [],
           'dependency_edge_ids': [],
         }),
         201,
-      );
-    }));
-    controller.setMode(CaptureMode.task);
-    controller.setText('Task body');
-    await controller.submit();
-    expect(path, '/capture/task');
-    expect(controller.lastSubmitKind, CaptureSubmitKind.task);
-  });
-
-  test('exact url routes to intake link', () async {
-    String? path;
-    final controller = buildController(MockClient((request) async {
-      path = request.url.path;
-      return http.Response(
-        jsonEncode({
-          'object_id': 'obj-1',
-          'provider': 'web',
-          'kind': 'web_page',
-          'status': 'created',
-          'content_status': 'ready',
-          'content_jobs_enqueued': 1,
-        }),
-        200,
       );
     }));
     controller.setText('https://example.org/article');
     await controller.submit();
-    expect(path, '/intake/link');
-    expect(controller.lastSubmitKind, CaptureSubmitKind.link);
+    expect(path, '/capture/task');
+    expect(body!['text'], 'https://example.org/article');
   });
 
-  test('text with embedded url stays note', () async {
-    String? path;
-    final controller = buildController(MockClient((request) async {
-      path = request.url.path;
-      return http.Response(jsonEncode({'note_id': 'n2'}), 201);
-    }));
-    controller.setMode(CaptureMode.note);
-    controller.setText('Посмотреть https://example.org/article завтра');
-    await controller.submit();
-    expect(path, '/capture/note');
-  });
-
-  test('fresh controller defaults to note mode', () {
-    final apiClient = SecretaryApiClient(httpClient: MockClient((request) async {
-      return http.Response('{}', 404);
-    }));
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    final controller = CaptureController(
-      apiClient: apiClient,
-      authController: auth,
-    );
-    expect(controller.mode, CaptureMode.note);
-  });
-
-  test('after successful task submit next mode is note', () async {
-    final controller = buildController(MockClient((request) async {
-      return http.Response(
-        jsonEncode({
-          'task_id': 't-after',
-          'context_edge_ids': [],
-          'dependency_edge_ids': [],
-        }),
-        201,
-      );
-    }));
-    controller.setMode(CaptureMode.task);
-    controller.setText('task to complete');
-    await controller.submit();
-    expect(controller.mode, CaptureMode.note);
-    expect(controller.draft.text, isEmpty);
-  });
-
-  test('attach context switches to task mode', () {
-    final controller = buildController(MockClient((request) async {
-      return http.Response('{}', 404);
-    }));
-    controller.setMode(CaptureMode.note);
-    controller.attachContext(
-      CaptureContextRef(id: 'obj-1', title: 'Context object', kind: 'email'),
-    );
-    expect(controller.mode, CaptureMode.task);
-    expect(controller.hasTaskIntent, isTrue);
-  });
-
-  test('task context with exact url submits capture task not link', () async {
+  test('task context with exact url submits capture task', () async {
     String? path;
     Map<String, dynamic>? body;
     final controller = buildController(MockClient((request) async {
@@ -582,62 +483,15 @@ void main() {
     expect(path, '/capture/task');
     expect(body!['text'], 'https://example.org/article');
     expect(body!['context_object_ids'], ['ctx-1']);
-    expect(controller.lastSubmitKind, CaptureSubmitKind.task);
   });
 
-  group('prepareForGenericAdd', () {
-    test('blank task mode resets to note', () {
-      final controller = buildController(MockClient((request) async {
-        return http.Response('{}', 404);
-      }));
-      controller.setMode(CaptureMode.task);
-      controller.prepareForGenericAdd();
-      expect(controller.mode, CaptureMode.note);
-    });
-
-    test('nonempty task draft preserved with task mode', () {
-      final controller = buildController(MockClient((request) async {
-        return http.Response('{}', 404);
-      }));
-      controller.setMode(CaptureMode.task);
-      controller.setText('unfinished task body');
-      controller.prepareForGenericAdd();
-      expect(controller.mode, CaptureMode.task);
-      expect(controller.draft.text, 'unfinished task body');
-    });
-
-    test('nonempty note draft preserved with note mode', () {
-      final controller = buildController(MockClient((request) async {
-        return http.Response('{}', 404);
-      }));
-      controller.setMode(CaptureMode.note);
-      controller.setText('unfinished note');
-      controller.prepareForGenericAdd();
-      expect(controller.mode, CaptureMode.note);
-      expect(controller.draft.text, 'unfinished note');
-    });
-
-    test('task context draft remains task', () {
-      final controller = buildController(MockClient((request) async {
-        return http.Response('{}', 404);
-      }));
-      controller.attachContext(
-        CaptureContextRef(id: 'ctx-1', title: 'Email', kind: 'email'),
-      );
-      controller.prepareForGenericAdd();
-      expect(controller.mode, CaptureMode.task);
-      expect(controller.draft.contextObjectIds, ['ctx-1']);
-    });
-
-    test('exact url unfinished draft preserved', () {
-      final controller = buildController(MockClient((request) async {
-        return http.Response('{}', 404);
-      }));
-      controller.setMode(CaptureMode.note);
-      controller.setText('https://example.org/pending-link');
-      controller.prepareForGenericAdd();
-      expect(controller.draft.text, 'https://example.org/pending-link');
-      expect(controller.mode, CaptureMode.note);
-    });
+  test('unfinished task draft preserved after failed submit', () async {
+    final controller = buildController(MockClient((request) async {
+      return http.Response(jsonEncode({'detail': 'validation failed'}), 422);
+    }));
+    controller.setText('keep unfinished task');
+    await controller.submit();
+    expect(controller.draft.text, 'keep unfinished task');
+    expect(controller.submitState, CaptureSubmitState.validationError);
   });
 }

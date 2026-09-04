@@ -537,6 +537,7 @@ class InboxSourceObjectOut {
     required this.title,
     required this.kind,
     required this.provider,
+    required this.origin,
     required this.state,
     required this.status,
     required this.primaryAt,
@@ -547,6 +548,7 @@ class InboxSourceObjectOut {
   final String title;
   final String kind;
   final String? provider;
+  final String origin;
   final String state;
   final String? status;
   final String? primaryAt;
@@ -558,6 +560,7 @@ class InboxSourceObjectOut {
       title: json['title'] as String,
       kind: json['kind'] as String,
       provider: json['provider'] as String?,
+      origin: json['origin'] as String? ?? 'source',
       state: json['state'] as String,
       status: json['status'] as String?,
       primaryAt: json['primary_at'] as String?,

@@ -101,6 +101,9 @@ void main() {
       ),
     );
 
+    expect(find.text('Создание задачи'), findsOneWidget);
+    expect(find.text('Создать задачу'), findsOneWidget);
+    expect(find.text('Заметка'), findsNothing);
     expect(find.text('Добавить файл'), findsOneWidget);
     expect(find.byKey(const Key('capture_voice_button')), findsOneWidget);
   });

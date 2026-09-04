@@ -8,8 +8,6 @@ import '../assistant/voice_temp_files.dart';
 import '../auth/auth_controller.dart';
 import '../voice/voice_transcription_controller.dart';
 import 'capture_draft.dart';
-import 'capture_mode.dart';
-import 'capture_url.dart';
 
 enum CaptureSubmitState {
   idle,
@@ -29,11 +27,9 @@ class CaptureController extends ChangeNotifier {
     VoiceRecorder? voiceRecorder,
     VoiceTempFiles? voiceTempFiles,
     VoiceTranscriptionController? voiceController,
-    CaptureMode initialMode = CaptureMode.note,
   })  : _apiClient = apiClient,
         _authController = authController,
         _draft = initialDraft ?? CaptureDraft.empty,
-        _mode = initialMode,
         _voice = voiceController ??
             VoiceTranscriptionController(
               apiClient: apiClient,
@@ -50,13 +46,9 @@ class CaptureController extends ChangeNotifier {
   final VoiceTranscriptionController _voice;
 
   CaptureDraft _draft;
-  CaptureMode _mode;
   CaptureSubmitState submitState = CaptureSubmitState.idle;
-  CaptureSubmitKind? lastSubmitKind;
   String? errorMessage;
   CaptureTaskResponse? lastTaskResult;
-  CaptureNoteResponse? lastNoteResult;
-  IntakeLinkResult? lastLinkResult;
 
   CaptureTaskResponse? get lastResult => lastTaskResult;
 
@@ -65,30 +57,10 @@ class CaptureController extends ChangeNotifier {
   bool get isVoiceBusy => _voice.isVoiceBusy;
 
   CaptureDraft get draft => _draft;
-  CaptureMode get mode => _mode;
 
   bool get hasTaskIntent => _draft.hasTaskIntent;
 
-  bool get isExactLinkInput =>
-      !hasTaskIntent && isExactHttpUrl(_draft.text);
-
-  String get primaryActionLabel {
-    if (isExactLinkInput) {
-      return 'Добавить ссылку';
-    }
-    return _mode == CaptureMode.task ? 'Создать задачу' : 'Добавить заметку';
-  }
-
   void _onVoiceChanged() {
-    notifyListeners();
-  }
-
-  void setMode(CaptureMode mode) {
-    _mode = mode;
-    if (submitState != CaptureSubmitState.submitting) {
-      submitState = CaptureSubmitState.idle;
-      errorMessage = null;
-    }
     notifyListeners();
   }
 
@@ -130,9 +102,6 @@ class CaptureController extends ChangeNotifier {
     _draft = draft;
     submitState = CaptureSubmitState.idle;
     errorMessage = null;
-    if (_draft.hasTaskIntent) {
-      _mode = CaptureMode.task;
-    }
     notifyListeners();
   }
 
@@ -147,7 +116,6 @@ class CaptureController extends ChangeNotifier {
       refs[index] = ref;
     }
     _draft = _draft.copyWith(contextObjectIds: ids, contextRefs: refs);
-    _mode = CaptureMode.task;
     if (submitState != CaptureSubmitState.submitting) {
       submitState = CaptureSubmitState.idle;
       errorMessage = null;
@@ -163,23 +131,6 @@ class CaptureController extends ChangeNotifier {
         kind: object.kind,
       ),
     );
-  }
-
-  /// Prepare shared capture state before the generic «+» / «Добавить» entry point.
-  void prepareForGenericAdd() {
-    if (_draft.isGenuinelyEmpty) {
-      _mode = CaptureMode.note;
-      if (submitState != CaptureSubmitState.submitting) {
-        submitState = CaptureSubmitState.idle;
-        errorMessage = null;
-      }
-      notifyListeners();
-      return;
-    }
-    if (_draft.hasTaskIntent) {
-      _mode = CaptureMode.task;
-      notifyListeners();
-    }
   }
 
   Future<void> startVoiceRecording() async {
@@ -218,29 +169,7 @@ class CaptureController extends ChangeNotifier {
       return;
     }
 
-    if (hasTaskIntent) {
-      await _submitTask();
-      return;
-    }
-
-    final trimmed = _draft.text.trim();
-    if (isExactHttpUrl(trimmed)) {
-      await _submitLink(trimmed);
-      return;
-    }
-    if (_mode == CaptureMode.task) {
-      await _submitTask();
-    } else {
-      await _submitNote();
-    }
-  }
-
-  void _completeSuccess(CaptureSubmitKind kind) {
-    lastSubmitKind = kind;
-    _draft = CaptureDraft.empty;
-    _mode = CaptureMode.note;
-    submitState = CaptureSubmitState.success;
-    notifyListeners();
+    await _submitTask();
   }
 
   Future<void> _submitTask() async {
@@ -251,59 +180,9 @@ class CaptureController extends ChangeNotifier {
     try {
       final result = await _apiClient.captureTask(_draft.toRequest());
       lastTaskResult = result;
-      lastNoteResult = null;
-      lastLinkResult = null;
-      _completeSuccess(CaptureSubmitKind.task);
-    } on AuthenticationException catch (e) {
-      submitState = CaptureSubmitState.authError;
-      errorMessage = e.message;
-      _authController.handleAuthenticationFailure();
+      _draft = CaptureDraft.empty;
+      submitState = CaptureSubmitState.success;
       notifyListeners();
-    } on ValidationException catch (e) {
-      _fail(e.message, CaptureSubmitState.validationError);
-    } on NetworkException catch (e) {
-      _fail(e.message, CaptureSubmitState.networkError);
-    } on ApiException catch (e) {
-      _fail(e.message, CaptureSubmitState.serverError);
-    }
-  }
-
-  Future<void> _submitNote() async {
-    submitState = CaptureSubmitState.submitting;
-    errorMessage = null;
-    notifyListeners();
-
-    try {
-      final result = await _apiClient.captureNote(_draft.toNoteRequest());
-      lastNoteResult = result;
-      lastTaskResult = null;
-      lastLinkResult = null;
-      _completeSuccess(CaptureSubmitKind.note);
-    } on AuthenticationException catch (e) {
-      submitState = CaptureSubmitState.authError;
-      errorMessage = e.message;
-      _authController.handleAuthenticationFailure();
-      notifyListeners();
-    } on ValidationException catch (e) {
-      _fail(e.message, CaptureSubmitState.validationError);
-    } on NetworkException catch (e) {
-      _fail(e.message, CaptureSubmitState.networkError);
-    } on ApiException catch (e) {
-      _fail(e.message, CaptureSubmitState.serverError);
-    }
-  }
-
-  Future<void> _submitLink(String url) async {
-    submitState = CaptureSubmitState.submitting;
-    errorMessage = null;
-    notifyListeners();
-
-    try {
-      final result = await _apiClient.intakeLink(url);
-      lastLinkResult = result;
-      lastTaskResult = null;
-      lastNoteResult = null;
-      _completeSuccess(CaptureSubmitKind.link);
     } on AuthenticationException catch (e) {
       submitState = CaptureSubmitState.authError;
       errorMessage = e.message;
@@ -327,7 +206,6 @@ class CaptureController extends ChangeNotifier {
   void clearSuccess() {
     if (submitState == CaptureSubmitState.success) {
       submitState = CaptureSubmitState.idle;
-      lastSubmitKind = null;
       notifyListeners();
     }
   }
@@ -335,13 +213,9 @@ class CaptureController extends ChangeNotifier {
   void resetSession() {
     _voice.reset();
     _draft = CaptureDraft.empty;
-    _mode = CaptureMode.note;
     submitState = CaptureSubmitState.idle;
     errorMessage = null;
     lastTaskResult = null;
-    lastNoteResult = null;
-    lastLinkResult = null;
-    lastSubmitKind = null;
     notifyListeners();
   }
 

@@ -17,6 +17,8 @@ import '../sources/source_sync_error_presentation.dart';
 import '../ui/date_format.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
+import '../voice/voice_transcription_controller.dart';
+import 'inbox_intake_url.dart';
 import 'notification_labels.dart';
 
 enum InboxLoadState { loading, ready, error }
@@ -60,10 +62,11 @@ class InboxScreenState extends State<InboxScreen> {
   String? _refreshStatusMessage;
   String? _intakeErrorMessage;
   bool _isSourceRefreshing = false;
-  bool _isLinkIntakePending = false;
+  bool _isIntakePending = false;
   bool _isDragHovering = false;
 
-  final TextEditingController _linkController = TextEditingController();
+  final TextEditingController _intakeController = TextEditingController();
+  late final VoiceTranscriptionController _voice;
 
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
@@ -79,6 +82,12 @@ class InboxScreenState extends State<InboxScreen> {
       forInbox: true,
       onIntakeSuccess: _onLocalIntakeSuccess,
     );
+    _voice = VoiceTranscriptionController(
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+    );
+    _voice.bindTranscriptConsumer(_handleVoiceTranscript);
+    _voice.addListener(_onVoiceChanged);
     _passiveRefresh = PassiveSnapshotRefresh(
       interval: widget.passiveRefreshInterval,
       isPaused: () => _isSourceRefreshing,
@@ -90,15 +99,39 @@ class InboxScreenState extends State<InboxScreen> {
 
   @override
   void dispose() {
-    _linkController.dispose();
+    _voice.removeListener(_onVoiceChanged);
+    _voice.dispose();
+    _intakeController.dispose();
     _passiveRefresh.dispose();
     super.dispose();
   }
 
-  bool get isIntakePending => _isLinkIntakePending;
+  void _onVoiceChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _handleVoiceTranscript(String transcript) async {
+    final trimmed = transcript.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    final current = _intakeController.text;
+    if (current.isEmpty) {
+      _intakeController.text = trimmed;
+    } else {
+      _intakeController.text = '$current $trimmed';
+    }
+    _intakeController.selection = TextSelection.collapsed(
+      offset: _intakeController.text.length,
+    );
+  }
+
+  bool get isIntakePending => _isIntakePending;
 
   Future<void> handleDroppedPaths(List<String> paths) async {
-    if (_isLinkIntakePending || paths.isEmpty) {
+    if (_isIntakePending || paths.isEmpty) {
       return;
     }
     await _localIntakeActions.registerDroppedFiles(context, paths);
@@ -200,29 +233,44 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  Future<void> _submitLinkIntake() async {
-    if (_isLinkIntakePending) {
+  Future<void> _submitIntake() async {
+    if (_isIntakePending) {
       return;
     }
-    final url = _linkController.text.trim();
-    if (url.isEmpty) {
+    final trimmed = _intakeController.text.trim();
+    if (trimmed.isEmpty) {
       return;
     }
     setState(() {
-      _isLinkIntakePending = true;
+      _isIntakePending = true;
       _intakeErrorMessage = null;
     });
     try {
-      final result = await widget.apiClient.intakeLink(url);
-      if (!mounted) {
-        return;
+      if (isExactHttpUrl(trimmed)) {
+        final result = await widget.apiClient.intakeLink(trimmed);
+        if (!mounted) {
+          return;
+        }
+        _intakeController.clear();
+        await _loadInbox(showFullLoader: false);
+        if (!mounted) {
+          return;
+        }
+        _showIntakeSnackBar(_intakeLinkSuccessMessage(result));
+      } else {
+        await widget.apiClient.captureNote(
+          CaptureNoteRequest(text: _intakeController.text),
+        );
+        if (!mounted) {
+          return;
+        }
+        _intakeController.clear();
+        await _loadInbox(showFullLoader: false);
+        if (!mounted) {
+          return;
+        }
+        _showIntakeSnackBar('Заметка добавлена');
       }
-      _linkController.clear();
-      await _loadInbox(showFullLoader: false);
-      if (!mounted) {
-        return;
-      }
-      _showIntakeSnackBar(_linkIntakeSuccessMessage(result));
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -232,12 +280,12 @@ class InboxScreenState extends State<InboxScreen> {
       setState(() => _intakeErrorMessage = e.message);
     } finally {
       if (mounted) {
-        setState(() => _isLinkIntakePending = false);
+        setState(() => _isIntakePending = false);
       }
     }
   }
 
-  String _linkIntakeSuccessMessage(IntakeLinkResult result) {
+  String _intakeLinkSuccessMessage(IntakeLinkResult result) {
     final contentStatus = result.contentStatus;
     if (contentStatus == 'ready') {
       if (result.status == 'unchanged') {
@@ -396,52 +444,130 @@ class InboxScreenState extends State<InboxScreen> {
     );
   }
 
+  Future<void> _onVoicePressed() async {
+    if (_voice.voiceState == VoiceState.recording) {
+      await _voice.stopAndTranscribe();
+      return;
+    }
+    if (_isIntakePending ||
+        (_voice.isVoiceBusy && _voice.voiceState != VoiceState.recording)) {
+      return;
+    }
+    if (_voice.voiceState == VoiceState.error) {
+      _voice.clearError();
+    }
+    await _voice.startRecording();
+  }
+
   Widget _buildIntakeBar() {
+    final voiceBusy = _voice.isVoiceBusy;
+    final inputDisabled = _isIntakePending || voiceBusy;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: TextField(
-              key: const Key('inbox_link_input'),
-              controller: _linkController,
-              enabled: !_isLinkIntakePending,
-              decoration: const InputDecoration(
-                hintText: 'Вставьте ссылку Google Drive или Яндекс.Диска',
-                isDense: true,
-                border: OutlineInputBorder(),
+          if (_voice.voiceState == VoiceState.recording)
+            Material(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.mic, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Запись… нажмите микрофон, чтобы остановить',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              onSubmitted: (_) => _submitLinkIntake(),
             ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('inbox_link_input'),
+                  controller: _intakeController,
+                  enabled: !inputDisabled,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'Введите заметку или вставьте ссылку',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => _submitIntake(),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                key: const Key('inbox_voice_button'),
+                visualDensity: VisualDensity.compact,
+                tooltip: _voice.voiceState == VoiceState.recording
+                    ? 'Остановить запись'
+                    : 'Записать голос',
+                onPressed: _isIntakePending &&
+                        _voice.voiceState != VoiceState.recording
+                    ? null
+                    : _onVoicePressed,
+                icon: _voice.voiceState == VoiceState.transcribing ||
+                        _voice.voiceState == VoiceState.starting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _voice.voiceState == VoiceState.recording
+                            ? Icons.stop_circle_outlined
+                            : Icons.mic_none_outlined,
+                      ),
+              ),
+              const SizedBox(width: 4),
+              FilledButton(
+                key: const Key('inbox_link_add_button'),
+                onPressed: inputDisabled ? null : _submitIntake,
+                child: _isIntakePending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Добавить'),
+              ),
+              IconButton(
+                key: const Key('inbox_add_file_button'),
+                tooltip: 'Добавить файл',
+                onPressed: inputDisabled
+                    ? null
+                    : () => _localIntakeActions.pickAndRegisterFile(context),
+                icon: const Icon(Icons.insert_drive_file_outlined),
+              ),
+              IconButton(
+                key: const Key('inbox_add_folder_button'),
+                tooltip: 'Добавить папку',
+                onPressed: inputDisabled
+                    ? null
+                    : () => _localIntakeActions.pickAndRegisterFolder(context),
+                icon: const Icon(Icons.folder_outlined),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          FilledButton(
-            key: const Key('inbox_link_add_button'),
-            onPressed: _isLinkIntakePending ? null : _submitLinkIntake,
-            child: _isLinkIntakePending
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Добавить'),
-          ),
-          IconButton(
-            key: const Key('inbox_add_file_button'),
-            tooltip: 'Добавить файл',
-            onPressed: _isLinkIntakePending
-                ? null
-                : () => _localIntakeActions.pickAndRegisterFile(context),
-            icon: const Icon(Icons.insert_drive_file_outlined),
-          ),
-          IconButton(
-            key: const Key('inbox_add_folder_button'),
-            tooltip: 'Добавить папку',
-            onPressed: _isLinkIntakePending
-                ? null
-                : () => _localIntakeActions.pickAndRegisterFolder(context),
-            icon: const Icon(Icons.folder_outlined),
-          ),
+          if (_voice.voiceState == VoiceState.error &&
+              _voice.voiceErrorMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _voice.voiceErrorMessage!,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -546,11 +672,11 @@ class InboxScreenState extends State<InboxScreen> {
                 ),
               ),
             const SizedBox(height: 16),
-            const _SectionHeader(title: 'Последние из источников'),
+            const _SectionHeader(title: 'Последние входящие'),
             if (!hasSources)
               const Padding(
                 padding: EdgeInsets.only(bottom: 8),
-                child: Text('Нет недавних объектов из источников'),
+                child: Text('Нет недавних входящих объектов'),
               )
             else
               ...inbox.recentSourceObjects.map(
@@ -576,7 +702,7 @@ class InboxScreenState extends State<InboxScreen> {
                                 dueAt: null,
                                 occurredAt: sourceObject.primaryAt,
                                 metadata: const {},
-                                origin: 'source',
+                                origin: sourceObject.origin,
                                 state: sourceObject.state,
                                 confidence: null,
                                 createdAt: sourceObject.primaryAt ?? '',

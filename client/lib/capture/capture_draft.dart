@@ -21,13 +21,6 @@ class CaptureDraft {
 
   bool get isBlank => text.trim().isEmpty;
 
-  bool get isGenuinelyEmpty =>
-      text.trim().isEmpty &&
-      (title == null || title!.trim().isEmpty) &&
-      contextObjectIds.isEmpty &&
-      contextRefs.isEmpty &&
-      dependsOnIds.isEmpty;
-
   bool get isTextTooLong => text.length > maxTextLength;
 
   bool get isTitleTooLong => title != null && title!.length > maxTitleLength;

@@ -9,7 +9,6 @@ import '../local/local_intake_actions.dart';
 import '../voice/voice_transcription_controller.dart';
 import 'capture_controller.dart';
 import 'capture_draft.dart';
-import 'capture_mode.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
@@ -60,14 +59,8 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _textController.clear();
       _titleController.clear();
       if (mounted) {
-        final message = switch (controller.lastSubmitKind) {
-          CaptureSubmitKind.note => 'Заметка добавлена',
-          CaptureSubmitKind.task => 'Задача создана',
-          CaptureSubmitKind.link => 'Ссылка добавлена',
-          null => 'Добавлено',
-        };
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
+          const SnackBar(content: Text('Задача создана')),
         );
         controller.clearSuccess();
       }
@@ -107,12 +100,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final isSubmitting = controller.submitState == CaptureSubmitState.submitting;
     final inputDisabled = isSubmitting || controller.isVoiceBusy;
     final intakeActions = _intakeActions;
-    final isLink = controller.isExactLinkInput;
-    final hasTaskContext = controller.hasTaskIntent;
 
     final body = Scaffold(
       appBar: AppBar(
-        title: const Text('Добавить'),
+        title: const Text('Создание задачи'),
         actions: [
           if (intakeActions != null)
             buildAddFileButton(actions: intakeActions, context: context),
@@ -123,28 +114,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!isLink && !hasTaskContext)
-              SegmentedButton<CaptureMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: CaptureMode.note,
-                    label: Text('Заметка'),
-                    icon: Icon(Icons.sticky_note_2_outlined),
-                  ),
-                  ButtonSegment(
-                    value: CaptureMode.task,
-                    label: Text('Задача'),
-                    icon: Icon(Icons.task_alt_outlined),
-                  ),
-                ],
-                selected: {controller.mode},
-                onSelectionChanged: inputDisabled
-                    ? null
-                    : (selection) {
-                        controller.setMode(selection.first);
-                      },
-              ),
-            if (!isLink && !hasTaskContext) const SizedBox(height: 12),
             if (controller.voiceState == VoiceState.recording)
               Material(
                 color: Theme.of(context).colorScheme.errorContainer,
@@ -173,12 +142,8 @@ class _CaptureScreenState extends State<CaptureScreen> {
                   child: TextField(
                     controller: _textController,
                     decoration: InputDecoration(
-                      labelText: isLink ? 'Ссылка' : 'Текст',
-                      hintText: isLink
-                          ? 'https://…'
-                          : controller.mode == CaptureMode.task
-                              ? 'Что нужно сделать?'
-                              : 'Заметка или идея',
+                      labelText: 'Текст задачи',
+                      hintText: 'Что нужно сделать?',
                       errorText: draft.isTextTooLong
                           ? 'Текст не должен превышать ${CaptureDraft.maxTextLength} символов'
                           : controller.submitState == CaptureSubmitState.validationError &&
@@ -219,19 +184,18 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            if (!isLink)
-              TextField(
-                controller: _titleController,
-                decoration: InputDecoration(
-                  labelText: 'Название (необязательно)',
-                  errorText: draft.isTitleTooLong
-                      ? 'Название не должно превышать ${CaptureDraft.maxTitleLength} символов'
-                      : null,
-                ),
-                maxLength: CaptureDraft.maxTitleLength,
-                onChanged: controller.setTitle,
-                enabled: !inputDisabled,
+            TextField(
+              controller: _titleController,
+              decoration: InputDecoration(
+                labelText: 'Название (необязательно)',
+                errorText: draft.isTitleTooLong
+                    ? 'Название не должно превышать ${CaptureDraft.maxTitleLength} символов'
+                    : null,
               ),
+              maxLength: CaptureDraft.maxTitleLength,
+              onChanged: controller.setTitle,
+              enabled: !inputDisabled,
+            ),
             if (controller.errorMessage != null &&
                 controller.submitState != CaptureSubmitState.success)
               Padding(
@@ -281,7 +245,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(controller.primaryActionLabel),
+                  : const Text('Создать задачу'),
             ),
           ],
         ),

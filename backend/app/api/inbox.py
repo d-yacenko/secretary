@@ -36,6 +36,7 @@ def get_inbox(
                 title=obj.title,
                 kind=obj.kind,
                 provider=obj.provider,
+                origin=obj.origin,
                 state=obj.state,
                 status=obj.status,
                 primary_at=object_primary_search_datetime(obj),

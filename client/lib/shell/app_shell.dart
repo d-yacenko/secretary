@@ -48,7 +48,6 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
 
   void _openCapture() {
-    widget.captureController.prepareForGenericAdd();
     openCapture(
       context,
       captureController: widget.captureController,

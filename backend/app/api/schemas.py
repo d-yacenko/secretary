@@ -254,6 +254,7 @@ class InboxSourceObjectOut(BaseModel):
     title: str
     kind: str
     provider: str | None
+    origin: str
     state: str
     status: str | None
     primary_at: datetime | None

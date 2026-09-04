@@ -357,7 +357,7 @@ void main() {
 
     expect(find.text('Входящие пусты'), findsNothing);
     expect(find.text('VPN marker email'), findsOneWidget);
-    expect(find.text('Последние из источников'), findsOneWidget);
+    expect(find.text('Последние входящие'), findsOneWidget);
     expect(find.textContaining('Событие •'), findsNothing);
     expect(find.textContaining('Яндекс Календарь'), findsNothing);
   });
@@ -670,7 +670,7 @@ void main() {
     expect(find.text('Входящие пусты'), findsNothing);
     expect(find.text('Gmail — user@example.com'), findsOneWidget);
     expect(find.text('Нет уведомлений'), findsOneWidget);
-    expect(find.text('Нет недавних объектов из источников'), findsOneWidget);
+    expect(find.text('Нет недавних входящих объектов'), findsOneWidget);
   });
 
   testWidgets('manual source refresh failure resets refreshing state',

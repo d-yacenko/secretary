@@ -36,7 +36,13 @@ class VoiceTranscriptionController extends ChangeNotifier {
             (Platform.environment['FLUTTER_TEST'] == 'true'
                 ? FakeVoiceRecorder()
                 : RecordVoiceRecorder()),
-        _voiceTempFiles = voiceTempFiles ?? VoiceTempFiles(),
+        _voiceTempFiles = voiceTempFiles ??
+            (Platform.environment['FLUTTER_TEST'] == 'true'
+                ? VoiceTempFiles(
+                    directory: Directory.systemTemp
+                        .createTempSync('secretary_voice_test'),
+                  )
+                : VoiceTempFiles()),
         _maxRecordingDuration = maxRecordingDuration,
         _enableAutoStopInTests = enableAutoStopInTests;
 
