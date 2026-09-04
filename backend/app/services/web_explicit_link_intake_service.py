@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.content_extraction.constants import EXTRACTION_VERSION, MAX_REPRESENTATION_PARTS
@@ -20,13 +20,19 @@ from app.content_extraction.mechanical_persistence import MechanicalRepresentati
 from app.content_extraction.metadata_keys import (
     CONTENT_EXTRACTION_STATUS,
     MECHANICAL_REPRESENTATION_COUNT,
+    STATUS_FAILED,
     STATUS_METADATA_ONLY,
     STATUS_PENDING,
     STATUS_READY,
     STATUS_TOO_LARGE,
+    STATUS_UNSUPPORTED,
 )
-from app.content_extraction.revision import derive_web_content_revision
-from app.db.models import Object
+from app.content_extraction.revision import (
+    derive_web_content_revision,
+    derive_web_remote_content_revision,
+    metadata_extraction_version,
+)
+from app.db.models import Object, Representation
 from app.resources.constants import PROVIDER_WEB
 from app.resources.web_fetch import WebFetchError, WebFetchResult, fetch_web_page
 from app.services.explicit_link_intake_errors import ExplicitLinkIntakeError
@@ -219,7 +225,7 @@ class WebExplicitLinkIntakeService:
         if revision is not None:
             metadata["content_revision"] = revision
 
-        same_revision = (
+        same_trusted_revision = (
             revision is not None
             and prior_revision == revision
             and not created
@@ -231,32 +237,39 @@ class WebExplicitLinkIntakeService:
         obj.canonical_uri = fetched.final_url
         obj.title = title
 
-        if same_revision:
-            merged = dict(prior_meta)
-            for key in (
-                "intake_mode",
-                "requested_url",
-                "normalized_requested_url",
-                "final_url",
-                "fetched_at",
-                "mime_type",
-                "detected_suffix",
-                "content_length",
-                "etag",
-                "last_modified",
+        if same_trusted_revision:
+            prior_status = prior_meta.get(CONTENT_EXTRACTION_STATUS)
+            if prior_status in {STATUS_FAILED, STATUS_TOO_LARGE, STATUS_UNSUPPORTED}:
+                merged = _merge_probe_metadata(prior_meta, metadata)
+                obj.metadata_ = merged
+                self.session.flush()
+                return IntakeLinkResult(
+                    object_id=obj.id,
+                    provider=PROVIDER_WEB,
+                    kind=obj.kind,
+                    status="unchanged",
+                    content_status=prior_status,
+                    content_jobs_enqueued=0,
+                )
+
+            has_reps = _mechanical_rep_count(self.session, obj.id) > 0
+            version_current = metadata_extraction_version(prior_meta) == EXTRACTION_VERSION
+            if (
+                prior_status == STATUS_READY
+                and version_current
+                and has_reps
             ):
-                if key in metadata:
-                    merged[key] = metadata[key]
-            obj.metadata_ = merged
-            self.session.flush()
-            return IntakeLinkResult(
-                object_id=obj.id,
-                provider=PROVIDER_WEB,
-                kind=obj.kind,
-                status="unchanged",
-                content_status=merged.get(CONTENT_EXTRACTION_STATUS, STATUS_PENDING),
-                content_jobs_enqueued=0,
-            )
+                merged = _merge_probe_metadata(prior_meta, metadata)
+                obj.metadata_ = merged
+                self.session.flush()
+                return IntakeLinkResult(
+                    object_id=obj.id,
+                    provider=PROVIDER_WEB,
+                    kind=obj.kind,
+                    status="unchanged",
+                    content_status=STATUS_READY,
+                    content_jobs_enqueued=0,
+                )
 
         incoming_meta = apply_intake_content_metadata(
             metadata,
@@ -271,13 +284,34 @@ class WebExplicitLinkIntakeService:
         merged.update(incoming_meta)
         obj.metadata_ = merged
 
-        if not created and prior_revision != revision:
-            invalidate_object_content_immediately(self.session, obj)
-
         had_ready_mechanical = (
             prior_meta.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY
-            and int(prior_meta.get(MECHANICAL_REPRESENTATION_COUNT) or 0) > 0
+            and _mechanical_rep_count(self.session, obj.id) > 0
         )
+
+        revision_changed = prior_revision != revision
+        no_validator_reintake = (
+            not created
+            and revision is None
+            and derive_web_remote_content_revision(metadata) is None
+        )
+        needs_content_refresh = (
+            not created
+            and same_trusted_revision
+            and (
+                metadata_extraction_version(prior_meta) != EXTRACTION_VERSION
+                or (
+                    prior_meta.get(CONTENT_EXTRACTION_STATUS) == STATUS_READY
+                    and not had_ready_mechanical
+                )
+            )
+        )
+        if revision_changed or no_validator_reintake or needs_content_refresh:
+            invalidate_object_content_immediately(self.session, obj)
+            merged = dict(obj.metadata_ or {})
+            merged.update(incoming_meta)
+            obj.metadata_ = merged
+            had_ready_mechanical = False
 
         jobs = 0
         status = "updated" if not created else "created"
@@ -368,3 +402,36 @@ def _resolve_file_title(fetched: WebFetchResult, fallback: str) -> str:
             return path_name[:200]
         return f"web-file{fetched.detected_suffix}"[:200]
     return fallback[:200]
+
+
+def _merge_probe_metadata(
+    prior_meta: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(prior_meta)
+    for key in (
+        "intake_mode",
+        "requested_url",
+        "normalized_requested_url",
+        "final_url",
+        "fetched_at",
+        "mime_type",
+        "detected_suffix",
+        "content_length",
+        "etag",
+        "last_modified",
+    ):
+        if key in metadata:
+            merged[key] = metadata[key]
+    return merged
+
+
+def _mechanical_rep_count(session: Session, object_id: UUID) -> int:
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(Representation)
+            .where(Representation.object_id == object_id)
+        )
+        or 0
+    )

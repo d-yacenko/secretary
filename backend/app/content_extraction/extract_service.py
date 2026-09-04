@@ -1,5 +1,6 @@
 """PHASE 29A explicit resource content extraction orchestration."""
 
+import hashlib
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -34,6 +35,7 @@ from app.content_extraction.metadata_keys import (
 )
 from app.content_extraction.revision import (
     derive_explicit_cloud_content_revision,
+    derive_web_remote_content_revision,
     metadata_extraction_version,
 )
 from app.content_extraction.temp_files import SecureTempFile
@@ -107,12 +109,35 @@ class ExplicitResourceContentExtractor:
 
         suffix = plan.suffix or ".bin"
         temp = SecureTempFile(suffix=suffix)
+        intake_snapshot = _intake_baseline_snapshot(metadata)
         try:
             raw = self._download_bytes(obj, metadata, plan)
+
+            self._session.refresh(obj)
+            fresh_metadata = dict(obj.metadata_ or {})
+            if not _intake_baseline_matches(intake_snapshot, fresh_metadata):
+                return
+            if expected_revision is not None and fresh_metadata.get(
+                "content_revision"
+            ) != expected_revision:
+                return
+
+            resolved_revision = fresh_metadata.get("content_revision")
+            if (
+                obj.provider == PROVIDER_WEB
+                and derive_web_remote_content_revision(fresh_metadata) is None
+            ):
+                content_hash = hashlib.sha256(raw).hexdigest()
+                fresh_metadata["content_hash"] = content_hash
+                fresh_metadata["content_revision"] = f"web:sha256:{content_hash}"
+                obj.metadata_ = fresh_metadata
+                self._session.flush()
+                resolved_revision = fresh_metadata["content_revision"]
+
             temp.write(raw)
             reps, extract_meta = extract_from_path(obj.id, temp.path)
             count = self._persistence.replace_mechanical_for_object(obj.id, reps)
-            merged = invalidate_semantic_summary_metadata(metadata)
+            merged = invalidate_semantic_summary_metadata(fresh_metadata)
             merged.update(extract_meta)
             merged[CONTENT_EXTRACTION_STATUS] = STATUS_READY
             merged[CONTENT_EXTRACTION_VERSION] = EXTRACTION_VERSION
@@ -126,7 +151,7 @@ class ExplicitResourceContentExtractor:
                 self._session,
                 obj.id,
                 self._user_id,
-                current_revision,
+                resolved_revision,
             )
         except DownloadTooLargeError:
             self._fail(obj, metadata, STATUS_TOO_LARGE, "download_too_large", clear=True)
@@ -251,6 +276,20 @@ def extraction_work_needed(
     if status in {STATUS_FAILED, STATUS_TOO_LARGE, STATUS_UNSUPPORTED}:
         return False
     return not had_ready_mechanical
+
+
+def _intake_baseline_snapshot(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "content_revision": metadata.get("content_revision"),
+        "fetched_at": metadata.get("fetched_at"),
+        "etag": metadata.get("etag"),
+        "last_modified": metadata.get("last_modified"),
+        "content_length": metadata.get("content_length"),
+    }
+
+
+def _intake_baseline_matches(snapshot: dict[str, Any], current: dict[str, Any]) -> bool:
+    return all(snapshot.get(key) == current.get(key) for key in snapshot)
 
 
 def _stable_error_code(exc: Exception) -> str:

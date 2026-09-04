@@ -58,6 +58,16 @@ def derive_yandex_disk_content_revision(metadata: dict[str, Any]) -> str | None:
 
 
 def derive_web_content_revision(metadata: dict[str, Any]) -> str | None:
+    remote = derive_web_remote_content_revision(metadata)
+    if remote is not None:
+        return remote
+    content_hash = metadata.get("content_hash")
+    if content_hash:
+        return f"web:sha256:{content_hash}"
+    return None
+
+
+def derive_web_remote_content_revision(metadata: dict[str, Any]) -> str | None:
     etag = metadata.get("etag")
     if etag:
         return f"web:etag:{etag}"
@@ -65,9 +75,6 @@ def derive_web_content_revision(metadata: dict[str, Any]) -> str | None:
     content_length = metadata.get("content_length")
     if last_modified is not None and content_length is not None:
         return f"web:lm-cl:{last_modified}:{content_length}"
-    content_hash = metadata.get("content_hash")
-    if content_hash:
-        return f"web:sha256:{content_hash}"
     return None
 
 

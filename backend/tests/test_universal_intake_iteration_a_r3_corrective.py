@@ -7,6 +7,7 @@ from unittest.mock import patch
 import httpx
 from sqlalchemy import func, select
 
+from app.content_extraction.constants import EXTRACTION_VERSION
 from app.content_extraction.extract_service import ExplicitResourceContentExtractor
 from app.db.models import Job, Object
 from app.jobs.constants import JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
@@ -184,6 +185,14 @@ def test_large_pdf_intake_idempotent_same_object(mock_resolve, db_session) -> No
     ):
         service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
         first = service.intake_link(ARXIV_STYLE_URL)
+        db_session.commit()
+        extractor = ExplicitResourceContentExtractor(session=db_session, user_id=BOOTSTRAP_USER_ID)
+        obj = db_session.get(Object, first.object_id)
+        extractor.run(
+            obj.id,
+            expected_revision=obj.metadata_.get("content_revision"),
+            extraction_version=EXTRACTION_VERSION,
+        )
         db_session.commit()
         second = service.intake_link(ARXIV_STYLE_URL)
 

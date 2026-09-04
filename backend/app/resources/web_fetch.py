@@ -197,6 +197,7 @@ def _extract_text(html: str) -> str:
 
 
 _HEADER_SUFFIX_TEXT_MIMES = frozenset({"text/plain", "text/markdown"})
+_HTML_MIMES = frozenset({"text/html", "application/xhtml+xml"})
 
 
 def _classify_from_headers(
@@ -204,6 +205,8 @@ def _classify_from_headers(
     url: str,
 ) -> tuple[WebResourceClass | None, str | None]:
     mime = content_type.split(";")[0].strip().lower() if content_type else None
+    if mime in _HTML_MIMES:
+        return None, None
     path_suffix = Path(urlparse(url).path).suffix.lower()
     if mime and mime in MIME_SUFFIX_MAP:
         suffix = MIME_SUFFIX_MAP[mime]
@@ -224,13 +227,16 @@ def _classify_resource(
     prefix: bytes,
     url: str,
 ) -> tuple[WebResourceClass, str | None]:
+    mime = content_type.split(";")[0].strip().lower() if content_type else None
+    if mime in _HTML_MIMES:
+        return WebResourceClass.HTML_PAGE, None
+
     detected_suffix = detect_supported_file_suffix(
         content_type=content_type,
         prefix=prefix,
         url=url,
     )
     if detected_suffix is not None:
-        mime = content_type.split(";")[0].strip().lower() if content_type else None
         if mime and mime in MIME_SUFFIX_MAP:
             if mime in _HEADER_SUFFIX_TEXT_MIMES:
                 path_suffix = Path(urlparse(url).path).suffix.lower()
