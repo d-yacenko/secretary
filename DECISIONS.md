@@ -461,3 +461,14 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
 - **Status:** deployed at `8734faac62ca7ad58611a118e99b3b83e2b69f04`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
 
+## Universal Intake Iteration A final concurrency closure — atomic final persist + generation supersession
+
+- **Motivation:** architect rejected A-R3-R1-R1-R1 at `8734faac62ca7ad58611a118e99b3b83e2b69f04` because early no-validator SHA/revision flush before parse held row locks; final persist was not atomic under authority check; no-validator explicit re-intake lacked generation-based supersession.
+- **Deferred flush:** worker computes `resolved_content_hash` / `resolved_revision` locally after download but does not write Object metadata or flush until mechanical parse completes.
+- **Atomic final persist:** `_persist_success_if_authoritative()` and `_fail_if_authoritative()` acquire `FOR UPDATE`, `session.refresh(obj)`, verify `expected_revision`, `expected_baseline`, and `extraction_version`; superseded workers return without mutation.
+- **No-validator generation:** `web_revalidation_generation` in baseline metadata; explicit no-validator re-intake increments generation and enqueues successor extract job when baseline changes.
+- **Concurrency tests:** deterministic interleaving inside `extract_from_path` via independent `Session(engine)` supersede (no threads/asyncio/sleeps/barriers).
+- **Production repeat arXiv:** same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `unchanged` / `ready` / jobs=0 with unchanged ETag.
+- **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
+- **Status:** deployed at `f5b76856b4c967ef0673798bd6e9334c77fd2522`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+

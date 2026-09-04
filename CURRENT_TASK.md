@@ -1,4 +1,4 @@
-# Current task — Universal Intake Iteration A-R3-R1-R1-R1 deployed
+# Current task — Universal Intake Iteration A final concurrency closure deployed
 
 ## Status
 
@@ -14,7 +14,9 @@ Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `
 
 Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed** at `8d43328701b2d6a8111a107dc586c8256e186a26`; architect review **NOT ACCEPTED**.
 
-Universal Intake Iteration A-R3-R1-R1-R1 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
+Universal Intake Iteration A-R3-R1-R1-R1 corrective: **implemented and deployed** at `8734faac62ca7ad58611a118e99b3b83e2b69f04`; architect review **NOT ACCEPTED**.
+
+Universal Intake Iteration A final concurrency closure: **implemented and deployed**, **awaiting architect review and manual E2E**.
 
 ## Branch
 
@@ -22,29 +24,27 @@ Universal Intake Iteration A-R3-R1-R1-R1 corrective: **implemented and deployed*
 
 Architect context docs-only HEAD ancestry: `da04059905393a45871a7643b0c753f0a5194ec7`
 
-## A-R3-R1-R1 architect findings (application `8d43328701b2d6a8111a107dc586c8256e186a26`)
+## A-R3-R1-R1-R1 architect findings (application `8734faac62ca7ad58611a118e99b3b83e2b69f04`)
 
 Functional arXiv repeat PASS, but review FAIL because:
 
-- `fetched_at` was treated as worker content identity and aborted valid extractions on harmless same-URL re-intake
-- queue dedupe did not align with extraction baseline supersession
-- failure paths (`too_large`, parser failure) could overwrite newer pending/ready state
-- `_mechanical_rep_count` counted summary rows as mechanical reps
+- early worker flush of no-validator SHA/revision before parse held row locks and blocked concurrent intake
+- final persist was not atomic under `FOR UPDATE` after parse
+- no-validator explicit re-intake lacked generation-based supersession for concurrent workers
 
-## A-R3-R1-R1-R1 scope (implemented)
+## Final concurrency closure scope (implemented)
 
-- Deterministic `extraction_baseline` token for `provider=web` (final URL, suffix, format, trusted remote revision, `EXTRACTION_VERSION`; **not** `fetched_at`)
-- Worker authority + queue dedupe include `extraction_baseline` in job payload/comparison
-- Same-ETag / same-baseline concurrent re-intake does not abort running worker
-- E1→E2 trusted revision supersession: stale worker aborts; successor extract job enqueued; failure paths race-safe
-- Mechanical rep checks count only `full|chunk|schema|sample|statistics`
-- Bounded probe / idempotency / no-validator SHA / HTML precedence / A-R3-R1-R1 regressions preserved
+- No early `metadata_` flush of `resolved_content_hash` / `resolved_revision` before mechanical parse for no-validator `provider=web`
+- `_persist_success_if_authoritative()` / `_fail_if_authoritative()` use `acquire_worker_final_authority()` (`SELECT ... FOR UPDATE`, `session.refresh`, baseline/revision/extraction_version checks)
+- `web_revalidation_generation` increments on explicit no-validator re-intake; successor extract jobs enqueue when baseline changes
+- Deterministic interleaved concurrency tests via `extract_from_path` hook (no threads/asyncio/sleeps)
+- A-R3-R1-R1-R1 baseline authority, race-safe failures, bounded probe, idempotency, HTML precedence preserved
 
 ## Deploy
 
-Application SHA: `8734faac62ca7ad58611a118e99b3b83e2b69f04`
+Application SHA: `f5b76856b4c967ef0673798bd6e9334c77fd2522`
 
-Deployed VDS SHA: `8734faac62ca7ad58611a118e99b3b83e2b69f04` (clean)
+Deployed VDS SHA: `f5b76856b4c967ef0673798bd6e9334c77fd2522` (clean)
 
 Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
