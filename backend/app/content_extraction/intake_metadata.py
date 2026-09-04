@@ -71,6 +71,21 @@ def is_ready_content_unchanged(
     return prior_meta.get("content_revision") == incoming_meta.get("content_revision")
 
 
+def is_stable_ready_revision(
+    prior_meta: dict[str, Any],
+    incoming_meta: dict[str, Any],
+    had_mechanical_reps: bool,
+) -> bool:
+    if not had_mechanical_reps:
+        return False
+    if prior_meta.get(CONTENT_EXTRACTION_STATUS) != STATUS_READY:
+        return False
+    incoming_revision = incoming_meta.get("content_revision")
+    if incoming_revision is None:
+        return False
+    return prior_meta.get("content_revision") == incoming_revision
+
+
 def merge_intake_metadata(
     prior_meta: dict[str, Any],
     incoming_provider_meta: dict[str, Any],
@@ -86,6 +101,15 @@ def merge_intake_metadata(
         title,
     )
     if is_ready_content_unchanged(prior_meta, derived, had_mechanical_reps):
+        merged = dict(prior_meta)
+        for key, value in incoming_provider_meta.items():
+            if key not in PIPELINE_OWNED_METADATA_KEYS:
+                merged[key] = value
+        if derived.get("content_revision") is not None:
+            merged["content_revision"] = derived["content_revision"]
+        return merged
+
+    if is_stable_ready_revision(prior_meta, derived, had_mechanical_reps):
         merged = dict(prior_meta)
         for key, value in incoming_provider_meta.items():
             if key not in PIPELINE_OWNED_METADATA_KEYS:

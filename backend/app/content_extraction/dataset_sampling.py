@@ -159,13 +159,20 @@ def fit_searchable_pairs_to_budget(
     """Select a distributed subset of loaded pairs that fits searchable budget."""
     if not pairs or byte_budget <= 0 or max_parts <= 0:
         return []
+    eligible = [
+        pair
+        for pair in pairs
+        if searchable_row_block_bytes(pair, fieldnames) <= MAX_REPRESENTATION_PART_BYTES
+    ]
+    if not eligible:
+        return []
     part_budget = min(byte_budget, max_parts * MAX_REPRESENTATION_PART_BYTES)
-    low, high = 1, len(pairs)
-    best: list[IndexedRow] = [pairs[0]]
+    low, high = 1, len(eligible)
+    best: list[IndexedRow] = []
     while low <= high:
         mid = (low + high) // 2
-        positions = select_distributed_row_indices(len(pairs), mid)
-        trial_pairs = [pairs[position] for position in positions]
+        positions = select_distributed_row_indices(len(eligible), mid)
+        trial_pairs = [eligible[position] for position in positions]
         text = format_searchable_dataset_rows(trial_pairs, fieldnames)
         if len(text.encode("utf-8")) <= part_budget:
             best = trial_pairs
@@ -181,6 +188,21 @@ def format_searchable_dataset_rows(pairs: list[IndexedRow], fieldnames: list[str
         lines.append(f"[row={pair.index + 1}]")
         lines.append(_format_sample_text([pair.values], fieldnames).split("\n", 1)[-1])
     return "\n".join(lines)
+
+
+def searchable_row_block_bytes(pair: IndexedRow, fieldnames: list[str]) -> int:
+    row_line = _format_sample_text([pair.values], fieldnames).split("\n", 1)[-1]
+    block = f"[row={pair.index + 1}]\n{row_line}"
+    return len(block.encode("utf-8"))
+
+
+def parse_persisted_searchable_row_indices(reps: list[Representation]) -> set[int]:
+    indices: set[int] = set()
+    for rep in reps:
+        for line in rep.text.splitlines():
+            if line.startswith("[row=") and line.endswith("]"):
+                indices.add(int(line[5:-1]) - 1)
+    return indices
 
 
 def build_dataset_sample_metadata(
@@ -248,17 +270,7 @@ def build_indexed_dataset_representations(
     )
     searchable_text = format_searchable_dataset_rows(fitted_searchable, fieldnames)
 
-    represented_indices = sorted({pair.index for pair in fitted_searchable})
-    represented_count = len(represented_indices)
-    final_truncated = sampling_truncated or compact_truncated or represented_count < total_rows
-
-    dataset_meta = build_dataset_sample_metadata(
-        total_rows=total_rows,
-        represented_rows=represented_count,
-        sampling_mode=sampling_mode,
-        sampling_truncated=final_truncated,
-        sampled_indices=represented_indices,
-    )
+    compact_persisted_indices = {pair.index for pair in compact_pairs}
 
     schema_text, schema_truncated = cap_structural_text(
         _format_schema_text(fieldnames, column_types)
@@ -295,10 +307,28 @@ def build_indexed_dataset_representations(
         object_id,
         searchable_text,
         remaining_parts,
-        dataset_meta,
+        None,
     )
-    if schema_truncated or stats_truncated or searchable_truncated:
-        final_truncated = True
-        dataset_meta["dataset_sampling_truncated"] = True
+    searchable_persisted_indices = parse_persisted_searchable_row_indices(searchable_reps)
+    represented_indices = sorted(compact_persisted_indices | searchable_persisted_indices)
+    represented_count = len(represented_indices)
+    final_sampling_mode = "full" if represented_count == total_rows else "distributed"
+    final_truncated = (
+        represented_count < total_rows
+        or compact_truncated
+        or schema_truncated
+        or stats_truncated
+        or searchable_truncated
+    )
+
+    dataset_meta = build_dataset_sample_metadata(
+        total_rows=total_rows,
+        represented_rows=represented_count,
+        sampling_mode=final_sampling_mode,
+        sampling_truncated=final_truncated,
+        sampled_indices=represented_indices,
+    )
+    for rep in searchable_reps:
+        rep.metadata_ = {**dataset_meta, **(rep.metadata_ or {})}
 
     return structural_reps + searchable_reps, dataset_meta

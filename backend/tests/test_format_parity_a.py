@@ -1,10 +1,12 @@
 """Format Parity Pass A — ODF extractors, adaptive CSV/Parquet, format resolver."""
 
+import json
 import uuid
 import zipfile
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 
 from app.content_extraction.constants import (
     EXTRACTION_VERSION,
@@ -18,6 +20,8 @@ from app.content_extraction.constants import (
 from app.content_extraction.dataset_sampling import (
     IndexedRow,
     fit_compact_sample_pairs,
+    fit_searchable_pairs_to_budget,
+    parse_persisted_searchable_row_indices,
     select_distributed_row_indices,
 )
 from app.content_extraction.format_resolver import (
@@ -40,6 +44,7 @@ from tests.fixtures.format_parity_fixtures import (
     write_ods_large_structural_text,
     write_ods_oversized_repeated_columns,
     write_ods_oversized_repeated_rows,
+    write_variable_width_csv,
 )
 from tests.fixtures.phase_29a_fixtures import (
     write_csv,
@@ -50,6 +55,28 @@ from tests.fixtures.phase_29a_fixtures import (
     write_minimal_xlsx,
     write_txt,
 )
+
+
+@pytest.fixture
+def credential_key() -> str:
+    return Fernet.generate_key().decode()
+
+
+@pytest.fixture
+def oauth_client_file(tmp_path: Path) -> str:
+    path = tmp_path / "google-oauth-client.json"
+    path.write_text(
+        json.dumps(
+            {
+                "web": {
+                    "client_id": "test-client-id",
+                    "client_secret": "test-client-secret",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
 
 
 def test_extraction_version_is_format_parity_a() -> None:
@@ -422,6 +449,58 @@ def test_phase29a_formats_still_extract(tmp_path: Path) -> None:
     assert any("distinctive phrase gamma" in rep.text for rep in reps)
 
 
+def test_csv_variable_width_prefit_full_postfit_shrinks_metadata(tmp_path: Path) -> None:
+    csv_path = tmp_path / "variable_width.csv"
+    write_variable_width_csv(csv_path, 200)
+    _, meta = extract_from_path(uuid.uuid4(), csv_path)
+    assert meta["dataset_row_count"] == 200
+    assert meta["dataset_sampling_mode"] == "distributed"
+    assert meta["dataset_sampling_truncated"] is True
+    assert meta["dataset_rows_represented"] < meta["dataset_row_count"]
+    assert meta["dataset_rows_represented"] == len(meta["sampled_row_indices"])
+
+
+def test_csv_dataset_rows_represented_is_union_of_compact_and_searchable(tmp_path: Path) -> None:
+    csv_path = tmp_path / "union.csv"
+    write_large_csv(csv_path, 10000, marker_row=9999)
+    reps, meta = extract_from_path(uuid.uuid4(), csv_path)
+    sample = next(r for r in reps if r.kind == "sample")
+    searchable_indices = parse_persisted_searchable_row_indices(
+        [r for r in reps if r.kind in {"full", "chunk"}]
+    )
+    compact_indices = set(range(sample.metadata_["row_count_in_sample"]))
+    expected_union = compact_indices | searchable_indices
+    assert meta["dataset_rows_represented"] == len(expected_union)
+    assert compact_indices - searchable_indices
+
+
+def test_fit_searchable_pairs_returns_empty_when_single_row_exceeds_budget() -> None:
+    fieldnames = ["payload"]
+    huge = "x" * MAX_REPRESENTATION_PART_BYTES
+    pair = IndexedRow(index=0, values={"payload": huge})
+    fitted = fit_searchable_pairs_to_budget(
+        [pair],
+        fieldnames,
+        byte_budget=MAX_REPRESENTATION_PART_BYTES,
+        max_parts=1,
+    )
+    assert fitted == []
+
+
+def test_csv_oversized_single_searchable_row_emits_no_searchable_rep(tmp_path: Path) -> None:
+    csv_path = tmp_path / "huge_row.csv"
+    csv_path.write_text("id,payload\n0," + ("H" * 20_000) + "\n", encoding="utf-8")
+    reps1, meta1 = extract_from_path(uuid.uuid4(), csv_path)
+    _reps2, meta2 = extract_from_path(uuid.uuid4(), csv_path)
+    searchable = [r for r in reps1 if r.kind in {"full", "chunk"}]
+    assert searchable == []
+    for rep in searchable:
+        assert len(rep.text.encode("utf-8")) <= MAX_REPRESENTATION_PART_BYTES
+    assert meta1["dataset_rows_represented"] == 1
+    assert meta1["sampled_row_indices"] == [0]
+    assert meta1 == meta2
+
+
 def test_distributed_indices_span_range() -> None:
     indices = select_distributed_row_indices(1000, 20)
     assert indices[0] == 0
@@ -430,37 +509,183 @@ def test_distributed_indices_span_range() -> None:
     assert len(set(indices)) == len(indices)
 
 
-def test_extraction_version_mismatch_does_not_auto_enqueue_without_reintake(db_session) -> None:
+def test_google_drive_stale_version_unchanged_revision_skips_extract_job(
+    db_session, credential_key, oauth_client_file, tmp_path: Path
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
     from sqlalchemy import select
 
-    from app.connectors.google.constants import GOOGLE_DRIVE_PROVIDER
+    from app.connectors.google.constants import DRIVE_READONLY_SCOPE
+    from app.connectors.google.credentials import GoogleAccountStore
+    from app.connectors.google.encryption import CredentialEncryption
+    from app.content_extraction.extract_service import ExplicitResourceContentExtractor
     from app.db.models import Job, Object
     from app.jobs.constants import JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
+    from app.services.explicit_link_intake_service import build_google_explicit_link_intake_service
     from app.users.bootstrap import BOOTSTRAP_USER_ID
+    from tests.fixtures.phase_29a_fixtures import write_txt
+    from tests.test_phase_29a_bounded_content_extraction import FakeDriveTransport
 
-    obj = Object(
-        user_id=BOOTSTRAP_USER_ID,
-        kind="file",
-        provider=GOOGLE_DRIVE_PROVIDER,
-        external_id="stale-version-file",
-        origin="explicit",
-        state="observed",
-        title="notes.txt",
-        metadata_={
-            "content_revision": "rev-stable",
-            "content_extraction_status": "ready",
-            "content_extraction_version": "phase29a-v2",
-        },
+    file_id = "stale-version-drive"
+    md5 = "stable-md5-checksum"
+    transport = FakeDriveTransport(
+        {
+            file_id: {
+                "id": file_id,
+                "name": "notes.txt",
+                "mimeType": "text/plain",
+                "md5Checksum": md5,
+                "modifiedTime": "2024-01-01T00:00:00.000Z",
+                "trashed": False,
+            }
+        }
     )
-    db_session.add(obj)
+    txt_path = tmp_path / "notes.txt"
+    write_txt(txt_path, "version stability phrase")
+    transport.set_download(file_id, txt_path.read_bytes())
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_tokens(
+        user_id=BOOTSTRAP_USER_ID,
+        email="stale-version@example.com",
+        scopes=[DRIVE_READONLY_SCOPE],
+        access_token="unittest-access",
+        refresh_token="unittest-refresh",
+        token_expiry=datetime.now(UTC) + timedelta(hours=1),
+    )
     db_session.flush()
 
-    jobs_for_object = [
+    service = build_google_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        credential_key=credential_key,
+        client_file=oauth_client_file,
+        redirect_uri="http://localhost/callback",
+        google_transport=transport,
+    )
+    first = service.intake_link(
+        url=f"https://drive.google.com/file/d/{file_id}/view",
+        account_id=account.id,
+    )
+    extractor = ExplicitResourceContentExtractor(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        drive_transport=transport,
+        account_store=GoogleAccountStore(db_session, CredentialEncryption(credential_key)),
+        token_manager=service._token_manager,
+    )
+    obj = db_session.get(Object, first.object_id)
+    extractor.run(obj.id, obj.metadata_["content_revision"], EXTRACTION_VERSION)
+    meta = dict(obj.metadata_ or {})
+    meta["content_extraction_version"] = "phase29a-v2"
+    obj.metadata_ = meta
+    db_session.flush()
+
+    second = service.intake_link(
+        url=f"https://drive.google.com/file/d/{file_id}/view",
+        account_id=account.id,
+    )
+    service.close()
+
+    assert second.status == "unchanged"
+    assert second.content_jobs_enqueued == 0
+    jobs = [
         job
         for job in db_session.scalars(
             select(Job).where(Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT)
         ).all()
         if (job.payload or {}).get("object_id") == str(obj.id)
     ]
-    assert jobs_for_object == []
-    assert obj.metadata_["content_extraction_version"] != EXTRACTION_VERSION
+    assert len(jobs) == 1
+    assert obj.metadata_["content_extraction_version"] == "phase29a-v2"
+
+
+def test_yandex_disk_stale_version_unchanged_revision_skips_extract_job(
+    db_session, tmp_path: Path
+) -> None:
+    from sqlalchemy import select
+
+    from app.content_extraction.extract_service import ExplicitResourceContentExtractor
+    from app.db.models import Job, Object
+    from app.jobs.constants import JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
+    from app.services.explicit_link_intake_service import build_yandex_explicit_link_intake_service
+    from app.users.bootstrap import BOOTSTRAP_USER_ID
+    from tests.fixtures.phase_29a_fixtures import write_txt
+    from tests.test_phase_27c_explicit_intake_yandex import (
+        FakeYandexDiskTransport,
+        _yandex_resource,
+    )
+    from tests.test_phase_29a_bounded_content_extraction import (
+        FakeYandexDiskTransport as YandexDownloadTransport,
+    )
+
+    share_url = "https://disk.yandex.ru/d/stale-version-key"
+    resource_id = "yandex-stale-version-file"
+    md5 = "stable-yandex-md5"
+    metadata_transport = FakeYandexDiskTransport(
+        {
+            share_url: _yandex_resource(
+                resource_id,
+                "notes.txt",
+                public_url=share_url,
+                mime_type="text/plain",
+                md5=md5,
+            )
+        }
+    )
+    download_transport = YandexDownloadTransport()
+    txt_path = tmp_path / "notes.txt"
+    write_txt(txt_path, "yandex version stability phrase")
+    download_transport.set_download(share_url, txt_path.read_bytes())
+
+    class CombinedYandexTransport:
+        def __init__(self, metadata: FakeYandexDiskTransport, downloads: YandexDownloadTransport) -> None:
+            self._metadata = metadata
+            self._downloads = downloads
+
+        def get_public_resource_metadata(self, public_key: str):
+            return self._metadata.get_public_resource_metadata(public_key)
+
+        def get_public_resource_download_url(self, public_key: str) -> str:
+            return self._downloads.get_public_resource_download_url(public_key)
+
+        def download_bounded_url(self, url: str, *, max_bytes: int) -> bytes:
+            return self._downloads.download_bounded_url(url, max_bytes=max_bytes)
+
+        def close(self) -> None:
+            self._metadata.close()
+            self._downloads.close()
+
+    transport = CombinedYandexTransport(metadata_transport, download_transport)
+    service = build_yandex_explicit_link_intake_service(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        yandex_transport=transport,
+    )
+    first = service.intake_link(url=share_url)
+    extractor = ExplicitResourceContentExtractor(
+        session=db_session,
+        user_id=BOOTSTRAP_USER_ID,
+        yandex_transport=transport,
+    )
+    obj = db_session.get(Object, first.object_id)
+    extractor.run(obj.id, obj.metadata_["content_revision"], EXTRACTION_VERSION)
+    meta = dict(obj.metadata_ or {})
+    meta["content_extraction_version"] = "phase29a-v2"
+    obj.metadata_ = meta
+    db_session.flush()
+
+    second = service.intake_link(url=share_url)
+    service.close()
+
+    assert second.status == "unchanged"
+    assert second.content_jobs_enqueued == 0
+    jobs = [
+        job
+        for job in db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT)
+        ).all()
+        if (job.payload or {}).get("object_id") == str(obj.id)
+    ]
+    assert len(jobs) == 1
+    assert obj.metadata_["content_extraction_version"] == "phase29a-v2"

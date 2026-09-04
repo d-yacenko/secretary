@@ -219,11 +219,10 @@ def write_ods_large_structural_text(path: Path, cell_text: str) -> None:
 
 
 def write_variable_width_csv(path: Path, row_count: int) -> None:
-    lines = ["id,payload"]
-    for index in range(row_count):
-        width = 40 + (index % 17) * 120
-        payload = f"row{index}:" + ("x" * width)
-        lines.append(f"{index},{payload}")
+    """Narrow first row for budget estimate; later rows are very wide."""
+    lines = ["id,payload", "0,tiny"]
+    for index in range(1, row_count):
+        lines.append(f"{index},{'W' * 12_000}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
