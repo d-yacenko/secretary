@@ -86,6 +86,20 @@ class SecretaryApiClient {
     return UserSettings.fromJson(body);
   }
 
+  Future<UserIdentity> getIdentity() async {
+    final body = await _request('GET', '/me/identity');
+    return UserIdentity.fromJson(body);
+  }
+
+  Future<UserIdentity> putIdentity({required String profileText}) async {
+    final body = await _request(
+      'PUT',
+      '/me/identity',
+      jsonBody: {'profile_text': profileText},
+    );
+    return UserIdentity.fromJson(body);
+  }
+
   Future<void> putOpenaiCredential(String apiKey) async {
     await _request('PUT', '/me/credentials/openai',
         jsonBody: {'api_key': apiKey});

@@ -513,8 +513,6 @@ def _build_runtime_instructions(
         SYSTEM_INSTRUCTIONS,
         f"Reference datetime: {reference_datetime.isoformat()}",
         f"Timezone: {timezone}",
+        build_identity_instructions_block(identity_facts),
     ]
-    identity_block = build_identity_instructions_block(identity_facts)
-    if identity_block:
-        parts.append(identity_block)
     return "\n".join(parts)

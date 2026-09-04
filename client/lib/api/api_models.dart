@@ -47,6 +47,26 @@ class UserSettings {
   }
 }
 
+class UserIdentity {
+  UserIdentity({
+    required this.profileText,
+    this.fullName,
+    this.preferredName,
+  });
+
+  final String profileText;
+  final String? fullName;
+  final String? preferredName;
+
+  factory UserIdentity.fromJson(Map<String, dynamic> json) {
+    return UserIdentity(
+      profileText: json['profile_text'] as String? ?? '',
+      fullName: json['full_name'] as String?,
+      preferredName: json['preferred_name'] as String?,
+    );
+  }
+}
+
 class GoogleConnection {
   GoogleConnection({
     required this.connected,

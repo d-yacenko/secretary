@@ -7,6 +7,7 @@ import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/domain_labels.dart';
 import 'account_layout.dart';
+import 'identity_profile_template.dart';
 import 'source_preferences_list.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class AccountScreen extends StatefulWidget {
     this.initialConnections,
     this.initialSettings,
     this.initialSourcePreferences,
+    this.initialIdentity,
   });
 
   final SecretaryApiClient apiClient;
@@ -24,6 +26,7 @@ class AccountScreen extends StatefulWidget {
   final Connections? initialConnections;
   final UserSettings? initialSettings;
   final List<SourcePreference>? initialSourcePreferences;
+  final UserIdentity? initialIdentity;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -41,10 +44,14 @@ class _AccountScreenState extends State<AccountScreen>
   bool _googleOAuthPending = false;
   bool _profileSaving = false;
   bool _settingsSaving = false;
+  bool _identityLoading = false;
+  bool _identitySaving = false;
+  String? _identityError;
   final Set<String> _savingSources = {};
   final Map<String, String> _sourcePreferenceRowErrors = {};
   late final TextEditingController _displayNameController;
   late final TextEditingController _timezoneController;
+  late final TextEditingController _identityController;
 
   @override
   void initState() {
@@ -56,7 +63,20 @@ class _AccountScreenState extends State<AccountScreen>
     _timezoneController = TextEditingController(
       text: widget.initialSettings?.timezone ?? '',
     );
+    _identityController = TextEditingController(
+      text: widget.initialIdentity?.profileText ?? '',
+    );
     if (widget.initialConnections != null &&
+        widget.initialSettings != null &&
+        widget.initialSourcePreferences != null &&
+        widget.initialIdentity != null) {
+      _connections = widget.initialConnections;
+      _settings = widget.initialSettings;
+      _sourcePreferences = widget.initialSourcePreferences;
+      _loading = false;
+      _sourcePreferencesLoading = false;
+      _identityLoading = false;
+    } else if (widget.initialConnections != null &&
         widget.initialSettings != null &&
         widget.initialSourcePreferences != null) {
       _connections = widget.initialConnections;
@@ -64,6 +84,11 @@ class _AccountScreenState extends State<AccountScreen>
       _sourcePreferences = widget.initialSourcePreferences;
       _loading = false;
       _sourcePreferencesLoading = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadIdentity();
+        }
+      });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -78,6 +103,7 @@ class _AccountScreenState extends State<AccountScreen>
     WidgetsBinding.instance.removeObserver(this);
     _displayNameController.dispose();
     _timezoneController.dispose();
+    _identityController.dispose();
     super.dispose();
   }
 
@@ -95,18 +121,47 @@ class _AccountScreenState extends State<AccountScreen>
     }
   }
 
+  Future<void> _loadIdentity() async {
+    setState(() {
+      _identityLoading = true;
+      _identityError = null;
+    });
+    try {
+      final identity = await widget.apiClient.getIdentity();
+      if (mounted) {
+        setState(() {
+          _identityController.text = identity.profileText;
+          _identityError = null;
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _identityError = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _identityLoading = false);
+      }
+    }
+  }
+
   Future<void> _loadAccountData() async {
     setState(() {
       _loading = true;
       _sourcePreferencesLoading = true;
+      _identityLoading = true;
       _error = null;
       _sourcePreferencesError = null;
+      _identityError = null;
     });
     Connections? connections;
     UserSettings? settings;
     List<SourcePreference>? sourcePreferences;
     String? error;
     String? sourcePreferencesError;
+    String? identityError;
     try {
       connections = await widget.apiClient.getConnections();
     } on AuthenticationException {
@@ -131,6 +186,15 @@ class _AccountScreenState extends State<AccountScreen>
     } on ApiException catch (e) {
       sourcePreferencesError = e.message;
     }
+    try {
+      final identity = await widget.apiClient.getIdentity();
+      _identityController.text = identity.profileText;
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+      return;
+    } on ApiException catch (e) {
+      identityError = e.message;
+    }
     if (mounted) {
       setState(() {
         _connections = connections;
@@ -141,8 +205,10 @@ class _AccountScreenState extends State<AccountScreen>
         }
         _error = error;
         _sourcePreferencesError = sourcePreferencesError;
+        _identityError = identityError;
         _loading = false;
         _sourcePreferencesLoading = false;
+        _identityLoading = false;
       });
     }
   }
@@ -230,6 +296,37 @@ class _AccountScreenState extends State<AccountScreen>
     } finally {
       if (mounted) {
         setState(() => _profileSaving = false);
+      }
+    }
+  }
+
+  Future<void> _saveIdentity() async {
+    if (_identitySaving) {
+      return;
+    }
+    setState(() {
+      _identitySaving = true;
+      _identityError = null;
+    });
+    try {
+      final updated = await widget.apiClient.putIdentity(
+        profileText: _identityController.text,
+      );
+      if (mounted) {
+        setState(() {
+          _identityController.text = updated.profileText;
+          _identityError = null;
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _identityError = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _identitySaving = false);
       }
     }
   }
@@ -434,6 +531,67 @@ class _AccountScreenState extends State<AccountScreen>
                         ),
                       ),
                     ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              AccountSectionCard(
+                title: 'Моя идентичность',
+                children: [
+                  Text(
+                    identityProfileExplanation,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Пример структуры:',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    identityProfileTemplateExample,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_identityLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else
+                    TextField(
+                      key: const Key('identity_profile_text'),
+                      controller: _identityController,
+                      decoration: const InputDecoration(
+                        labelText: 'Профиль идентичности',
+                        alignLabelWithHint: true,
+                      ),
+                      minLines: 8,
+                      maxLines: 18,
+                      enabled: !_identitySaving,
+                    ),
+                  if (_identityError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _identityError!,
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _identitySaving || _identityLoading
+                        ? null
+                        : _saveIdentity,
+                    child: Text(
+                      _identitySaving
+                          ? 'Сохранение…'
+                          : 'Сохранить идентичность',
+                    ),
                   ),
                 ],
               ),

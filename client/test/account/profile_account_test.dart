@@ -79,6 +79,7 @@ void main() {
       );
 
       expect(find.text('Профиль'), findsOneWidget);
+      expect(find.text('Моя идентичность'), findsOneWidget);
       expect(find.text('ИИ'), findsOneWidget);
       expect(find.text('Подключения'), findsOneWidget);
       expect(find.text('Добавить файл'), findsNothing);
@@ -347,6 +348,150 @@ void main() {
       expect(find.text('Модель Assistant'), findsOneWidget);
       expect(find.text('gpt-5.6-luna'), findsWidgets);
       expect(find.text('gpt-disallowed'), findsNothing);
+    });
+  });
+
+  group('Identity profile UX', () {
+    const existingProfile = '''Имя: Дмитрий Яценко
+Как ко мне обращаться: Дмитрий
+Варианты имени: Яценко
+''';
+
+    testWidgets('loads existing identity profile text unchanged', (tester) async {
+      final client = buildAccountApiClient();
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          identityJson: accountIdentityJson(profileText: existingProfile),
+        ),
+      );
+
+      expect(find.text('Моя идентичность'), findsOneWidget);
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('identity_profile_text')),
+      );
+      expect(field.controller?.text, existingProfile);
+    });
+
+    testWidgets('save sends exact structured text via PUT /me/identity', (tester) async {
+      String? savedProfileText;
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          if (isAccountSourcePreferencesRequest(request.url)) {
+            return http.Response(jsonEncode(accountSourcePreferencesJson()), 200);
+          }
+          if (isAccountIdentityRequest(request.url) && request.method == 'GET') {
+            return http.Response(jsonEncode(accountIdentityJson()), 200);
+          }
+          if (isAccountIdentityRequest(request.url) && request.method == 'PUT') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            savedProfileText = body['profile_text'] as String;
+            return http.Response.bytes(
+              utf8.encode(jsonEncode(accountIdentityJson(profileText: savedProfileText!))),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        AccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      const edited = '''Имя: Тест Пользователь
+Email:
+- test@example.com
+''';
+      await tester.enterText(find.byKey(const Key('identity_profile_text')), edited);
+      await tester.tap(find.text('Сохранить идентичность'));
+      await tester.pumpAndSettle();
+
+      expect(savedProfileText, edited);
+    });
+
+    testWidgets('save failure keeps edits and shows error', (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          if (isAccountSourcePreferencesRequest(request.url)) {
+            return http.Response(jsonEncode(accountSourcePreferencesJson()), 200);
+          }
+          if (isAccountIdentityRequest(request.url) && request.method == 'GET') {
+            return http.Response(jsonEncode(accountIdentityJson()), 200);
+          }
+          if (isAccountIdentityRequest(request.url) && request.method == 'PUT') {
+            return http.Response(
+              jsonEncode({'detail': 'profile_text exceeds maximum length'}),
+              422,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        AccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      const edited = 'Имя: Ошибка сохранения';
+      await tester.enterText(find.byKey(const Key('identity_profile_text')), edited);
+      await tester.tap(find.text('Сохранить идентичность'));
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('identity_profile_text')),
+      );
+      expect(field.controller?.text, edited);
+      expect(find.textContaining('profile_text exceeds maximum length'), findsOneWidget);
+    });
+
+    testWidgets('empty identity profile is safe', (tester) async {
+      final client = buildAccountApiClient();
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+          identityJson: accountIdentityJson(profileText: ''),
+        ),
+      );
+
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('identity_profile_text')),
+      );
+      expect(field.controller?.text, '');
+      expect(find.text('Сохранить идентичность'), findsOneWidget);
     });
   });
 }

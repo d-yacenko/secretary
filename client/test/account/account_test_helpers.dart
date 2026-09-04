@@ -48,6 +48,31 @@ Map<String, dynamic> accountSettingsJson({
 
 bool isAccountSettingsRequest(Uri url) => url.path.endsWith('/me/settings');
 
+Map<String, dynamic> accountIdentityJson({
+  String profileText = '',
+  String? fullName,
+  String? preferredName,
+}) {
+  return {
+    'profile_text': profileText,
+    'full_name': fullName,
+    'preferred_name': preferredName,
+    'parsed': {
+      'full_name': fullName,
+      'preferred_name': preferredName,
+      'aliases': <String>[],
+      'roles': <String>[],
+      'organizations': <String>[],
+      'emails': <String>[],
+      'phones': <String>[],
+      'telegram': <String>[],
+      'other_identifiers': <String>[],
+    },
+  };
+}
+
+bool isAccountIdentityRequest(Uri url) => url.path.endsWith('/me/identity');
+
 Map<String, dynamic> accountSourcePreferenceEntryJson({
   String source = 'gmail',
   bool enabled = true,
@@ -114,12 +139,14 @@ class StubSecretaryApiClient extends SecretaryApiClient {
     required Connections connections,
     required UserSettings settings,
     List<SourcePreference>? sourcePreferences,
+    UserIdentity? identity,
     http.Client? httpClient,
   })  : _connections = connections,
         _settings = settings,
         _sourcePreferences = sourcePreferences ??
             SourcePreferenceList.fromJson(accountSourcePreferencesJson())
                 .preferences,
+        _identity = identity ?? UserIdentity.fromJson(accountIdentityJson()),
         super(
             httpClient: httpClient ??
                 MockClient((_) async => http.Response('{}', 404)));
@@ -127,6 +154,7 @@ class StubSecretaryApiClient extends SecretaryApiClient {
   final Connections _connections;
   final UserSettings _settings;
   final List<SourcePreference> _sourcePreferences;
+  final UserIdentity _identity;
 
   @override
   Future<Connections> getConnections() async => _connections;
@@ -137,6 +165,18 @@ class StubSecretaryApiClient extends SecretaryApiClient {
   @override
   Future<List<SourcePreference>> getSourcePreferences() async =>
       List<SourcePreference>.from(_sourcePreferences);
+
+  @override
+  Future<UserIdentity> getIdentity() async => _identity;
+
+  @override
+  Future<UserIdentity> putIdentity({required String profileText}) async {
+    return UserIdentity(
+      profileText: profileText,
+      fullName: _identity.fullName,
+      preferredName: _identity.preferredName,
+    );
+  }
 }
 
 SecretaryApiClient buildAccountApiClient({
@@ -162,6 +202,7 @@ AccountScreen buildAccountScreen({
   Map<String, dynamic>? connectionsJson,
   Map<String, dynamic>? settingsJson,
   Map<String, dynamic>? sourcePreferencesJson,
+  Map<String, dynamic>? identityJson,
 }) {
   final connections =
       Connections.fromJson(connectionsJson ?? accountConnectionsJson());
@@ -170,12 +211,15 @@ AccountScreen buildAccountScreen({
       ? SourcePreferenceList.fromJson(accountSourcePreferencesJson())
           .preferences
       : SourcePreferenceList.fromJson(sourcePreferencesJson).preferences;
+  final identity =
+      UserIdentity.fromJson(identityJson ?? accountIdentityJson());
   return AccountScreen(
     apiClient: apiClient,
     authController: authController,
     initialConnections: connections,
     initialSettings: settings,
     initialSourcePreferences: sourcePreferences,
+    initialIdentity: identity,
   );
 }
 

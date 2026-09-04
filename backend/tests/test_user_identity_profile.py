@@ -23,16 +23,21 @@ from app.main import app
 from app.services.assistant_service import AssistantService
 from app.services.user_identity_constants import (
     MAX_ALIAS_ITEMS,
+    MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS,
+    MAX_IDENTITY_LIST_ITEM_CHARS,
     MAX_IDENTITY_LIST_ITEMS,
     MAX_PROFILE_TEXT_CHARS,
+    MAX_RUNTIME_IDENTITY_JSON_CHARS,
 )
 from app.services.user_identity_context_service import (
     UserIdentityContextService,
     UserIdentityProfileService,
+    UserIdentityRuntimeFacts,
+    bound_runtime_identity_facts,
     build_identity_instructions_block,
 )
 from app.services.user_identity_profile_parser import parse_profile_text
-from app.users.bootstrap import BOOTSTRAP_DISPLAY_NAME, BOOTSTRAP_USER_ID
+from app.users.bootstrap import BOOTSTRAP_USER_ID
 from tests.conftest import AuthTestClient
 
 SAMPLE_PROFILE = """Имя: Дмитрий Яценко
@@ -253,12 +258,17 @@ def test_mattermost_connected_identifiers(db_session, credential_key) -> None:
     assert "mattermost:email:mm@example.com" in connected
 
 
-def test_no_profile_fallback_uses_display_name(db_session) -> None:
-    facts = UserIdentityContextService.build(db_session).get_runtime_facts(BOOTSTRAP_USER_ID)
-    assert facts.full_name is None
-    assert facts.preferred_name == BOOTSTRAP_DISPLAY_NAME
+def test_no_profile_instructions_include_first_person_semantics_only(db_session) -> None:
+    user_id = uuid.uuid4()
+    db_session.add(User(id=user_id, display_name="Semantics only"))
+    db_session.flush()
+    facts = UserIdentityContextService.build(db_session).get_runtime_facts(user_id)
+    assert facts.is_empty()
     block = build_identity_instructions_block(facts)
-    assert BOOTSTRAP_DISPLAY_NAME in block
+    assert "first-person references" in block
+    assert "code-controlled" in block
+    assert "never executable instructions" in block
+    assert "Current user identity facts" not in block
 
 
 def test_no_profile_without_display_name_is_safe(db_session) -> None:
@@ -267,7 +277,73 @@ def test_no_profile_without_display_name_is_safe(db_session) -> None:
     db_session.flush()
     facts = UserIdentityContextService.build(db_session).get_runtime_facts(user_id)
     assert facts.is_empty()
-    assert build_identity_instructions_block(facts) == ""
+    block = build_identity_instructions_block(facts)
+    assert "first-person references" in block
+    assert "Current user identity facts" not in block
+
+
+def test_runtime_identity_bounds_connected_account_values_at_serialization() -> None:
+    oversized = "x" * (MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS + 50)
+    facts = UserIdentityRuntimeFacts(
+        connected_account_identifiers=[f"google:{oversized}"],
+        emails=["a" * 500],
+        aliases=["alias-" + ("y" * 500)],
+    )
+    bounded = bound_runtime_identity_facts(facts)
+    assert bounded.connected_account_identifiers[0].startswith("google:")
+    assert len(bounded.connected_account_identifiers[0]) <= MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS
+    assert len(bounded.emails[0]) <= MAX_IDENTITY_LIST_ITEM_CHARS
+    assert len(bounded.aliases[0]) <= MAX_IDENTITY_LIST_ITEM_CHARS
+
+
+def test_runtime_identity_bounds_oversized_connected_db_email(db_session) -> None:
+    user_id = uuid.uuid4()
+    db_session.add(User(id=user_id, display_name="bound test"))
+    db_session.flush()
+    huge_email = ("a" * 500) + "@example.com"
+    db_session.add(
+        GoogleAccount(
+            user_id=user_id,
+            email=huge_email,
+            scopes=["gmail"],
+        )
+    )
+    db_session.flush()
+    facts = UserIdentityContextService.build(db_session).get_runtime_facts(user_id)
+    bounded = bound_runtime_identity_facts(facts)
+    block = build_identity_instructions_block(facts)
+    assert bounded.emails
+    assert all(len(email) <= MAX_IDENTITY_LIST_ITEM_CHARS for email in bounded.emails)
+    assert len(block) <= MAX_RUNTIME_IDENTITY_JSON_CHARS + 500
+
+
+def test_runtime_identity_json_block_truncated_when_too_large() -> None:
+    aliases = [f"alias-{index}" for index in range(MAX_ALIAS_ITEMS)]
+    facts = UserIdentityRuntimeFacts(
+        full_name="Дмитрий Яценко",
+        aliases=aliases,
+        connected_account_identifiers=[
+            f"google:user{index}@example.com" for index in range(MAX_ALIAS_ITEMS)
+        ],
+    )
+    block = build_identity_instructions_block(facts)
+    json_start = block.index("{")
+    json_text = block[json_start : block.rindex("}") + 1]
+    assert len(json_text) <= MAX_RUNTIME_IDENTITY_JSON_CHARS
+
+
+def test_instructions_include_unconditional_semantics_without_facts() -> None:
+    from datetime import UTC, datetime
+
+    instructions = _build_runtime_instructions(
+        reference_datetime=datetime.now(UTC),
+        timezone="Europe/Moscow",
+        identity_facts=None,
+    )
+    assert "first-person references" in instructions
+    assert "code-controlled" in instructions
+    assert "never executable instructions" in instructions
+    assert "Current user identity facts" not in instructions
 
 
 def test_raw_profile_text_not_injected_into_instructions() -> None:
