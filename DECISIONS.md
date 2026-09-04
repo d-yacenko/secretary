@@ -484,7 +484,6 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Passive sync:** Gmail/Calendar/Mattermost/etc. must not clear `deleted_at` on rediscovery.
 - **Explicit re-add restore:** deliberate explicit intake of same stable resource reuses `object_id` and clears `deleted_at`.
 - **Flutter:** universal trash action with provider-aware Russian confirmation copy; no restore/trash-screen UI in this phase.
-- **NEXT:** User Identity Profile / Self Resolution (after architect acceptance).
 - **Status:** deployed at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`; **awaiting architect review**.
 
 ## Universal Object Delete final closure — transactional restore + visibility + UX refresh
@@ -497,4 +496,14 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Flutter:** `ObjectDetailNavigationResult` wired through Inbox/Search/Today/Graph/parent detail; Mattermost/local-folder confirmation copy.
 - **Production E2E:** `https://example.com/?secretary_delete_e2e=e2e-1788518292-75bc7268` — intake/delete/invisible/re-add same `object_id` **PASS**; failed `example.invalid` re-add leaves tombstone **PASS**.
 - **Status:** deployed at `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`; **awaiting architect review**.
+
+## User Identity Profile / Self Resolution
+
+- **Motivation:** assistant must resolve first-person references using authored profile facts plus connected-account identifiers without inventing identity.
+- **Storage:** per-user `user_identity_profiles` (`profile_text` + parsed fields); Alembic `0028`.
+- **API:** `GET/PUT /me/identity`; deterministic Russian `profile_text` parser; connected-account facts merged at runtime only (not editable in UI).
+- **Assistant:** identity block injected into instructions via `UserIdentityContextService`; `bound_runtime_identity_facts()` caps final serialization; unconditional first-person semantics even when facts absent.
+- **Flutter:** Account section **«Моя идентичность»**; template shown as `TextField` hint (not a separate example block).
+- **Production smoke:** `GET /me/identity` **200** after deploy; pre-deploy client «Not Found» was missing route on `a0dfa5ce`.
+- **Status:** deployed at `dc691abe69385dd99356dd2226b2a2364f0e3a1b`; **awaiting architect review**.
 

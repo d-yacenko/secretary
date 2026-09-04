@@ -348,13 +348,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`
-- Branch: `review/universal-object-delete` (detached at application SHA)
-- Deployed: 2026-09-04 (Universal Object Delete final closure)
-- Checkout: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`, clean working tree
-- Alembic current/head: `0027`
-- `/health`: PASS
+- SHA: `dc691abe69385dd99356dd2226b2a2364f0e3a1b`
+- Branch: `review/user-identity-profile`
+- Deployed: 2026-09-04 (User Identity Profile UI hint corrective + `/me/identity` endpoint)
+- Checkout: `dc691abe69385dd99356dd2226b2a2364f0e3a1b`, clean working tree
+- Alembic current/head: `0028`
+- `/health`: PASS (`{"status":"ok"}`)
 - Worker: healthy
+- `GET /me/identity`: **200** (production smoke; empty profile)
 - Encrypted architect context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 - Iteration A final concurrency closure: atomic final persist authority + no-validator generation supersession deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
