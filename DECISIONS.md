@@ -423,5 +423,17 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Extraction:** extend `ExplicitResourceContentExtractor` + `resolve_content_extraction_plan(provider=web)`; reuse `MIME_SUFFIX_MAP` / `SUPPORTED_BINARY_SUFFIXES`; no arXiv adapter; no global HTML cap raise.
 - **Production:** arXiv URL intake succeeds, `kind=file`, `content_status=ready` after worker extraction.
 - **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
-- **Status:** deployed at `4abf5f82da7f566cd09ecc371e701cf62e619c45`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+- **Status:** deployed at `4abf5f82da7f566cd09ecc371e701cf62e619c45`; functional arXiv PASS; architect review **NOT ACCEPTED** (probe still drained binary streams; ready→pending idempotency bug; `web:url-cl:` revision; text-file classification).
+
+## Universal Intake Iteration A-R3-R1 — bounded probe + idempotency closure
+
+- **Motivation:** architect rejected A-R3 at `4abf5f82da7f566cd09ecc371e701cf62e619c45` despite functional arXiv PASS.
+- **Bounded probe:** classify from headers when sufficient; otherwise read only `WEB_CLASSIFY_PREFIX_BYTES` (8192) via explicit `iter_bytes(chunk_size=4096)`; stop immediately for supported/unsupported binary; HTML continues on the same iterator (no second pass).
+- **Too large at intake:** declared `Content-Length` > 20 MiB + supported MIME → `content_status=too_large`, no body drain, no extract job.
+- **Idempotency:** same trusted revision on READY direct web file preserves status/reps/summary/embedding; updates probe metadata only; zero jobs.
+- **Revision trust:** ETag, Last-Modified+Content-Length, bounded SHA-256 only; removed `web:url-cl:`; no-validator explicit re-intake re-extracts once on same `object_id`.
+- **Text files:** `text/csv`, `text/plain`+`.txt`, `text/markdown`+`.md` => `provider=web` `kind=file` before binary/HTML split.
+- **Production repeat arXiv:** same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `unchanged` / `ready` / jobs=0 with unchanged ETag.
+- **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
+- **Status:** deployed at `4bc8314c184e79417d371681e43df217a050a23d`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
 

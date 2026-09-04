@@ -182,7 +182,9 @@ Universal Intake Iteration A-R1-R1 corrective: **implemented and deployed** at `
 
 Universal Intake Iteration A-R2 corrective: **implemented and deployed** at `057627ae6a0c610b1a801ea2798a293ef1453c5c`, **awaiting architect review and manual E2E** (Iteration A not accepted). Global «+» restored to task-only Capture; Inbox intake bar is universal explicit incoming-object entry (note / link / file / folder / voice).
 
-Universal Intake Iteration A-R3 corrective: **implemented and deployed** at `4abf5f82da7f566cd09ecc371e701cf62e619c45`, **awaiting architect review and manual E2E**. Direct public web files (e.g. large PDFs without `.pdf` suffix) hand off to bounded `provider=web` `kind=file` extraction instead of the 3 MiB HTML fetch cap.
+Universal Intake Iteration A-R3 corrective: **implemented and deployed** at `4abf5f82da7f566cd09ecc371e701cf62e619c45`; functional arXiv PASS but architect review **NOT ACCEPTED** (probe drain, ready idempotency, revision trust, text-file classification).
+
+Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `4bc8314c184e79417d371681e43df217a050a23d`, **awaiting architect review and manual E2E**. Bounded probe stops after classification; ready same-revision re-intake preserved; `web:url-cl:` revision removed; direct text MIME/URL files classified before HTML path.
 
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 

@@ -1,4 +1,4 @@
-# Current task — Universal Intake Iteration A-R3 deployed
+# Current task — Universal Intake Iteration A-R3-R1 deployed
 
 ## Status
 
@@ -8,39 +8,39 @@ Universal Intake Iteration A: **implemented**, **not architect-accepted**.
 
 Universal Intake Iteration A-R1 / A-R1-R1 / A-R2: **implemented and deployed**.
 
-Universal Intake Iteration A-R3 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
+Universal Intake Iteration A-R3 corrective: **implemented and deployed**; architect review **NOT ACCEPTED** (bounded probe still drained binary streams; ready re-intake idempotency; untrustworthy URL+length revision; text file classification gaps).
+
+Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
 
 ## Branch
 
 `review/universal-intake-format-parity-a`
 
-## User manual E2E (R2 baseline)
+## A-R3 architect findings (application `4abf5f82da7f566cd09ecc371e701cf62e619c45`)
 
-PASS:
-- Google file intake
-- typed note
-- voice note
-- ordinary HTML/web URL
+Functional arXiv PASS (`provider=web`, `kind=file`, `content_status=ready`), but review FAIL because:
 
-Observed failure motivating R3:
-- `https://arxiv.org/pdf/1506.04214` → UI error «web fetch exceeded size limit»
+- intake probe drained supported/unsupported binary bodies to EOF despite `store=False`
+- `apply_intake_content_metadata()` set `pending` before same-revision unchanged return (`ready → pending`, jobs=0)
+- `web:url-cl:{final_url}:{content_length}` used as revision without trustworthy validator
+- `text/plain` / `text/csv` / `text/markdown` not classified as direct files before binary split
 
-## Iteration A-R3 scope (implemented)
+## A-R3-R1 scope (implemented)
 
-- Early public HTTP classification: HTML/text vs supported direct file vs unsupported binary
-- `MAX_WEB_FETCH_BYTES` = 3 MiB remains HTML/web-page cap only
-- Supported direct files hand off to bounded explicit extraction (`MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES` = 20 MiB)
-- `provider=web`, `kind=file`, `origin=explicit` for direct downloadable files
-- Reuse shared SSRF/redirect/userinfo validation; extend `ExplicitResourceContentExtractor` for `provider=web`
-- No arXiv hostname exception; no global HTML cap raise
+- Bounded probe: header-first where sufficient; otherwise explicit `iter_bytes(chunk_size=4096)` prefix only; stop immediately after supported/unsupported binary classification; HTML continues on same iterator
+- Declared `Content-Length` > 20 MiB supported file → `too_large` metadata object, zero body bytes when headers suffice
+- Ready re-intake with unchanged trusted revision preserves extraction status, mechanical reps, summary, embedding; zero extract jobs
+- Remove `web:url-cl:` revision; no-validator re-intake conservatively re-extracts once (same `object_id`)
+- Direct text file classification (`txt`/`md`/`csv`) before generic binary/HTML split
+- Stream-bound regression tests prove bytes consumed, not just metadata
 
 ## Deploy
 
-Application SHA: `4abf5f82da7f566cd09ecc371e701cf62e619c45`
+Application SHA: `4bc8314c184e79417d371681e43df217a050a23d`
 
-Deployed VDS SHA: `4abf5f82da7f566cd09ecc371e701cf62e619c45` (clean)
+Deployed VDS SHA: `4bc8314c184e79417d371681e43df217a050a23d` (clean)
 
-Encrypted context blob SHA: `99cb601b147a3e2d2b49c1fc0eab7cd9d9db7f0f`
+Encrypted context blob SHA: `9bed8f596fdf0d03194b2fea968d881efddc6b109e7b8c1667f0c19f9bebb315`
 
 Alembic current/head: `0026`
 
@@ -48,7 +48,7 @@ Alembic current/head: `0026`
 
 Worker: healthy
 
-Production arXiv intake (`https://arxiv.org/pdf/1506.04214`): **PASS** — `provider=web`, `kind=file`, `content_status=ready` (no 3 MiB fetch failure)
+Production arXiv repeat intake (`https://arxiv.org/pdf/1506.04214`): **PASS** — same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `status=unchanged`; `content_status=ready`; `content_jobs_enqueued=0` (ETag unchanged)
 
 ## Next
 
