@@ -151,6 +151,82 @@ def write_large_csv(path: Path, row_count: int, *, marker_row: int | None = None
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_odf_zip_too_many_entries(path: Path) -> None:
+    from app.content_extraction.constants import MAX_OOXML_ZIP_ENTRIES
+
+    content_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body><office:text><text:p>safe</text:p></office:text></office:body>
+</office:document-content>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        zf.writestr("content.xml", content_xml)
+        for index in range(MAX_OOXML_ZIP_ENTRIES):
+            zf.writestr(f"extra/{index}.txt", "x")
+
+
+def write_ods_oversized_repeated_rows(path: Path, repeat_count: int) -> None:
+    content_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body><office:spreadsheet>
+    <table:table table:name="BigRepeat">
+      <table:table-row table:number-rows-repeated="{repeat_count}">
+        <table:table-cell><text:p>row</text:p></table:table-cell>
+      </table:table-row>
+    </table:table>
+  </office:spreadsheet></office:body>
+</office:document-content>"""
+    _write_odf_zip(path, content_xml)
+
+
+def write_ods_oversized_repeated_columns(path: Path, repeat_count: int) -> None:
+    content_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body><office:spreadsheet>
+    <table:table table:name="WideRepeat">
+      <table:table-row>
+        <table:table-cell table:number-columns-repeated="{repeat_count}"><text:p>cell</text:p></table:table-cell>
+      </table:table-row>
+    </table:table>
+  </office:spreadsheet></office:body>
+</office:document-content>"""
+    _write_odf_zip(path, content_xml)
+
+
+def write_ods_large_structural_text(path: Path, cell_text: str) -> None:
+    content_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body><office:spreadsheet>
+    <table:table table:name="Huge">
+      <table:table-row>
+        <table:table-cell><text:p>{cell_text}</text:p></table:table-cell>
+        <table:table-cell><text:p>{cell_text}</text:p></table:table-cell>
+      </table:table-row>
+    </table:table>
+  </office:spreadsheet></office:body>
+</office:document-content>"""
+    _write_odf_zip(path, content_xml)
+
+
+def write_variable_width_csv(path: Path, row_count: int) -> None:
+    lines = ["id,payload"]
+    for index in range(row_count):
+        width = 40 + (index % 17) * 120
+        payload = f"row{index}:" + ("x" * width)
+        lines.append(f"{index},{payload}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def write_large_parquet(path: Path, row_count: int, *, marker_row: int | None = None) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -168,3 +244,16 @@ def write_large_parquet(path: Path, row_count: int, *, marker_row: int | None = 
         }
     )
     pq.write_table(table, path)
+
+
+def write_multi_rowgroup_parquet(path: Path, row_count: int) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    table = pa.table(
+        {
+            "id": list(range(row_count)),
+            "label": [f"row_{index}" for index in range(row_count)],
+        }
+    )
+    pq.write_table(table, path, row_group_size=1)

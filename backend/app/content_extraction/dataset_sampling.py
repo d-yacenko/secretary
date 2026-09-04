@@ -2,15 +2,36 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from app.content_extraction.constants import (
+    DATASET_STRUCTURAL_PARTS,
     MAX_REPRESENTATION_PART_BYTES,
+    MAX_REPRESENTATION_PARTS,
     MAX_REPRESENTATION_TOTAL_BYTES,
 )
-from app.services.representation_service import _format_sample_text
+from app.content_extraction.text_representation import (
+    build_bounded_text_representations,
+    cap_structural_text,
+)
+from app.db.models import Representation
+from app.services.representation_service import (
+    KIND_SAMPLE,
+    KIND_SCHEMA,
+    KIND_STATISTICS,
+    _format_sample_text,
+    _format_schema_text,
+)
 
+COMPACT_SAMPLE_MAX_ROWS = 5
 MAX_SAMPLED_INDEX_LIST = 64
+
+
+@dataclass(frozen=True)
+class IndexedRow:
+    index: int
+    values: dict[str, Any]
 
 
 def select_distributed_row_indices(total_rows: int, target_count: int) -> list[int]:
@@ -28,6 +49,15 @@ def select_distributed_row_indices(total_rows: int, target_count: int) -> list[i
     return sorted(set(indices))
 
 
+def compact_preview_indices(total_rows: int) -> list[int]:
+    """Small fixed preview indices for the compact sample representation."""
+    if total_rows <= 0:
+        return []
+    if total_rows <= COMPACT_SAMPLE_MAX_ROWS:
+        return list(range(total_rows))
+    return list(range(COMPACT_SAMPLE_MAX_ROWS))
+
+
 def estimate_row_bytes(fieldnames: list[str], sample_row: dict[str, Any]) -> int:
     if not fieldnames:
         return 1
@@ -35,13 +65,29 @@ def estimate_row_bytes(fieldnames: list[str], sample_row: dict[str, Any]) -> int
     return max(1, len(line.encode("utf-8")) + 1)
 
 
+def estimate_searchable_row_bytes(
+    fieldnames: list[str],
+    sample_row: dict[str, Any],
+    row_index: int,
+) -> int:
+    row_line = _format_sample_text([sample_row], fieldnames).split("\n", 1)[-1]
+    block = f"[row={row_index + 1}]\n{row_line}"
+    return len(block.encode("utf-8")) + 1
+
+
 def estimate_rows_for_budget(
     fieldnames: list[str],
     sample_row: dict[str, Any],
     byte_budget: int,
+    *,
+    searchable: bool = False,
+    row_index: int = 0,
 ) -> int:
     if not fieldnames or byte_budget <= 0:
         return 0
+    if searchable:
+        row_bytes = estimate_searchable_row_bytes(fieldnames, sample_row, row_index)
+        return max(1, byte_budget // row_bytes)
     header_bytes = len(("sample\n" + ",".join(fieldnames)).encode("utf-8")) + 1
     row_bytes = estimate_row_bytes(fieldnames, sample_row)
     available = byte_budget - header_bytes
@@ -50,59 +96,91 @@ def estimate_rows_for_budget(
     return max(1, available // row_bytes)
 
 
-def plan_dataset_sampling(
+def estimate_structural_bytes(fieldnames: list[str], stats_lines: list[str]) -> int:
+    schema_text = _format_schema_text(fieldnames, {name: "string" for name in fieldnames})
+    stats_text = "\n".join(stats_lines)
+    return len(schema_text.encode("utf-8")) + len(stats_text.encode("utf-8"))
+
+
+def fit_compact_sample_pairs(
+    pairs: list[IndexedRow],
+    fieldnames: list[str],
+    total_rows: int,
+) -> tuple[list[IndexedRow], str, bool]:
+    """Shrink loaded preview pairs until compact sample fits one part."""
+    current = list(pairs)
+    while current:
+        sample_text = _format_sample_text([row.values for row in current], fieldnames)
+        if len(sample_text.encode("utf-8")) <= MAX_REPRESENTATION_PART_BYTES:
+            return current, sample_text, False
+        if len(current) <= 1:
+            clipped, _ = cap_structural_text(sample_text)
+            return current[:1], clipped, True
+        current = current[: max(1, len(current) // 2)]
+    return [], "sample\n(empty)", True
+
+
+def plan_searchable_indices(
     *,
     total_rows: int,
     fieldnames: list[str],
-    sample_rows_for_estimate: list[dict[str, Any]],
-    structural_bytes: int = 0,
+    estimate_row: dict[str, Any],
+    structural_bytes: int,
+    compact_sample_bytes: int,
 ) -> tuple[list[int], str, bool]:
-    """Return (selected_indices, sampling_mode, sampling_truncated)."""
-    if total_rows <= 0:
-        return [], "full", False
-
-    remaining_bytes = max(0, MAX_REPRESENTATION_TOTAL_BYTES - structural_bytes)
-    sample_budget = min(MAX_REPRESENTATION_PART_BYTES, remaining_bytes // 2)
-
-    estimate_row = (
-        sample_rows_for_estimate[0]
-        if sample_rows_for_estimate
-        else {name: "" for name in fieldnames}
+    remaining_bytes = max(
+        0,
+        MAX_REPRESENTATION_TOTAL_BYTES - structural_bytes - compact_sample_bytes,
     )
-    max_rows_in_budget = estimate_rows_for_budget(fieldnames, estimate_row, sample_budget)
-
-    if total_rows <= max_rows_in_budget:
+    remaining_parts = max(0, MAX_REPRESENTATION_PARTS - DATASET_STRUCTURAL_PARTS)
+    byte_budget = min(
+        remaining_bytes,
+        remaining_parts * MAX_REPRESENTATION_PART_BYTES,
+    )
+    max_rows = estimate_rows_for_budget(
+        fieldnames,
+        estimate_row,
+        byte_budget,
+        searchable=True,
+        row_index=total_rows // 2 if total_rows else 0,
+    )
+    if total_rows <= max_rows:
         return list(range(total_rows)), "full", False
-
-    target_count = max_rows_in_budget
-    indices = select_distributed_row_indices(total_rows, target_count)
+    indices = select_distributed_row_indices(total_rows, max_rows)
     return indices, "distributed", len(indices) < total_rows
 
 
-def fit_sample_to_part_limit(
-    *,
+def fit_searchable_pairs_to_budget(
+    pairs: list[IndexedRow],
     fieldnames: list[str],
-    rows_by_index: dict[int, dict[str, Any]],
-    indices: list[int],
-    total_rows: int,
-) -> tuple[list[dict[str, Any]], list[int], str, str, bool]:
-    """Shrink sample rows until formatted sample fits per-part byte limit."""
-    current_indices = list(indices)
-    while current_indices:
-        current_rows = [rows_by_index[i] for i in current_indices if i in rows_by_index]
-        sample_text = _format_sample_text(current_rows, fieldnames)
-        if len(sample_text.encode("utf-8")) <= MAX_REPRESENTATION_PART_BYTES:
-            mode = "full" if len(current_indices) >= total_rows else "distributed"
-            truncated = len(current_indices) < total_rows
-            return current_rows, current_indices, sample_text, mode, truncated
-        if len(current_indices) <= 1:
-            encoded = sample_text.encode("utf-8")[:MAX_REPRESENTATION_PART_BYTES]
-            clipped = encoded.decode("utf-8", errors="ignore")
-            row = current_rows[0] if current_rows else {}
-            return [row], current_indices[:1], clipped, "distributed", True
-        new_count = max(1, len(current_indices) // 2)
-        current_indices = select_distributed_row_indices(total_rows, new_count)
-    return [], [], "sample\n(empty)", "distributed", True
+    byte_budget: int,
+    max_parts: int,
+) -> list[IndexedRow]:
+    """Select a distributed subset of loaded pairs that fits searchable budget."""
+    if not pairs or byte_budget <= 0 or max_parts <= 0:
+        return []
+    part_budget = min(byte_budget, max_parts * MAX_REPRESENTATION_PART_BYTES)
+    low, high = 1, len(pairs)
+    best: list[IndexedRow] = [pairs[0]]
+    while low <= high:
+        mid = (low + high) // 2
+        positions = select_distributed_row_indices(len(pairs), mid)
+        trial_pairs = [pairs[position] for position in positions]
+        text = format_searchable_dataset_rows(trial_pairs, fieldnames)
+        if len(text.encode("utf-8")) <= part_budget:
+            best = trial_pairs
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
+def format_searchable_dataset_rows(pairs: list[IndexedRow], fieldnames: list[str]) -> str:
+    lines: list[str] = []
+    for pair in pairs:
+        lines.append(f"[row={pair.index + 1}]")
+        lines.append(_format_sample_text([pair.values], fieldnames).split("\n", 1)[-1])
+    return "\n".join(lines)
 
 
 def build_dataset_sample_metadata(
@@ -119,28 +197,108 @@ def build_dataset_sample_metadata(
         "dataset_sampling_mode": sampling_mode,
         "dataset_sampling_truncated": sampling_truncated,
     }
-    if (
-        sampling_mode == "distributed"
-        and sampled_indices
-        and len(sampled_indices) <= MAX_SAMPLED_INDEX_LIST
-    ):
+    if sampled_indices and len(sampled_indices) <= MAX_SAMPLED_INDEX_LIST:
         meta["sampled_row_indices"] = sampled_indices
     return meta
 
 
-def format_searchable_dataset_rows(
-    rows: list[dict[str, Any]],
+def build_indexed_dataset_representations(
+    object_id,
+    *,
     fieldnames: list[str],
-    indices: list[int],
-) -> str:
-    lines: list[str] = []
-    for row_index, row in zip(indices, rows, strict=False):
-        lines.append(f"[row={row_index + 1}]")
-        lines.append(_format_sample_text([row], fieldnames).split("\n", 1)[-1])
-    return "\n".join(lines)
+    column_types: dict[str, str],
+    stats_meta: dict[str, Any],
+    stats_lines: list[str],
+    total_rows: int,
+    indexed_rows: list[IndexedRow],
+    compact_indices: list[int],
+    searchable_indices: list[int],
+    sampling_mode: str,
+    sampling_truncated: bool,
+) -> tuple[list[Representation], dict[str, Any]]:
+    rows_by_index = {row.index: row for row in indexed_rows}
+    compact_pairs = [rows_by_index[i] for i in compact_indices if i in rows_by_index]
+    searchable_pairs = sorted(
+        [rows_by_index[i] for i in searchable_indices if i in rows_by_index],
+        key=lambda pair: pair.index,
+    )
 
+    compact_pairs, compact_text, compact_truncated = fit_compact_sample_pairs(
+        compact_pairs,
+        fieldnames,
+        total_rows,
+    )
 
-def estimate_structural_bytes(fieldnames: list[str], stats_lines: list[str]) -> int:
-    schema_text = "schema\n" + "\n".join(f"{name}: string" for name in fieldnames)
-    stats_text = "\n".join(stats_lines)
-    return len(schema_text.encode("utf-8")) + len(stats_text.encode("utf-8"))
+    structural_bytes = estimate_structural_bytes(fieldnames, stats_lines)
+    compact_bytes = len(compact_text.encode("utf-8"))
+    remaining_bytes = max(
+        0,
+        MAX_REPRESENTATION_TOTAL_BYTES - structural_bytes - compact_bytes,
+    )
+    remaining_parts = max(0, MAX_REPRESENTATION_PARTS - DATASET_STRUCTURAL_PARTS)
+    searchable_byte_budget = min(
+        remaining_bytes,
+        remaining_parts * MAX_REPRESENTATION_PART_BYTES,
+    )
+    fitted_searchable = fit_searchable_pairs_to_budget(
+        searchable_pairs,
+        fieldnames,
+        searchable_byte_budget,
+        remaining_parts,
+    )
+    searchable_text = format_searchable_dataset_rows(fitted_searchable, fieldnames)
+
+    represented_indices = sorted({pair.index for pair in fitted_searchable})
+    represented_count = len(represented_indices)
+    final_truncated = sampling_truncated or compact_truncated or represented_count < total_rows
+
+    dataset_meta = build_dataset_sample_metadata(
+        total_rows=total_rows,
+        represented_rows=represented_count,
+        sampling_mode=sampling_mode,
+        sampling_truncated=final_truncated,
+        sampled_indices=represented_indices,
+    )
+
+    schema_text, schema_truncated = cap_structural_text(
+        _format_schema_text(fieldnames, column_types)
+    )
+    stats_text, stats_truncated = cap_structural_text("\n".join(stats_lines))
+
+    structural_reps = [
+        Representation(
+            object_id=object_id,
+            kind=KIND_SCHEMA,
+            text=schema_text,
+            metadata_={
+                "columns": [{"name": name, "type": column_types[name]} for name in fieldnames]
+            },
+        ),
+        Representation(
+            object_id=object_id,
+            kind=KIND_SAMPLE,
+            text=compact_text,
+            metadata_={
+                "row_count_in_sample": len(compact_pairs),
+                "compact_preview": True,
+            },
+        ),
+        Representation(
+            object_id=object_id,
+            kind=KIND_STATISTICS,
+            text=stats_text,
+            metadata_=stats_meta,
+        ),
+    ]
+
+    searchable_reps, searchable_truncated = build_bounded_text_representations(
+        object_id,
+        searchable_text,
+        remaining_parts,
+        dataset_meta,
+    )
+    if schema_truncated or stats_truncated or searchable_truncated:
+        final_truncated = True
+        dataset_meta["dataset_sampling_truncated"] = True
+
+    return structural_reps + searchable_reps, dataset_meta

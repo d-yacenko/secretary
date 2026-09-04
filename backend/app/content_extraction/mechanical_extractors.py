@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from app.content_extraction.constants import (
-    DATASET_STRUCTURAL_PARTS,
     MAX_PDF_PAGES,
     MAX_PPTX_SLIDES,
     MAX_REPRESENTATION_PARTS,
@@ -16,11 +15,10 @@ from app.content_extraction.constants import (
     MAX_XLSX_SHEETS,
 )
 from app.content_extraction.dataset_sampling import (
-    build_dataset_sample_metadata,
-    estimate_structural_bytes,
-    fit_sample_to_part_limit,
-    format_searchable_dataset_rows,
-    plan_dataset_sampling,
+    IndexedRow,
+    build_indexed_dataset_representations,
+    compact_preview_indices,
+    plan_searchable_indices,
 )
 from app.content_extraction.odf_extractors import (
     extract_odp_representations,
@@ -41,9 +39,9 @@ from app.local.bounded_io import (
     count_csv_rows,
     read_bounded_text,
     read_csv_header,
-    read_csv_rows_at_indices,
+    read_csv_indexed_rows,
     read_csv_sample_rows,
-    read_parquet_rows_at_indices,
+    read_parquet_indexed_rows,
     read_parquet_sample_rows,
     read_parquet_schema,
     stream_csv_stats,
@@ -52,6 +50,7 @@ from app.services.representation_service import (
     KIND_SAMPLE,
     KIND_SCHEMA,
     KIND_STATISTICS,
+    _format_sample_text,
     _format_schema_text,
 )
 
@@ -241,64 +240,40 @@ def _build_csv_representations(
         total_rows = count_csv_rows(path)
 
     _, estimate_rows = read_csv_sample_rows(path, 1)
-    structural_bytes = estimate_structural_bytes(fieldnames, stats_lines)
-    indices, _, _ = plan_dataset_sampling(
+    estimate_row = estimate_rows[0] if estimate_rows else {name: "" for name in fieldnames}
+    structural_bytes = len(
+        _format_schema_text(fieldnames, column_types).encode("utf-8")
+    ) + len("\n".join(stats_lines).encode("utf-8"))
+
+    compact_indices = compact_preview_indices(total_rows)
+    compact_estimate = _format_sample_text(
+        [estimate_row] * min(len(compact_indices), 1), fieldnames
+    )
+    searchable_indices, sampling_mode, sampling_truncated = plan_searchable_indices(
         total_rows=total_rows,
         fieldnames=fieldnames,
-        sample_rows_for_estimate=estimate_rows,
+        estimate_row=estimate_row,
         structural_bytes=structural_bytes,
+        compact_sample_bytes=len(compact_estimate.encode("utf-8")),
     )
-    raw_rows = read_csv_rows_at_indices(path, fieldnames, indices)
-    rows_by_index = {index: row for index, row in zip(indices, raw_rows, strict=True)}
-    sample_rows, fit_indices, sample_text, sampling_mode, sampling_truncated = (
-        fit_sample_to_part_limit(
-            fieldnames=fieldnames,
-            rows_by_index=rows_by_index,
-            indices=indices,
-            total_rows=total_rows,
-        )
-    )
-
-    dataset_meta = build_dataset_sample_metadata(
+    all_indices = sorted(set(compact_indices) | set(searchable_indices))
+    indexed_rows = [
+        IndexedRow(index=index, values=values)
+        for index, values in read_csv_indexed_rows(path, fieldnames, all_indices)
+    ]
+    return build_indexed_dataset_representations(
+        object_id,
+        fieldnames=fieldnames,
+        column_types=column_types,
+        stats_meta=stats_meta,
+        stats_lines=stats_lines,
         total_rows=total_rows,
-        represented_rows=len(sample_rows),
+        indexed_rows=indexed_rows,
+        compact_indices=compact_indices,
+        searchable_indices=searchable_indices,
         sampling_mode=sampling_mode,
         sampling_truncated=sampling_truncated,
-        sampled_indices=fit_indices,
     )
-
-    structural_reps = [
-        Representation(
-            object_id=object_id,
-            kind=KIND_SCHEMA,
-            text=_format_schema_text(fieldnames, column_types),
-            metadata_={
-                "columns": [{"name": name, "type": column_types[name]} for name in fieldnames]
-            },
-        ),
-        Representation(
-            object_id=object_id,
-            kind=KIND_SAMPLE,
-            text=sample_text,
-            metadata_=dataset_meta,
-        ),
-        Representation(
-            object_id=object_id,
-            kind=KIND_STATISTICS,
-            text="\n".join(stats_lines),
-            metadata_=stats_meta,
-        ),
-    ]
-
-    remaining_parts = max(0, MAX_REPRESENTATION_PARTS - DATASET_STRUCTURAL_PARTS)
-    searchable_text = format_searchable_dataset_rows(sample_rows, fieldnames, fit_indices)
-    searchable_reps, _ = build_bounded_text_representations(
-        object_id,
-        searchable_text,
-        remaining_parts,
-        dataset_meta,
-    )
-    return structural_reps + searchable_reps, dataset_meta
 
 
 def _build_parquet_representations(
@@ -308,64 +283,38 @@ def _build_parquet_representations(
     stats_meta, stats_lines = bounded_parquet_stats(path, fieldnames, column_types, row_count)
 
     _, estimate_rows = read_parquet_sample_rows(path, 1)
-    structural_bytes = estimate_structural_bytes(fieldnames, stats_lines)
-    indices, _, _ = plan_dataset_sampling(
+    estimate_row = estimate_rows[0] if estimate_rows else {name: "" for name in fieldnames}
+    structural_bytes = len(
+        _format_schema_text(fieldnames, column_types).encode("utf-8")
+    ) + len("\n".join(stats_lines).encode("utf-8"))
+
+    compact_indices = compact_preview_indices(row_count)
+    compact_estimate = _format_sample_text(
+        [estimate_row] * min(len(compact_indices), 1), fieldnames
+    )
+    searchable_indices, sampling_mode, sampling_truncated = plan_searchable_indices(
         total_rows=row_count,
         fieldnames=fieldnames,
-        sample_rows_for_estimate=estimate_rows,
+        estimate_row=estimate_row,
         structural_bytes=structural_bytes,
+        compact_sample_bytes=len(compact_estimate.encode("utf-8")),
     )
-    _, raw_rows = read_parquet_rows_at_indices(path, indices)
-    rows_by_index = {index: row for index, row in zip(indices, raw_rows, strict=True)}
-    sample_rows, fit_indices, sample_text, sampling_mode, sampling_truncated = (
-        fit_sample_to_part_limit(
-            fieldnames=fieldnames,
-            rows_by_index=rows_by_index,
-            indices=indices,
-            total_rows=row_count,
-        )
-    )
-
-    dataset_meta = build_dataset_sample_metadata(
+    all_indices = sorted(set(compact_indices) | set(searchable_indices))
+    _, indexed_tuples = read_parquet_indexed_rows(path, all_indices)
+    indexed_rows = [IndexedRow(index=index, values=values) for index, values in indexed_tuples]
+    return build_indexed_dataset_representations(
+        object_id,
+        fieldnames=fieldnames,
+        column_types=column_types,
+        stats_meta=stats_meta,
+        stats_lines=stats_lines,
         total_rows=row_count,
-        represented_rows=len(sample_rows),
+        indexed_rows=indexed_rows,
+        compact_indices=compact_indices,
+        searchable_indices=searchable_indices,
         sampling_mode=sampling_mode,
         sampling_truncated=sampling_truncated,
-        sampled_indices=fit_indices,
     )
-
-    structural_reps = [
-        Representation(
-            object_id=object_id,
-            kind=KIND_SCHEMA,
-            text=_format_schema_text(fieldnames, column_types),
-            metadata_={
-                "columns": [{"name": name, "type": column_types[name]} for name in fieldnames]
-            },
-        ),
-        Representation(
-            object_id=object_id,
-            kind=KIND_SAMPLE,
-            text=sample_text,
-            metadata_=dataset_meta,
-        ),
-        Representation(
-            object_id=object_id,
-            kind=KIND_STATISTICS,
-            text="\n".join(stats_lines),
-            metadata_=stats_meta,
-        ),
-    ]
-
-    remaining_parts = max(0, MAX_REPRESENTATION_PARTS - DATASET_STRUCTURAL_PARTS)
-    searchable_text = format_searchable_dataset_rows(sample_rows, fieldnames, fit_indices)
-    searchable_reps, _ = build_bounded_text_representations(
-        object_id,
-        searchable_text,
-        remaining_parts,
-        dataset_meta,
-    )
-    return structural_reps + searchable_reps, dataset_meta
 
 
 def _build_xlsx_representations(object_id, path: Path) -> tuple[list[Representation], bool]:

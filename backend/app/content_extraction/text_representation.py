@@ -2,7 +2,10 @@
 
 from typing import Any
 
-from app.content_extraction.constants import MAX_EXTRACTED_TEXT_CHARS
+from app.content_extraction.constants import (
+    MAX_EXTRACTED_TEXT_CHARS,
+    MAX_REPRESENTATION_PART_BYTES,
+)
 from app.db.models import Representation
 from app.services.bounded_chunks import (
     MAX_INDEXED_TEXT_CHUNKS,
@@ -11,6 +14,16 @@ from app.services.bounded_chunks import (
     select_bounded_chunks,
 )
 from app.services.representation_service import KIND_CHUNK, KIND_FULL, SMALL_TEXT_MAX_CHARS
+
+
+def cap_structural_text(
+    text: str,
+    max_bytes: int = MAX_REPRESENTATION_PART_BYTES,
+) -> tuple[str, bool]:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text, False
+    return encoded[:max_bytes].decode("utf-8", errors="ignore"), True
 
 
 def cap_text(text: str) -> tuple[str, bool]:

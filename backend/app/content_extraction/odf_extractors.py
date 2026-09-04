@@ -18,6 +18,7 @@ from app.content_extraction.constants import (
 from app.content_extraction.text_representation import (
     build_bounded_text_representations,
     build_text_representations,
+    cap_structural_text,
 )
 from app.content_extraction.text_representation import (
     cap_text as _cap_text,
@@ -47,14 +48,18 @@ def _odf_tag(ns_key: str, local: str) -> str:
     return f"{{{ODF_NS[ns_key]}}}{local}"
 
 
-def _bounded_repeat(raw: str | None, default: int = 1) -> int:
+def _bounded_repeat(raw: str | None, default: int = 1) -> tuple[int, bool]:
     if not raw:
-        return default
+        return default, False
     try:
         value = int(raw)
     except ValueError:
-        return default
-    return max(1, min(value, MAX_ODF_REPEAT_EXPANSION))
+        return default, False
+    if value > MAX_ODF_REPEAT_EXPANSION:
+        return MAX_ODF_REPEAT_EXPANSION, True
+    if value < 1:
+        return 1, False
+    return value, False
 
 
 def _element_text(element: ET.Element) -> str:
@@ -88,7 +93,7 @@ def _odt_table_rows(table: ET.Element) -> list[str]:
     for row_elem in table.findall("table:table-row", ODF_NS):
         row_cells: list[str] = []
         for cell in row_elem.findall("table:table-cell", ODF_NS):
-            repeat = _bounded_repeat(
+            repeat, _ = _bounded_repeat(
                 cell.attrib.get(f"{{{TABLE_NS}}}number-columns-repeated")
             )
             cell_text = _element_text(cell)
@@ -170,7 +175,7 @@ def _odp_page_lines(page: ET.Element) -> list[str]:
         elif tag == _odf_tag("table", "table-row"):
             row_cells: list[str] = []
             for cell in element.findall("table:table-cell", ODF_NS):
-                repeat = _bounded_repeat(
+                repeat, _ = _bounded_repeat(
                     cell.attrib.get(f"{{{TABLE_NS}}}number-columns-repeated")
                 )
                 cell_text = _element_text(cell)
@@ -235,9 +240,10 @@ def _parse_ods_sheet_rows(table: ET.Element) -> tuple[list[tuple[int, dict[str, 
     row_num = 0
 
     for row_elem in table.findall("table:table-row", ODF_NS):
-        row_repeat = _bounded_repeat(
+        row_repeat, row_repeat_truncated = _bounded_repeat(
             row_elem.attrib.get(f"{{{TABLE_NS}}}number-rows-repeated")
         )
+        truncated = truncated or row_repeat_truncated
         for _ in range(row_repeat):
             if len(parsed_rows) >= MAX_ODF_ROWS_PER_SHEET:
                 truncated = True
@@ -247,9 +253,10 @@ def _parse_ods_sheet_rows(table: ET.Element) -> tuple[list[tuple[int, dict[str, 
             col_index = 0
             row_truncated = False
             for cell in row_elem.findall("table:table-cell", ODF_NS):
-                col_repeat = _bounded_repeat(
+                col_repeat, col_repeat_truncated = _bounded_repeat(
                     cell.attrib.get(f"{{{TABLE_NS}}}number-columns-repeated")
                 )
+                truncated = truncated or col_repeat_truncated
                 value = _ods_cell_value(cell).strip()
                 for _ in range(col_repeat):
                     if col_index >= MAX_ODF_COLUMNS:
@@ -345,9 +352,9 @@ def extract_ods_representations(
         for row_num, cells in parsed_rows:
             searchable_lines.append(_format_ods_searchable_row(sheet_name, row_num, cells))
 
-    schema_text, schema_trunc = _cap_text("\n".join(schema_lines))
-    sample_text, sample_trunc = _cap_text("\n".join(sample_lines))
-    stats_text, stats_trunc = _cap_text("\n".join(stats_lines))
+    schema_text, schema_trunc = cap_structural_text("\n".join(schema_lines))
+    sample_text, sample_trunc = cap_structural_text("\n".join(sample_lines))
+    stats_text, stats_trunc = cap_structural_text("\n".join(stats_lines))
     truncated = truncated or schema_trunc or sample_trunc or stats_trunc
 
     structural_reps = [

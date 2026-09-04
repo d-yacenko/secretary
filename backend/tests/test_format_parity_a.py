@@ -8,13 +8,18 @@ import pytest
 
 from app.content_extraction.constants import (
     EXTRACTION_VERSION,
+    MAX_ODF_REPEAT_EXPANSION,
     MAX_ODP_SLIDES,
     MAX_REPRESENTATION_PART_BYTES,
     MAX_REPRESENTATION_PARTS,
     MAX_REPRESENTATION_TOTAL_BYTES,
     SUPPORTED_BINARY_SUFFIXES,
 )
-from app.content_extraction.dataset_sampling import select_distributed_row_indices
+from app.content_extraction.dataset_sampling import (
+    IndexedRow,
+    fit_compact_sample_pairs,
+    select_distributed_row_indices,
+)
 from app.content_extraction.format_resolver import (
     MIME_SUFFIX_MAP,
     detect_supported_file_suffix,
@@ -22,6 +27,7 @@ from app.content_extraction.format_resolver import (
 )
 from app.content_extraction.mechanical_extractors import extract_from_path
 from app.content_extraction.zip_safety import UnsafeZipError
+from app.local.bounded_io import read_parquet_indexed_rows
 from tests.fixtures.format_parity_fixtures import (
     write_large_csv,
     write_large_parquet,
@@ -29,7 +35,11 @@ from tests.fixtures.format_parity_fixtures import (
     write_minimal_odp,
     write_minimal_ods,
     write_minimal_odt,
-    write_ods_with_repeated_rows,
+    write_multi_rowgroup_parquet,
+    write_odf_zip_too_many_entries,
+    write_ods_large_structural_text,
+    write_ods_oversized_repeated_columns,
+    write_ods_oversized_repeated_rows,
 )
 from tests.fixtures.phase_29a_fixtures import (
     write_csv,
@@ -39,7 +49,6 @@ from tests.fixtures.phase_29a_fixtures import (
     write_minimal_pptx,
     write_minimal_xlsx,
     write_txt,
-    write_zip_bomb,
 )
 
 
@@ -72,8 +81,8 @@ def test_odt_malformed_archive_rejected(tmp_path: Path) -> None:
 
 def test_odt_zip_safety_limit(tmp_path: Path) -> None:
     bomb_path = tmp_path / "bomb.odt"
-    write_zip_bomb(bomb_path)
-    with pytest.raises((UnsafeZipError, Exception)):
+    write_odf_zip_too_many_entries(bomb_path)
+    with pytest.raises(UnsafeZipError):
         extract_from_path(uuid.uuid4(), bomb_path)
 
 
@@ -102,15 +111,35 @@ def test_ods_multiple_sheets_and_cells(tmp_path: Path) -> None:
     assert meta["content_format"] == ".ods"
 
 
-def test_ods_repeated_rows_bounded(tmp_path: Path) -> None:
+def test_ods_repeated_rows_bounded_and_truncated(tmp_path: Path) -> None:
     object_id = uuid.uuid4()
     ods_path = tmp_path / "repeated.ods"
-    write_ods_with_repeated_rows(ods_path, repeat_count=500)
+    write_ods_oversized_repeated_rows(ods_path, repeat_count=MAX_ODF_REPEAT_EXPANSION + 50)
     reps, meta = extract_from_path(object_id, ods_path)
     stats = next(r for r in reps if r.kind == "statistics")
     assert meta["content_format"] == ".ods"
-    assert "Repeated" in stats.text
-    assert meta.get("content_truncated") in {True, False}
+    assert "BigRepeat" in stats.text
+    assert meta["content_truncated"] is True
+
+
+def test_ods_repeated_columns_truncated(tmp_path: Path) -> None:
+    object_id = uuid.uuid4()
+    ods_path = tmp_path / "wide.ods"
+    write_ods_oversized_repeated_columns(ods_path, repeat_count=MAX_ODF_REPEAT_EXPANSION + 20)
+    _, meta = extract_from_path(object_id, ods_path)
+    assert meta["content_truncated"] is True
+
+
+def test_ods_structural_parts_obey_byte_limits(tmp_path: Path) -> None:
+    object_id = uuid.uuid4()
+    ods_path = tmp_path / "huge.ods"
+    write_ods_large_structural_text(ods_path, "Z" * 40_000)
+    reps, meta = extract_from_path(object_id, ods_path)
+    assert meta["content_truncated"] is True
+    total_bytes = sum(len(rep.text.encode("utf-8")) for rep in reps)
+    assert total_bytes <= MAX_REPRESENTATION_TOTAL_BYTES
+    for rep in reps:
+        assert len(rep.text.encode("utf-8")) <= MAX_REPRESENTATION_PART_BYTES
 
 
 def test_ods_formula_cell_uses_stored_value(tmp_path: Path) -> None:
@@ -195,6 +224,30 @@ def test_csv_large_dataset_distributed_not_prefix_only(tmp_path: Path) -> None:
     assert meta2["dataset_rows_represented"] == meta1["dataset_rows_represented"]
 
 
+def test_csv_large_dataset_searchable_broader_than_compact_sample(tmp_path: Path) -> None:
+    csv_path = tmp_path / "large.csv"
+    write_large_csv(csv_path, 10000, marker_row=9999)
+    reps, meta = extract_from_path(uuid.uuid4(), csv_path)
+    sample = next(r for r in reps if r.kind == "sample")
+    searchable = [r for r in reps if r.kind in {"full", "chunk"}]
+    assert meta["dataset_sampling_mode"] == "distributed"
+    assert meta["dataset_rows_represented"] > sample.metadata_.get("row_count_in_sample", 0)
+    combined = sample.text + "\n".join(r.text for r in searchable)
+    assert "format_parity_marker_row_9999" in combined
+    assert "[row=1]" in combined
+
+
+def test_csv_variable_width_rows_keep_index_integrity(tmp_path: Path) -> None:
+    fieldnames = ["id", "payload"]
+    pairs = [
+        IndexedRow(index=index, values={"id": str(index), "payload": f"row{index}:" + ("y" * (200 + index * 50))})
+        for index in range(12)
+    ]
+    fitted, _, _ = fit_compact_sample_pairs(pairs, fieldnames, total_rows=12)
+    for pair in fitted:
+        assert pair.values["payload"].startswith(f"row{pair.index}:")
+
+
 def test_csv_representation_bounds(tmp_path: Path) -> None:
     csv_path = tmp_path / "bounded.csv"
     write_large_csv(csv_path, 5000)
@@ -233,6 +286,30 @@ def test_parquet_large_dataset_distributed(tmp_path: Path) -> None:
     assert f"format_parity_marker_row_{marker_row}" in combined
 
 
+def test_parquet_reads_only_needed_row_groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyarrow.parquet as pq
+
+    parquet_path = tmp_path / "groups.parquet"
+    write_multi_rowgroup_parquet(parquet_path, 120)
+    read_groups: list[int] = []
+    original = pq.ParquetFile.read_row_group
+
+    def tracked_read_row_group(self, index: int):
+        read_groups.append(index)
+        return original(self, index)
+
+    monkeypatch.setattr(pq.ParquetFile, "read_row_group", tracked_read_row_group)
+
+    def forbid_iter_batches(self, *args, **kwargs):
+        raise AssertionError("iter_batches must not be used for indexed parquet reads")
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", forbid_iter_batches)
+
+    _, rows = read_parquet_indexed_rows(parquet_path, [0, 60, 119])
+    assert len(rows) == 3
+    assert set(read_groups) == {0, 60, 119}
+
+
 def test_parquet_deterministic_sampling(tmp_path: Path) -> None:
     parquet_path = tmp_path / "deterministic.parquet"
     write_large_parquet(parquet_path, 500, marker_row=400)
@@ -243,6 +320,27 @@ def test_parquet_deterministic_sampling(tmp_path: Path) -> None:
 
 
 # --- Format resolver ---
+
+
+def test_format_resolver_mime_suffix_conflict_fail_closed() -> None:
+    for title, mime in [
+        ("file.odt", "application/pdf"),
+        ("file.pdf", "application/vnd.oasis.opendocument.text"),
+    ]:
+        detected = detect_supported_file_suffix(
+            content_type=mime,
+            prefix=b"PK\x03\x04",
+            title=title,
+        )
+        assert detected is None
+        plan = resolve_content_extraction_plan(
+            "google_drive",
+            "file",
+            {"mime_type": mime},
+            title=title,
+        )
+        assert plan.eligible is False
+        assert plan.status == "unsupported"
 
 
 @pytest.mark.parametrize(
@@ -330,3 +428,39 @@ def test_distributed_indices_span_range() -> None:
     assert indices[-1] == 999
     assert len(indices) <= 20
     assert len(set(indices)) == len(indices)
+
+
+def test_extraction_version_mismatch_does_not_auto_enqueue_without_reintake(db_session) -> None:
+    from sqlalchemy import select
+
+    from app.connectors.google.constants import GOOGLE_DRIVE_PROVIDER
+    from app.db.models import Job, Object
+    from app.jobs.constants import JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT
+    from app.users.bootstrap import BOOTSTRAP_USER_ID
+
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="file",
+        provider=GOOGLE_DRIVE_PROVIDER,
+        external_id="stale-version-file",
+        origin="explicit",
+        state="observed",
+        title="notes.txt",
+        metadata_={
+            "content_revision": "rev-stable",
+            "content_extraction_status": "ready",
+            "content_extraction_version": "phase29a-v2",
+        },
+    )
+    db_session.add(obj)
+    db_session.flush()
+
+    jobs_for_object = [
+        job
+        for job in db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT)
+        ).all()
+        if (job.payload or {}).get("object_id") == str(obj.id)
+    ]
+    assert jobs_for_object == []
+    assert obj.metadata_["content_extraction_version"] != EXTRACTION_VERSION

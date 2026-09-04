@@ -271,11 +271,11 @@ def count_csv_rows(path: Path) -> int:
         return sum(1 for _ in reader)
 
 
-def read_csv_rows_at_indices(
+def read_csv_indexed_rows(
     path: Path,
     fieldnames: list[str],
     indices: list[int],
-) -> list[dict[str, str]]:
+) -> list[tuple[int, dict[str, str]]]:
     if not indices:
         return []
     wanted = set(indices)
@@ -286,36 +286,75 @@ def read_csv_rows_at_indices(
         for row_index, row in enumerate(reader):
             if row_index in wanted:
                 rows[row_index] = row
-            if row_index >= max_index:
+            if row_index >= max_index and len(rows) == len(wanted):
                 break
-    return [rows[i] for i in indices if i in rows]
+    return [(index, rows[index]) for index in indices if index in rows]
+
+
+def read_csv_rows_at_indices(
+    path: Path,
+    fieldnames: list[str],
+    indices: list[int],
+) -> list[dict[str, str]]:
+    return [row for _, row in read_csv_indexed_rows(path, fieldnames, indices)]
+
+
+def _parquet_row_group_bounds(parquet_file: pq.ParquetFile) -> list[tuple[int, int]]:
+    metadata = parquet_file.metadata
+    if metadata is None:
+        return []
+    bounds: list[tuple[int, int]] = []
+    offset = 0
+    for group_index in range(metadata.num_row_groups):
+        row_count = metadata.row_group(group_index).num_rows
+        bounds.append((offset, offset + row_count))
+        offset += row_count
+    return bounds
+
+
+def _parquet_row_group_for_index(bounds: list[tuple[int, int]], global_index: int) -> tuple[int, int] | None:
+    for group_index, (start, end) in enumerate(bounds):
+        if start <= global_index < end:
+            return group_index, global_index - start
+    return None
+
+
+def read_parquet_indexed_rows(
+    path: Path,
+    indices: list[int],
+) -> tuple[list[str], list[tuple[int, dict[str, Any]]]]:
+    parquet_file = pq.ParquetFile(path)
+    fieldnames = list(parquet_file.schema_arrow.names)
+    if not indices:
+        return fieldnames, []
+
+    bounds = _parquet_row_group_bounds(parquet_file)
+    wanted = sorted(set(indices))
+    by_group: dict[int, list[int]] = {}
+    for global_index in wanted:
+        located = _parquet_row_group_for_index(bounds, global_index)
+        if located is None:
+            continue
+        group_index, local_index = located
+        by_group.setdefault(group_index, []).append(local_index)
+
+    rows: dict[int, dict[str, Any]] = {}
+    for group_index, local_indices in by_group.items():
+        table = parquet_file.read_row_group(group_index)
+        group_rows = table.to_pylist()
+        group_start = bounds[group_index][0]
+        for local_index in local_indices:
+            rows[group_start + local_index] = group_rows[local_index]
+
+    return fieldnames, [(index, rows[index]) for index in indices if index in rows]
 
 
 def read_parquet_rows_at_indices(
     path: Path,
     indices: list[int],
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    if not indices:
-        parquet_file = pq.ParquetFile(path)
-        return list(parquet_file.schema_arrow.names), []
-
-    parquet_file = pq.ParquetFile(path)
-    fieldnames = list(parquet_file.schema_arrow.names)
-    wanted = set(indices)
-    max_index = max(indices)
-    rows: dict[int, dict[str, Any]] = {}
-    current = 0
-    for batch in parquet_file.iter_batches(batch_size=1024):
-        batch_rows = batch.to_pylist()
-        for row in batch_rows:
-            if current in wanted:
-                rows[current] = row
-            current += 1
-            if current > max_index and len(rows) == len(wanted):
-                break
-        if current > max_index and len(rows) == len(wanted):
-            break
-    return fieldnames, [rows[i] for i in indices if i in rows]
+    fieldnames, indexed_rows = read_parquet_indexed_rows(path, indices)
+    return fieldnames, [row for _, row in indexed_rows]
 
 
 def query_csv_columns(path: Path, columns: list[str], limit: int) -> list[dict[str, Any]]:

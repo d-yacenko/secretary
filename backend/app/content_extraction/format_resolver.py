@@ -59,6 +59,51 @@ def _suffix_from_url(url: str | None) -> str:
     return Path(urlparse(url).path).suffix.lower()
 
 
+def _mime_to_supported_suffix(mime: str | None) -> str | None:
+    if not mime:
+        return None
+    mime_main = mime.split(";")[0].strip().lower()
+    suffix = MIME_SUFFIX_MAP.get(mime_main)
+    if suffix and suffix in SUPPORTED_BINARY_SUFFIXES:
+        return suffix
+    return None
+
+
+def _resolve_supported_suffix(
+    *,
+    title: str | None = None,
+    url: str | None = None,
+    mime_type: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> str | None:
+    title_suffix = _suffix_from_title(title)
+    if not title_suffix and metadata:
+        title_suffix = _suffix_from_title(metadata.get("filename"))
+    if not title_suffix:
+        title_suffix = _suffix_from_url(url)
+
+    mime_suffix = _mime_to_supported_suffix(mime_type)
+    if mime_suffix is None and metadata:
+        detected = metadata.get("detected_suffix")
+        if detected and str(detected) in SUPPORTED_BINARY_SUFFIXES:
+            mime_suffix = str(detected)
+        else:
+            mime_suffix = _mime_to_supported_suffix(
+                str(metadata.get("mime_type") or metadata.get("content_format") or "")
+            )
+
+    title_supported = title_suffix in SUPPORTED_BINARY_SUFFIXES
+    mime_supported = mime_suffix is not None
+
+    if title_supported and mime_supported and title_suffix != mime_suffix:
+        return None
+    if title_supported:
+        return title_suffix
+    if mime_supported:
+        return mime_suffix
+    return None
+
+
 def detect_supported_file_suffix(
     *,
     content_type: str | None,
@@ -67,17 +112,25 @@ def detect_supported_file_suffix(
     title: str | None = None,
 ) -> str | None:
     if prefix.startswith(b"%PDF"):
-        return ".pdf"
+        mime_suffix = _mime_to_supported_suffix(content_type)
+        title_suffix = _suffix_from_title(title) or _suffix_from_url(url)
+        if title_suffix == ".pdf" or mime_suffix == ".pdf":
+            if title_suffix == ".pdf" and mime_suffix and mime_suffix != ".pdf":
+                return None
+            if mime_suffix == ".pdf" and title_suffix and title_suffix != ".pdf":
+                return None
+            return ".pdf"
 
-    mime = content_type.split(";")[0].strip().lower() if content_type else None
-    if mime and mime in MIME_SUFFIX_MAP:
-        suffix = MIME_SUFFIX_MAP[mime]
-        if suffix in SUPPORTED_BINARY_SUFFIXES:
-            return suffix
+    mime_suffix = _mime_to_supported_suffix(content_type)
+    title_suffix = _suffix_from_title(title) or _suffix_from_url(url)
+    title_supported = title_suffix in SUPPORTED_BINARY_SUFFIXES
 
-    for candidate in (_suffix_from_title(title), _suffix_from_url(url)):
-        if candidate in SUPPORTED_BINARY_SUFFIXES:
-            return candidate
+    if title_supported and mime_suffix and title_suffix != mime_suffix:
+        return None
+    if mime_suffix:
+        return mime_suffix
+    if title_supported:
+        return title_suffix
 
     if prefix.startswith(b"PK\x03\x04"):
         return None
@@ -85,18 +138,7 @@ def detect_supported_file_suffix(
 
 
 def _suffix_from_metadata(metadata: dict[str, Any]) -> str:
-    detected = metadata.get("detected_suffix")
-    if detected:
-        return str(detected)
-    title_suffix = _suffix_from_title(metadata.get("filename"))
-    if title_suffix:
-        return title_suffix
-    mime = metadata.get("mime_type") or metadata.get("content_format")
-    if mime:
-        mime_main = str(mime).split(";")[0].strip().lower()
-        if mime_main in MIME_SUFFIX_MAP:
-            return MIME_SUFFIX_MAP[mime_main]
-    return ""
+    return _resolve_supported_suffix(metadata=metadata) or ""
 
 
 def resolve_content_extraction_plan(
@@ -155,7 +197,7 @@ def _resolve_google_plan(metadata: dict[str, Any], title: str | None) -> Content
             ),
         )
 
-    suffix = _suffix_from_title(title) or _suffix_from_metadata(metadata)
+    suffix = _resolve_supported_suffix(title=title, mime_type=mime_str, metadata=metadata)
     if suffix in SUPPORTED_BINARY_SUFFIXES:
         return ContentExtractionPlan(
             eligible=True,
@@ -177,7 +219,11 @@ def _resolve_yandex_plan(metadata: dict[str, Any], title: str | None) -> Content
             status="metadata_only",
             content_format="folder",
         )
-    suffix = _suffix_from_title(title) or _suffix_from_metadata(metadata)
+    suffix = _resolve_supported_suffix(
+        title=title,
+        mime_type=str(metadata.get("mime_type") or ""),
+        metadata=metadata,
+    )
     if suffix in SUPPORTED_BINARY_SUFFIXES:
         return ContentExtractionPlan(
             eligible=True,
@@ -193,7 +239,11 @@ def _resolve_yandex_plan(metadata: dict[str, Any], title: str | None) -> Content
 
 
 def _resolve_web_plan(metadata: dict[str, Any], title: str | None) -> ContentExtractionPlan:
-    suffix = _suffix_from_title(title) or _suffix_from_metadata(metadata)
+    suffix = _resolve_supported_suffix(
+        title=title,
+        mime_type=str(metadata.get("mime_type") or metadata.get("content_format") or ""),
+        metadata=metadata,
+    )
     if suffix in SUPPORTED_BINARY_SUFFIXES:
         return ContentExtractionPlan(
             eligible=True,
