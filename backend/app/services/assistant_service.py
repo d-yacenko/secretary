@@ -1,3 +1,4 @@
+import inspect
 import json
 import time
 from dataclasses import dataclass
@@ -48,6 +49,10 @@ from app.services.effective_user_settings_service import EffectiveUserSettings
 from app.services.errors import NotFoundError, ValidationError
 from app.services.notification_service import NotificationService
 from app.services.secretary_service import normalize_reference_datetime
+from app.services.user_identity_context_service import (
+    UserIdentityContextService,
+    UserIdentityRuntimeFacts,
+)
 
 
 @dataclass
@@ -122,6 +127,7 @@ class AssistantProvider:
         reference_datetime,
         timezone: str,
         tool_runner,
+        identity_facts: UserIdentityRuntimeFacts | None = None,
     ) -> AssistantProviderResult:
         raise NotImplementedError
 
@@ -139,10 +145,14 @@ class AssistantService:
         user_id: UUID,
         provider: AssistantProvider,
         user_timezone: str | None = None,
+        identity_facts: UserIdentityRuntimeFacts | None = None,
+        identity_context_service: UserIdentityContextService | None = None,
     ) -> None:
         self._user_id = user_id
         self._provider = provider
         self._user_timezone = user_timezone or settings.secretary_timezone
+        self._identity_facts = identity_facts
+        self._identity_context_service = identity_context_service
 
     def send_message(
         self,
@@ -210,15 +220,18 @@ class AssistantService:
             initial_seen_object_ids=seen_seed_ids,
         )
         tool_runner = BoundAssistantToolRunner(tool_budget, self._user_id)
+        identity_facts = self._resolve_identity_facts()
 
         try:
-            provider_result = self._provider.run(
+            provider_result = _call_assistant_provider_run(
+                self._provider,
                 message=normalized_message,
                 history=provider_history,
                 ui_context=ui_context_result.text,
                 reference_datetime=reference,
                 timezone=tz_name,
                 tool_runner=tool_runner,
+                identity_facts=identity_facts,
             )
         finally:
             clear_request_timezone()
@@ -300,6 +313,13 @@ class AssistantService:
             answer=provider_result.answer,
             affected_objects=affected_objects,
         )
+
+    def _resolve_identity_facts(self) -> UserIdentityRuntimeFacts | None:
+        if self._identity_facts is not None:
+            return self._identity_facts
+        if self._identity_context_service is None:
+            return None
+        return self._identity_context_service.get_runtime_facts(self._user_id)
 
     def _persist_staged_action_plan(
         self, staged_actions: list[dict]
@@ -738,3 +758,10 @@ def create_assistant_provider() -> OpenAIAssistantProvider:
 
 def create_fake_assistant_provider() -> FakeAssistantProvider:
     return FakeAssistantProvider()
+
+
+def _call_assistant_provider_run(provider: AssistantProvider, **kwargs):
+    run = provider.run
+    if "identity_facts" not in inspect.signature(run).parameters:
+        kwargs.pop("identity_facts", None)
+    return run(**kwargs)

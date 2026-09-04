@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
+from app.services.user_identity_context_service import UserIdentityRuntimeFacts
 from app.tools.executor import ToolExecutionResult
 
 _OBJECT_ID_PATTERN = re.compile(r"object_id=([0-9a-fA-F-]{36})")
@@ -33,6 +34,7 @@ class FakeAssistantProvider:
       reference_datetime: datetime,
       timezone: str,
       tool_runner: Callable[[str, dict], ToolExecutionResult],
+      identity_facts: UserIdentityRuntimeFacts | None = None,
   ) -> AssistantProviderResult:
       self._last_instructions = (
           "You are the Personal Secretary assistant. "

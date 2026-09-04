@@ -15,6 +15,10 @@ from app.assistant.reference_ids import collect_object_ids_from_bounded_tool
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
 from app.llm.openai_usage import ResponsesUsageAccumulated, response_hit_max_output_tokens
+from app.services.user_identity_context_service import (
+    UserIdentityRuntimeFacts,
+    build_identity_instructions_block,
+)
 from app.tools.executor import ToolExecutionResult
 from app.tools.registry import ASSISTANT_TOOL_DEFINITIONS
 
@@ -143,11 +147,12 @@ class OpenAIAssistantProvider:
         reference_datetime: datetime,
         timezone: str,
         tool_runner: Callable[[str, dict], ToolExecutionResult],
+        identity_facts: UserIdentityRuntimeFacts | None = None,
     ) -> AssistantProviderResult:
-        instructions = (
-            f"{SYSTEM_INSTRUCTIONS}\n"
-            f"Reference datetime: {reference_datetime.isoformat()}\n"
-            f"Timezone: {timezone}"
+        instructions = _build_runtime_instructions(
+            reference_datetime=reference_datetime,
+            timezone=timezone,
+            identity_facts=identity_facts,
         )
         self._last_instructions = instructions
 
@@ -496,3 +501,20 @@ def _extract_output_text(response: object) -> str | None:
                 if text:
                     chunks.append(text)
     return "\n".join(chunks) if chunks else None
+
+
+def _build_runtime_instructions(
+    *,
+    reference_datetime: datetime,
+    timezone: str,
+    identity_facts: UserIdentityRuntimeFacts | None,
+) -> str:
+    parts = [
+        SYSTEM_INSTRUCTIONS,
+        f"Reference datetime: {reference_datetime.isoformat()}",
+        f"Timezone: {timezone}",
+    ]
+    identity_block = build_identity_instructions_block(identity_facts)
+    if identity_block:
+        parts.append(identity_block)
+    return "\n".join(parts)

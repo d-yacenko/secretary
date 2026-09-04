@@ -41,6 +41,7 @@ from app.services.transcription_service import (
     create_transcription_provider_for_api_key,
     transcribe_audio_upload,
 )
+from app.services.user_identity_context_service import UserIdentityContextService
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 ASSISTANT_PROVIDER_UNAVAILABLE = "Assistant provider unavailable"
@@ -156,13 +157,16 @@ def get_assistant_provider(
 
 
 def get_assistant_service(
+    session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
     runtime: AssistantRuntime = Depends(get_assistant_runtime),
 ) -> AssistantService:
+    identity_context_service = UserIdentityContextService.build(session)
     return AssistantService(
         current_user.user_id,
         runtime.provider,
         user_timezone=runtime.effective.timezone,
+        identity_context_service=identity_context_service,
     )
 
 
