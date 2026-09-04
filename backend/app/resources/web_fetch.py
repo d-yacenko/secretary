@@ -214,22 +214,55 @@ def _classify_resource(
     return WebResourceClass.UNSUPPORTED_BINARY, None
 
 
-def _drain_response(response: httpx.Response) -> None:
-    for _ in response.iter_bytes():
-        pass
+def _consume_response_body(
+    response: httpx.Response,
+    current_url: str,
+    content_type: str | None,
+    content_length: int | None,
+) -> tuple[WebResourceClass, str | None, list[bytes]]:
+    chunks: list[bytes] = []
+    total = 0
+    classified = False
+    resource_class = WebResourceClass.HTML_PAGE
+    detected_suffix: str | None = None
+    store = True
 
-
-def _read_html_body(response: httpx.Response, initial_chunks: list[bytes]) -> tuple[str, str | None]:
-    chunks = list(initial_chunks)
-    total = sum(len(chunk) for chunk in chunks)
     for chunk in response.iter_bytes():
-        total += len(chunk)
-        if total > MAX_WEB_FETCH_BYTES:
-            raise WebFetchError("web fetch exceeded size limit")
-        chunks.append(chunk)
-    raw = b"".join(chunks)
-    content_hash = hashlib.sha256(raw).hexdigest()
-    return raw.decode("utf-8", errors="replace"), content_hash
+        if not chunk:
+            continue
+        if not classified:
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= WEB_CLASSIFY_PREFIX_BYTES:
+                prefix = b"".join(chunks)[:WEB_CLASSIFY_PREFIX_BYTES]
+                resource_class, detected_suffix = _classify_resource(
+                    content_type,
+                    content_length,
+                    prefix,
+                    current_url,
+                )
+                classified = True
+                if resource_class != WebResourceClass.HTML_PAGE:
+                    store = False
+                    chunks = []
+        elif store:
+            total += len(chunk)
+            if total > MAX_WEB_FETCH_BYTES:
+                raise WebFetchError("web fetch exceeded size limit")
+            chunks.append(chunk)
+
+    if not classified:
+        prefix = b"".join(chunks)
+        resource_class, detected_suffix = _classify_resource(
+            content_type,
+            content_length,
+            prefix,
+            current_url,
+        )
+        if resource_class != WebResourceClass.HTML_PAGE:
+            chunks = []
+
+    return resource_class, detected_suffix, chunks
 
 
 def _response_metadata(response: httpx.Response) -> tuple[str | None, int | None, str | None, str | None]:
@@ -242,35 +275,19 @@ def _response_metadata(response: httpx.Response) -> tuple[str | None, int | None
     return content_type, content_length, etag, last_modified
 
 
-def _read_classification_prefix(response: httpx.Response) -> tuple[list[bytes], bytes]:
-    chunks: list[bytes] = []
-    collected = 0
-    for chunk in response.iter_bytes():
-        if not chunk:
-            continue
-        chunks.append(chunk)
-        collected += len(chunk)
-        if collected >= WEB_CLASSIFY_PREFIX_BYTES:
-            break
-    prefix = b"".join(chunks)[:WEB_CLASSIFY_PREFIX_BYTES]
-    return chunks, prefix
-
-
 def _process_final_response(response: httpx.Response, current_url: str) -> WebFetchResult:
     if response.status_code >= 400:
         raise WebFetchError(f"web fetch failed with status {response.status_code}")
 
     content_type, content_length, etag, last_modified = _response_metadata(response)
-    initial_chunks, prefix = _read_classification_prefix(response)
-    resource_class, detected_suffix = _classify_resource(
+    resource_class, detected_suffix, chunks = _consume_response_body(
+        response,
+        current_url,
         content_type,
         content_length,
-        prefix,
-        current_url,
     )
 
     if resource_class == WebResourceClass.SUPPORTED_FILE:
-        _drain_response(response)
         too_large = (
             content_length is not None
             and content_length > MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES
@@ -290,8 +307,7 @@ def _process_final_response(response: httpx.Response, current_url: str) -> WebFe
         )
 
     if resource_class == WebResourceClass.UNSUPPORTED_BINARY:
-        _drain_response(response)
-        raw = b"".join(initial_chunks)
+        raw = b"".join(chunks)
         content_hash = hashlib.sha256(raw).hexdigest() if raw else None
         return WebFetchResult(
             title=None,
@@ -305,7 +321,9 @@ def _process_final_response(response: httpx.Response, current_url: str) -> WebFe
             last_modified=last_modified,
         )
 
-    html, content_hash = _read_html_body(response, initial_chunks)
+    raw = b"".join(chunks)
+    content_hash = hashlib.sha256(raw).hexdigest() if raw else None
+    html = raw.decode("utf-8", errors="replace")
     title = _extract_title(html)
     text = _extract_text(html)
     if not text:
