@@ -4,7 +4,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
-from app.domain.task_lifecycle import TASK_STATUS_DELETED
+from app.domain.object_visibility import is_object_tombstoned
 from app.services.provenance import REJECTED_STATE
 
 MAX_SEARCH_FACETS_PER_DIMENSION = 64
@@ -19,11 +19,7 @@ class SearchFacetService:
         return (
             Object.user_id == self._user_id,
             Object.state != REJECTED_STATE,
-            or_(
-                Object.kind != "task",
-                Object.status.is_(None),
-                Object.status != TASK_STATUS_DELETED,
-            ),
+            Object.deleted_at.is_(None),
         )
 
     def facets(self) -> dict[str, list[dict[str, object]]]:

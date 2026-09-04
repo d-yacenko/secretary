@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeOut, ObjectOut
 from app.db.models import Edge, Object
-from app.domain.task_lifecycle import TASK_STATUS_DELETED, TERMINAL_TASK_STATUSES_FOR_READS
+from app.domain.object_visibility import is_object_tombstoned
+from app.domain.task_lifecycle import TERMINAL_TASK_STATUSES_FOR_READS
 from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
 from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
@@ -210,9 +211,7 @@ class GraphWorkspaceService:
             Object.state != REJECTED_STATE,
         ]
         if exclude_deleted_neighbors:
-            object_filters.append(
-                or_(Object.status.is_(None), Object.status != TASK_STATUS_DELETED)
-            )
+            object_filters.append(Object.deleted_at.is_(None))
         return object_filters
 
     def _has_hidden_eligible_neighbors(
@@ -377,7 +376,7 @@ class GraphWorkspaceService:
                 continue
             if neighbor.state == REJECTED_STATE:
                 continue
-            if exclude_deleted_neighbors and neighbor.status == TASK_STATUS_DELETED:
+            if exclude_deleted_neighbors and is_object_tombstoned(neighbor):
                 continue
 
             if neighbor.id in known_ids:

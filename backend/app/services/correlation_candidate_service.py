@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Edge, Object
-from app.domain.task_lifecycle import TASK_STATUS_DELETED
+from app.domain.object_visibility import is_object_tombstoned
 from app.services.correlation_constants import (
     CANDIDATE_MAX_EXACT_THREAD,
     CANDIDATE_MAX_PARTICIPANT_TIME,
@@ -125,7 +125,7 @@ class CorrelationCandidateService:
     def _is_eligible_target(self, obj: Object) -> bool:
         if obj.state == "rejected":
             return False
-        if obj.status == TASK_STATUS_DELETED:
+        if is_object_tombstoned(obj):
             return False
         return True
 

@@ -64,6 +64,7 @@ class TodayService:
                 Object.user_id == self._user_id,
                 Object.kind == "task",
                 Object.state != "rejected",
+                Object.deleted_at.is_(None),
                 Object.due_at.is_not(None),
                 or_(
                     Object.status.is_(None),
@@ -86,6 +87,7 @@ class TodayService:
                 Object.user_id == self._user_id,
                 Object.kind == "event",
                 Object.state != "rejected",
+                Object.deleted_at.is_(None),
                 or_(Object.status.is_(None), Object.status != "deleted"),
                 Object.start_at.is_not(None),
                 or_(

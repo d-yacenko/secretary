@@ -11,6 +11,7 @@ from app.api.schemas import (
     NeighborOut,
     NeighborsOut,
     ObjectCreate,
+    ObjectDeleteResponse,
     ObjectOut,
     ObjectUpdate,
     OpenTargetOut,
@@ -21,6 +22,7 @@ from app.core.current_user import CurrentUserContext
 from app.llm.embedding_service import EmbeddingService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.object_deletion_service import ObjectDeletionService
 from app.services.open_target_service import OpenTargetService
 from app.services.search_facet_service import SearchFacetService
 from app.services.search_service import SearchService
@@ -89,15 +91,27 @@ def patch_object(
     return ObjectOut.from_model(obj)
 
 
-@router.delete("/objects/{object_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_object(object_id: UUID, service: GraphService = Depends(_graph_service)) -> Response:
+def _object_deletion_service(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> ObjectDeletionService:
+    return ObjectDeletionService(session, current_user.user_id)
+
+
+@router.delete("/objects/{object_id}", response_model=ObjectDeleteResponse)
+def delete_object(
+    object_id: UUID,
+    service: ObjectDeletionService = Depends(_object_deletion_service),
+) -> ObjectDeleteResponse:
     try:
-        service.delete_object(object_id)
+        result = service.delete_object(object_id)
     except NotFoundError as exc:
         raise _not_found(exc) from exc
-    except ConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return ObjectDeleteResponse(
+        object_id=result.object.id,
+        deleted_at=result.deleted_at,
+        already_deleted=result.already_deleted,
+    )
 
 
 @router.post("/edges", status_code=status.HTTP_201_CREATED, response_model=EdgeOut)

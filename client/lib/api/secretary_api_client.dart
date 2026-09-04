@@ -489,6 +489,11 @@ class SecretaryApiClient {
     return TaskStatusResponse.fromJson(body);
   }
 
+  Future<ObjectDeleteResponse> deleteObject(String objectId) async {
+    final body = await _request('DELETE', '/objects/$objectId');
+    return ObjectDeleteResponse.fromJson(body);
+  }
+
   Future<RelationCreateResponse> createRelation({
     required String sourceId,
     required String targetId,

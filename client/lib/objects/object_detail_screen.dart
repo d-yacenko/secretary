@@ -11,6 +11,7 @@ import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 import '../navigation/source_navigation_presenter.dart';
 import '../navigation/source_navigation_service.dart';
+import '../objects/object_delete_actions.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
@@ -148,20 +149,6 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     widget.onTaskUpdated?.call(updated);
   }
 
-  Future<void> _deleteTask() async {
-    final object = _object;
-    if (object == null) {
-      return;
-    }
-    await confirmAndDeleteTask(
-      context,
-      task: object,
-      apiClient: widget.apiClient,
-      authController: widget.authController,
-      onTaskUpdated: _notifyTaskUpdated,
-    );
-  }
-
   Future<void> _openSource() async {
     try {
       await _sourceNavigation.launchForObject(widget.objectId);
@@ -209,7 +196,24 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
 
   bool get _showDeleteAction {
     final object = _object;
-    return object != null && object.kind == 'task' && !object.isDeletedTask;
+    return object != null && !object.isTombstoned;
+  }
+
+  Future<void> _deleteObject() async {
+    final object = _object;
+    if (object == null) {
+      return;
+    }
+    final deleted = await confirmAndDeleteObject(
+      context,
+      object: object,
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+    );
+    if (!mounted || !deleted) {
+      return;
+    }
+    Navigator.of(context).pop();
   }
 
   @override
@@ -221,9 +225,9 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
           if (_showDeleteAction)
             IconButton(
               key: const Key('object_detail_delete'),
-              tooltip: 'Удалить задачу',
+              tooltip: 'Удалить из Секретаря',
               icon: const Icon(Icons.delete_outline),
-              onPressed: _deleteTask,
+              onPressed: _deleteObject,
             ),
           if (_object != null && widget.onShowInGraph != null)
             TextButton(

@@ -47,6 +47,7 @@ from app.connectors.yandex.constants import (
 )
 from app.connectors.yandex.errors import YandexCalDavStaleSyncTokenError, YandexConnectorError
 from app.db.models import Object
+from app.domain.object_visibility import passive_sync_should_skip_existing
 from app.services.job_queue_service import JobQueueService
 
 
@@ -768,6 +769,8 @@ class YandexCalendarSyncService:
 
     def _upsert_event(self, user_id: UUID, normalized: dict[str, Any]) -> str:
         existing = self._find_existing_event(user_id, normalized["external_id"])
+        if existing is not None and passive_sync_should_skip_existing(existing):
+            return "unchanged"
         if existing is None:
             obj = Object(
                 user_id=user_id,

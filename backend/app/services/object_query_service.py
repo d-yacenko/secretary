@@ -81,11 +81,7 @@ class ObjectQueryService:
         stmt = select(Object).where(
             Object.user_id == self._user_id,
             Object.state != REJECTED_STATE,
-            or_(
-                Object.kind != "task",
-                Object.status.is_(None),
-                Object.status != TASK_STATUS_DELETED,
-            ),
+            Object.deleted_at.is_(None),
         )
 
         if kinds:

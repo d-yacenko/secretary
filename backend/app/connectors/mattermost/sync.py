@@ -47,6 +47,7 @@ from app.connectors.mattermost.transport import (
     MattermostTransport,
 )
 from app.db.models import Object
+from app.domain.object_visibility import passive_sync_should_skip_existing
 from app.services.job_queue_service import JobQueueService
 
 
@@ -707,6 +708,8 @@ class MattermostSyncService:
             return "unchanged"
 
         existing = self._find_existing(snapshot.user_id, normalized["external_id"])
+        if existing is not None and passive_sync_should_skip_existing(existing):
+            return "unchanged"
         if existing is None:
             obj = Object(
                 user_id=snapshot.user_id,

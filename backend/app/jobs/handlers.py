@@ -15,6 +15,7 @@ from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.config import settings
 from app.db.models import Object
 from app.db.session import SessionLocal
+from app.domain.object_visibility import is_object_tombstoned
 from app.jobs.constants import (
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
@@ -140,6 +141,13 @@ def _parent_trace_id_from_payload(payload: dict) -> UUID | None:
     return UUID(str(raw))
 
 
+def _object_is_active(session: Session, object_id: UUID, user_id: UUID) -> bool:
+    obj = session.scalar(
+        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    )
+    return obj is not None and not is_object_tombstoned(obj)
+
+
 def handle_embed_object(
     session: Session,
     embedding_service,
@@ -147,6 +155,8 @@ def handle_embed_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    if not _object_is_active(session, object_id, user_id):
+        return
     parent_trace_id = _parent_trace_id_from_payload(payload)
     with ai_trace_session(
         user_id,
@@ -190,6 +200,8 @@ def handle_summarize_resource(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    if not _object_is_active(session, object_id, user_id):
+        return
     expected_revision = payload.get("expected_revision")
     parent_trace_id = _parent_trace_id_from_payload(payload)
     with ai_trace_session(
@@ -227,6 +239,8 @@ def handle_correlate_object(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    if not _object_is_active(session, object_id, user_id):
+        return
     parent_trace_id = _parent_trace_id_from_payload(payload)
     with ai_trace_session(
         user_id,
@@ -251,6 +265,8 @@ def handle_ingest_local_file(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    if not _object_is_active(session, object_id, user_id):
+        return
     expected_revision = payload.get("expected_revision")
     expected_policy = payload.get("expected_policy")
     path_resolver = LocalPathResolver(Path(settings.local_files_root))
@@ -355,6 +371,8 @@ def handle_extract_explicit_resource_content(
     user_id: UUID,
 ) -> None:
     object_id = UUID(str(payload["object_id"]))
+    if not _object_is_active(session, object_id, user_id):
+        return
     expected_revision = payload.get("expected_content_revision")
     extraction_version = payload.get("extraction_version")
     expected_baseline = payload.get("extraction_baseline")

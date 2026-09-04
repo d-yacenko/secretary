@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_db, get_embedding_service
+from app.db.models import Object
 from app.main import app
 
 
@@ -149,16 +150,21 @@ def test_delete_edge(client) -> None:
     assert missing_response.status_code == 404
 
 
-def test_safe_object_deletion(client) -> None:
+def test_safe_object_deletion_tombstones_without_hard_delete(client, db_session) -> None:
     obj = _create_object(client, "note", "Standalone")
     response = client.delete(f"/objects/{obj['id']}")
-    assert response.status_code == 204
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object_id"] == obj["id"]
+    assert body["already_deleted"] is False
 
     missing_response = client.get(f"/objects/{obj['id']}")
     assert missing_response.status_code == 404
 
+    assert db_session.get(Object, obj["id"]) is not None
 
-def test_delete_object_with_edges_returns_409(client) -> None:
+
+def test_delete_object_with_edges_tombstones(client, db_session) -> None:
     task = _create_object(client, "task", "Connected task")
     email = _create_object(client, "email", "Connected email")
     client.post(
@@ -173,8 +179,8 @@ def test_delete_object_with_edges_returns_409(client) -> None:
     )
 
     response = client.delete(f"/objects/{task['id']}")
-    assert response.status_code == 409
-    assert "incident edges" in response.json()["detail"]
+    assert response.status_code == 200
+    assert db_session.get(Object, task["id"]).deleted_at is not None
 
 
 def test_get_missing_object_returns_404(client) -> None:

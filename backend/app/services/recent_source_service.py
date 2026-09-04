@@ -81,6 +81,7 @@ class RecentSourceService:
             Object.user_id == self._user_id,
             or_(self._source_feed_clause(), self._intake_feed_clause()),
             Object.state != "rejected",
+            Object.deleted_at.is_(None),
             or_(Object.status.is_(None), Object.status != "deleted"),
             self._gmail_feed_eligible_clause(),
         )

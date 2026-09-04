@@ -33,6 +33,7 @@ from app.connectors.google.errors import GoogleConnectorError
 from app.connectors.google.gmail_transport import GoogleTokenManager
 from app.connectors.google.oauth_service import GoogleOAuthService
 from app.db.models import Object
+from app.domain.object_visibility import passive_sync_should_skip_existing
 from app.services.job_queue_service import JobQueueService
 
 
@@ -295,6 +296,11 @@ class CalendarSyncService:
             existing = self._find_existing_calendar_object(
                 owner_user_id, normalized["external_id"]
             )
+
+            if existing is not None and passive_sync_should_skip_existing(existing):
+                synchronized += 1
+                unchanged += 1
+                continue
 
             if existing is None:
                 obj = Object(

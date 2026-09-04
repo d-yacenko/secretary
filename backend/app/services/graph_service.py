@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
 from app.db.models import Edge, Object
+from app.domain.object_visibility import is_object_tombstoned
 from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
 from app.services.embedding_index import refresh_object_embedding
@@ -78,7 +79,7 @@ class GraphService:
 
     def get_object(self, object_id: UUID) -> Object:
         obj = self._get_object_row(object_id)
-        if obj is None:
+        if obj is None or is_object_tombstoned(obj):
             raise NotFoundError("object", object_id)
         return obj
 
@@ -205,6 +206,8 @@ class GraphService:
                 direction = "incoming"
             if neighbor is None:
                 continue
+            if is_object_tombstoned(neighbor):
+                continue
             if not include_rejected and neighbor.state == "rejected":
                 continue
             results.append((neighbor, edge, direction))
@@ -229,6 +232,8 @@ class GraphService:
         if not include_rejected:
             outgoing_filters.extend([Edge.state != "rejected", Object.state != "rejected"])
             incoming_filters.extend([Edge.state != "rejected", Object.state != "rejected"])
+        outgoing_filters.append(Object.deleted_at.is_(None))
+        incoming_filters.append(Object.deleted_at.is_(None))
 
         outgoing = (
             select(Edge.id, literal("outgoing").label("direction"))
@@ -305,6 +310,10 @@ class GraphService:
                 ).all()
             )
             if not include_rejected:
-                neighbors = [neighbor for neighbor in neighbors if neighbor.state != "rejected"]
+                neighbors = [
+                    neighbor
+                    for neighbor in neighbors
+                    if neighbor.state != "rejected" and not is_object_tombstoned(neighbor)
+                ]
 
         return obj, edges, neighbors

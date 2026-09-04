@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate
 from app.db.models import Object
-from app.domain.task_lifecycle import TASK_STATUS_DELETED
+from app.domain.object_visibility import is_object_tombstoned
 from app.llm.correlation_judge import CorrelationJudge
 from app.services.correlation_candidate_service import CorrelationCandidateService
 from app.services.correlation_constants import (
@@ -160,7 +160,7 @@ def _is_valid_judge_decision(
         return False
     if target.state == "rejected":
         return False
-    if target.status == TASK_STATUS_DELETED:
+    if is_object_tombstoned(target):
         return False
     return True
 

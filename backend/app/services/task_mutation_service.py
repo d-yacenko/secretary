@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import ObjectUpdate
 from app.db.models import Object
+from app.domain.object_visibility import is_object_tombstoned
 from app.domain.task_lifecycle import (
     SET_TASK_STATUS_VALUES,
     TASK_STATUS_DELETED,
@@ -15,6 +16,7 @@ from app.domain.task_lifecycle import (
 from app.llm.embedding_service import EmbeddingService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.object_deletion_service import ObjectDeletionService
 from app.tools.datetime_utils import normalize_tool_datetime
 
 
@@ -56,7 +58,9 @@ class TaskMutationService:
             raise
         if obj.kind != "task":
             raise ValidationError("operation only supports task objects")
-        if not allow_deleted and obj.status == TASK_STATUS_DELETED:
+        if not allow_deleted and (
+            is_object_tombstoned(obj) or obj.status == TASK_STATUS_DELETED
+        ):
             raise ValidationError("deleted task cannot be modified")
         return obj
 
@@ -133,32 +137,15 @@ class TaskMutationService:
         )
 
     def soft_delete_task(self, task_id: UUID) -> TaskDeleteResult:
-        try:
-            obj = self._graph.get_object(task_id)
-        except NotFoundError:
-            raise
+        service = ObjectDeletionService(self._graph._session, self._graph._user_id)
+        obj = service._get_owned_object(task_id)
         if obj.kind != "task":
             raise ValidationError("operation only supports task objects")
         previous_status = obj.status
-        if obj.status == TASK_STATUS_DELETED:
-            return TaskDeleteResult(
-                object=obj,
-                changed=False,
-                previous_status=previous_status,
-                new_status=TASK_STATUS_DELETED,
-            )
-        try:
-            updated = self._graph.update_object(
-                task_id,
-                ObjectUpdate(status=TASK_STATUS_DELETED),
-            )
-        except ValidationError as exc:
-            raise ValidationError(exc.message) from exc
-        except ConflictError as exc:
-            raise ValidationError(exc.message) from exc
+        result = service.delete_object(task_id)
         return TaskDeleteResult(
-            object=updated,
-            changed=True,
+            object=result.object,
+            changed=not result.already_deleted,
             previous_status=previous_status,
             new_status=TASK_STATUS_DELETED,
         )

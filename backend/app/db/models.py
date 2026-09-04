@@ -71,6 +71,7 @@ class Object(Base):
     start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata",
         JSONB,
@@ -99,6 +100,7 @@ class Object(Base):
         Index("ix_objects_status", "status"),
         Index("ix_objects_state", "state"),
         Index("ix_objects_due_at", "due_at"),
+        Index("ix_objects_user_id_deleted_at", "user_id", "deleted_at"),
         Index(
             "uq_objects_user_provider_kind_external_id",
             "user_id",

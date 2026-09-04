@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, EdgeOut
 from app.db.models import Edge, Object
-from app.domain.task_lifecycle import TASK_STATUS_DELETED
+from app.domain.object_visibility import is_object_tombstoned
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
@@ -95,5 +95,5 @@ class RelationService:
     def _validate_endpoint_for_relation(self, obj: Object) -> None:
         if obj.state == REJECTED_STATE:
             raise ValidationError("rejected objects cannot receive new relations")
-        if obj.status == TASK_STATUS_DELETED:
+        if is_object_tombstoned(obj):
             raise ValidationError("deleted objects cannot receive new relations")

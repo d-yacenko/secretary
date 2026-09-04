@@ -322,6 +322,7 @@ class SecretaryObject {
     this.startAt,
     this.dueAt,
     this.occurredAt,
+    this.deletedAt,
     required this.metadata,
     required this.origin,
     required this.state,
@@ -341,6 +342,7 @@ class SecretaryObject {
   final String? startAt;
   final String? dueAt;
   final String? occurredAt;
+  final String? deletedAt;
   final Map<String, dynamic> metadata;
   final String origin;
   final String state;
@@ -361,6 +363,7 @@ class SecretaryObject {
       startAt: json['start_at'] as String?,
       dueAt: json['due_at'] as String?,
       occurredAt: json['occurred_at'] as String?,
+      deletedAt: json['deleted_at'] as String?,
       metadata: Map<String, dynamic>.from(
         (json['metadata'] as Map?) ?? const <String, dynamic>{},
       ),
@@ -1033,6 +1036,8 @@ extension SecretaryObjectLifecycle on SecretaryObject {
   }
 
   bool get isDeletedTask => kind == 'task' && status == 'deleted';
+
+  bool get isTombstoned => deletedAt != null;
 }
 
 class GraphWorkspaceOut {
@@ -1251,6 +1256,26 @@ class TaskStatusResponse {
       changed: json['changed'] as bool? ?? false,
       previousStatus: json['previous_status'] as String?,
       newStatus: json['new_status'] as String,
+    );
+  }
+}
+
+class ObjectDeleteResponse {
+  ObjectDeleteResponse({
+    required this.objectId,
+    required this.deletedAt,
+    required this.alreadyDeleted,
+  });
+
+  final String objectId;
+  final String deletedAt;
+  final bool alreadyDeleted;
+
+  factory ObjectDeleteResponse.fromJson(Map<String, dynamic> json) {
+    return ObjectDeleteResponse(
+      objectId: json['object_id'] as String,
+      deletedAt: json['deleted_at'] as String,
+      alreadyDeleted: json['already_deleted'] as bool? ?? false,
     );
   }
 }

@@ -44,13 +44,6 @@ class TaskManagementActions extends StatelessWidget {
         label: 'Статус',
         onPressed: () => _changeStatus(context),
       ),
-      _actionButton(
-        context,
-        tooltip: 'Удалить задачу',
-        icon: Icons.delete_outline,
-        label: 'Удалить',
-        onPressed: () => _deleteTask(context),
-      ),
     ];
 
     if (compact) {
@@ -59,7 +52,6 @@ class TaskManagementActions extends StatelessWidget {
         itemBuilder: (context) => [
           const PopupMenuItem(value: 'edit', child: Text('Редактировать')),
           const PopupMenuItem(value: 'status', child: Text('Изменить статус')),
-          const PopupMenuItem(value: 'delete', child: Text('Удалить')),
         ],
         onSelected: (value) {
           switch (value) {
@@ -67,8 +59,6 @@ class TaskManagementActions extends StatelessWidget {
               _editTask(context);
             case 'status':
               _changeStatus(context);
-            case 'delete':
-              _deleteTask(context);
           }
         },
       );

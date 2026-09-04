@@ -13,6 +13,7 @@ from app.api.schemas import (
     ObjectOut,
 )
 from app.db.models import Edge, Object
+from app.domain.object_visibility import is_object_tombstoned
 from app.domain.task_lifecycle import (
     TASK_STATUS_DELETED,
     TASK_STATUS_OPEN,
@@ -340,7 +341,9 @@ class DomainToolService:
             raise ToolError(f"object not found: {exc.entity_id}") from exc
         if obj.kind != "task":
             raise ToolError("operation only supports task objects")
-        if not allow_deleted and obj.status == TASK_STATUS_DELETED:
+        if not allow_deleted and (
+            is_object_tombstoned(obj) or obj.status == TASK_STATUS_DELETED
+        ):
             raise ToolError("deleted task cannot be modified")
         return obj
 

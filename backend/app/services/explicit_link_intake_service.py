@@ -38,6 +38,10 @@ from app.content_extraction.intake_metadata import (
 from app.content_extraction.metadata_keys import CONTENT_EXTRACTION_STATUS, STATUS_READY
 from app.content_extraction.revision import metadata_extraction_version
 from app.db.models import GoogleAccount, Object, Representation
+from app.domain.object_visibility import (
+    is_object_tombstoned,
+    restore_object_from_explicit_intake,
+)
 from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
 from app.services.explicit_link_intake_errors import (
     AccountSelectionRequiredError,
@@ -229,7 +233,7 @@ class ExplicitLinkIntakeService:
             jobs_enqueued = self._enqueue_new_object_pipeline(obj, content_metadata)
             return obj, "created", jobs_enqueued
 
-        was_deleted = existing.status == "deleted"
+        was_deleted = is_object_tombstoned(existing) or existing.status == "deleted"
         prior_meta = dict(existing.metadata_ or {})
         had_mechanical = self._has_mechanical_representations(existing.id)
 
@@ -315,7 +319,7 @@ class ExplicitLinkIntakeService:
         existing.metadata_ = merged_meta
 
         if was_deleted:
-            existing.status = None
+            restore_object_from_explicit_intake(existing)
 
         self._session.flush()
 

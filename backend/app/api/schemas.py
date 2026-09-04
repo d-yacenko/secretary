@@ -84,6 +84,7 @@ class ObjectOut(BaseModel):
     start_at: datetime | None
     due_at: datetime | None
     occurred_at: datetime | None
+    deleted_at: datetime | None = None
     metadata: dict[str, Any]
     origin: str
     state: str
@@ -105,6 +106,7 @@ class ObjectOut(BaseModel):
             start_at=obj.start_at,
             due_at=obj.due_at,
             occurred_at=obj.occurred_at,
+            deleted_at=obj.deleted_at,
             metadata=obj.metadata_,
             origin=obj.origin,
             state=obj.state,
@@ -112,6 +114,12 @@ class ObjectOut(BaseModel):
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )
+
+
+class ObjectDeleteResponse(BaseModel):
+    object_id: UUID
+    deleted_at: datetime
+    already_deleted: bool
 
 
 class EdgeCreate(BaseModel):

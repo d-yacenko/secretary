@@ -1,9 +1,11 @@
 import pytest
+from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_db
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.main import app
+from app.services.errors import NotFoundError
 from app.services.graph_service import GraphService
 from app.services.search_service import SearchService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -89,6 +91,7 @@ def test_search_excludes_deleted_objects_by_default(db_session) -> None:
             origin="system",
         )
     )
+    tombstone.deleted_at = datetime.now(UTC)
     tombstone.status = "deleted"
     db_session.flush()
 
@@ -98,8 +101,8 @@ def test_search_excludes_deleted_objects_by_default(db_session) -> None:
     assert active.id in ids
     assert tombstone.id not in ids
 
-    direct = graph.get_object(tombstone.id)
-    assert direct.id == tombstone.id
+    with pytest.raises(NotFoundError):
+        graph.get_object(tombstone.id)
 
 
 def test_search_endpoint(client) -> None:

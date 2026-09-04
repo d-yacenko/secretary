@@ -17,6 +17,7 @@ from app.services.retrieval_constants import (
 
 _BASE_WHERE = """
     o.user_id = :user_id
+    AND o.deleted_at IS NULL
     AND (o.status IS NULL OR o.status != 'deleted')
     AND o.state != 'rejected'
 """
