@@ -13,7 +13,13 @@ import '../objects/object_detail_screen.dart';
 typedef AskSecretaryHandler = void Function(SecretaryObject object);
 typedef ShowInGraphHandler = void Function(String objectId);
 
-Future<void> openObjectDetail(
+class ObjectDetailNavigationResult {
+  const ObjectDetailNavigationResult({required this.deletedObjectId});
+
+  final String deletedObjectId;
+}
+
+Future<ObjectDetailNavigationResult?> openObjectDetail(
   BuildContext context, {
   required String objectId,
   required SecretaryApiClient apiClient,
@@ -23,9 +29,9 @@ Future<void> openObjectDetail(
   AskSecretaryHandler? onAskSecretary,
   ShowInGraphHandler? onShowInGraph,
   ValueChanged<SecretaryObject>? onTaskUpdated,
-}) async {
-  await Navigator.of(context).push<void>(
-    MaterialPageRoute<void>(
+}) {
+  return Navigator.of(context).push<ObjectDetailNavigationResult>(
+    MaterialPageRoute<ObjectDetailNavigationResult>(
       builder: (context) => ObjectDetailScreen(
         objectId: objectId,
         apiClient: apiClient,

@@ -107,8 +107,8 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  void _openObject(SecretaryObject object) {
-    openObjectDetail(
+  Future<void> _openObject(SecretaryObject object) async {
+    final result = await openObjectDetail(
       context,
       objectId: object.id,
       apiClient: widget.apiClient,
@@ -118,6 +118,16 @@ class _SearchScreenState extends State<SearchScreen> {
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
     );
+    if (!mounted || result == null) {
+      return;
+    }
+    setState(() {
+      _results =
+          _results.where((row) => row.id != result.deletedObjectId).toList();
+      if (_results.isEmpty && _loadState == SearchLoadState.ready) {
+        _loadState = SearchLoadState.empty;
+      }
+    });
   }
 
   @override

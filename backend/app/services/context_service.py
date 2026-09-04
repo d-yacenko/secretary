@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ContextBuildResult, ContextItem
 from app.content_extraction.content_gating import filter_current_representations
 from app.db.models import Edge, Object, Representation
-from app.domain.object_visibility import is_object_tombstoned
+from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.llm.embedding_service import EmbeddingService
 from app.services.capture_service import PINNED_ADDED_BY, PINNED_CONTEXT_ROLE
 from app.services.correlation_constants import (
@@ -228,7 +228,7 @@ class ContextService:
                         Object.user_id == self._user_id,
                     )
                 )
-                if obj is None or obj.state == "rejected" or is_object_tombstoned(obj):
+                if obj is None or obj.state == "rejected" or is_object_hidden_from_active_reads(obj):
                     continue
                 included_object_ids.add(obj.id)
                 representation_object_ids.add(obj.id)

@@ -40,7 +40,9 @@ from app.content_extraction.revision import (
     metadata_extraction_version,
 )
 from app.db.models import Object, Representation
-from app.domain.object_visibility import restore_object_from_explicit_intake
+from app.domain.object_visibility import (
+    restore_object_from_explicit_intake,
+)
 from app.resources.constants import PROVIDER_WEB
 from app.resources.web_fetch import WebFetchError, WebFetchResult, fetch_web_page
 from app.services.explicit_link_intake_errors import ExplicitLinkIntakeError
@@ -71,12 +73,6 @@ class WebExplicitLinkIntakeService:
             raise ExplicitLinkIntakeError("invalid link url") from exc
 
         existing = self._find_existing(normalized_requested)
-        if existing is not None and existing.deleted_at is not None:
-            restore_object_from_explicit_intake(existing)
-            self.session.flush()
-
-        if self.session.in_transaction():
-            self.session.commit()
 
         try:
             fetched = fetch_web_page(requested_url)
@@ -122,6 +118,8 @@ class WebExplicitLinkIntakeService:
             canonical_uri=fetched.final_url,
             metadata=metadata,
         )
+        if existing is not None:
+            restore_object_from_explicit_intake(obj)
 
         prior_meta = dict(obj.metadata_ or {})
         prior_revision = prior_meta.get("content_revision")
@@ -228,6 +226,8 @@ class WebExplicitLinkIntakeService:
             canonical_uri=fetched.final_url,
             metadata=metadata,
         )
+        if existing is not None:
+            restore_object_from_explicit_intake(obj)
 
         prior_meta = dict(obj.metadata_ or {})
         prior_revision = prior_meta.get("content_revision")

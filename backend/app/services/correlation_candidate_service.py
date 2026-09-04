@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Edge, Object
-from app.domain.object_visibility import is_object_tombstoned
+from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.services.correlation_constants import (
     CANDIDATE_MAX_EXACT_THREAD,
     CANDIDATE_MAX_PARTICIPANT_TIME,
@@ -125,7 +125,7 @@ class CorrelationCandidateService:
     def _is_eligible_target(self, obj: Object) -> bool:
         if obj.state == "rejected":
             return False
-        if is_object_tombstoned(obj):
+        if is_object_hidden_from_active_reads(obj):
             return False
         return True
 

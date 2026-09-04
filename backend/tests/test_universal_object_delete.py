@@ -1,6 +1,9 @@
 """Universal Object Delete — Secretary-local tombstones."""
 
-pytest_plugins = ["tests.test_phase_27c_explicit_intake_google"]
+pytest_plugins = [
+    "tests.test_phase_27c_explicit_intake_google",
+    "tests.test_phase_27c_local_explicit_intake",
+]
 
 import socket
 import uuid
@@ -28,8 +31,10 @@ from app.jobs.handlers import (
 from app.main import app
 from app.services.domain_tool_service import DomainToolService
 from app.services.errors import NotFoundError
+from app.services.explicit_link_intake_errors import ExplicitLinkIntakeError
 from app.services.graph_service import GraphService
 from app.services.object_deletion_service import ObjectDeletionService
+from app.services.object_query_service import ObjectQueryService
 from app.services.open_target_service import OpenTargetService
 from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
@@ -43,6 +48,10 @@ from tests.test_phase_27c_explicit_intake_google import (
     _drive_file,
     _google_account,
     _intake_service,
+)
+from tests.test_phase_27c_local_explicit_intake import (
+    _intake_file,
+    _intake_folder,
 )
 
 
@@ -336,3 +345,246 @@ def test_explicit_google_drive_readd_restores_same_object_id(
     assert second.object_id == first.object_id
     refreshed = db_session.get(Object, first.object_id)
     assert refreshed.deleted_at is None
+
+
+def test_web_readd_fetch_failure_keeps_tombstone(db_session) -> None:
+    url = f"https://example.test/fail-restore-{uuid.uuid4().hex}.txt"
+    body = b"restore marker\n"
+
+    def success_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=body,
+            headers={"Content-Type": "text/plain", "Content-Length": str(len(body))},
+        )
+
+    transport = httpx.MockTransport(success_handler)
+    _REAL_HTTPX_CLIENT = httpx.Client
+    with patch(
+        "app.resources.web_fetch.socket.getaddrinfo",
+        return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+    ), patch(
+        "app.resources.web_fetch.httpx.Client",
+        side_effect=lambda *args, **kwargs: _REAL_HTTPX_CLIENT(
+            transport=transport, follow_redirects=False
+        ),
+    ):
+        service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
+        first = service.intake_link(url)
+        db_session.commit()
+        ObjectDeletionService(db_session, BOOTSTRAP_USER_ID).delete_object(first.object_id)
+        db_session.commit()
+
+        with patch(
+            "app.services.web_explicit_link_intake_service.fetch_web_page",
+            side_effect=ExplicitLinkIntakeError("network failed"),
+        ), pytest.raises(ExplicitLinkIntakeError):
+            service.intake_link(url)
+
+        refreshed = db_session.get(Object, first.object_id)
+        assert refreshed is not None
+        assert refreshed.deleted_at is not None
+
+        second = service.intake_link(url)
+        db_session.commit()
+
+    assert second.object_id == first.object_id
+    refreshed_after = db_session.get(Object, first.object_id)
+    assert refreshed_after.deleted_at is None
+
+
+def test_explicit_local_file_delete_readd_restores_same_id(
+    phase27c_local_client, db_session
+) -> None:
+    from app.services.folder_object_service import EXPLICIT_LOCAL_INTAKE_MODE
+
+    phase27c_local_client.post(
+        "/local/devices/register",
+        json={"device_key": "desk-26b", "display_name": "Test desktop"},
+    )
+    first = _intake_file(phase27c_local_client, intake_mode=EXPLICIT_LOCAL_INTAKE_MODE)
+    ObjectDeletionService(db_session, BOOTSTRAP_USER_ID).delete_object(
+        uuid.UUID(first["object_id"])
+    )
+    db_session.flush()
+    tombstoned = db_session.get(Object, uuid.UUID(first["object_id"]))
+    assert tombstoned.deleted_at is not None
+
+    second = _intake_file(phase27c_local_client, intake_mode=EXPLICIT_LOCAL_INTAKE_MODE)
+    assert second["object_id"] == first["object_id"]
+    restored = db_session.get(Object, uuid.UUID(first["object_id"]))
+    assert restored.deleted_at is None
+
+
+def test_explicit_local_folder_delete_readd_restores_same_id(
+    phase27c_local_client, db_session, tmp_path
+) -> None:
+    folder = tmp_path / "restore-folder"
+    folder.mkdir()
+    body = _intake_folder(
+        phase27c_local_client,
+        root_path=str(folder.relative_to(tmp_path)),
+        client_source_path=str(folder),
+    )
+    ObjectDeletionService(db_session, BOOTSTRAP_USER_ID).delete_object(
+        uuid.UUID(body["object_id"])
+    )
+    db_session.flush()
+    tombstoned = db_session.get(Object, uuid.UUID(body["object_id"]))
+    assert tombstoned.deleted_at is not None
+
+    second = _intake_folder(
+        phase27c_local_client,
+        root_path=str(folder.relative_to(tmp_path)),
+        client_source_path=str(folder),
+    )
+    assert second["object_id"] == body["object_id"]
+    restored = db_session.get(Object, uuid.UUID(body["object_id"]))
+    assert restored.deleted_at is None
+
+
+def test_passive_local_rediscovery_keeps_tombstone(db_session, tmp_path) -> None:
+    from app.local.paths import LocalPathResolver
+    from app.services.job_queue_service import JobQueueService
+    from app.services.local_device_service import LocalDeviceService
+    from app.services.local_file_sync_service import LocalFileReport, LocalFileSyncService
+
+    local_mirror = tmp_path / "local-mirror"
+    local_mirror.mkdir()
+    device_key = "passive-device"
+    root_rel = "docs"
+
+    device_service = LocalDeviceService(
+        db_session, BOOTSTRAP_USER_ID, LocalPathResolver(local_mirror)
+    )
+    device_service.register_device(device_key=device_key, display_name="Passive")
+    device_service.register_root(
+        device_key=device_key,
+        root_path=root_rel,
+        default_policy="metadata_only",
+    )
+
+    sync = LocalFileSyncService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        LocalPathResolver(local_mirror),
+        JobQueueService(db_session),
+    )
+    first = sync.report_files(
+        device_key,
+        root_rel,
+        [
+            LocalFileReport(
+                relative_path="notes.md",
+                size=12,
+                modified_at="2026-01-01T10:00:00Z",
+            )
+        ],
+    )
+    assert first.objects_created == 1
+    obj = db_session.scalar(
+        select(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.provider == "local_device",
+        )
+    )
+    assert obj is not None
+    deleted_at = datetime.now(UTC)
+    obj.deleted_at = deleted_at
+    db_session.flush()
+
+    second = sync.report_files(
+        device_key,
+        root_rel,
+        [
+            LocalFileReport(
+                relative_path="notes.md",
+                size=12,
+                modified_at="2026-01-01T10:00:00Z",
+            )
+        ],
+    )
+    assert second.objects_updated == 0
+    refreshed = db_session.get(Object, obj.id)
+    assert refreshed.deleted_at == deleted_at
+
+
+def test_legacy_status_deleted_hidden_from_active_reads(db_session, api_client) -> None:
+    obj = GraphService(db_session, BOOTSTRAP_USER_ID, None).create_object(
+        ObjectCreate(
+            kind="file",
+            title="legacy deleted drive file",
+            origin="source",
+            provider="google_drive",
+            external_id=f"drive:{uuid.uuid4().hex}",
+            status="deleted",
+        )
+    )
+    db_session.flush()
+
+    search = SearchService(db_session, BOOTSTRAP_USER_ID).search("legacy deleted drive")
+    assert all(item.id != obj.id for item in search)
+
+    query = ObjectQueryService(db_session, BOOTSTRAP_USER_ID).query(kinds=["file"])
+    assert all(row.id != obj.id for row in query)
+
+    with pytest.raises(NotFoundError):
+        OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(obj.id)
+
+    response = api_client.get(f"/objects/{obj.id}")
+    assert response.status_code == 404
+
+
+def test_legacy_status_deleted_explicit_readd_restores_visibility(
+    db_session, oauth_client_file, credential_key, google_settings
+) -> None:
+    file_id = f"legacy-restore-{uuid.uuid4().hex}"
+    url = f"https://drive.google.com/file/d/{file_id}/view"
+    account = _google_account(db_session, credential_key, [DRIVE_READONLY_SCOPE])
+    transport = FakeDriveTransport({file_id: _drive_file(file_id, "Legacy restore")})
+    service = _intake_service(db_session, credential_key, oauth_client_file, transport)
+    first = service.intake_link(url, account_id=account.id)
+    db_session.commit()
+
+    existing = db_session.get(Object, first.object_id)
+    existing.status = "deleted"
+    existing.deleted_at = None
+    db_session.commit()
+
+    with pytest.raises(NotFoundError):
+        OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(first.object_id)
+
+    second = service.intake_link(url, account_id=account.id)
+    db_session.commit()
+    assert second.object_id == first.object_id
+    restored = db_session.get(Object, first.object_id)
+    assert restored.deleted_at is None
+    assert restored.status is None
+    OpenTargetService(db_session, BOOTSTRAP_USER_ID).resolve(first.object_id)
+
+
+def test_graph_context_hides_deleted_neighbor_and_edge(db_session, api_client) -> None:
+    parent = _create_task(db_session, "context parent")
+    child = GraphService(db_session, BOOTSTRAP_USER_ID, None).create_object(
+        ObjectCreate(kind="note", title="context child", origin="system")
+    )
+    GraphService(db_session, BOOTSTRAP_USER_ID, None).create_edge(
+        EdgeCreate(
+            source_id=parent.id,
+            target_id=child.id,
+            type="related_to",
+            origin="system",
+            state="observed",
+        )
+    )
+    ObjectDeletionService(db_session, BOOTSTRAP_USER_ID).delete_object(child.id)
+    db_session.flush()
+
+    edge_count = db_session.scalar(select(func.count()).select_from(Edge))
+    assert edge_count == 1
+
+    response = api_client.get(f"/objects/{parent.id}/context")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["edges"] == []
+    assert body["neighbors"] == []

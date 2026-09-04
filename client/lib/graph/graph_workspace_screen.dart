@@ -490,7 +490,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
               child: OutlinedButton.icon(
                 onPressed: () async {
                   final controller = widget.controller;
-                  await openObjectDetail(
+                  final result = await openObjectDetail(
                     context,
                     objectId: object.id,
                     apiClient: widget.apiClient,
@@ -503,6 +503,9 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                   );
                   if (!mounted) {
                     return;
+                  }
+                  if (result != null) {
+                    controller.removeObjectImmediately(result.deletedObjectId);
                   }
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) {

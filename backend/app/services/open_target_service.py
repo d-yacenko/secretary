@@ -22,7 +22,7 @@ from app.connectors.yandex.disk_url_parser import (
 )
 from app.core.config import settings
 from app.db.models import GoogleAccount, MattermostAccount, Object
-from app.domain.object_visibility import is_object_tombstoned
+from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.local.constants import PROVIDER_LOCAL_DEVICE
 from app.services.errors import NotFoundError
 
@@ -49,7 +49,7 @@ class OpenTargetService:
         obj = self._session.scalar(
             select(Object).where(Object.id == object_id, Object.user_id == self._user_id)
         )
-        if obj is None or is_object_tombstoned(obj):
+        if obj is None or is_object_hidden_from_active_reads(obj):
             raise NotFoundError("object", object_id)
 
         provider = (obj.provider or "").lower()

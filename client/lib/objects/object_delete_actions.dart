@@ -16,13 +16,25 @@ String deleteConfirmationMessage(SecretaryObject object) {
   if (provider == 'google_calendar' || provider == 'yandex_calendar') {
     return 'Удалить из Секретаря?\nСобытие останется в календаре.';
   }
+  if (provider == 'mattermost') {
+    return 'Удалить из Секретаря?\nСообщение останется в Mattermost.';
+  }
   if (provider == 'google_drive') {
+    if (object.kind == 'folder') {
+      return 'Удалить из Секретаря?\nПапка останется в Google Drive.';
+    }
     return 'Удалить из Секретаря?\nФайл останется в Google Drive.';
   }
   if (provider == 'yandex_disk') {
+    if (object.kind == 'folder') {
+      return 'Удалить из Секретаря?\nПапка останется на Яндекс.Диске.';
+    }
     return 'Удалить из Секретаря?\nФайл останется на Яндекс.Диске.';
   }
   if (provider == 'local_device') {
+    if (object.kind == 'folder') {
+      return 'Удалить из Секретаря?\nИсходная папка останется на устройстве.';
+    }
     return 'Удалить из Секретаря?\nИсходный файл останется на устройстве.';
   }
   if (object.kind == 'web_page' || object.kind == 'file') {

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import LocalDevice, LocalRoot, Object
+from app.domain.object_visibility import passive_sync_should_skip_existing
 from app.local.bounded_io import stream_content_hash, stream_file_to_hashed_path
 from app.local.constants import (
     LOCAL_POLICIES,
@@ -36,9 +37,9 @@ from app.services.errors import NotFoundError, ValidationError
 from app.services.folder_containment_service import FolderContainmentService
 from app.services.folder_object_service import FolderObjectService
 from app.services.job_queue_service import JobQueueService
+from app.services.local_device_service import LocalDeviceService
 from app.services.pipeline_enqueue import enqueue_embed_object
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
-from app.services.local_device_service import LocalDeviceService
 
 
 @dataclass(frozen=True)
@@ -236,6 +237,10 @@ class LocalFileSyncService:
                 obj.canonical_uri = build_personal_file_uri(device.device_key, str(obj.id))
                 created += 1
             else:
+                if passive_sync_should_skip_existing(obj):
+                    unchanged += 1
+                    file_object_ids.append(obj.id)
+                    continue
                 prior_meta = obj.metadata_ or {}
                 prior_revision = prior_meta.get("content_revision")
                 merged = dict(prior_meta)

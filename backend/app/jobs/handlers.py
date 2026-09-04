@@ -15,7 +15,7 @@ from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.config import settings
 from app.db.models import Object
 from app.db.session import SessionLocal
-from app.domain.object_visibility import is_object_tombstoned
+from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.jobs.constants import (
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
@@ -145,7 +145,7 @@ def _object_is_active(session: Session, object_id: UUID, user_id: UUID) -> bool:
     obj = session.scalar(
         select(Object).where(Object.id == object_id, Object.user_id == user_id)
     )
-    return obj is not None and not is_object_tombstoned(obj)
+    return obj is not None and not is_object_hidden_from_active_reads(obj)
 
 
 def handle_embed_object(

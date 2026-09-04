@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
-from app.domain.object_visibility import is_object_tombstoned
+from app.domain.object_visibility import object_is_active
 from app.services.provenance import REJECTED_STATE
 
 MAX_SEARCH_FACETS_PER_DIMENSION = 64
@@ -19,7 +19,7 @@ class SearchFacetService:
         return (
             Object.user_id == self._user_id,
             Object.state != REJECTED_STATE,
-            Object.deleted_at.is_(None),
+            object_is_active(),
         )
 
     def facets(self) -> dict[str, list[dict[str, object]]]:

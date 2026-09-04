@@ -199,6 +199,38 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     return object != null && !object.isTombstoned;
   }
 
+  Future<void> _openNeighborDetail(String objectId) async {
+    final result = await openObjectDetail(
+      context,
+      objectId: objectId,
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      captureController: widget.captureController,
+      assistantController: widget.assistantController,
+      onAskSecretary: widget.onAskSecretary,
+      onShowInGraph: widget.onShowInGraph,
+      onTaskUpdated: widget.onTaskUpdated,
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    setState(() {
+      _neighbors = _neighbors
+          .where((neighbor) => neighbor.object.id != result.deletedObjectId)
+          .toList();
+      final contextResponse = _context;
+      if (contextResponse != null) {
+        _context = ContextResponse(
+          object: contextResponse.object,
+          edges: contextResponse.edges,
+          neighbors: contextResponse.neighbors
+              .where((neighbor) => neighbor.id != result.deletedObjectId)
+              .toList(),
+        );
+      }
+    });
+  }
+
   Future<void> _deleteObject() async {
     final object = _object;
     if (object == null) {
@@ -213,7 +245,9 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
     if (!mounted || !deleted) {
       return;
     }
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(
+      ObjectDetailNavigationResult(deletedObjectId: object.id),
+    );
   }
 
   @override
@@ -330,17 +364,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                     leading: const Icon(Icons.attach_file),
                     title: Text(neighbor.object.title),
                     subtitle: Text(_attachmentSubtitle(neighbor.object)),
-                    onTap: () => openObjectDetail(
-                      context,
-                      objectId: neighbor.object.id,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                      captureController: widget.captureController,
-                      assistantController: widget.assistantController,
-                      onAskSecretary: widget.onAskSecretary,
-                      onShowInGraph: widget.onShowInGraph,
-                      onTaskUpdated: widget.onTaskUpdated,
-                    ),
+                    onTap: () => _openNeighborDetail(neighbor.object.id),
                   ),
                 ),
               ],
@@ -370,17 +394,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                       '${neighborDirectionLabel(neighbor.direction)} • '
                       '${objectKindLabel(neighbor.object.kind)}',
                     ),
-                    onTap: () => openObjectDetail(
-                      context,
-                      objectId: neighbor.object.id,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                      captureController: widget.captureController,
-                      assistantController: widget.assistantController,
-                      onAskSecretary: widget.onAskSecretary,
-                      onShowInGraph: widget.onShowInGraph,
-                      onTaskUpdated: widget.onTaskUpdated,
-                    ),
+                    onTap: () => _openNeighborDetail(neighbor.object.id),
                   ),
                 ),
               const SizedBox(height: 16),

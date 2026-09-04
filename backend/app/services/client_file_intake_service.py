@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import LocalRoot, Object, Representation
+from app.domain.object_visibility import restore_object_from_explicit_intake
 from app.local.client_paths import (
     build_client_source_external_id,
     compute_client_content_revision,
@@ -149,6 +150,9 @@ class ClientFileIntakeService:
         revision_changed = existing is not None and prior_revision != expected_revision
         policy_changed = existing is not None and prior_policy != incoming_policy
         created = existing is None
+
+        if existing is not None and is_explicit:
+            restore_object_from_explicit_intake(existing)
 
         metadata: dict[str, Any] = {
             "device_key": device_key,

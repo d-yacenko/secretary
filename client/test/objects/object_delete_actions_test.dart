@@ -4,6 +4,21 @@ import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/objects/object_delete_actions.dart';
 
 void main() {
+  test('delete confirmation for note is secretary-only', () {
+    final object = SecretaryObject(
+      id: '2',
+      kind: 'note',
+      title: 'Note',
+      metadata: const {},
+      origin: 'user',
+      state: 'confirmed',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    expect(deleteConfirmationMessage(object), 'Удалить из Секретаря?');
+    expect(deleteConfirmationMessage(object), isNot(contains('Gmail')));
+  });
+
   test('delete confirmation for local file mentions device', () {
     final object = SecretaryObject(
       id: '1',
@@ -22,18 +37,33 @@ void main() {
     );
   });
 
-  test('delete confirmation for note is secretary-only', () {
+  test('delete confirmation for mattermost mentions upstream', () {
     final object = SecretaryObject(
-      id: '2',
-      kind: 'note',
-      title: 'Note',
+      id: '3',
+      kind: 'chat_message',
+      title: 'MM',
+      provider: 'mattermost',
       metadata: const {},
-      origin: 'user',
-      state: 'confirmed',
+      origin: 'source',
+      state: 'observed',
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
     );
-    expect(deleteConfirmationMessage(object), 'Удалить из Секретаря?');
-    expect(deleteConfirmationMessage(object), isNot(contains('Gmail')));
+    expect(deleteConfirmationMessage(object), contains('Mattermost'));
+  });
+
+  test('delete confirmation for local folder mentions device folder', () {
+    final object = SecretaryObject(
+      id: '4',
+      kind: 'folder',
+      title: 'Projects',
+      provider: 'local_device',
+      metadata: const {},
+      origin: 'source',
+      state: 'observed',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    );
+    expect(deleteConfirmationMessage(object), contains('папка'));
   });
 }

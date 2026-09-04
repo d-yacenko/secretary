@@ -39,7 +39,7 @@ from app.content_extraction.metadata_keys import CONTENT_EXTRACTION_STATUS, STAT
 from app.content_extraction.revision import metadata_extraction_version
 from app.db.models import GoogleAccount, Object, Representation
 from app.domain.object_visibility import (
-    is_object_tombstoned,
+    is_object_hidden_from_active_reads,
     restore_object_from_explicit_intake,
 )
 from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
@@ -233,7 +233,7 @@ class ExplicitLinkIntakeService:
             jobs_enqueued = self._enqueue_new_object_pipeline(obj, content_metadata)
             return obj, "created", jobs_enqueued
 
-        was_deleted = is_object_tombstoned(existing) or existing.status == "deleted"
+        was_deleted = is_object_hidden_from_active_reads(existing)
         prior_meta = dict(existing.metadata_ or {})
         had_mechanical = self._has_mechanical_representations(existing.id)
 

@@ -390,8 +390,8 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  void _openSourceObject(InboxSourceObjectOut sourceObject) {
-    openObjectDetail(
+  Future<void> _openSourceObject(InboxSourceObjectOut sourceObject) async {
+    final result = await openObjectDetail(
       context,
       objectId: sourceObject.id,
       apiClient: widget.apiClient,
@@ -401,6 +401,22 @@ class InboxScreenState extends State<InboxScreen> {
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
     );
+    if (!mounted || result == null) {
+      return;
+    }
+    final inbox = _inbox;
+    if (inbox == null) {
+      return;
+    }
+    setState(() {
+      _inbox = InboxOut(
+        unresolvedNotifications: inbox.unresolvedNotifications,
+        recentSourceObjects: inbox.recentSourceObjects
+            .where((row) => row.id != result.deletedObjectId)
+            .toList(),
+        sourceSyncStatus: inbox.sourceSyncStatus,
+      );
+    });
   }
 
   @override

@@ -333,6 +333,14 @@ class GraphWorkspaceController extends ChangeNotifier {
         _positions.containsKey(edge.targetId);
   }
 
+  Future<void> removeObjectImmediately(String objectId) async {
+    _removeObjectFromWorkspace(objectId);
+    if (rootId == objectId) {
+      await loadOverview();
+    }
+    notifyListeners();
+  }
+
   Future<void> applyTaskMutation(SecretaryObject object) async {
     if (object.kind != 'task') {
       _nodes[object.id] = object;

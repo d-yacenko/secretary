@@ -7,9 +7,9 @@ from sqlalchemy import nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
+from app.domain.object_visibility import object_is_active
 from app.domain.task_lifecycle import (
     LEGACY_TASK_STATUS_COMPLETED,
-    TASK_STATUS_DELETED,
     TASK_STATUS_DONE,
     TASK_STATUS_OPEN,
 )
@@ -81,7 +81,7 @@ class ObjectQueryService:
         stmt = select(Object).where(
             Object.user_id == self._user_id,
             Object.state != REJECTED_STATE,
-            Object.deleted_at.is_(None),
+            object_is_active(),
         )
 
         if kinds:

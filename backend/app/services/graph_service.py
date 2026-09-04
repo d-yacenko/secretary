@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
 from app.db.models import Edge, Object
-from app.domain.object_visibility import is_object_tombstoned
+from app.domain.object_visibility import is_object_hidden_from_active_reads, object_is_active
 from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
 from app.services.embedding_index import refresh_object_embedding
@@ -79,7 +79,7 @@ class GraphService:
 
     def get_object(self, object_id: UUID) -> Object:
         obj = self._get_object_row(object_id)
-        if obj is None or is_object_tombstoned(obj):
+        if obj is None or is_object_hidden_from_active_reads(obj):
             raise NotFoundError("object", object_id)
         return obj
 
@@ -206,7 +206,7 @@ class GraphService:
                 direction = "incoming"
             if neighbor is None:
                 continue
-            if is_object_tombstoned(neighbor):
+            if is_object_hidden_from_active_reads(neighbor):
                 continue
             if not include_rejected and neighbor.state == "rejected":
                 continue
@@ -232,8 +232,8 @@ class GraphService:
         if not include_rejected:
             outgoing_filters.extend([Edge.state != "rejected", Object.state != "rejected"])
             incoming_filters.extend([Edge.state != "rejected", Object.state != "rejected"])
-        outgoing_filters.append(Object.deleted_at.is_(None))
-        incoming_filters.append(Object.deleted_at.is_(None))
+        outgoing_filters.append(object_is_active(Object))
+        incoming_filters.append(object_is_active(Object))
 
         outgoing = (
             select(Edge.id, literal("outgoing").label("direction"))
@@ -289,15 +289,24 @@ class GraphService:
                 or_(Edge.source_id == object_id, Edge.target_id == object_id),
             )
         ).all()
-        if not include_rejected:
-            edges = [edge for edge in edges if edge.state != "rejected"]
 
+        visible_edges: list[Edge] = []
         neighbor_ids: set[UUID] = set()
         for edge in edges:
-            if edge.source_id == object_id:
-                neighbor_ids.add(edge.target_id)
-            else:
-                neighbor_ids.add(edge.source_id)
+            if not include_rejected and edge.state == "rejected":
+                continue
+            neighbor_id = (
+                edge.target_id if edge.source_id == object_id else edge.source_id
+            )
+            neighbor = self._get_object_row(neighbor_id)
+            if neighbor is None:
+                continue
+            if is_object_hidden_from_active_reads(neighbor):
+                continue
+            if not include_rejected and neighbor.state == "rejected":
+                continue
+            visible_edges.append(edge)
+            neighbor_ids.add(neighbor_id)
 
         neighbors: list[Object] = []
         if neighbor_ids:
@@ -309,11 +318,4 @@ class GraphService:
                     )
                 ).all()
             )
-            if not include_rejected:
-                neighbors = [
-                    neighbor
-                    for neighbor in neighbors
-                    if neighbor.state != "rejected" and not is_object_tombstoned(neighbor)
-                ]
-
-        return obj, edges, neighbors
+        return obj, visible_edges, neighbors

@@ -153,6 +153,40 @@ class _TodayScreenState extends State<TodayScreen> {
     }
   }
 
+  Future<void> _openObjectDetail(String objectId) async {
+    final result = await openObjectDetail(
+      context,
+      objectId: objectId,
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      captureController: widget.captureController,
+      assistantController: widget.assistantController,
+      onAskSecretary: widget.onAskSecretary,
+      onShowInGraph: widget.onShowInGraph,
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    final today = _today;
+    if (today == null) {
+      return;
+    }
+    setState(() {
+      _today = TodayOut(
+        date: today.date,
+        timezone: today.timezone,
+        dayStart: today.dayStart,
+        tasks: today.tasks
+            .where((task) => task.id != result.deletedObjectId)
+            .toList(),
+        calendarEvents: today.calendarEvents
+            .where((event) => event.id != result.deletedObjectId)
+            .toList(),
+        notifications: today.notifications,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -213,16 +247,7 @@ class _TodayScreenState extends State<TodayScreen> {
               ...today.tasks.map((task) => _TaskRow(
                     task: task,
                     today: today,
-                    onTap: () => openObjectDetail(
-                      context,
-                      objectId: task.id,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                      captureController: widget.captureController,
-                      assistantController: widget.assistantController,
-                      onAskSecretary: widget.onAskSecretary,
-                      onShowInGraph: widget.onShowInGraph,
-                    ),
+                    onTap: () => _openObjectDetail(task.id),
                   )),
             const SizedBox(height: 16),
             _SectionHeader(title: 'Календарь'),
@@ -231,16 +256,7 @@ class _TodayScreenState extends State<TodayScreen> {
             else
               ...today.calendarEvents.map((event) => _EventRow(
                     event: event,
-                    onTap: () => openObjectDetail(
-                      context,
-                      objectId: event.id,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                      captureController: widget.captureController,
-                      assistantController: widget.assistantController,
-                      onAskSecretary: widget.onAskSecretary,
-                      onShowInGraph: widget.onShowInGraph,
-                    ),
+                    onTap: () => _openObjectDetail(event.id),
                   )),
             const SizedBox(height: 16),
             _SectionHeader(title: 'Важные уведомления'),

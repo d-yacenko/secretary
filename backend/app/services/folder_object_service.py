@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import ObjectCreate
 from app.db.models import LocalDevice, LocalRoot, Object
+from app.domain.object_visibility import restore_object_from_explicit_intake
 from app.local.constants import PROVIDER_LOCAL_DEVICE
 from app.local.paths import normalize_relative_path
 from app.services.correlation_constants import FOLDER_KIND
@@ -92,6 +93,8 @@ class FolderObjectService:
         explicit_state = "observed"
 
         if existing is not None:
+            if is_explicit:
+                restore_object_from_explicit_intake(existing)
             metadata = dict(existing.metadata_ or {})
             new_metadata = dict(metadata)
             new_metadata.update(folder_meta_update)
