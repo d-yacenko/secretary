@@ -192,6 +192,8 @@ Universal Intake Iteration A-R3-R1-R1-R1 corrective: **implemented and deployed*
 
 Universal Intake Iteration A final concurrency closure: **ARCHITECT ACCEPTED / CLOSED** at `f5b76856b4c967ef0673798bd6e9334c77fd2522`.
 
+Format Parity — Pass A (backend extraction kernel + ODF + adaptive datasets): **implemented** at `5c4ca2d013946c3b904624e766b389af66021569`, **production verification complete**, **awaiting architect closure acceptance** on `review/format-parity-a`. Yandex bounded E2E **PASS** (ODS/CSV/ODT; extraction verified when download completes). Google Drive disposable ODT E2E **BLOCKED** (`drive.readonly`). Accepted SHA has Yandex `*.storage.yandex.net` download-trust defect. No bulk stale-version backfill **PASS**.
+
 Universal Object Delete: **implemented and deployed** at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`, **awaiting architect review**. Secretary-local `deleted_at` tombstones; universal `DELETE /objects/{id}`; passive sync non-resurrection; explicit re-add restore; Flutter trash UX.
 
 Universal Object Delete final closure: **implemented and deployed** at `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`, **awaiting architect review**. Transactional web restore; explicit local restore; legacy `status=deleted` visibility; graph context edge hiding; Flutter originating-view refresh. Production disposable-web delete/re-add E2E **PASS**.
@@ -348,17 +350,16 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `1401351e4fd146e376b3b702352bc10deac00e1b`
-- Branch: `review/user-identity-profile`
-- Deployed: 2026-09-04 (User-Configurable Assistant Max Rounds)
-- Checkout: `1401351e4fd146e376b3b702352bc10deac00e1b`, clean working tree
+- SHA: `5c4ca2d013946c3b904624e766b389af66021569`
+- Branch: `review/format-parity-a`
+- Deployed: 2026-09-04 (Format Parity Pass A verification)
+- Checkout: `5c4ca2d013946c3b904624e766b389af66021569`, clean working tree
 - Alembic current/head: `0029`
 - `/health`: PASS (`{"status":"ok"}`)
 - Worker: healthy
-- `GET /me/settings`: **200** (`assistant_max_rounds` fields present; effective default 6)
-- `POST /assistant/message`: **200** (simple smoke)
+- `EXTRACTION_VERSION`: `format-parity-a-v1`
 - Android minSdk: `23`
-- Encrypted architect context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
+- Encrypted architect context blob SHA: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b`
 - Iteration A final concurrency closure: atomic final persist authority + no-validator generation supersession deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
