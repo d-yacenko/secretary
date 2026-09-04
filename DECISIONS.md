@@ -435,5 +435,17 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Text files:** `text/csv`, `text/plain`+`.txt`, `text/markdown`+`.md` => `provider=web` `kind=file` before binary/HTML split.
 - **Production repeat arXiv:** same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `unchanged` / `ready` / jobs=0 with unchanged ETag.
 - **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
-- **Status:** deployed at `4bc8314c184e79417d371681e43df217a050a23d`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+- **Status:** deployed at `4bc8314c184e79417d371681e43df217a050a23d`; functional arXiv repeat PASS; architect review **NOT ACCEPTED** (extraction-version fast path; no-validator SHA revision; stale-content invalidation; HTML MIME precedence).
+
+## Universal Intake Iteration A-R3-R1-R1 — trusted revision completeness + current-content safety
+
+- **Motivation:** architect rejected A-R3-R1 at `4bc8314c184e79417d371681e43df217a050a23d` despite functional arXiv repeat PASS.
+- **Unchanged fast path:** same trusted remote revision + current `EXTRACTION_VERSION` + actual mechanical reps => `unchanged` / `ready` / zero jobs; stale version or missing reps => invalidate + one extract job.
+- **No-validator SHA revision:** worker persists `web:sha256:<hash>` after bounded download when no ETag/Last-Modified+Length; summary enqueue uses resolved revision.
+- **Race guard:** worker aborts if intake baseline changed during download.
+- **Revalidation safety:** no-validator explicit re-intake clears mechanical/summary/embedding before pending re-extraction; old content not searchable while pending.
+- **HTML precedence:** `text/html` / `application/xhtml+xml` => `web_page` even when URL ends `.pdf`/office suffix.
+- **Production repeat arXiv:** same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `unchanged` / `ready` / jobs=0 with unchanged ETag.
+- **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
+- **Status:** deployed at `8d43328701b2d6a8111a107dc586c8256e186a26`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
 

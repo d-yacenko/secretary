@@ -184,7 +184,9 @@ Universal Intake Iteration A-R2 corrective: **implemented and deployed** at `057
 
 Universal Intake Iteration A-R3 corrective: **implemented and deployed** at `4abf5f82da7f566cd09ecc371e701cf62e619c45`; functional arXiv PASS but architect review **NOT ACCEPTED** (probe drain, ready idempotency, revision trust, text-file classification).
 
-Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `4bc8314c184e79417d371681e43df217a050a23d`, **awaiting architect review and manual E2E**. Bounded probe stops after classification; ready same-revision re-intake preserved; `web:url-cl:` revision removed; direct text MIME/URL files classified before HTML path.
+Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `4bc8314c184e79417d371681e43df217a050a23d`; architect review **NOT ACCEPTED** (trusted-revision completeness, no-validator SHA revision, stale-content safety, HTML-over-suffix precedence).
+
+Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed** at `8d43328701b2d6a8111a107dc586c8256e186a26`, **awaiting architect review and manual E2E**. Extraction-version-aware unchanged fast path; worker SHA-256 revision for no-validator files; immediate stale-content invalidation; HTML MIME precedence; worker race guard.
 
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
@@ -338,14 +340,15 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `4abf5f82da7f566cd09ecc371e701cf62e619c45`
+- SHA: `8d43328701b2d6a8111a107dc586c8256e186a26`
 - Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-04 (Universal Intake Iteration A-R3 corrective)
-- Checkout: `4abf5f82da7f566cd09ecc371e701cf62e619c45`, clean working tree
+- Deployed: 2026-09-04 (Universal Intake Iteration A-R3-R1-R1 corrective)
+- Checkout: `8d43328701b2d6a8111a107dc586c8256e186a26`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Iteration A-R3: direct web file handoff + arXiv PDF closure deployed
+- Encrypted architect context blob SHA: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b`
+- Iteration A-R3-R1-R1: trusted revision completeness + current-content safety deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)

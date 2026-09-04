@@ -1,4 +1,4 @@
-# Current task — Universal Intake Iteration A-R3-R1 deployed
+# Current task — Universal Intake Iteration A-R3-R1-R1 deployed
 
 ## Status
 
@@ -8,39 +8,44 @@ Universal Intake Iteration A: **implemented**, **not architect-accepted**.
 
 Universal Intake Iteration A-R1 / A-R1-R1 / A-R2: **implemented and deployed**.
 
-Universal Intake Iteration A-R3 corrective: **implemented and deployed**; architect review **NOT ACCEPTED** (bounded probe still drained binary streams; ready re-intake idempotency; untrustworthy URL+length revision; text file classification gaps).
+Universal Intake Iteration A-R3 corrective: **implemented and deployed**; architect review **NOT ACCEPTED**.
 
-Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
+Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `4bc8314c184e79417d371681e43df217a050a23d`; architect review **NOT ACCEPTED** (trusted-revision completeness, no-validator SHA revision, stale-content safety, HTML-over-suffix precedence).
+
+Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
 
 ## Branch
 
 `review/universal-intake-format-parity-a`
 
-## A-R3 architect findings (application `4abf5f82da7f566cd09ecc371e701cf62e619c45`)
+Architect context docs-only HEAD ancestry: `da04059905393a45871a7643b0c753f0a5194ec7`
 
-Functional arXiv PASS (`provider=web`, `kind=file`, `content_status=ready`), but review FAIL because:
+## A-R3-R1 architect findings (application `4bc8314c184e79417d371681e43df217a050a23d`)
 
-- intake probe drained supported/unsupported binary bodies to EOF despite `store=False`
-- `apply_intake_content_metadata()` set `pending` before same-revision unchanged return (`ready → pending`, jobs=0)
-- `web:url-cl:{final_url}:{content_length}` used as revision without trustworthy validator
-- `text/plain` / `text/csv` / `text/markdown` not classified as direct files before binary split
+Functional arXiv repeat PASS, but review FAIL because:
 
-## A-R3-R1 scope (implemented)
+- same-ETag fast path ignored `content_extraction_version` and actual mechanical reps
+- no-validator worker never persisted `web:sha256:` revision after bounded download
+- no-validator re-intake did not invalidate stale searchable content before worker
+- `text/html` lost to `.pdf` URL suffix in header classification
 
-- Bounded probe: header-first where sufficient; otherwise explicit `iter_bytes(chunk_size=4096)` prefix only; stop immediately after supported/unsupported binary classification; HTML continues on same iterator
-- Declared `Content-Length` > 20 MiB supported file → `too_large` metadata object, zero body bytes when headers suffice
-- Ready re-intake with unchanged trusted revision preserves extraction status, mechanical reps, summary, embedding; zero extract jobs
-- Remove `web:url-cl:` revision; no-validator re-intake conservatively re-extracts once (same `object_id`)
-- Direct text file classification (`txt`/`md`/`csv`) before generic binary/HTML split
-- Stream-bound regression tests prove bytes consumed, not just metadata
+## A-R3-R1-R1 scope (implemented)
+
+- Unchanged READY fast path requires unchanged trusted revision + current `EXTRACTION_VERSION` + actual mechanical reps
+- Stale extraction version or missing reps on same trusted revision → invalidate + one extract job
+- Worker persists `web:sha256:` revision after bounded no-validator download; summary uses resolved revision
+- Worker race guard aborts stale results after download if intake baseline changed
+- No-validator re-intake clears mechanical/summary/embedding immediately before pending re-extraction
+- Explicit `text/html` / `application/xhtml+xml` authoritative over `.pdf`/office URL suffixes
+- Bounded probe behavior from A-R3-R1 preserved
 
 ## Deploy
 
-Application SHA: `4bc8314c184e79417d371681e43df217a050a23d`
+Application SHA: `8d43328701b2d6a8111a107dc586c8256e186a26`
 
-Deployed VDS SHA: `4bc8314c184e79417d371681e43df217a050a23d` (clean)
+Deployed VDS SHA: `8d43328701b2d6a8111a107dc586c8256e186a26` (clean)
 
-Encrypted context blob SHA: `9bed8f596fdf0d03194b2fea968d881efddc6b109e7b8c1667f0c19f9bebb315`
+Encrypted context blob SHA: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b`
 
 Alembic current/head: `0026`
 
