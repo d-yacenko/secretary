@@ -22,7 +22,7 @@ Current application SHA: `dc691abe69385dd99356dd2226b2a2364f0e3a1b`
 
 Deployed VDS SHA: `dc691abe69385dd99356dd2226b2a2364f0e3a1b`
 
-Docs HEAD (after this commit): pending push
+Docs HEAD: `a543037713df2e2aaddae4f7bb7fc4afcbcd7f4c`
 
 Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
