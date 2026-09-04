@@ -1,4 +1,4 @@
-# Current task — Universal Intake Iteration A-R3-R1-R1 deployed
+# Current task — Universal Intake Iteration A-R3-R1-R1-R1 deployed
 
 ## Status
 
@@ -10,9 +10,11 @@ Universal Intake Iteration A-R1 / A-R1-R1 / A-R2: **implemented and deployed**.
 
 Universal Intake Iteration A-R3 corrective: **implemented and deployed**; architect review **NOT ACCEPTED**.
 
-Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `4bc8314c184e79417d371681e43df217a050a23d`; architect review **NOT ACCEPTED** (trusted-revision completeness, no-validator SHA revision, stale-content safety, HTML-over-suffix precedence).
+Universal Intake Iteration A-R3-R1 corrective: **implemented and deployed** at `4bc8314c184e79417d371681e43df217a050a23d`; architect review **NOT ACCEPTED**.
 
-Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
+Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed** at `8d43328701b2d6a8111a107dc586c8256e186a26`; architect review **NOT ACCEPTED**.
+
+Universal Intake Iteration A-R3-R1-R1-R1 corrective: **implemented and deployed**, **awaiting architect review and manual E2E**.
 
 ## Branch
 
@@ -20,32 +22,31 @@ Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed**, 
 
 Architect context docs-only HEAD ancestry: `da04059905393a45871a7643b0c753f0a5194ec7`
 
-## A-R3-R1 architect findings (application `4bc8314c184e79417d371681e43df217a050a23d`)
+## A-R3-R1-R1 architect findings (application `8d43328701b2d6a8111a107dc586c8256e186a26`)
 
 Functional arXiv repeat PASS, but review FAIL because:
 
-- same-ETag fast path ignored `content_extraction_version` and actual mechanical reps
-- no-validator worker never persisted `web:sha256:` revision after bounded download
-- no-validator re-intake did not invalidate stale searchable content before worker
-- `text/html` lost to `.pdf` URL suffix in header classification
+- `fetched_at` was treated as worker content identity and aborted valid extractions on harmless same-URL re-intake
+- queue dedupe did not align with extraction baseline supersession
+- failure paths (`too_large`, parser failure) could overwrite newer pending/ready state
+- `_mechanical_rep_count` counted summary rows as mechanical reps
 
-## A-R3-R1-R1 scope (implemented)
+## A-R3-R1-R1-R1 scope (implemented)
 
-- Unchanged READY fast path requires unchanged trusted revision + current `EXTRACTION_VERSION` + actual mechanical reps
-- Stale extraction version or missing reps on same trusted revision → invalidate + one extract job
-- Worker persists `web:sha256:` revision after bounded no-validator download; summary uses resolved revision
-- Worker race guard aborts stale results after download if intake baseline changed
-- No-validator re-intake clears mechanical/summary/embedding immediately before pending re-extraction
-- Explicit `text/html` / `application/xhtml+xml` authoritative over `.pdf`/office URL suffixes
-- Bounded probe behavior from A-R3-R1 preserved
+- Deterministic `extraction_baseline` token for `provider=web` (final URL, suffix, format, trusted remote revision, `EXTRACTION_VERSION`; **not** `fetched_at`)
+- Worker authority + queue dedupe include `extraction_baseline` in job payload/comparison
+- Same-ETag / same-baseline concurrent re-intake does not abort running worker
+- E1→E2 trusted revision supersession: stale worker aborts; successor extract job enqueued; failure paths race-safe
+- Mechanical rep checks count only `full|chunk|schema|sample|statistics`
+- Bounded probe / idempotency / no-validator SHA / HTML precedence / A-R3-R1-R1 regressions preserved
 
 ## Deploy
 
-Application SHA: `8d43328701b2d6a8111a107dc586c8256e186a26`
+Application SHA: `8734faac62ca7ad58611a118e99b3b83e2b69f04`
 
-Deployed VDS SHA: `8d43328701b2d6a8111a107dc586c8256e186a26` (clean)
+Deployed VDS SHA: `8734faac62ca7ad58611a118e99b3b83e2b69f04` (clean)
 
-Encrypted context blob SHA: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b`
+Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
 Alembic current/head: `0026`
 

@@ -449,3 +449,15 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
 - **Status:** deployed at `8d43328701b2d6a8111a107dc586c8256e186a26`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
 
+## Universal Intake Iteration A-R3-R1-R1-R1 — extraction baseline + race-safe failures
+
+- **Motivation:** architect rejected A-R3-R1-R1 at `8d43328701b2d6a8111a107dc586c8256e186a26` because `fetched_at` invalidated running workers on harmless same-URL re-intake; failure paths could overwrite superseded state; summary rows satisfied mechanical-rep checks.
+- **Extraction baseline:** deterministic `web:baseline:<hash>` from final URL, suffix, format, trusted remote revision (or `no-remote-rev`), and `EXTRACTION_VERSION`; `fetched_at` is audit-only.
+- **Worker authority:** success and failure paths verify `expected_content_revision` + `extraction_baseline` before mutating Object state.
+- **Queue dedupe:** extract job payload/dedupe includes `extraction_baseline`; superseded jobs do not suppress successor authoritative jobs; same-baseline repeats still dedupe.
+- **Concurrent re-intake:** same ETag or no-validator same-source repeat during download converges to READY; E1→E2 supersession aborts stale worker and enqueues successor.
+- **Mechanical reps:** count only `full|chunk|schema|sample|statistics`; summary-only READY triggers repair extraction.
+- **Production repeat arXiv:** same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `unchanged` / `ready` / jobs=0 with unchanged ETag.
+- **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
+- **Status:** deployed at `8734faac62ca7ad58611a118e99b3b83e2b69f04`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+

@@ -340,15 +340,15 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `8d43328701b2d6a8111a107dc586c8256e186a26`
+- SHA: `8734faac62ca7ad58611a118e99b3b83e2b69f04`
 - Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-04 (Universal Intake Iteration A-R3-R1-R1 corrective)
-- Checkout: `8d43328701b2d6a8111a107dc586c8256e186a26`, clean working tree
+- Deployed: 2026-09-04 (Universal Intake Iteration A-R3-R1-R1-R1 corrective)
+- Checkout: `8734faac62ca7ad58611a118e99b3b83e2b69f04`, clean working tree
 - Alembic current/head: `0026`
 - `/health`: PASS
 - Worker: healthy
-- Encrypted architect context blob SHA: `a0e1297804443e45ff28e81c858c1e3d745ffb734e2e4d0f548f69f3ad3bbe8b`
-- Iteration A-R3-R1-R1: trusted revision completeness + current-content safety deployed
+- Encrypted architect context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
+- Iteration A-R3-R1-R1-R1: extraction baseline authority + race-safe failure paths deployed
 - PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
