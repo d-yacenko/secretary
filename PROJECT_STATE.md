@@ -194,7 +194,7 @@ Universal Intake Iteration A final concurrency closure: **ARCHITECT ACCEPTED / C
 
 Universal Object Delete: **implemented and deployed** at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`, **awaiting architect review**. Secretary-local `deleted_at` tombstones; universal `DELETE /objects/{id}`; passive sync non-resurrection; explicit re-add restore; Flutter trash UX.
 
-Universal Object Delete final closure: **implemented** at `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`, **awaiting deploy + architect review**. Transactional web restore; explicit local restore; legacy `status=deleted` visibility; graph context edge hiding; Flutter originating-view refresh.
+Universal Object Delete final closure: **implemented and deployed** at `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`, **awaiting architect review**. Transactional web restore; explicit local restore; legacy `status=deleted` visibility; graph context edge hiding; Flutter originating-view refresh. Production disposable-web delete/re-add E2E **PASS**.
 
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 
@@ -348,11 +348,11 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `f5b76856b4c967ef0673798bd6e9334c77fd2522`
-- Branch: `review/universal-intake-format-parity-a`
-- Deployed: 2026-09-04 (Universal Intake Iteration A final concurrency closure)
-- Checkout: `f5b76856b4c967ef0673798bd6e9334c77fd2522`, clean working tree
-- Alembic current/head: `0026`
+- SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`
+- Branch: `review/universal-object-delete` (detached at application SHA)
+- Deployed: 2026-09-04 (Universal Object Delete final closure)
+- Checkout: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`, clean working tree
+- Alembic current/head: `0027`
 - `/health`: PASS
 - Worker: healthy
 - Encrypted architect context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`

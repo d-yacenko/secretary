@@ -1,4 +1,4 @@
-# Current task — Universal Object Delete final closure
+# Current task — Universal Object Delete final closure deployed
 
 ## Status
 
@@ -8,7 +8,7 @@ Universal Intake Iteration A: **ARCHITECT ACCEPTED / CLOSED** at `f5b76856b4c967
 
 Universal Object Delete initial delivery: deployed at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`.
 
-Universal Object Delete final closure: **implemented**, **awaiting deploy + architect review**.
+Universal Object Delete final closure: **implemented and deployed**, **awaiting architect review**.
 
 ## Branch
 
@@ -23,17 +23,17 @@ Universal Object Delete final closure: **implemented**, **awaiting deploy + arch
 5. Flutter delete returns `ObjectDetailNavigationResult`; Inbox/Search/Today/Graph/parent detail refresh immediately
 6. Confirmation copy: Mattermost, local folder, Drive/Disk folder wording
 
-## Application
+## SHAs
 
-Closure APPLICATION SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`
+Application SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`
 
-Previous deployed SHA (VDS, pre-closure): `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`
+Deployed VDS SHA: `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c` (clean)
 
 Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
-Alembic: `0027` (unchanged)
+Alembic current/head: `0027`
 
-## Tests (local)
+## Verification
 
 Backend `test_universal_object_delete.py`: **20 passed**
 
@@ -41,15 +41,26 @@ Flutter delete UX/navigation tests: **6 passed**
 
 Ruff (changed backend files): **PASS**
 
-## Deploy / production E2E (pending)
+Flutter analyze (changed files): 7 info/warning, 0 errors
 
-VDS deploy from this agent environment blocked (SSH publickey). After deploy of `a0dfa5c`:
+`/health`: **PASS**
 
-- verify clean checkout, Alembic `0027`, `/health`, worker
-- production web E2E: `https://example.com/?secretary_delete_e2e=<token>` intake → delete → invisible → same URL re-add → same `object_id`
+Worker: **healthy**
+
+## Production API E2E (disposable web)
+
+URL: `https://example.com/?secretary_delete_e2e=e2e-1788518292-75bc7268`
+
+- explicit intake → `object_id` `9a564686-3cf6-4b52-8704-2276b7218a72` — **PASS**
+- `DELETE /objects/{id}` — **PASS**
+- tombstoned: `GET /objects/{id}` → 404; absent from search — **PASS**
+- explicit same URL re-add → **same** `object_id`; `deleted_at` cleared; visible again — **PASS**
+- failed re-add (`example.invalid`) → 400; tombstone unchanged (`GET` → 404) — **PASS**
 
 ## Next
 
-STOP — deploy closure SHA, run production E2E, await architect review.
+STOP — await architect review.
 
 NEXT after acceptance: User Identity Profile / Self Resolution.
+
+Do not start Format Parity B or Safe External Actions.

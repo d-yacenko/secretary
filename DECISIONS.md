@@ -495,5 +495,6 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Legacy visibility:** `is_object_hidden_from_active_reads` unifies `deleted_at` and `status=deleted`; explicit restore clears both.
 - **Graph context:** `get_context` filters incident edges to tombstoned neighbors regardless of `include_rejected`.
 - **Flutter:** `ObjectDetailNavigationResult` wired through Inbox/Search/Today/Graph/parent detail; Mattermost/local-folder confirmation copy.
-- **Status:** APPLICATION `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`; **awaiting deploy + architect review**.
+- **Production E2E:** `https://example.com/?secretary_delete_e2e=e2e-1788518292-75bc7268` — intake/delete/invisible/re-add same `object_id` **PASS**; failed `example.invalid` re-add leaves tombstone **PASS**.
+- **Status:** deployed at `a0dfa5ce2c1a0928a96f0d101e1a50934760e54c`; **awaiting architect review**.
 
