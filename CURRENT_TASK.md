@@ -1,12 +1,12 @@
-# Current task — User Identity Profile / Self Resolution
+# Current task — User Identity Profile + Assistant Failure Taxonomy
 
 ## Status
 
-Backend/runtime pass: **ARCHITECT REVIEW PENDING** at `b05e357e3939d54fd7f68b45d7c95a41e6797d7e`.
+User Identity Profile / Self Resolution: **ARCHITECT ACCEPTED / CLOSED** at `dc691abe69385dd99356dd2226b2a2364f0e3a1b`.
 
-UI + final hardening pass: **implemented** at `45483a665cbdb9eebfe4622fefd6197809f4b9e8`.
+Manual semantic E2E: **PASS** — first-person self-resolution matched the current user inside retrieved table content.
 
-UI hint corrective + VDS deploy: **complete** at `dc691abe69385dd99356dd2226b2a2364f0e3a1b`.
+Assistant Failure Taxonomy: **ARCHITECT ACCEPTED / DEPLOYED** at `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`.
 
 ## Branch
 
@@ -14,15 +14,13 @@ UI hint corrective + VDS deploy: **complete** at `dc691abe69385dd99356dd2226b2a2
 
 ## SHAs
 
-Backend-pass application SHA: `b05e357e3939d54fd7f68b45d7c95a41e6797d7e`
+User Identity application SHA (closed): `dc691abe69385dd99356dd2226b2a2364f0e3a1b`
 
-UI + hardening application SHA: `45483a665cbdb9eebfe4622fefd6197809f4b9e8`
+Assistant Failure Taxonomy application SHA: `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`
 
-Current application SHA: `dc691abe69385dd99356dd2226b2a2364f0e3a1b`
+Deployed VDS SHA: `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`
 
-Deployed VDS SHA: `dc691abe69385dd99356dd2226b2a2364f0e3a1b`
-
-Docs HEAD: `a543037713df2e2aaddae4f7bb7fc4afcbcd7f4c`
+Docs HEAD (after this commit): pending push
 
 Encrypted context blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
 
@@ -30,35 +28,21 @@ Alembic current/head: `0028`
 
 Android minSdk: `23`
 
-## Delivered
+## Verification (build host, 2026-09-04)
 
-### Backend (b05e357 + 45483a6)
+Backend `test_assistant_failure_taxonomy.py`: **16 passed**
 
-- `UserIdentityProfile` table + Alembic `0028`
-- Deterministic Russian `profile_text` parser
-- `GET/PUT /me/identity`
-- `UserIdentityContextService` — authored facts + connected accounts (Google, Yandex, Mattermost)
-- Identity block in assistant instructions (not user message)
-- `bound_runtime_identity_facts()` at final serialization boundary
-- Unconditional first-person semantics even when no identity facts; no invented name when facts absent
-- Removed `display_name` fallback from runtime facts
+Backend Assistant/API touched tests: **16 passed** (focused set; `test_action_plan_resume_uses_user_openai_key_when_deployment_empty` pre-existing local DB FK flake, unrelated)
 
-### Flutter (45483a6 + dc691ab)
+Flutter API error tests: **4 passed**
 
-- API: `GET/PUT /me/identity` (`UserIdentity`)
-- Account section **«Моя идентичность»** with structured multiline editor and Russian explanation
-- `identityProfileTemplateExample` as `TextField` hint (no separate «Пример структуры:» block)
-- Load/save/error states; connected-account data not injected into editable field
+Flutter Assistant structured error test: **1 passed**
 
-## Verification (build host)
+Flutter analyze (changed files): **0 errors** (1 info: `use_super_parameters`)
 
-Backend `test_user_identity_profile.py`: **24 passed**
+Ruff (changed backend files): **PASS**
 
-Flutter `test/account/profile_account_test.dart`: **14 passed** (hint, no example block, saved text)
-
-Flutter analyze (changed files): **0 issues**
-
-Ruff: not run (no backend changes in corrective pass)
+`MAX_ASSISTANT_ROUNDS`: **6** (unchanged)
 
 ## VDS deploy (2026-09-04)
 
@@ -66,14 +50,14 @@ Ruff: not run (no backend changes in corrective pass)
 cd /opt/secretary
 git fetch origin review/user-identity-profile
 git checkout review/user-identity-profile
-git pull
+git reset --hard 89cdb996f5b4bea8d7830750a9b7b80a70db0aab
 cd infra
 docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build
 ```
 
 Post-deploy checks:
 
-- `git rev-parse HEAD` = `dc691abe69385dd99356dd2226b2a2364f0e3a1b` (clean checkout on branch)
+- `git rev-parse HEAD` = `89cdb996f5b4bea8d7830750a9b7b80a70db0aab` (clean checkout on branch)
 - Alembic current/head: `0028`
 - `/health`: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - Worker: healthy (`infra-worker-1` Up)
@@ -81,12 +65,9 @@ Post-deploy checks:
 
 ## Production smoke
 
-- `GET https://web-itx.duckdns.org/secretary/me/identity` → **200** (empty profile; Owner has no saved identity text)
-- `PUT /me/identity` with `{"profile_text":""}` → **200** (no personal data written; profile remained empty)
-- Desktop client «Not Found» on identity load was caused by missing `/me/identity` on pre-deploy VDS (`a0dfa5ce`); resolved after deploy to `dc691ab`
+- `GET /me/identity` → **200** (existing profile intact; read-only)
+- `POST /assistant/message` (simple one-word prompt) → **200**
 
 ## Next
 
-STOP — await architect review and manual semantic E2E with explicitly configured profile.
-
-Do not start Format Parity.
+STOP — do not start Format Parity.

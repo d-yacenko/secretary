@@ -505,5 +505,16 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Assistant:** identity block injected into instructions via `UserIdentityContextService`; `bound_runtime_identity_facts()` caps final serialization; unconditional first-person semantics even when facts absent.
 - **Flutter:** Account section **«Моя идентичность»**; template shown as `TextField` hint (not a separate example block).
 - **Production smoke:** `GET /me/identity` **200** after deploy; pre-deploy client «Not Found» was missing route on `a0dfa5ce`.
-- **Status:** deployed at `dc691abe69385dd99356dd2226b2a2364f0e3a1b`; **awaiting architect review**.
+- **Manual semantic E2E:** **PASS** — first-person self-resolution matched the current user inside retrieved table content.
+- **Status:** **accepted / closed** at `dc691abe69385dd99356dd2226b2a2364f0e3a1b`.
+
+## Assistant Failure Taxonomy
+
+- **Motivation:** never collapse unrelated Assistant failures into generic «Assistant provider unavailable»; expose stable machine-readable codes and safe user-facing Russian messages.
+- **Codes:** `assistant_configuration`, `openai_connection`, `openai_rate_limit`, `openai_service`, `assistant_round_limit`, `assistant_output_limit`, `assistant_internal`.
+- **API:** structured `{"detail": {"code", "message"}}`; legacy string `detail` still supported by client.
+- **Telemetry:** AI audit `error_category` uses stable code (e.g. `assistant_round_limit`), not generic `AssistantProviderError`.
+- **Constraints:** `MAX_ASSISTANT_ROUNDS` remains **6**; no retry/budget/model behavior changes.
+- **Production smoke:** `POST /assistant/message` simple prompt **200** after deploy.
+- **Status:** **accepted / deployed** at `89cdb996f5b4bea8d7830750a9b7b80a70db0aab`.
 
