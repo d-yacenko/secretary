@@ -341,4 +341,48 @@ void main() {
     expect(assistant.objectContext, isNull);
     expect(assistant.messages, isEmpty);
   });
+
+  test('assistant stores structured server error message', () async {
+    const roundLimitMessage =
+        'Секретарю не хватило лимита шагов, чтобы завершить поиск. Попробуйте повторить или немного уточнить запрос.';
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'detail': {
+                'code': 'assistant_round_limit',
+                'message': roundLimitMessage,
+              },
+            }),
+          ),
+          502,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('assistant_error_test'),
+      ),
+    );
+
+    await assistant.sendMessage('complex query');
+
+    expect(assistant.errorMessage, roundLimitMessage);
+    expect(assistant.sendState, AssistantSendState.error);
+    assistant.dispose();
+  });
 }

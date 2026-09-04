@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.ai_audit.constants import WORKLOAD_TRANSCRIPTION
+from app.ai_audit.constants import (
+    WORKLOAD_TRANSCRIPTION,
+)
 from app.ai_audit.context import ai_trace_session
+from app.api.assistant_error_responses import build_assistant_error_detail
 from app.api.deps import get_current_user, get_db
 from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_EXPIRED,
@@ -44,7 +47,6 @@ from app.services.transcription_service import (
 from app.services.user_identity_context_service import UserIdentityContextService
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
-ASSISTANT_PROVIDER_UNAVAILABLE = "Assistant provider unavailable"
 TRANSCRIPTION_PROVIDER_UNAVAILABLE = "Transcription provider unavailable"
 
 router = APIRouter(tags=["assistant"])
@@ -146,7 +148,7 @@ def get_assistant_runtime(
     ) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+            detail=build_assistant_error_detail(exc),
         ) from exc
 
 
@@ -259,7 +261,7 @@ def assistant_message(
     except (AssistantConfigurationError, AssistantProviderError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+            detail=build_assistant_error_detail(exc),
         ) from exc
 
     pending_action_plan = None
@@ -397,7 +399,7 @@ def resume_action_plan(
     ) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+            detail=build_assistant_error_detail(exc),
         ) from exc
 
     assistant = AssistantService(
@@ -410,7 +412,7 @@ def resume_action_plan(
     except AssistantProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=ASSISTANT_PROVIDER_UNAVAILABLE,
+            detail=build_assistant_error_detail(exc),
         ) from exc
 
     return ActionPlanResumeResponse(

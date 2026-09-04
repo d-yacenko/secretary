@@ -16,6 +16,7 @@ from app.core.assistant_openai_config import (
     validated_assistant_openai_settings,
 )
 from app.core.config import Settings
+from app.llm.assistant_provider_errors import AssistantOutputLimitError
 from app.llm.openai_assistant_provider import AssistantProviderError, OpenAIAssistantProvider
 from app.llm.openai_usage import ResponsesUsageAccumulated, response_hit_max_output_tokens
 from app.main import app
@@ -336,7 +337,8 @@ def test_assistant_invalid_openai_assistant_config_returns_502(
         response = client.post("/assistant/message", json={"message": "hello"})
     app.dependency_overrides.clear()
     assert response.status_code == 502
-    assert response.json()["detail"] == "Assistant provider unavailable"
+    detail = response.json()["detail"]
+    assert detail["code"] == "assistant_configuration"
 
 
 def test_max_output_tokens_incomplete_raises_provider_error(monkeypatch) -> None:
@@ -362,7 +364,7 @@ def test_max_output_tokens_incomplete_raises_provider_error(monkeypatch) -> None
         verbosity="low",
         max_output_tokens=1600,
     )
-    with pytest.raises(AssistantProviderError, match="output limit reached"):
+    with pytest.raises(AssistantOutputLimitError):
         provider.run(
             message="hello",
             history=[],

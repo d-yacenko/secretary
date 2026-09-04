@@ -14,6 +14,7 @@ from app.ai_audit.constants import EVENT_TRACE_FINISHED, EVENT_TRACE_STARTED
 from app.ai_audit.sanitizer import bounded_json_text, sanitize_for_audit
 from app.ai_audit.trace_service import AITraceService
 from app.db.session import SessionLocal
+from app.llm.assistant_provider_errors import audit_error_category
 
 _active_trace: ContextVar["ActiveTrace | None"] = ContextVar("ai_audit_active_trace", default=None)
 _current_job_id: ContextVar[UUID | None] = ContextVar("ai_audit_current_job_id", default=None)
@@ -134,8 +135,7 @@ def ai_trace_session(
             active.finish(success=True)
     except Exception as exc:
         if active is not None:
-            category = type(exc).__name__
-            active.finish(success=False, error_category=category)
+            active.finish(success=False, error_category=audit_error_category(exc))
         raise
     finally:
         if token is not None:

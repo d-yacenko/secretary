@@ -35,6 +35,12 @@ from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.assistant_models import AssistantProviderResult
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.fake_assistant_provider import FakeAssistantProvider
+from app.llm.assistant_provider_errors import (
+    ASSISTANT_CONFIGURATION,
+    OPENAI_CONNECTION,
+    USER_MESSAGES,
+    OpenAIConnectionError,
+)
 from app.llm.openai_assistant_provider import (
     AssistantProviderError,
     OpenAIAssistantProvider,
@@ -230,19 +236,23 @@ def test_assistant_missing_openai_key_returns_502(
         response = client.post("/assistant/message", json={"message": "hello"})
     app.dependency_overrides.clear()
     assert response.status_code == 502
-    assert response.json()["detail"] == "Assistant provider unavailable"
+    detail = response.json()["detail"]
+    assert detail["code"] == ASSISTANT_CONFIGURATION
+    assert detail["message"] == USER_MESSAGES[ASSISTANT_CONFIGURATION]
 
 
-def test_assistant_provider_error_returns_502(assistant_client) -> None:
+def test_assistant_provider_error_returns_structured_502(assistant_client) -> None:
     client, provider = assistant_client
 
     def failing_run(*args, **kwargs):
-        raise AssistantProviderError("assistant provider call failed")
+        raise OpenAIConnectionError()
 
     provider.run = failing_run
     response = client.post("/assistant/message", json={"message": "hello"})
     assert response.status_code == 502
-    assert response.json()["detail"] == "Assistant provider unavailable"
+    detail = response.json()["detail"]
+    assert detail["code"] == OPENAI_CONNECTION
+    assert "Assistant provider unavailable" not in response.text
 
 
 def test_assistant_message_dependency_resolves_user_openai_key(

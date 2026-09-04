@@ -651,32 +651,36 @@ class SecretaryApiClient {
           }
         }
         if (response.statusCode == 409) {
-          throw ServerException(sanitizeErrorMessage(_extractDetail(response)));
+          final detail = parseApiErrorDetail(response);
+          throw ServerException(
+            sanitizeErrorMessage(detail.message),
+            detail.code,
+          );
         }
         throw ServerException('Unexpected response format');
       }
 
-      final detail = _extractDetail(response);
-      final safeMessage = sanitizeErrorMessage(detail);
+      final detail = parseApiErrorDetail(response);
+      final safeMessage = sanitizeErrorMessage(detail.message);
       switch (response.statusCode) {
         case 401:
           throw AuthenticationException(safeMessage);
         case 404:
           throw NotFoundException(safeMessage);
         case 422:
-          throw ValidationException(safeMessage);
+          throw ValidationException(safeMessage, code: detail.code);
         case 413:
-          throw ValidationException(safeMessage);
+          throw ValidationException(safeMessage, code: detail.code);
         default:
           if (response.statusCode >= 500) {
-            throw ServerException(safeMessage);
+            throw ServerException(safeMessage, detail.code);
           }
-          throw ServerException(safeMessage);
+          throw ServerException(safeMessage, detail.code);
       }
     } on TimeoutException {
-      throw NetworkException('Request timed out');
-    } on http.ClientException catch (e) {
-      throw NetworkException(sanitizeErrorMessage(e.message));
+      throw NetworkException();
+    } on http.ClientException {
+      throw NetworkException();
     }
   }
 
@@ -725,9 +729,9 @@ class SecretaryApiClient {
       }
       throw ServerException('Unexpected response format');
     } on TimeoutException {
-      throw NetworkException('Request timed out');
-    } on http.ClientException catch (e) {
-      throw NetworkException(sanitizeErrorMessage(e.message));
+      throw NetworkException();
+    } on http.ClientException {
+      throw NetworkException();
     }
   }
 
@@ -789,9 +793,9 @@ class SecretaryApiClient {
 
       return _mapResponse(response, successStatuses);
     } on TimeoutException {
-      throw NetworkException('Request timed out');
-    } on http.ClientException catch (e) {
-      throw NetworkException(sanitizeErrorMessage(e.message));
+      throw NetworkException();
+    } on http.ClientException {
+      throw NetworkException();
     }
   }
 
@@ -807,8 +811,8 @@ class SecretaryApiClient {
       return decoded;
     }
 
-    final detail = _extractDetail(response);
-    final safeMessage = sanitizeErrorMessage(detail);
+    final detail = parseApiErrorDetail(response);
+    final safeMessage = sanitizeErrorMessage(detail.message);
 
     switch (response.statusCode) {
       case 401:
@@ -816,33 +820,15 @@ class SecretaryApiClient {
       case 404:
         throw NotFoundException(safeMessage);
       case 422:
-        throw ValidationException(safeMessage);
+        throw ValidationException(safeMessage, code: detail.code);
       case 413:
-        throw ValidationException(safeMessage);
+        throw ValidationException(safeMessage, code: detail.code);
       default:
         if (response.statusCode >= 500) {
-          throw ServerException(safeMessage);
+          throw ServerException(safeMessage, detail.code);
         }
-        throw ServerException(safeMessage);
+        throw ServerException(safeMessage, detail.code);
     }
-  }
-
-  String _extractDetail(http.Response response) {
-    try {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        final detail = decoded['detail'];
-        if (detail is String) {
-          return detail;
-        }
-        if (detail is List) {
-          return detail.map((e) => e.toString()).join('; ');
-        }
-      }
-    } catch (_) {
-      // ignore parse errors
-    }
-    return 'Request failed (${response.statusCode})';
   }
 
   /// Removes bearer tokens from error text so they never appear in UI/logs.

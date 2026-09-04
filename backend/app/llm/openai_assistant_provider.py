@@ -106,10 +106,20 @@ FINALIZATION_INSTRUCTIONS = (
 )
 
 
-class AssistantProviderError(Exception):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
+from app.llm.assistant_provider_errors import (
+    AssistantOutputLimitError,
+    AssistantProviderError,
+    AssistantRoundLimitError,
+    classify_openai_exception,
+)
+
+__all__ = [
+    "AssistantOutputLimitError",
+    "AssistantProviderError",
+    "AssistantRoundLimitError",
+    "OpenAIAssistantProvider",
+    "classify_openai_exception",
+]
 
 
 class OpenAIAssistantProvider:
@@ -190,6 +200,7 @@ class OpenAIAssistantProvider:
                     max_output_tokens=self._max_output_tokens,
                 )
             except Exception as exc:
+                classified = classify_openai_exception(exc)
                 elapsed_ms = int((time.perf_counter() - round_started) * 1000)
                 record_responses_round(
                     response=None,
@@ -204,14 +215,14 @@ class OpenAIAssistantProvider:
                     elapsed_ms=elapsed_ms,
                     user_message=message,
                     failed=True,
-                    error_category=type(exc).__name__,
+                    error_category=classified.code,
                 )
                 logger.warning(
                     "assistant OpenAI call failed: %s: %s",
                     type(exc).__name__,
                     str(exc)[:200],
                 )
-                raise AssistantProviderError("assistant provider call failed") from exc
+                raise classified from exc
             self._last_store_false = True
             usage_totals.accumulate(response)
             elapsed_ms = int((time.perf_counter() - round_started) * 1000)
@@ -234,7 +245,7 @@ class OpenAIAssistantProvider:
                     "assistant response incomplete: max_output_tokens=%d reached",
                     self._max_output_tokens,
                 )
-                raise AssistantProviderError("assistant output limit reached")
+                raise AssistantOutputLimitError()
 
             tool_calls = _extract_function_calls(response)
             if not tool_calls:
@@ -306,7 +317,7 @@ class OpenAIAssistantProvider:
             if hasattr(tool_runner, "commit_model_visible_outputs"):
                 tool_runner.commit_model_visible_outputs()
 
-        raise AssistantProviderError("assistant tool loop exceeded maximum rounds")
+        raise AssistantRoundLimitError()
 
     def run_text_only(
         self,
@@ -344,6 +355,7 @@ class OpenAIAssistantProvider:
                 max_output_tokens=self._max_output_tokens,
             )
         except Exception as exc:
+            classified = classify_openai_exception(exc)
             elapsed_ms = int((time.perf_counter() - round_started) * 1000)
             record_responses_round(
                 response=None,
@@ -358,14 +370,14 @@ class OpenAIAssistantProvider:
                 elapsed_ms=elapsed_ms,
                 user_message=message,
                 failed=True,
-                error_category=type(exc).__name__,
+                error_category=classified.code,
             )
             logger.warning(
                 "assistant finalize OpenAI call failed: %s: %s",
                 type(exc).__name__,
                 str(exc)[:200],
             )
-            raise AssistantProviderError("assistant provider call failed") from exc
+            raise classified from exc
         self._last_store_false = True
         usage_totals.accumulate(response)
         elapsed_ms = int((time.perf_counter() - round_started) * 1000)
@@ -388,7 +400,7 @@ class OpenAIAssistantProvider:
                 "assistant finalize response incomplete: max_output_tokens=%d reached",
                 self._max_output_tokens,
             )
-            raise AssistantProviderError("assistant output limit reached")
+            raise AssistantOutputLimitError()
 
         answer = _extract_output_text(response) or ""
         return _build_provider_result(

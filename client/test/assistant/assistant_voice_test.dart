@@ -209,7 +209,15 @@ void main() {
         return http.Response(jsonEncode({'text': 'Retry me'}), 200);
       }
       if (request.url.path == '/assistant/message') {
-        return http.Response(jsonEncode({'detail': 'Assistant provider unavailable'}), 502);
+        return http.Response(
+          jsonEncode({
+            'detail': {
+              'code': 'assistant_internal',
+              'message': 'Секретарь не смог завершить запрос из-за внутренней ошибки.',
+            },
+          }),
+          502,
+        );
       }
       return http.Response('{}', 404);
     });
@@ -233,7 +241,15 @@ void main() {
   testWidgets('assistant failure leaves transcript in text input', (tester) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
-        return http.Response(jsonEncode({'detail': 'Assistant provider unavailable'}), 502);
+        return http.Response(
+          jsonEncode({
+            'detail': {
+              'code': 'assistant_internal',
+              'message': 'Секретарь не смог завершить запрос из-за внутренней ошибки.',
+            },
+          }),
+          502,
+        );
       }
       return http.Response('{}', 404);
     });

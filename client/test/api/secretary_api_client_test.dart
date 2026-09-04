@@ -176,6 +176,83 @@ void main() {
       );
     });
 
+    test('parses structured assistant error detail', () {
+      final detail = parseApiErrorDetail(
+        http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'detail': {
+                'code': 'assistant_round_limit',
+                'message':
+                    'Секретарю не хватило лимита шагов, чтобы завершить поиск. Попробуйте повторить или немного уточнить запрос.',
+              },
+            }),
+          ),
+          502,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      expect(detail.code, 'assistant_round_limit');
+      expect(detail.message, contains('лимита шагов'));
+    });
+
+    test('parses legacy string error detail', () {
+      final detail = parseApiErrorDetail(
+        http.Response(jsonEncode({'detail': 'some string error'}), 502),
+      );
+      expect(detail.code, isNull);
+      expect(detail.message, 'some string error');
+    });
+
+    test('502 maps structured assistant error to ServerException with code', () async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'detail': {
+                  'code': 'assistant_round_limit',
+                  'message':
+                      'Секретарю не хватило лимита шагов, чтобы завершить поиск. Попробуйте повторить или немного уточнить запрос.',
+                },
+              }),
+            ),
+            502,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      try {
+        await client.sendAssistantMessage(
+          AssistantMessageRequest(message: 'hello'),
+        );
+        fail('expected exception');
+      } on ServerException catch (e) {
+        expect(e.code, 'assistant_round_limit');
+        expect(e.message, contains('лимита шагов'));
+      }
+    });
+
+    test('client network failure uses secretary network message', () async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          throw http.ClientException('Connection refused');
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      await expectLater(
+        client.getMe(),
+        throwsA(
+          isA<NetworkException>().having(
+            (e) => e.message,
+            'message',
+            secretaryNetworkErrorMessage,
+          ),
+        ),
+      );
+    });
+
     test('sanitize maps google drive scope error to user message', () {
       expect(
         SecretaryApiClient.sanitizeErrorMessage('google drive scope not granted'),

@@ -39,6 +39,7 @@ from app.core.client_timezone import (
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage, AssistantProviderResult
+from app.llm.assistant_provider_errors import AssistantInternalError
 from app.llm.fake_assistant_provider import FakeAssistantProvider
 from app.llm.openai_assistant_provider import (
     AssistantProviderError,
@@ -290,7 +291,7 @@ class AssistantService:
         except Exception as exc:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             telemetry.log_action_plan_resume(success=False, elapsed_ms=elapsed_ms)
-            raise AssistantProviderError("assistant provider call failed") from exc
+            raise AssistantInternalError() from exc
 
         telemetry.openai_input_tokens = provider_result.openai_input_tokens
         telemetry.openai_cached_input_tokens = provider_result.openai_cached_input_tokens

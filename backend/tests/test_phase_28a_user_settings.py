@@ -378,7 +378,9 @@ def test_assistant_with_invalid_master_key_and_stored_credential_returns_502(
     app.dependency_overrides.clear()
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Assistant provider unavailable"
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["code"] == "assistant_configuration"
 
 
 def test_put_oversized_openai_key_returns_422_without_echoing_key(profile_client) -> None:
@@ -502,4 +504,6 @@ def test_action_plan_resume_user_a_key_not_used_for_user_b(
     app.dependency_overrides.clear()
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Assistant provider unavailable"
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["code"] == "assistant_configuration"
