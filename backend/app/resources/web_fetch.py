@@ -3,12 +3,21 @@ import ipaddress
 import re
 import socket
 from dataclasses import dataclass
+from enum import Enum
 from html import unescape
 from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from app.content_extraction.constants import MAX_EXTRACTED_TEXT_CHARS
+from app.content_extraction.bounded_download import (
+    DownloadTooLargeError,
+    read_bounded_response_body,
+)
+from app.content_extraction.constants import (
+    MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES,
+    MAX_EXTRACTED_TEXT_CHARS,
+)
+from app.content_extraction.format_resolver import detect_supported_file_suffix
 from app.resources.constants import (
     MAX_WEB_FETCH_BYTES,
     MAX_WEB_REDIRECTS,
@@ -23,6 +32,15 @@ class WebFetchError(Exception):
         super().__init__(message)
 
 
+class WebResourceClass(str, Enum):
+    HTML_PAGE = "html_page"
+    SUPPORTED_FILE = "supported_file"
+    UNSUPPORTED_BINARY = "unsupported_binary"
+
+
+WEB_CLASSIFY_PREFIX_BYTES = 8192
+
+
 @dataclass(frozen=True)
 class WebFetchResult:
     title: str | None
@@ -31,6 +49,12 @@ class WebFetchResult:
     content_type: str | None = None
     is_binary: bool = False
     content_hash: str | None = None
+    is_direct_file: bool = False
+    detected_suffix: str | None = None
+    content_length: int | None = None
+    etag: str | None = None
+    last_modified: str | None = None
+    file_too_large: bool = False
 
 
 TEXTUAL_CONTENT_TYPES = frozenset(
@@ -141,6 +165,18 @@ def _validate_url_target(url: str) -> str:
     return url.strip()
 
 
+def _parse_content_length(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
 def _extract_title(html: str) -> str | None:
     match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
     if not match:
@@ -158,11 +194,34 @@ def _extract_text(html: str) -> str:
     return text
 
 
-def _read_response_body(response: httpx.Response) -> tuple[str, str | None, bool, str | None]:
-    content_type = response.headers.get("Content-Type") or response.headers.get("content-type")
-    is_binary = _is_binary_content_type(content_type)
-    chunks: list[bytes] = []
-    total = 0
+def _classify_resource(
+    content_type: str | None,
+    content_length: int | None,
+    prefix: bytes,
+    url: str,
+) -> tuple[WebResourceClass, str | None]:
+    is_binary = _is_binary_content_type(content_type) or _is_binary_signature(prefix)
+    if not is_binary:
+        return WebResourceClass.HTML_PAGE, None
+
+    detected_suffix = detect_supported_file_suffix(
+        content_type=content_type,
+        prefix=prefix,
+        url=url,
+    )
+    if detected_suffix is not None:
+        return WebResourceClass.SUPPORTED_FILE, detected_suffix
+    return WebResourceClass.UNSUPPORTED_BINARY, None
+
+
+def _drain_response(response: httpx.Response) -> None:
+    for _ in response.iter_bytes():
+        pass
+
+
+def _read_html_body(response: httpx.Response, initial_chunks: list[bytes]) -> tuple[str, str | None]:
+    chunks = list(initial_chunks)
+    total = sum(len(chunk) for chunk in chunks)
     for chunk in response.iter_bytes():
         total += len(chunk)
         if total > MAX_WEB_FETCH_BYTES:
@@ -170,13 +229,105 @@ def _read_response_body(response: httpx.Response) -> tuple[str, str | None, bool
         chunks.append(chunk)
     raw = b"".join(chunks)
     content_hash = hashlib.sha256(raw).hexdigest()
-    is_binary = _is_binary_content_type(content_type) or _is_binary_signature(raw)
-    if is_binary:
-        return "", content_type, True, content_hash
-    return raw.decode("utf-8", errors="replace"), content_type, False, content_hash
+    return raw.decode("utf-8", errors="replace"), content_hash
 
 
-def fetch_web_page(url: str) -> WebFetchResult:
+def _response_metadata(response: httpx.Response) -> tuple[str | None, int | None, str | None, str | None]:
+    content_type = response.headers.get("Content-Type") or response.headers.get("content-type")
+    content_length = _parse_content_length(
+        response.headers.get("Content-Length") or response.headers.get("content-length")
+    )
+    etag = response.headers.get("ETag") or response.headers.get("etag")
+    last_modified = response.headers.get("Last-Modified") or response.headers.get("last-modified")
+    return content_type, content_length, etag, last_modified
+
+
+def _read_classification_prefix(response: httpx.Response) -> tuple[list[bytes], bytes]:
+    chunks: list[bytes] = []
+    collected = 0
+    for chunk in response.iter_bytes():
+        if not chunk:
+            continue
+        chunks.append(chunk)
+        collected += len(chunk)
+        if collected >= WEB_CLASSIFY_PREFIX_BYTES:
+            break
+    prefix = b"".join(chunks)[:WEB_CLASSIFY_PREFIX_BYTES]
+    return chunks, prefix
+
+
+def _process_final_response(response: httpx.Response, current_url: str) -> WebFetchResult:
+    if response.status_code >= 400:
+        raise WebFetchError(f"web fetch failed with status {response.status_code}")
+
+    content_type, content_length, etag, last_modified = _response_metadata(response)
+    initial_chunks, prefix = _read_classification_prefix(response)
+    resource_class, detected_suffix = _classify_resource(
+        content_type,
+        content_length,
+        prefix,
+        current_url,
+    )
+
+    if resource_class == WebResourceClass.SUPPORTED_FILE:
+        _drain_response(response)
+        too_large = (
+            content_length is not None
+            and content_length > MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES
+        )
+        return WebFetchResult(
+            title=None,
+            text="",
+            final_url=current_url,
+            content_type=content_type,
+            is_binary=True,
+            is_direct_file=True,
+            detected_suffix=detected_suffix,
+            content_length=content_length,
+            etag=etag,
+            last_modified=last_modified,
+            file_too_large=too_large,
+        )
+
+    if resource_class == WebResourceClass.UNSUPPORTED_BINARY:
+        _drain_response(response)
+        raw = b"".join(initial_chunks)
+        content_hash = hashlib.sha256(raw).hexdigest() if raw else None
+        return WebFetchResult(
+            title=None,
+            text="",
+            final_url=current_url,
+            content_type=content_type,
+            is_binary=True,
+            content_hash=content_hash,
+            content_length=content_length,
+            etag=etag,
+            last_modified=last_modified,
+        )
+
+    html, content_hash = _read_html_body(response, initial_chunks)
+    title = _extract_title(html)
+    text = _extract_text(html)
+    if not text:
+        text = title or current_url
+    return WebFetchResult(
+        title=title,
+        text=text,
+        final_url=current_url,
+        content_type=content_type,
+        is_binary=False,
+        content_hash=content_hash,
+        content_length=content_length,
+        etag=etag,
+        last_modified=last_modified,
+    )
+
+
+def _public_http_request(
+    url: str,
+    *,
+    process_response,
+) -> object:
     current_url = _validate_url_target(url)
     with httpx.Client(timeout=WEB_FETCH_TIMEOUT_SECONDS, follow_redirects=False) as client:
         for redirect_hop in range(MAX_WEB_REDIRECTS + 1):
@@ -192,34 +343,25 @@ def fetch_web_page(url: str) -> WebFetchResult:
                             raise WebFetchError("web fetch redirect missing location")
                         current_url = _validate_url_target(urljoin(current_url, location))
                         continue
-                    if response.status_code >= 400:
-                        raise WebFetchError(
-                            f"web fetch failed with status {response.status_code}"
-                        )
-                    html, content_type, is_binary, content_hash = _read_response_body(response)
-                    if is_binary:
-                        return WebFetchResult(
-                            title=None,
-                            text="",
-                            final_url=current_url,
-                            content_type=content_type,
-                            is_binary=True,
-                            content_hash=content_hash,
-                        )
-                    title = _extract_title(html)
-                    text = _extract_text(html)
-                    if not text:
-                        text = title or current_url
-                    return WebFetchResult(
-                        title=title,
-                        text=text,
-                        final_url=current_url,
-                        content_type=content_type,
-                        is_binary=False,
-                        content_hash=content_hash,
-                    )
+                    return process_response(response, current_url)
             except httpx.TimeoutException as exc:
                 raise WebFetchError("web fetch timed out") from exc
             except httpx.RequestError as exc:
                 raise WebFetchError("web fetch request failed") from exc
         raise WebFetchError("web fetch redirect limit exceeded")
+
+
+def fetch_web_page(url: str) -> WebFetchResult:
+    return _public_http_request(url, process_response=_process_final_response)
+
+
+def download_public_web_file(url: str, *, max_bytes: int = MAX_EXPLICIT_CLOUD_DOWNLOAD_BYTES) -> bytes:
+    def _download(response: httpx.Response, current_url: str) -> bytes:
+        if response.status_code >= 400:
+            raise WebFetchError(f"web fetch failed with status {response.status_code}")
+        try:
+            return read_bounded_response_body(response, max_bytes)
+        except DownloadTooLargeError as exc:
+            raise WebFetchError("web file exceeded download size limit") from exc
+
+    return _public_http_request(url, process_response=_download)

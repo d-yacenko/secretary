@@ -2,12 +2,14 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from app.connectors.google.constants import (
     GOOGLE_DRIVE_PROVIDER,
 )
 from app.connectors.yandex.constants import YANDEX_DISK_PROVIDER
 from app.content_extraction.constants import SUPPORTED_BINARY_SUFFIXES
+from app.resources.constants import PROVIDER_WEB
 
 GOOGLE_APPS_DOCUMENT = "application/vnd.google-apps.document"
 GOOGLE_APPS_SPREADSHEET = "application/vnd.google-apps.spreadsheet"
@@ -48,13 +50,49 @@ def _suffix_from_title(title: str | None) -> str:
     return Path(title).suffix.lower()
 
 
+def _suffix_from_url(url: str | None) -> str:
+    if not url:
+        return ""
+    return Path(urlparse(url).path).suffix.lower()
+
+
+def detect_supported_file_suffix(
+    *,
+    content_type: str | None,
+    prefix: bytes,
+    url: str | None = None,
+    title: str | None = None,
+) -> str | None:
+    if prefix.startswith(b"%PDF"):
+        return ".pdf"
+
+    mime = content_type.split(";")[0].strip().lower() if content_type else None
+    if mime and mime in MIME_SUFFIX_MAP:
+        suffix = MIME_SUFFIX_MAP[mime]
+        if suffix in SUPPORTED_BINARY_SUFFIXES:
+            return suffix
+
+    for candidate in (_suffix_from_title(title), _suffix_from_url(url)):
+        if candidate in SUPPORTED_BINARY_SUFFIXES:
+            return candidate
+
+    if prefix.startswith(b"PK\x03\x04"):
+        return None
+    return None
+
+
 def _suffix_from_metadata(metadata: dict[str, Any]) -> str:
+    detected = metadata.get("detected_suffix")
+    if detected:
+        return str(detected)
     title_suffix = _suffix_from_title(metadata.get("filename"))
     if title_suffix:
         return title_suffix
-    mime = metadata.get("mime_type")
-    if mime and mime in MIME_SUFFIX_MAP:
-        return MIME_SUFFIX_MAP[mime]
+    mime = metadata.get("mime_type") or metadata.get("content_format")
+    if mime:
+        mime_main = str(mime).split(";")[0].strip().lower()
+        if mime_main in MIME_SUFFIX_MAP:
+            return MIME_SUFFIX_MAP[mime_main]
     return ""
 
 
@@ -75,6 +113,8 @@ def resolve_content_extraction_plan(
         return _resolve_google_plan(metadata, title)
     if provider in {YANDEX_DISK_PROVIDER, "yandex_disk"}:
         return _resolve_yandex_plan(metadata, title)
+    if provider in {PROVIDER_WEB, "web"}:
+        return _resolve_web_plan(metadata, title)
 
     return ContentExtractionPlan(eligible=False, status="unsupported")
 
@@ -146,4 +186,20 @@ def _resolve_yandex_plan(metadata: dict[str, Any], title: str | None) -> Content
         eligible=False,
         status="unsupported",
         content_format=str(metadata.get("mime_type") or "unknown"),
+    )
+
+
+def _resolve_web_plan(metadata: dict[str, Any], title: str | None) -> ContentExtractionPlan:
+    suffix = _suffix_from_title(title) or _suffix_from_metadata(metadata)
+    if suffix in SUPPORTED_BINARY_SUFFIXES:
+        return ContentExtractionPlan(
+            eligible=True,
+            status="pending",
+            content_format=f"binary:{suffix}",
+            suffix=suffix,
+        )
+    return ContentExtractionPlan(
+        eligible=False,
+        status="unsupported",
+        content_format=str(metadata.get("mime_type") or metadata.get("content_format") or "unknown"),
     )

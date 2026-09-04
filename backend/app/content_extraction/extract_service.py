@@ -37,8 +37,10 @@ from app.content_extraction.revision import (
     metadata_extraction_version,
 )
 from app.content_extraction.temp_files import SecureTempFile
+from app.content_extraction.web_file_content import fetch_web_public_content
 from app.content_extraction.yandex_disk_content import fetch_yandex_disk_public_content
 from app.db.models import Object
+from app.resources.constants import PROVIDER_WEB
 from app.services.pipeline_enqueue import enqueue_summarize_resource
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 
@@ -165,6 +167,8 @@ class ExplicitResourceContentExtractor:
             if self._yandex_transport is None:
                 raise RuntimeError("yandex disk extraction is not configured")
             return fetch_yandex_disk_public_content(self._yandex_transport, metadata)
+        if obj.provider == PROVIDER_WEB:
+            return fetch_web_public_content(metadata, plan)
         raise ValueError(f"unsupported provider for extraction: {obj.provider}")
 
     def _set_status(

@@ -9,22 +9,33 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.content_extraction.constants import MAX_REPRESENTATION_PARTS
+from app.content_extraction.constants import EXTRACTION_VERSION, MAX_REPRESENTATION_PARTS
+from app.content_extraction.content_invalidation import invalidate_object_content_immediately
+from app.content_extraction.extract_service import (
+    apply_intake_content_metadata,
+    extraction_work_needed,
+)
 from app.content_extraction.mechanical_extractors import build_bounded_text_representations
 from app.content_extraction.mechanical_persistence import MechanicalRepresentationPersistence
 from app.content_extraction.metadata_keys import (
     CONTENT_EXTRACTION_STATUS,
-    CONTENT_FORMAT,
     MECHANICAL_REPRESENTATION_COUNT,
     STATUS_METADATA_ONLY,
+    STATUS_PENDING,
     STATUS_READY,
+    STATUS_TOO_LARGE,
 )
+from app.content_extraction.revision import derive_web_content_revision
 from app.db.models import Object
 from app.resources.constants import PROVIDER_WEB
 from app.resources.web_fetch import WebFetchError, WebFetchResult, fetch_web_page
 from app.services.explicit_link_intake_errors import ExplicitLinkIntakeError
 from app.services.explicit_link_intake_service import EXPLICIT_INTAKE_MODE, IntakeLinkResult
-from app.services.pipeline_enqueue import enqueue_embed_object, enqueue_summarize_resource
+from app.services.pipeline_enqueue import (
+    enqueue_embed_object,
+    enqueue_extract_explicit_resource_content,
+    enqueue_summarize_resource,
+)
 from app.services.web_content_invalidation import invalidate_web_page_content_immediately
 from app.services.web_url_normalize import normalize_explicit_web_url
 
@@ -55,6 +66,14 @@ class WebExplicitLinkIntakeService:
         except WebFetchError as exc:
             raise ExplicitLinkIntakeError(exc.message) from exc
 
+        if fetched.is_direct_file:
+            return self._intake_direct_file(
+                requested_url=requested_url,
+                normalized_requested=normalized_requested,
+                fetched=fetched,
+                existing=existing,
+            )
+
         content_hash = fetched.content_hash or hashlib.sha256(
             fetched.text.encode("utf-8")
         ).hexdigest()
@@ -70,10 +89,17 @@ class WebExplicitLinkIntakeService:
             "content_hash": content_hash,
         }
         if fetched.content_type:
-            metadata[CONTENT_FORMAT] = fetched.content_type
+            metadata["mime_type"] = fetched.content_type
+        if fetched.content_length is not None:
+            metadata["content_length"] = fetched.content_length
+        if fetched.etag:
+            metadata["etag"] = fetched.etag
+        if fetched.last_modified:
+            metadata["last_modified"] = fetched.last_modified
 
         created = existing is None
         obj = existing or self._create_object(
+            kind="web_page",
             title=_resolve_title(fetched, normalized_requested),
             external_id=normalized_requested,
             canonical_uri=fetched.final_url,
@@ -84,6 +110,7 @@ class WebExplicitLinkIntakeService:
         prior_revision = prior_meta.get("content_revision")
         same_revision = prior_revision == revision
 
+        obj.kind = "web_page"
         obj.canonical_uri = fetched.final_url
         merged = dict(prior_meta)
         merged.update(metadata)
@@ -149,6 +176,124 @@ class WebExplicitLinkIntakeService:
             content_jobs_enqueued=jobs,
         )
 
+    def _intake_direct_file(
+        self,
+        *,
+        requested_url: str,
+        normalized_requested: str,
+        fetched: WebFetchResult,
+        existing: Object | None,
+    ) -> IntakeLinkResult:
+        metadata: dict[str, Any] = {
+            "intake_mode": EXPLICIT_INTAKE_MODE,
+            "requested_url": requested_url,
+            "normalized_requested_url": normalized_requested,
+            "final_url": fetched.final_url,
+            "fetched_at": datetime.now(UTC).isoformat(),
+        }
+        if fetched.content_type:
+            metadata["mime_type"] = fetched.content_type
+        if fetched.detected_suffix:
+            metadata["detected_suffix"] = fetched.detected_suffix
+        if fetched.content_length is not None:
+            metadata["content_length"] = fetched.content_length
+        if fetched.etag:
+            metadata["etag"] = fetched.etag
+        if fetched.last_modified:
+            metadata["last_modified"] = fetched.last_modified
+
+        revision = derive_web_content_revision(metadata)
+        if revision is not None:
+            metadata["content_revision"] = revision
+
+        title = _resolve_file_title(fetched, normalized_requested)
+        created = existing is None
+        obj = existing or self._create_object(
+            kind="file",
+            title=title,
+            external_id=normalized_requested,
+            canonical_uri=fetched.final_url,
+            metadata=metadata,
+        )
+
+        prior_meta = dict(obj.metadata_ or {})
+        prior_revision = prior_meta.get("content_revision")
+        incoming_meta = apply_intake_content_metadata(
+            metadata,
+            PROVIDER_WEB,
+            "file",
+            title,
+        )
+        if fetched.file_too_large:
+            incoming_meta[CONTENT_EXTRACTION_STATUS] = STATUS_TOO_LARGE
+
+        same_revision = (
+            revision is not None
+            and prior_revision == revision
+            and not created
+            and not fetched.file_too_large
+        )
+
+        obj.kind = "file"
+        obj.body = None
+        obj.canonical_uri = fetched.final_url
+        merged = dict(prior_meta)
+        merged.update(incoming_meta)
+        obj.metadata_ = merged
+        obj.title = title
+
+        if same_revision:
+            return IntakeLinkResult(
+                object_id=obj.id,
+                provider=PROVIDER_WEB,
+                kind=obj.kind,
+                status="unchanged",
+                content_status=(obj.metadata_ or {}).get(
+                    CONTENT_EXTRACTION_STATUS, STATUS_PENDING
+                ),
+                content_jobs_enqueued=0,
+            )
+
+        if not created and prior_revision != revision:
+            invalidate_object_content_immediately(self.session, obj)
+
+        jobs = 0
+        status = "updated" if not created else "created"
+        if fetched.file_too_large:
+            status = "updated" if not created else "created"
+        elif extraction_work_needed(
+            PROVIDER_WEB,
+            "file",
+            title,
+            prior_meta,
+            merged,
+            False,
+        ):
+            enqueue_extract_explicit_resource_content(
+                self.session,
+                obj.id,
+                self.user_id,
+                merged.get("content_revision"),
+                EXTRACTION_VERSION,
+            )
+            merged[CONTENT_EXTRACTION_STATUS] = STATUS_PENDING
+            obj.metadata_ = merged
+            jobs = 1
+        else:
+            enqueue_embed_object(self.session, obj.id, self.user_id)
+            jobs = 1
+
+        self.session.flush()
+        content_status = (obj.metadata_ or {}).get(CONTENT_EXTRACTION_STATUS, STATUS_PENDING)
+        return IntakeLinkResult(
+            object_id=obj.id,
+            provider=PROVIDER_WEB,
+            kind=obj.kind,
+            status=status,
+            content_status=content_status,
+            content_jobs_enqueued=jobs,
+        )
+
     def close(self) -> None:
         return None
 
@@ -163,6 +308,8 @@ class WebExplicitLinkIntakeService:
 
     def _create_object(
         self,
+        *,
+        kind: str,
         title: str,
         external_id: str,
         canonical_uri: str,
@@ -170,7 +317,7 @@ class WebExplicitLinkIntakeService:
     ) -> Object:
         obj = Object(
             user_id=self.user_id,
-            kind="web_page",
+            kind=kind,
             title=title,
             origin="explicit",
             state="observed",
@@ -187,4 +334,15 @@ class WebExplicitLinkIntakeService:
 def _resolve_title(fetched: WebFetchResult, fallback: str) -> str:
     if fetched.title and fetched.title.strip():
         return fetched.title.strip()[:200]
+    return fallback[:200]
+
+
+def _resolve_file_title(fetched: WebFetchResult, fallback: str) -> str:
+    if fetched.detected_suffix:
+        path_name = fallback.rsplit("/", maxsplit=1)[-1]
+        if path_name and not path_name.endswith(fetched.detected_suffix):
+            return f"{path_name}{fetched.detected_suffix}"[:200]
+        if path_name:
+            return path_name[:200]
+        return f"web-file{fetched.detected_suffix}"[:200]
     return fallback[:200]

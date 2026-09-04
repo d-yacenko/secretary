@@ -233,19 +233,23 @@ def test_same_revision_skips_invalidation_and_duplicate_jobs(mock_fetch, db_sess
 
 
 @patch("app.services.web_explicit_link_intake_service.fetch_web_page")
-def test_pdf_without_content_type_is_binary_metadata_only(mock_fetch, db_session) -> None:
+def test_pdf_without_content_type_becomes_pending_file(mock_fetch, db_session) -> None:
     mock_fetch.return_value = WebFetchResult(
         title=None,
         text="",
         final_url=LONG_PAGE_URL,
         content_type=None,
         is_binary=True,
+        is_direct_file=True,
+        detected_suffix=".pdf",
+        content_length=4 * 1024 * 1024,
         content_hash="pdf-bytes",
     )
     service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
     result = service.intake_link(LONG_PAGE_URL)
     obj = db_session.get(Object, result.object_id)
-    assert obj.metadata_["content_extraction_status"] == "metadata_only"
+    assert obj.kind == "file"
+    assert obj.metadata_["content_extraction_status"] == "pending"
     reps = db_session.scalars(
         select(Representation).where(Representation.object_id == obj.id)
     ).all()
@@ -253,7 +257,7 @@ def test_pdf_without_content_type_is_binary_metadata_only(mock_fetch, db_session
 
 
 @patch("app.services.web_explicit_link_intake_service.fetch_web_page")
-def test_pdf_mislabeled_text_plain_is_binary_metadata_only(mock_fetch, db_session) -> None:
+def test_pdf_mislabeled_text_plain_becomes_pending_file(mock_fetch, db_session) -> None:
     url = "https://example.org/mislabeled-pdf"
     mock_fetch.return_value = WebFetchResult(
         title=None,
@@ -261,12 +265,15 @@ def test_pdf_mislabeled_text_plain_is_binary_metadata_only(mock_fetch, db_sessio
         final_url=url,
         content_type="text/plain",
         is_binary=True,
+        is_direct_file=True,
+        detected_suffix=".pdf",
         content_hash="pdf-mislabeled",
     )
     service = WebExplicitLinkIntakeService(session=db_session, user_id=BOOTSTRAP_USER_ID)
     result = service.intake_link(url)
     obj = db_session.get(Object, result.object_id)
-    assert obj.metadata_["content_extraction_status"] == "metadata_only"
+    assert obj.kind == "file"
+    assert obj.metadata_["content_extraction_status"] == "pending"
 
 
 def test_query_objects_returns_note_kind(db_session) -> None:
