@@ -190,7 +190,9 @@ Universal Intake Iteration A-R3-R1-R1 corrective: **implemented and deployed** a
 
 Universal Intake Iteration A-R3-R1-R1-R1 corrective: **implemented and deployed** at `8734faac62ca7ad58611a118e99b3b83e2b69f04`; architect review **NOT ACCEPTED** (early SHA flush before parse; non-atomic final persist; missing no-validator generation supersession).
 
-Universal Intake Iteration A final concurrency closure: **implemented and deployed** at `f5b76856b4c967ef0673798bd6e9334c77fd2522`, **awaiting architect review and manual E2E**. Atomic `FOR UPDATE` final persist; deferred no-validator revision flush; `web_revalidation_generation` supersession; deterministic interleaved concurrency tests.
+Universal Intake Iteration A final concurrency closure: **ARCHITECT ACCEPTED / CLOSED** at `f5b76856b4c967ef0673798bd6e9334c77fd2522`.
+
+Universal Object Delete: **implemented and deployed** at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`, **awaiting architect review**. Secretary-local `deleted_at` tombstones; universal `DELETE /objects/{id}`; passive sync non-resurrection; explicit re-add restore; Flutter trash UX.
 
 PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`.
 

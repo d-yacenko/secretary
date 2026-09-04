@@ -470,5 +470,20 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Concurrency tests:** deterministic interleaving inside `extract_from_path` via independent `Session(engine)` supersede (no threads/asyncio/sleeps/barriers).
 - **Production repeat arXiv:** same `object_id` `35717a48-5321-40c8-91b5-8cca70fd8e28`; `unchanged` / `ready` / jobs=0 with unchanged ETag.
 - **NEXT:** Universal Object Delete / Secretary-local tombstones (acknowledged, not in this task).
-- **Status:** deployed at `f5b76856b4c967ef0673798bd6e9334c77fd2522`; Iteration A still **not architect-accepted**; awaiting architect + manual E2E.
+- **Status:** deployed at `f5b76856b4c967ef0673798bd6e9334c77fd2522`; **ARCHITECT ACCEPTED / CLOSED**.
+
+## Universal Object Delete — Secretary-local tombstones + universal trash UX
+
+- **Motivation:** users need a delete/trash action for every Secretary object type without mutating upstream resources (Gmail, Calendar, Drive, local files, web URLs, etc.).
+- **Tombstone model:** `Object.deleted_at` (timezone-aware, nullable) with index `(user_id, deleted_at)`; legacy `task status=deleted` backfilled in Alembic `0027`.
+- **Canonical delete:** `ObjectDeletionService.delete_object()` is idempotent, user-scoped, sets `deleted_at` once, preserves Object/Representation/Edge rows, never calls upstream delete APIs; tasks also get `status=deleted`.
+- **API:** `DELETE /objects/{object_id}` returns `object_id`, `deleted_at`, `already_deleted`; existing `DELETE /tasks/{id}` and Agent `delete_task` delegate to the same service.
+- **Visibility:** central `deleted_at IS NULL` predicate across search, retrieve, inbox, today, graph, context, open-target; stale representations not discoverable.
+- **Graph:** edges retained in storage; deleted endpoints hidden from presentation.
+- **Background jobs:** summarize/embed/correlate/extract no-op for tombstoned objects.
+- **Passive sync:** Gmail/Calendar/Mattermost/etc. must not clear `deleted_at` on rediscovery.
+- **Explicit re-add restore:** deliberate explicit intake of same stable resource reuses `object_id` and clears `deleted_at`.
+- **Flutter:** universal trash action with provider-aware Russian confirmation copy; no restore/trash-screen UI in this phase.
+- **NEXT:** User Identity Profile / Self Resolution (after architect acceptance).
+- **Status:** deployed at `6d026a20cbd9f02525ac292dd66dfd7f3b4d84e1`; **awaiting architect review**.
 
