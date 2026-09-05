@@ -48,8 +48,6 @@ class LocalIntakeActions {
 
   static const _explicitLocalIntakeMode = 'explicit_local';
 
-  String? get _inboxIntakeMode => forInbox ? _explicitLocalIntakeMode : null;
-
   Future<void> pickAndRegisterFile(BuildContext context) async {
     if (_busy) {
       return;
@@ -177,7 +175,7 @@ class LocalIntakeActions {
         objects.add(
           await _intakeService.registerFileAndFetch(
             file,
-            intakeMode: _inboxIntakeMode,
+            intakeMode: _explicitLocalIntakeMode,
           ),
         );
       } on AuthenticationException {
@@ -227,7 +225,7 @@ class LocalIntakeActions {
     try {
       final object = await _intakeService.registerFileAndFetch(
         file,
-        intakeMode: _inboxIntakeMode,
+        intakeMode: _explicitLocalIntakeMode,
       );
       if (!forInbox) {
         onIntakeObject?.call(object);

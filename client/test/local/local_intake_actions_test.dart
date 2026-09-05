@@ -162,7 +162,114 @@ void main() {
     expect(find.textContaining('Активный контекст: b.txt'), findsOneWidget);
   });
 
-  testWidgets('non-inbox local intake does not send explicit intake mode', (tester) async {
+  testWidgets('assistant drag/drop sends explicit intake mode', (tester) async {
+    final file = File('${tempDir.path}/assistant-drop.txt');
+    file.writeAsStringSync('assistant');
+
+    String? intakeBody;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/local/devices/register') {
+        return _jsonResponse({
+          'device_id': 'device-1',
+          'device_key': 'device-key-1',
+          'display_name': 'Test device',
+          'created': true,
+        }, statusCode: 201);
+      }
+      if (request.url.path == '/local/files/client-intake') {
+        intakeBody = request.body;
+        return _jsonResponse({
+          'object_id': 'obj-assistant',
+          'status': 'created',
+          'jobs_enqueued': 0,
+          'representations_created': 1,
+          'metadata_only': false,
+        }, statusCode: 201);
+      }
+      if (request.url.path == '/objects/obj-assistant') {
+        return _jsonResponse(_objectJson(id: 'obj-assistant', title: 'assistant-drop.txt'));
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = testSecretaryApiClient(mock);
+    apiClient.configure(baseUrl: 'https://example.com', token: 'token');
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final actions = LocalIntakeActions(
+      apiClient: apiClient,
+      authController: auth,
+      forInbox: false,
+    );
+
+    late BuildContext actionContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            actionContext = context;
+            return const Scaffold(body: SizedBox());
+          },
+        ),
+      ),
+    );
+
+    await tester.runAsync(
+      () => actions.registerDroppedFiles(actionContext, [file.path]),
+    );
+    await tester.pump();
+
+    final decoded = jsonDecode(intakeBody!) as Map<String, dynamic>;
+    expect(decoded['intake_mode'], 'explicit_local');
+  });
+
+  testWidgets('assistant paperclip path sends explicit intake mode', (tester) async {
+    final file = File('${tempDir.path}/paperclip.txt');
+    file.writeAsStringSync('paperclip');
+
+    final apiClient = testSecretaryApiClient(
+      MockClient((_) async => http.Response('{}', 404)),
+    );
+    final stubIntake = _CapturingStubLocalFileIntakeService(apiClient);
+    apiClient.configure(baseUrl: 'https://example.com', token: 'token');
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final actions = LocalIntakeActions(
+      apiClient: apiClient,
+      authController: auth,
+      forInbox: false,
+      intakeService: stubIntake,
+    );
+
+    late BuildContext actionContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            actionContext = context;
+            return const Scaffold(body: SizedBox());
+          },
+        ),
+      ),
+    );
+
+    await tester.runAsync(
+      () => actions.registerDroppedFiles(actionContext, [file.path]),
+    );
+    await tester.pump();
+
+    expect(stubIntake.capturedIntakeModes, ['explicit_local']);
+  });
+
+  testWidgets('user-triggered non-inbox local intake sends explicit intake mode', (tester) async {
     final file = File('${tempDir.path}/plain.txt');
     file.writeAsStringSync('plain');
 
@@ -223,7 +330,54 @@ void main() {
     await tester.pump();
 
     final decoded = jsonDecode(intakeBody!) as Map<String, dynamic>;
-    expect(decoded.containsKey('intake_mode'), isFalse);
+    expect(decoded['intake_mode'], 'explicit_local');
+  });
+
+  testWidgets('multi-file assistant drop sends explicit intake mode for each file', (tester) async {
+    final fileA = File('${tempDir.path}/a.txt');
+    final fileB = File('${tempDir.path}/b.txt');
+    fileA.writeAsStringSync('alpha');
+    fileB.writeAsStringSync('beta');
+
+    final apiClient = testSecretaryApiClient(
+      MockClient((_) async => http.Response('{}', 404)),
+    );
+    final stubIntake = _CapturingStubLocalFileIntakeService(apiClient);
+    apiClient.configure(baseUrl: 'https://example.com', token: 'token');
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = AssistantController(apiClient: apiClient, authController: auth);
+    final actions = LocalIntakeActions(
+      apiClient: apiClient,
+      authController: auth,
+      assistantController: assistant,
+      forInbox: false,
+      intakeService: stubIntake,
+      chooseActiveContext: (_, objects) async => objects.first,
+    );
+
+    late BuildContext actionContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            actionContext = context;
+            return const Scaffold(body: SizedBox());
+          },
+        ),
+      ),
+    );
+
+    await tester.runAsync(
+      () => actions.registerDroppedFiles(actionContext, [fileA.path, fileB.path]),
+    );
+    await tester.pump();
+
+    expect(stubIntake.capturedIntakeModes, ['explicit_local', 'explicit_local']);
   });
 
   testWidgets('inbox local intake sends explicit intake mode', (tester) async {
@@ -460,6 +614,21 @@ void main() {
     final service = LocalFileIntakeService(apiClient: apiClient);
     expect(() => service.registerFile(file), throwsA(isA<ServerException>()));
   });
+}
+
+class _CapturingStubLocalFileIntakeService extends _StubLocalFileIntakeService {
+  _CapturingStubLocalFileIntakeService(super.apiClient);
+
+  final List<String?> capturedIntakeModes = [];
+
+  @override
+  Future<SecretaryObject> registerFileAndFetch(
+    File file, {
+    String? intakeMode,
+  }) async {
+    capturedIntakeModes.add(intakeMode);
+    return super.registerFileAndFetch(file, intakeMode: intakeMode);
+  }
 }
 
 class _PartialFailureStubLocalFileIntakeService extends _StubLocalFileIntakeService {

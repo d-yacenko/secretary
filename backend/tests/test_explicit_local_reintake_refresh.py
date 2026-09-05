@@ -11,6 +11,7 @@ from app.local.constants import POLICY_METADATA_ONLY
 from app.services.client_intake_constants import CLIENT_REPRESENTATION_KINDS
 from app.services.folder_object_service import EXPLICIT_LOCAL_INTAKE_MODE
 from app.services.object_deletion_service import ObjectDeletionService
+from app.services.representation_generation import get_representation_generation
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 from tests.test_phase_27c_local_explicit_intake import _intake_file
@@ -60,6 +61,9 @@ def test_explicit_reintake_same_revision_replaces_representations(
     )
     object_id = uuid.UUID(first["object_id"])
     assert OLD_EXPLICIT_MARKER in _mechanical_rep_texts(db_session, object_id)
+    before_generation = get_representation_generation(
+        db_session.get(Object, object_id).metadata_
+    )
 
     second = _intake_file(
         phase27c_local_client,
@@ -75,6 +79,10 @@ def test_explicit_reintake_same_revision_replaces_representations(
     assert OLD_EXPLICIT_MARKER not in texts
     assert NEW_EXPLICIT_MARKER in texts
     assert len(_summarize_jobs_for_object(db_session, object_id)) >= 1
+    after_generation = get_representation_generation(
+        db_session.get(Object, object_id).metadata_
+    )
+    assert after_generation == before_generation + 1
 
 
 def test_tombstoned_explicit_reintake_replaces_representations(
@@ -144,6 +152,9 @@ def test_passive_reintake_same_revision_stays_unchanged(
     object_id = uuid.UUID(first.json()["object_id"])
     before_texts = _mechanical_rep_texts(db_session, object_id)
     before_jobs = len(_summarize_jobs_for_object(db_session, object_id))
+    before_generation = get_representation_generation(
+        db_session.get(Object, object_id).metadata_
+    )
 
     second = phase26b_client.post("/local/files/client-intake", json=_intake_payload())
     assert second.status_code == 201
@@ -152,6 +163,7 @@ def test_passive_reintake_same_revision_stays_unchanged(
     assert body["jobs_enqueued"] == 0
     assert _mechanical_rep_texts(db_session, object_id) == before_texts
     assert len(_summarize_jobs_for_object(db_session, object_id)) == before_jobs
+    assert get_representation_generation(db_session.get(Object, object_id).metadata_) == before_generation
 
 
 def test_explicit_metadata_only_refresh_clears_stale_representations(
