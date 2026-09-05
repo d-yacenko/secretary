@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../client_content_revision.dart';
 import 'extraction_constants.dart';
@@ -52,23 +53,49 @@ String distributedTextSample(String text, int maxBytes) {
   if (utf8ByteLength(text) <= maxBytes) {
     return text;
   }
-  const slotCount = 256;
-  final indices = selectBoundedIndices(slotCount, 64);
-  final slotSize = text.length / slotCount;
-  final buffer = StringBuffer();
-  var usedBytes = 0;
-  for (final slot in indices) {
-    final start = (slot * slotSize).floor();
-    final end = ((slot + 1) * slotSize).floor().clamp(start + 1, text.length);
-    final slice = text.substring(start, end);
-    final sliceBytes = utf8ByteLength(slice);
-    if (usedBytes + sliceBytes > maxBytes) {
-      break;
+  const maxSlots = 64;
+  for (var targetSlots = maxSlots; targetSlots >= 3; targetSlots--) {
+    final quota = maxBytes ~/ targetSlots;
+    if (quota <= 0) {
+      continue;
     }
-    buffer.write(slice);
-    usedBytes += sliceBytes;
+    final positions = <int>{0, text.length ~/ 2, text.length - 1};
+    final remainingSlots = targetSlots - positions.length;
+    for (var slot = 0; slot < remainingSlots; slot++) {
+      positions.add(
+        ((slot + 1) * (text.length - 1) / (remainingSlots + 1)).round(),
+      );
+    }
+    final sortedPositions = positions.toList()..sort();
+    final buffer = StringBuffer();
+    var usedBytes = 0;
+    var fits = true;
+    for (final position in sortedPositions) {
+      final slice = sliceAroundPosition(text, position, quota);
+      final sliceBytes = utf8ByteLength(slice);
+      if (usedBytes + sliceBytes > maxBytes) {
+        fits = false;
+        break;
+      }
+      buffer.write(slice);
+      usedBytes += sliceBytes;
+    }
+    if (fits && usedBytes > 0) {
+      return buffer.toString();
+    }
   }
-  return buffer.toString();
+  return truncateToUtf8Bytes(text, maxBytes);
+}
+
+String sliceAroundPosition(String text, int position, int maxBytes) {
+  if (maxBytes <= 0 || text.isEmpty) {
+    return '';
+  }
+  final pos = position.clamp(0, math.max(0, text.length - 1)).toInt();
+  final half = math.max(1, maxBytes ~/ 2);
+  final start = math.max(0, pos - half).toInt();
+  final end = math.min(text.length, pos + half).toInt();
+  return truncateToUtf8Bytes(text.substring(start, end), maxBytes);
 }
 
 Map<String, dynamic> truncationMetadata(bool truncated) {
@@ -266,14 +293,22 @@ List<int> selectRepresentationPartIndices(
     return List.generate(parts.length, (index) => index);
   }
 
-  var indices = selectBoundedIndices(parts.length, maxParts);
-  while (indices.isNotEmpty &&
-      _indicesByteTotal(parts, indices) > maxTotalBytes &&
-      indices.length > 1) {
-    final mid = indices.length ~/ 2;
-    indices = [...indices.sublist(0, mid), ...indices.sublist(mid + 1)];
+  final upperBound = parts.length < maxParts ? parts.length : maxParts;
+  var best = <int>[];
+  var low = 1;
+  var high = upperBound;
+  while (low <= high) {
+    final candidate = (low + high) ~/ 2;
+    final indices = selectBoundedIndices(parts.length, candidate);
+    final bytes = _indicesByteTotal(parts, indices);
+    if (bytes <= maxTotalBytes) {
+      best = indices;
+      low = candidate + 1;
+    } else {
+      high = candidate - 1;
+    }
   }
-  return indices;
+  return best;
 }
 
 int _indicesByteTotal(List<String> parts, List<int> indices) {
@@ -311,15 +346,32 @@ List<int> selectBoundedIndices(int total, int maxChunks) {
   if (maxChunks == 1) {
     return [0];
   }
+  if (maxChunks == 2) {
+    return [0, total - 1];
+  }
+
+  final anchors = <int>{0, total - 1, total ~/ 2};
+  final alternateMiddle = (total - 1) ~/ 2;
+  if (alternateMiddle != total ~/ 2) {
+    anchors.add(alternateMiddle);
+  }
   final indices = <int>[];
   final seen = <int>{};
-  for (var slot = 0; slot < maxChunks; slot++) {
-    final index = ((slot * (total - 1)) / (maxChunks - 1)).round();
+  for (final anchor in anchors) {
+    if (!seen.contains(anchor)) {
+      seen.add(anchor);
+      indices.add(anchor);
+    }
+  }
+  final remaining = maxChunks - indices.length;
+  for (var slot = 0; slot < remaining; slot++) {
+    final index = ((slot + 1) * (total - 1) / (remaining + 1)).round();
     if (!seen.contains(index)) {
       seen.add(index);
       indices.add(index);
     }
   }
+  indices.sort();
   return indices;
 }
 
