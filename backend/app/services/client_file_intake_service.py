@@ -186,7 +186,7 @@ class ClientFileIntakeService:
             obj.canonical_uri = build_personal_file_uri(device_key, str(obj.id))
         else:
             merged = dict(prior_meta)
-            if revision_changed:
+            if revision_changed or is_explicit:
                 merged = invalidate_semantic_summary_metadata(merged)
             merged.update(metadata)
             existing.title = filename_value
@@ -230,6 +230,10 @@ class ClientFileIntakeService:
                 enqueue_embed_object(self._session, obj.id, self._user_id)
                 jobs_enqueued = 1
                 status = "created"
+            elif is_explicit:
+                enqueue_embed_object(self._session, obj.id, self._user_id)
+                jobs_enqueued = 1
+                status = "updated"
             elif revision_changed or policy_changed:
                 enqueue_embed_object(self._session, obj.id, self._user_id)
                 jobs_enqueued = 1
@@ -238,7 +242,8 @@ class ClientFileIntakeService:
                 status = "unchanged"
         elif has_content:
             truly_unchanged = (
-                not created
+                not is_explicit
+                and not created
                 and not revision_changed
                 and not policy_changed
                 and prior_policy == POLICY_INDEX_TEXT
