@@ -1,12 +1,15 @@
 """Unit tests for evidence snippet matching and ranking."""
 
 from app.services.evidence_snippet import (
+    bounded_query_tokens,
     build_query_centered_snippet,
     lexical_match_score,
+    ordered_query_tokens,
     representation_evidence_rank_key,
 )
+from app.services.retrieval_constants import MAX_QUERY_ATOMS
 from app.services.retrieval_query_atoms import probe_atom_selectivity
-from app.services.retrieval_service import _best_representation_row
+from app.services.retrieval_service import _best_representation_row, _evidence_short_excerpt
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
 
@@ -109,3 +112,106 @@ def test_representation_evidence_tie_break_is_stable() -> None:
         part_index=second["part_index"],
         rep_id=str(second["id"]),
     )
+
+
+def test_bounded_query_tokens_preserves_query_order() -> None:
+    query = (
+        "alpha bravo charlie delta echo foxtrot golf hotel india "
+        "juliet kilo lima mike november oscar papa quebec romeo"
+    )
+    first = bounded_query_tokens(query)
+    second = bounded_query_tokens(query)
+
+    assert first == second
+    assert len(first) == MAX_QUERY_ATOMS
+    assert first == ordered_query_tokens(query)
+    assert first[0] == "alpha"
+    assert first[-1] == "hotel"
+
+
+def test_bounded_query_tokens_dedupes_without_extra_slots() -> None:
+    query = "alpha bravo alpha charlie delta echo foxtrot golf hotel"
+    tokens = bounded_query_tokens(query)
+    assert tokens.count("alpha") == 1
+    assert len(tokens) == MAX_QUERY_ATOMS
+    assert tokens == [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel",
+    ]
+
+
+def test_bounded_query_tokens_appends_atoms_in_order() -> None:
+    query = "alpha bravo charlie delta echo foxtrot golf"
+    tokens = bounded_query_tokens(query, atoms=["juliet", "alpha", "kilo"])
+    assert len(tokens) == MAX_QUERY_ATOMS
+    assert tokens[-1] == "juliet"
+    assert tokens.count("alpha") == 1
+
+
+def test_none_part_index_ranks_after_indexed_parts() -> None:
+    rows = [
+        {
+            "text": "shared evidence token alpha beta",
+            "kind": "chunk",
+            "part_index": None,
+            "id": "sql-excerpt",
+        },
+        {
+            "text": "shared evidence token alpha beta",
+            "kind": "chunk",
+            "part_index": 0,
+            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        },
+    ]
+    winner = _best_representation_row(rows, "shared evidence token", None)
+    assert winner is not None
+    assert winner["part_index"] == 0
+
+
+def test_sql_rep_excerpt_does_not_override_real_rep_rows() -> None:
+    rep_rows = [
+        {
+            "text": "shared evidence token alpha beta part zero",
+            "kind": "chunk",
+            "part_index": 0,
+            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        },
+        {
+            "text": "shared evidence token alpha beta part one",
+            "kind": "chunk",
+            "part_index": 1,
+            "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        },
+    ]
+    sql_excerpt = (
+        "shared evidence token alpha beta from sql rank excerpt "
+        + ("noise " * 200)
+    )
+    forward = _evidence_short_excerpt(
+        title="doc",
+        body=None,
+        rep_excerpt=sql_excerpt,
+        rep_rows=rep_rows,
+        query="shared evidence token",
+        selected_atoms=None,
+        max_chars=500,
+    )
+    reverse = _evidence_short_excerpt(
+        title="doc",
+        body=None,
+        rep_excerpt=sql_excerpt,
+        rep_rows=list(reversed(rep_rows)),
+        query="shared evidence token",
+        selected_atoms=None,
+        max_chars=500,
+    )
+    assert "part zero" in forward
+    assert "part zero" in reverse
+    assert "from sql rank excerpt" not in forward
+    assert "from sql rank excerpt" not in reverse

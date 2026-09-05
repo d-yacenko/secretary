@@ -1184,20 +1184,18 @@ def _evidence_short_excerpt(
     selected_atoms: list[str] | None,
     max_chars: int,
 ) -> str:
-    candidates = list(rep_rows)
+    if rep_rows:
+        best_row = _best_representation_row(rep_rows, query, selected_atoms)
+        if best_row is not None:
+            return build_query_centered_snippet(
+                str(best_row.get("text") or ""),
+                query,
+                max_chars,
+                selected_atoms,
+            )
     if rep_excerpt and rep_excerpt.strip():
-        candidates.append(
-            {
-                "text": rep_excerpt,
-                "kind": "chunk",
-                "part_index": None,
-                "id": "sql-excerpt",
-            }
-        )
-    best_row = _best_representation_row(candidates, query, selected_atoms)
-    if best_row is not None:
         return build_query_centered_snippet(
-            str(best_row.get("text") or ""),
+            rep_excerpt,
             query,
             max_chars,
             selected_atoms,

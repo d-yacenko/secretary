@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 
-from app.services.retrieval_constants import MAX_QUERY_ATOMS
+from app.services.retrieval_constants import MAX_QUERY_ATOMS, MAX_QUERY_TOKENS_SCANNED
 
 MARKER_RE = re.compile(r"\[(?:slide|page)\s+\d+\]", re.IGNORECASE)
+TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 GENERIC_QUERY_PREFIX_RE = re.compile(
     r"^(?:найди(?:\s+мне)?|найти(?:\s+мне)?|посмотри|find(?:\s+me)?|search(?:\s+for)?)\s+",
     re.IGNORECASE,
@@ -39,14 +40,41 @@ def lexical_tokens(text: str) -> set[str]:
     return tokens
 
 
+def ordered_query_tokens(query: str) -> list[str]:
+    seen: set[str] = set()
+    tokens: list[str] = []
+    scanned = 0
+    for token in TOKEN_RE.findall(query.lower()):
+        scanned += 1
+        if scanned > MAX_QUERY_TOKENS_SCANNED:
+            break
+        if len(token) < MIN_TOKEN_LENGTH:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+        if len(tokens) >= MAX_QUERY_ATOMS:
+            break
+    return tokens
+
+
 def bounded_query_tokens(query: str, atoms: list[str] | None = None) -> list[str]:
-    tokens = list(lexical_tokens(query))
-    if atoms:
-        for atom in atoms:
-            normalized = atom.strip().lower()
-            if len(normalized) >= MIN_TOKEN_LENGTH and normalized not in tokens:
-                tokens.append(normalized)
-    return tokens[:MAX_QUERY_ATOMS]
+    tokens = ordered_query_tokens(query)
+    if not atoms or len(tokens) >= MAX_QUERY_ATOMS:
+        return tokens
+    seen = set(tokens)
+    for atom in atoms:
+        normalized = atom.strip().lower()
+        if len(normalized) < MIN_TOKEN_LENGTH:
+            continue
+        if normalized in seen:
+            continue
+        tokens.append(normalized)
+        seen.add(normalized)
+        if len(tokens) >= MAX_QUERY_ATOMS:
+            break
+    return tokens
 
 
 def find_exact_phrase_span(text: str, phrase: str) -> tuple[int, int] | None:
@@ -272,11 +300,15 @@ def representation_evidence_rank_key(
 ) -> tuple[float, float, int, int, int, str]:
     exact, coverage, atom_hits = representation_evidence_score(text, query, atoms)
     kind_priority = _REPRESENTATION_KIND_PRIORITY.get(kind, 99)
+    if part_index is not None:
+        part_rank = -part_index
+    else:
+        part_rank = -(10**9)
     return (
         exact,
         coverage,
         atom_hits,
         -kind_priority,
-        -(part_index if part_index is not None else -1),
+        part_rank,
         rep_id,
     )
