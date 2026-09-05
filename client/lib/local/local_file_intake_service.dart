@@ -27,7 +27,7 @@ class LocalFileIntakeService {
       deviceKey: device.deviceKey,
       displayName: device.displayName,
     );
-    final extraction = _extractor.extractFile(file);
+    final extraction = await _extractor.extractFile(file);
     return _apiClient.clientFileIntake(
       deviceKey: device.deviceKey,
       sourcePath: extraction.sourcePath,

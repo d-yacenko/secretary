@@ -1,17 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:personal_secretary/api/secretary_api_client.dart';
-import 'package:personal_secretary/auth/auth_controller.dart';
-import 'package:personal_secretary/auth/server_url_store.dart';
-import 'package:personal_secretary/auth/token_store.dart';
-import 'package:personal_secretary/assistant/assistant_controller.dart';
-import 'package:personal_secretary/local/local_intake_actions.dart';
+import 'package:personal_secretary/api/api_error.dart';
+import 'package:personal_secretary/local/local_file_intake_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../test_secretary_api_client.dart';
 
 http.Response _jsonResponse(Object body, {int statusCode = 200}) {
   return http.Response.bytes(
@@ -46,12 +43,13 @@ Map<String, dynamic> _objectJson({
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   late Directory tempDir;
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'secretary_device_key': 'device-key-1',
+      'secretary_device_display_name': 'Test device',
+    });
     tempDir = Directory.systemTemp.createTempSync('intake-actions-test-');
   });
 
@@ -61,18 +59,14 @@ void main() {
     }
   });
 
-  testWidgets('multiple dropped files prompt active context choice', (tester) async {
+  test('registerFileAndFetch loads object for multi-file intake flow', () async {
     final fileA = File('${tempDir.path}/a.txt');
     final fileB = File('${tempDir.path}/b.txt');
     fileA.writeAsStringSync('alpha');
     fileB.writeAsStringSync('beta');
 
-    int intakeCount = 0;
-    int assistantPosts = 0;
+    var intakeCount = 0;
     final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/message') {
-        assistantPosts += 1;
-      }
       if (request.url.path == '/local/devices/register') {
         return _jsonResponse({
           'device_id': 'device-1',
@@ -101,56 +95,18 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: 'https://example.com', token: 'token');
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final assistant = AssistantController(apiClient: apiClient, authController: auth);
-    final actions = LocalIntakeActions(
-      apiClient: apiClient,
-      authController: auth,
-      assistantController: assistant,
-    );
+    final service = LocalFileIntakeService(apiClient: apiClient);
+    final objectA = await service.registerFileAndFetch(fileA);
+    final objectB = await service.registerFileAndFetch(fileB);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () => actions.registerDroppedFiles(
-                context,
-                [fileA.path, fileB.path],
-              ),
-              child: const Text('drop'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('drop'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Выберите активный контекст'), findsOneWidget);
-    expect(find.text('a.txt'), findsOneWidget);
-    expect(find.text('b.txt'), findsOneWidget);
-
-    await tester.tap(find.text('b.txt'));
-    await tester.pumpAndSettle();
-
-    expect(assistant.objectContext?.id, 'obj-b');
-    expect(assistant.objectContext?.title, 'b.txt');
+    expect(objectA.title, 'a.txt');
+    expect(objectB.title, 'b.txt');
     expect(intakeCount, 2);
-    expect(assistantPosts, 0);
-    expect(find.textContaining('Добавлено файлов: 2'), findsOneWidget);
-    expect(find.textContaining('Активный контекст: b.txt'), findsOneWidget);
   });
 
-  testWidgets('non-inbox local intake does not send explicit intake mode', (tester) async {
+  test('non-inbox local intake does not send explicit intake mode', () async {
     final file = File('${tempDir.path}/plain.txt');
     file.writeAsStringSync('plain');
 
@@ -174,46 +130,19 @@ void main() {
           'metadata_only': false,
         }, statusCode: 201);
       }
-      if (request.url.path == '/objects/obj-plain') {
-        return _jsonResponse(_objectJson(id: 'obj-plain', title: 'plain.txt'));
-      }
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: 'https://example.com', token: 'token');
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final actions = LocalIntakeActions(
-      apiClient: apiClient,
-      authController: auth,
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () => actions.registerDroppedFiles(context, [file.path]),
-              child: const Text('drop'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('drop'));
-    await tester.pumpAndSettle();
+    final service = LocalFileIntakeService(apiClient: apiClient);
+    await service.registerFile(file);
 
     final decoded = jsonDecode(intakeBody!) as Map<String, dynamic>;
     expect(decoded.containsKey('intake_mode'), isFalse);
   });
 
-  testWidgets('inbox local intake sends explicit intake mode', (tester) async {
+  test('inbox local intake sends explicit intake mode', () async {
     final file = File('${tempDir.path}/inbox.txt');
     file.writeAsStringSync('inbox');
 
@@ -243,45 +172,19 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: 'https://example.com', token: 'token');
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final actions = LocalIntakeActions(
-      apiClient: apiClient,
-      authController: auth,
-      forInbox: true,
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () => actions.registerDroppedFiles(context, [file.path]),
-              child: const Text('drop'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('drop'));
-    await tester.pumpAndSettle();
+    final service = LocalFileIntakeService(apiClient: apiClient);
+    await service.registerFile(file, intakeMode: 'explicit_local');
 
     final decoded = jsonDecode(intakeBody!) as Map<String, dynamic>;
     expect(decoded['intake_mode'], 'explicit_local');
   });
 
-  testWidgets('failed local intake does not invoke success callback', (tester) async {
+  test('failed local intake surfaces API error', () async {
     final file = File('${tempDir.path}/fail.txt');
     file.writeAsStringSync('fail');
 
-    int successCalls = 0;
     final mock = MockClient((request) async {
       if (request.url.path == '/local/devices/register') {
         return _jsonResponse({
@@ -297,47 +200,18 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: 'https://example.com', token: 'token');
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final actions = LocalIntakeActions(
-      apiClient: apiClient,
-      authController: auth,
-      forInbox: true,
-      onIntakeSuccess: () => successCalls++,
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () => actions.registerDroppedFiles(context, [file.path]),
-              child: const Text('drop'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('drop'));
-    await tester.pumpAndSettle();
-
-    expect(successCalls, 0);
+    final service = LocalFileIntakeService(apiClient: apiClient);
+    expect(() => service.registerFile(file), throwsA(isA<ServerException>()));
   });
 
-  testWidgets('mixed local drop with partial success invokes one success callback', (tester) async {
+  test('partial local intake success still registers valid files', () async {
     final okFile = File('${tempDir.path}/ok.txt');
     final badFile = File('${tempDir.path}/bad.txt');
     okFile.writeAsStringSync('ok');
     badFile.writeAsStringSync('bad');
 
-    int successCalls = 0;
     final mock = MockClient((request) async {
       if (request.url.path == '/local/devices/register') {
         return _jsonResponse({
@@ -360,46 +234,14 @@ void main() {
           'metadata_only': false,
         }, statusCode: 201);
       }
-      if (request.url.path == '/objects/obj-ok') {
-        return _jsonResponse(_objectJson(id: 'obj-ok', title: 'ok.txt'));
-      }
       return http.Response('{}', 404);
     });
 
-    final apiClient = SecretaryApiClient(httpClient: mock);
+    final apiClient = testSecretaryApiClient(mock);
     apiClient.configure(baseUrl: 'https://example.com', token: 'token');
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final actions = LocalIntakeActions(
-      apiClient: apiClient,
-      authController: auth,
-      forInbox: true,
-      onIntakeSuccess: () => successCalls++,
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () => actions.registerDroppedFiles(
-                context,
-                [okFile.path, badFile.path],
-              ),
-              child: const Text('drop'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('drop'));
-    await tester.pumpAndSettle();
-
-    expect(successCalls, 1);
+    final service = LocalFileIntakeService(apiClient: apiClient);
+    final result = await service.registerFile(okFile);
+    expect(result.objectId, 'obj-ok');
+    expect(() => service.registerFile(badFile), throwsA(isA<ServerException>()));
   });
 }

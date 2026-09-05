@@ -6,9 +6,13 @@ const testTimezoneProvider = FixedClientTimezoneProvider(
   ClientTimezoneContext(zoneId: 'Europe/Amsterdam', utcOffsetMinutes: 120),
 );
 
-SecretaryApiClient testSecretaryApiClient(MockClient mock) {
+SecretaryApiClient testSecretaryApiClient(
+  MockClient mock, {
+  Duration timeout = const Duration(seconds: 2),
+}) {
   return SecretaryApiClient(
     httpClient: mock,
     timezoneProvider: testTimezoneProvider,
+    timeout: timeout,
   );
 }

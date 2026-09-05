@@ -25,6 +25,10 @@ dependencies:
   csv: ^6.0.0
   flutter_timezone: ^4.1.0
   flutter_markdown: ^0.7.6
+  archive: ^4.0.7
+  xml: ^6.5.0
+  dart_duckdb: ^1.4.4
+  syncfusion_flutter_pdf: ^33.2.13
 
 dev_dependencies:
   flutter_test:
