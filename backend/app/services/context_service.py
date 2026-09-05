@@ -422,13 +422,13 @@ class ContextService:
                 query_vector = None
 
         def rank_key(rep: Representation) -> tuple[float, float, float, int, str]:
-            substring, coverage = lexical_match_score(rep.text or "", query)
+            exact_match, coverage = lexical_match_score(rep.text or "", query)
             if rep.embedding is not None and query_vector is not None:
                 distance = _cosine_distance(list(rep.embedding), query_vector)
             else:
                 distance = 1.0
             return (
-                substring,
+                exact_match,
                 coverage,
                 -distance,
                 -(rep.part_index or 0),
@@ -447,14 +447,14 @@ class ContextService:
 
         def score(rep: Representation) -> tuple[float, float, int, str]:
             text_norm = _normalize_lexical_text(rep.text or "")
-            substring = 1.0 if query_norm and query_norm in text_norm else 0.0
+            exact_match = 1.0 if query_norm and query_norm in text_norm else 0.0
             if not query_tokens:
                 coverage = 0.0
             else:
                 text_tokens = _lexical_tokens(text_norm)
                 coverage = len(query_tokens & text_tokens) / len(query_tokens)
             return (
-                substring,
+                exact_match,
                 coverage,
                 -(rep.part_index or 0),
                 str(rep.id),

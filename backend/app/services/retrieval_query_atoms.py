@@ -55,7 +55,7 @@ _PROBE_TRIGRAM_SQL = f"""
 """
 
 _PROBE_REP_SIMPLE_SQL = f"""
-    SELECT o.id
+    SELECT DISTINCT o.id
     FROM representations r
     INNER JOIN objects o ON o.id = r.object_id
     WHERE {_BASE_WHERE}
@@ -68,7 +68,7 @@ _PROBE_REP_SIMPLE_SQL = f"""
 """
 
 _PROBE_REP_RUSSIAN_SQL = f"""
-    SELECT o.id
+    SELECT DISTINCT o.id
     FROM representations r
     INNER JOIN objects o ON o.id = r.object_id
     WHERE {_BASE_WHERE}
@@ -203,9 +203,4 @@ def select_selective_atoms(
             scored.append((selectivity, atom))
 
     scored.sort(key=lambda item: (item[0], item[1]))
-    selected = [atom for _, atom in scored[:MAX_SELECTED_ATOMS]]
-    if selected:
-        return selected
-    if candidates:
-        return candidates[:MAX_SELECTED_ATOMS]
-    return []
+    return [atom for _, atom in scored[:MAX_SELECTED_ATOMS]]

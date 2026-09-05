@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Object
 from app.services.evidence_snippet import (
     build_query_centered_snippet,
-    representation_evidence_score,
+    representation_evidence_rank_key,
 )
 from app.services.errors import ValidationError
 from app.services.retrieval_constants import (
@@ -485,7 +485,7 @@ _TERM_RANK_QUERY = text(
 
 _REPRESENTATIONS_FOR_OBJECTS = text(
     f"""
-    SELECT r.object_id, r.text
+    SELECT r.object_id, r.text, r.kind, r.part_index, r.id
     FROM representations r
     INNER JOIN objects o ON o.id = r.object_id
     WHERE o.user_id = :user_id
@@ -494,6 +494,7 @@ _REPRESENTATIONS_FOR_OBJECTS = text(
       AND (
         {CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
       )
+    ORDER BY r.object_id, r.part_index NULLS LAST, r.id
     """
 )
 
@@ -930,7 +931,7 @@ class RetrievalService:
             ).mappings()
             term_map = {row["id"]: dict(row) for row in term_rows}
 
-        rep_texts_by_object = self._representation_texts_by_object(candidate_ids)
+        rep_rows_by_object = self._representation_rows_by_object(candidate_ids)
 
         atom_count = len(selected_atoms or [])
         hits: list[RetrievalHit] = []
@@ -1007,7 +1008,7 @@ class RetrievalService:
                 title=str(row["title"]),
                 body=row["body"],
                 rep_excerpt=rep_excerpt,
-                rep_texts=rep_texts_by_object.get(object_id, []),
+                rep_rows=rep_rows_by_object.get(object_id, []),
                 query=query,
                 selected_atoms=selected_atoms,
                 max_chars=SHORT_EXCERPT_MAX_CHARS,
@@ -1031,7 +1032,9 @@ class RetrievalService:
         hits.sort(key=lambda item: (-item.relevance, str(item.object_id)))
         return hits
 
-    def _representation_texts_by_object(self, object_ids: list[UUID]) -> dict[UUID, list[str]]:
+    def _representation_rows_by_object(
+        self, object_ids: list[UUID]
+    ) -> dict[UUID, list[dict]]:
         if not object_ids:
             return {}
         rows = self._session.execute(
@@ -1041,13 +1044,13 @@ class RetrievalService:
                 "object_ids": object_ids,
             },
         ).mappings()
-        texts_by_object: dict[UUID, list[str]] = {}
+        rows_by_object: dict[UUID, list[dict]] = {}
         for row in rows:
             text_value = row["text"] or ""
             if not text_value.strip():
                 continue
-            texts_by_object.setdefault(row["object_id"], []).append(text_value)
-        return texts_by_object
+            rows_by_object.setdefault(row["object_id"], []).append(dict(row))
+        return rows_by_object
 
     def _should_stop_horizon_expansion(self, hits: list[RetrievalHit]) -> bool:
         qualified = [hit for hit in hits if _hit_is_qualified(hit)]
@@ -1146,19 +1149,29 @@ def _build_reasons(
     return reasons
 
 
-def _best_representation_text(
-    rep_texts: list[str],
+def _best_representation_row(
+    rep_rows: list[dict],
     query: str,
     selected_atoms: list[str] | None,
-) -> str | None:
-    best_text: str | None = None
-    best_key = (-1.0, -1.0, -1)
-    for text_value in rep_texts:
-        key = representation_evidence_score(text_value, query, selected_atoms)
-        if key > best_key:
+) -> dict | None:
+    best_row: dict | None = None
+    best_key: tuple[float, float, int, int, int, str] | None = None
+    for row in rep_rows:
+        text_value = row.get("text") or ""
+        if not text_value.strip():
+            continue
+        key = representation_evidence_rank_key(
+            text=text_value,
+            query=query,
+            atoms=selected_atoms,
+            kind=str(row.get("kind") or ""),
+            part_index=row.get("part_index"),
+            rep_id=str(row.get("id")),
+        )
+        if best_key is None or key > best_key:
             best_key = key
-            best_text = text_value
-    return best_text
+            best_row = row
+    return best_row
 
 
 def _evidence_short_excerpt(
@@ -1166,18 +1179,25 @@ def _evidence_short_excerpt(
     title: str,
     body: str | None,
     rep_excerpt: str | None,
-    rep_texts: list[str],
+    rep_rows: list[dict],
     query: str,
     selected_atoms: list[str] | None,
     max_chars: int,
 ) -> str:
-    candidates = list(rep_texts)
+    candidates = list(rep_rows)
     if rep_excerpt and rep_excerpt.strip():
-        candidates.append(rep_excerpt)
-    best_rep = _best_representation_text(candidates, query, selected_atoms)
-    if best_rep:
+        candidates.append(
+            {
+                "text": rep_excerpt,
+                "kind": "chunk",
+                "part_index": None,
+                "id": "sql-excerpt",
+            }
+        )
+    best_row = _best_representation_row(candidates, query, selected_atoms)
+    if best_row is not None:
         return build_query_centered_snippet(
-            best_rep,
+            str(best_row.get("text") or ""),
             query,
             max_chars,
             selected_atoms,

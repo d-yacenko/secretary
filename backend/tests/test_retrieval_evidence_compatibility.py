@@ -186,3 +186,76 @@ def test_retrieval_and_context_keep_slide_marker_evidence(db_session) -> None:
     )
     joined = "\n".join(item.content for item in context.items)
     assert SLIDE_PHRASE in joined
+
+
+def test_short_exact_adb_far_from_prefix_retrieve_and_context(db_session) -> None:
+    object_id = _create_object(db_session, title="ADB deck", body="neutral")
+    source = _large_text_with_marker(f"{SLIDE_MARKER}\nADB", 9500, pad_char="z")
+    _add_chunk(db_session, object_id, source)
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "ADB",
+        time_scope=TIME_SCOPE_ALL,
+        limit=5,
+    ).hits
+    hit = next((row for row in hits if row.object_id == object_id), None)
+    assert hit is not None
+    assert "ADB" in hit.short_excerpt
+    assert not hit.short_excerpt.startswith(source[:100])
+
+    context = ContextService(db_session, BOOTSTRAP_USER_ID).build_context(
+        object_id=object_id,
+        query="ADB",
+        max_chars=DEFAULT_MAX_CHARS,
+    )
+    chunk_items = [item for item in context.items if item.representation_kind == KIND_CHUNK]
+    assert chunk_items
+    assert "ADB" in chunk_items[0].content
+
+
+def test_short_exact_adbm_far_from_prefix_retrieve(db_session) -> None:
+    object_id = _create_object(db_session, title="ADBM deck", body="neutral")
+    source = _large_text_with_marker(f"{SLIDE_MARKER}\nADBM", 9500, pad_char="m")
+    _add_chunk(db_session, object_id, source)
+
+    hits = RetrievalService(db_session, BOOTSTRAP_USER_ID).retrieve(
+        "ADBM",
+        time_scope=TIME_SCOPE_ALL,
+        limit=5,
+    ).hits
+    hit = next((row for row in hits if row.object_id == object_id), None)
+    assert hit is not None
+    assert "ADBM" in hit.short_excerpt
+    assert not hit.short_excerpt.startswith(source[:100])
+
+
+def test_weak_partial_fragment_ranks_below_strong_token_coverage(db_session) -> None:
+    fake = FakeEmbeddingService()
+    object_id = _create_object(db_session, title="split-brain doc", body="body")
+    query = "перед активацией важно исключить split-brain"
+    chunk_weak = Representation(
+        object_id=object_id,
+        kind=KIND_CHUNK,
+        text=("unrelated " * 400) + "важно " + ("noise " * 400),
+        part_index=0,
+        metadata_={},
+    )
+    chunk_strong = Representation(
+        object_id=object_id,
+        kind=KIND_CHUNK,
+        text=(
+            "перед активацией важно исключить split brain operational guidance "
+            + ("context " * 200)
+        ),
+        part_index=1,
+        metadata_={},
+    )
+    db_session.add(chunk_weak)
+    db_session.add(chunk_strong)
+    db_session.flush()
+
+    ranked = ContextService(db_session, BOOTSTRAP_USER_ID, fake)._rank_chunks(
+        [chunk_weak, chunk_strong],
+        query,
+    )
+    assert ranked[0].id == chunk_strong.id
