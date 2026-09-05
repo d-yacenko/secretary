@@ -1,22 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:archive/archive.dart';
 import 'package:personal_secretary/local/extraction/duckdb_session.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 Future<void> writeMinimalPdf(File file, {String text = 'pdf distinctive phrase delta'}) async {
-  final document = PdfDocument();
-  final page = document.pages.add();
-  page.graphics.drawString(
-    text,
-    PdfStandardFont(PdfFontFamily.helvetica, 12),
-    bounds: const Rect.fromLTWH(20, 20, 500, 20),
-  );
-  final bytes = await document.save();
-  document.dispose();
-  await file.writeAsBytes(bytes);
+  await file.writeAsBytes(_minimalPdfBytes(text));
 }
 
 List<int> _minimalPdfBytes(String text) {
@@ -96,18 +85,35 @@ List<int> _blankPdfBytes() {
 }
 
 Future<void> writeMultiPagePdf(File file, int pages, {String marker = 'page_marker'}) async {
-  final document = PdfDocument();
+  final pageKids = <String>[];
+  final pageObjs = <String>[];
+  final contentObjs = <String>[];
+  final fontObj = '5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n';
   for (var index = 0; index < pages; index++) {
-    final page = document.pages.add();
-    page.graphics.drawString(
-      '$marker-$index',
-      PdfStandardFont(PdfFontFamily.helvetica, 12),
-      bounds: const Rect.fromLTWH(20, 20, 400, 20),
+    final pageObjNum = 3 + index * 2;
+    final contentObjNum = pageObjNum + 1;
+    pageKids.add('$pageObjNum 0 R');
+    final escaped = '$marker-$index'
+        .replaceAll('\\', r'\\')
+        .replaceAll('(', r'\(')
+        .replaceAll(')', r'\)');
+    final stream = 'BT /F1 12 Tf 50 700 Td ($escaped) Tj ET';
+    pageObjs.add(
+      '$pageObjNum 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+      '/Contents $contentObjNum 0 R /Resources<< /Font<< /F1 5 0 R >> >> >>endobj\n',
+    );
+    contentObjs.add(
+      '$contentObjNum 0 obj<< /Length ${stream.length} >>stream\n$stream\nendstream endobj\n',
     );
   }
-  final bytes = await document.save();
-  document.dispose();
-  await file.writeAsBytes(bytes);
+  final objs = <String>[
+    '1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n',
+    '2 0 obj<< /Type /Pages /Kids [${pageKids.join(' ')}] /Count $pages >>endobj\n',
+    ...pageObjs,
+    ...contentObjs,
+    fontObj,
+  ];
+  await file.writeAsBytes(_buildPdf(objs));
 }
 
 Future<void> writeMinimalDocx(File file, {String text = 'docx paragraph beta'}) async {
@@ -263,7 +269,7 @@ Future<void> writeLargeParquet(File file, int rowCount, {int? markerRow}) async 
       'FROM range($rowCount) t(i)',
     );
     await session.queryRows(
-      "COPY tmp_rows TO '$path' (FORMAT PARQUET, ROW_GROUP_SIZE 32)",
+      "COPY tmp_rows TO '$path' (FORMAT PARQUET, ROW_GROUP_SIZE 2048)",
     );
   });
 }
@@ -278,6 +284,34 @@ Future<void> writeLargeCsv(File file, int rowCount, {String marker = 'Doe, John'
     buffer.writeln('row$i,value$i');
   }
   await file.writeAsString(buffer.toString());
+}
+
+Future<void> writeLargeCsvWithMultilineQuoted(File file) async {
+  final marker = 'multiline_marker_${'й' * 40}';
+  final buffer = StringBuffer()
+    ..writeln('name,value')
+    ..writeln('"line1\n$marker",42');
+  while (buffer.length < 300 * 1024) {
+    buffer.writeln('row${buffer.length},plain');
+  }
+  buffer.writeln('end,marker');
+  await file.writeAsString(buffer.toString());
+}
+
+Future<void> writeOrderedPptx(File file, int slideCount) async {
+  final entries = <String, String>{
+    '[Content_Types].xml': _genericContentTypes(),
+  };
+  for (var index = 1; index <= slideCount; index++) {
+    entries['ppt/slides/slide$index.xml'] = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp><p:txBody><a:p><a:r><a:t>slide_text_$index</a:t></a:r></a:p></p:txBody></p:sp>
+  </p:spTree></p:cSld>
+</p:sld>''';
+  }
+  await _writeOoxmlZip(file, entries);
 }
 
 List<int> _buildPdf(List<String> objs) {

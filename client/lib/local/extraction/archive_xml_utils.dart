@@ -31,4 +31,24 @@ XmlDocument parseSafeXml(List<int> bytes) {
 
 String elementText(XmlElement element) => element.innerText.trim();
 
+String odfStoredCellValue(XmlElement cell, {required String officeNs}) {
+  final stringValue = cell.getAttribute('string-value', namespace: officeNs);
+  if (stringValue != null && stringValue.isNotEmpty) {
+    return stringValue;
+  }
+  final value = cell.getAttribute('value', namespace: officeNs);
+  if (value != null && value.isNotEmpty) {
+    return value;
+  }
+  final dateValue = cell.getAttribute('date-value', namespace: officeNs);
+  if (dateValue != null && dateValue.isNotEmpty) {
+    return dateValue;
+  }
+  final timeValue = cell.getAttribute('time-value', namespace: officeNs);
+  if (timeValue != null && timeValue.isNotEmpty) {
+    return timeValue;
+  }
+  return elementText(cell);
+}
+
 String escapeSqlString(String value) => value.replaceAll("'", "''");

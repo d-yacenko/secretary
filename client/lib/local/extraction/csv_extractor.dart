@@ -9,16 +9,22 @@ import 'dataset_sampling.dart';
 import 'extraction_constants.dart';
 import 'representation_builder.dart';
 
-List<Map<String, dynamic>> extractCsvFile(File file) {
-  final size = file.lengthSync();
+const _csvConverter = CsvToListConverter(shouldParseNumbers: false, eol: '\n');
+
+Stream<List<dynamic>> _streamCsvRows(File file) {
+  return file.openRead().transform(utf8.decoder).transform(_csvConverter);
+}
+
+Future<List<Map<String, dynamic>>> extractCsvFile(File file) async {
+  final size = await file.length();
   if (size <= kMaxExtractorTotalBytes) {
     return _extractSmallCsv(file);
   }
   return _extractLargeCsv(file);
 }
 
-List<Map<String, dynamic>> _extractSmallCsv(File file) {
-  final text = utf8.decode(file.readAsBytesSync(), allowMalformed: true);
+Future<List<Map<String, dynamic>>> _extractSmallCsv(File file) async {
+  final text = await file.readAsString();
   final rows = const CsvToListConverter(shouldParseNumbers: false).convert(
     text,
     eol: '\n',
@@ -44,21 +50,21 @@ List<Map<String, dynamic>> _extractSmallCsv(File file) {
   return _buildCsvRepresentations(fieldnames, dataRows);
 }
 
-List<Map<String, dynamic>> _extractLargeCsv(File file) {
-  final fieldnames = _readCsvHeader(file);
+Future<List<Map<String, dynamic>>> _extractLargeCsv(File file) async {
+  final fieldnames = await _readCsvHeader(file);
   if (fieldnames.isEmpty) {
     return boundedRepresentations([
       {'kind': 'schema', 'text': 'columns: (empty)'},
     ]);
   }
 
-  final stats = _streamCsvStats(file, fieldnames);
+  final stats = await _streamCsvStats(file, fieldnames);
   final statsMeta = stats.$1;
   final statsLines = stats.$2;
   final columnTypes = stats.$3;
-  final totalRows = statsMeta['row_count'] as int? ?? _countCsvRows(file);
+  final totalRows = statsMeta['row_count'] as int? ?? await _countCsvRows(file);
 
-  final estimateRows = _readCsvIndexedRows(file, fieldnames, [0]);
+  final estimateRows = await _readCsvIndexedRows(file, fieldnames, [0]);
   final estimateRow = estimateRows.isNotEmpty
       ? estimateRows.first.values
       : {for (final name in fieldnames) name: ''};
@@ -78,7 +84,7 @@ List<Map<String, dynamic>> _extractLargeCsv(File file) {
     compactSampleBytes: utf8ByteLength(compactEstimate),
   );
   final allIndices = {...compactIndices, ...planned.$1.indices}.toList()..sort();
-  final indexedRows = _readCsvIndexedRows(file, fieldnames, allIndices);
+  final indexedRows = await _readCsvIndexedRows(file, fieldnames, allIndices);
   return buildIndexedDatasetRepresentations(
     fieldnames: fieldnames,
     columnTypes: columnTypes,
@@ -141,103 +147,72 @@ List<Map<String, dynamic>> _buildCsvRepresentations(
   );
 }
 
-List<String> _readCsvHeader(File file) {
-  final firstLine = _iterateLines(file).first;
-  if (firstLine.trim().isEmpty) {
-    return [];
+Future<List<String>> _readCsvHeader(File file) async {
+  await for (final row in _streamCsvRows(file)) {
+    return row
+        .map((cell) => cell?.toString() ?? '')
+        .take(kMaxCsvColumns)
+        .toList();
   }
-  return const CsvToListConverter(shouldParseNumbers: false)
-      .convert('$firstLine\n')
-      .first
-      .map((cell) => cell?.toString() ?? '')
-      .take(kMaxCsvColumns)
-      .toList();
+  return [];
 }
 
-int _countCsvRows(File file) {
+Future<int> _countCsvRows(File file) async {
   var count = 0;
-  var lineNumber = 0;
-  for (final line in _iterateLines(file)) {
-    if (lineNumber == 0) {
-      lineNumber += 1;
+  var isHeader = true;
+  await for (final row in _streamCsvRows(file)) {
+    if (isHeader) {
+      isHeader = false;
       continue;
     }
-    if (line.trim().isNotEmpty) {
+    if (row.any((cell) => cell?.toString().trim().isNotEmpty ?? false)) {
       count += 1;
     }
-    lineNumber += 1;
   }
   return count;
 }
 
-(
+Future<(
   Map<String, dynamic>,
   List<String>,
   Map<String, String>,
-) _streamCsvStats(File file, List<String> fieldnames) {
+)> _streamCsvStats(File file, List<String> fieldnames) async {
   final columnTypes = {for (final name in fieldnames) name: 'string'};
   final numericValues = {for (final name in fieldnames) name: <double>[]};
   var rowsSeen = 0;
   var truncated = false;
+  var isHeader = true;
 
-  final raf = file.openSync();
-  try {
-    var sawHeader = false;
-    final buffer = StringBuffer();
-    while (true) {
-      final chunk = raf.readSync(8192);
-      if (chunk.isEmpty && buffer.isEmpty) {
-        break;
+  await for (final parsed in _streamCsvRows(file)) {
+    if (isHeader) {
+      isHeader = false;
+      continue;
+    }
+    if (!parsed.any((cell) => cell?.toString().trim().isNotEmpty ?? false)) {
+      continue;
+    }
+    rowsSeen += 1;
+    if (rowsSeen > kMaxCsvStatsRows) {
+      truncated = true;
+      break;
+    }
+    for (var i = 0; i < fieldnames.length && i < parsed.length; i++) {
+      final value = parsed[i]?.toString() ?? '';
+      if (value.isEmpty) {
+        continue;
       }
-      if (chunk.isNotEmpty) {
-        buffer.write(utf8.decode(chunk, allowMalformed: true));
+      final name = fieldnames[i];
+      if (_looksInt(value)) {
+        columnTypes[name] =
+            columnTypes[name] == 'string' ? 'integer' : columnTypes[name]!;
+      } else if (_looksFloat(value) && columnTypes[name] != 'integer') {
+        columnTypes[name] = 'float';
       }
-      final text = buffer.toString();
-      final lines = text.split('\n');
-      buffer
-        ..clear()
-        ..write(chunk.isEmpty ? '' : lines.last);
-      final completeLines =
-          chunk.isEmpty ? lines : lines.sublist(0, max(0, lines.length - 1));
-      for (final line in completeLines) {
-        if (!sawHeader) {
-          sawHeader = true;
-          continue;
-        }
-        if (line.trim().isEmpty) {
-          continue;
-        }
-        rowsSeen += 1;
-        if (rowsSeen > kMaxCsvStatsRows) {
-          truncated = true;
-          break;
-        }
-        final parsed = const CsvToListConverter(shouldParseNumbers: false)
-            .convert('$line\n')
-            .first;
-        for (var i = 0; i < fieldnames.length && i < parsed.length; i++) {
-          final value = parsed[i]?.toString() ?? '';
-          if (value.isEmpty) {
-            continue;
-          }
-          final name = fieldnames[i];
-          if (_looksInt(value)) {
-            columnTypes[name] = columnTypes[name] == 'string' ? 'integer' : columnTypes[name]!;
-          } else if (_looksFloat(value) && columnTypes[name] != 'integer') {
-            columnTypes[name] = 'float';
-          }
-          final number = double.tryParse(value);
-          if (number != null) {
-            numericValues[name]!.add(number);
-          }
-        }
-      }
-      if (truncated || (chunk.isEmpty && buffer.isEmpty)) {
-        break;
+      final number = double.tryParse(value);
+      if (number != null) {
+        numericValues[name]!.add(number);
       }
     }
-  } finally {
-    raf.closeSync();
   }
 
   final statsMeta = <String, dynamic>{
@@ -273,31 +248,27 @@ int _countCsvRows(File file) {
   return (statsMeta, lines, columnTypes);
 }
 
-List<IndexedRow> _readCsvIndexedRows(
+Future<List<IndexedRow>> _readCsvIndexedRows(
   File file,
   List<String> fieldnames,
   List<int> indices,
-) {
+) async {
   if (indices.isEmpty) {
     return [];
   }
   final wanted = indices.toSet();
   final rows = <int, Map<String, String>>{};
-  var lineNumber = 0;
-  for (final line in _iterateLines(file)) {
-    if (lineNumber == 0) {
-      lineNumber += 1;
+  var isHeader = true;
+  var rowIndex = 0;
+  await for (final parsed in _streamCsvRows(file)) {
+    if (isHeader) {
+      isHeader = false;
       continue;
     }
-    if (line.trim().isEmpty) {
-      lineNumber += 1;
+    if (!parsed.any((cell) => cell?.toString().trim().isNotEmpty ?? false)) {
       continue;
     }
-    final rowIndex = lineNumber - 1;
     if (wanted.contains(rowIndex)) {
-      final parsed = const CsvToListConverter(shouldParseNumbers: false)
-          .convert('$line\n')
-          .first;
       rows[rowIndex] = {
         for (var i = 0; i < fieldnames.length; i++)
           fieldnames[i]: i < parsed.length ? parsed[i]?.toString() ?? '' : '',
@@ -306,42 +277,13 @@ List<IndexedRow> _readCsvIndexedRows(
         break;
       }
     }
-    lineNumber += 1;
+    rowIndex += 1;
   }
   return [
     for (final index in indices)
       if (rows.containsKey(index))
         IndexedRow(index: index, values: rows[index]!),
   ];
-}
-
-Iterable<String> _iterateLines(File file) sync* {
-  final raf = file.openSync();
-  final buffer = StringBuffer();
-  try {
-    while (true) {
-      final chunk = raf.readSync(8192);
-      if (chunk.isEmpty) {
-        if (buffer.isNotEmpty) {
-          yield buffer.toString();
-        }
-        break;
-      }
-      buffer.write(utf8.decode(chunk, allowMalformed: true));
-      var text = buffer.toString();
-      var newlineIndex = text.indexOf('\n');
-      while (newlineIndex >= 0) {
-        yield text.substring(0, newlineIndex);
-        text = text.substring(newlineIndex + 1);
-        newlineIndex = text.indexOf('\n');
-      }
-      buffer
-        ..clear()
-        ..write(text);
-    }
-  } finally {
-    raf.closeSync();
-  }
 }
 
 bool _looksInt(String value) => int.tryParse(value) != null;

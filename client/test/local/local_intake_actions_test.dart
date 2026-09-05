@@ -5,6 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_error.dart';
+import 'package:personal_secretary/auth/auth_controller.dart';
+import 'package:personal_secretary/auth/server_url_store.dart';
+import 'package:personal_secretary/auth/token_store.dart';
+import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/local/local_file_intake_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -165,9 +169,6 @@ void main() {
           'representations_created': 1,
           'metadata_only': false,
         }, statusCode: 201);
-      }
-      if (request.url.path == '/objects/obj-inbox') {
-        return _jsonResponse(_objectJson(id: 'obj-inbox', title: 'inbox.txt'));
       }
       return http.Response('{}', 404);
     });

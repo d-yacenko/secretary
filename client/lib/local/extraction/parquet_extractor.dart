@@ -1,10 +1,21 @@
-import 'dart:io';
-
 import 'dart:convert';
+import 'dart:io';
 
 import 'dataset_sampling.dart';
 import 'duckdb_session.dart';
 import 'representation_builder.dart';
+
+class _ParquetRowGroup {
+  const _ParquetRowGroup({
+    required this.id,
+    required this.startRow,
+    required this.endRow,
+  });
+
+  final int id;
+  final int startRow;
+  final int endRow;
+}
 
 Future<List<Map<String, dynamic>>> extractParquetFile(File file) async {
   return withDuckDb((session) async {
@@ -195,6 +206,31 @@ Future<List<String>> _parquetFieldnames(
   return schemaRows.map((row) => row[0].toString()).toList();
 }
 
+Future<List<_ParquetRowGroup>> _parquetRowGroups(
+  DuckDbSession session,
+  String pathLiteral,
+) async {
+  final rows = await session.queryRows(
+    'SELECT row_group_id, row_group_num_rows '
+    'FROM parquet_metadata($pathLiteral) '
+    'ORDER BY row_group_id',
+  );
+  var startRow = 0;
+  return [
+    for (final row in rows)
+      () {
+        final numRows = (row[1] as num).toInt();
+        final group = _ParquetRowGroup(
+          id: (row[0] as num).toInt(),
+          startRow: startRow,
+          endRow: startRow + numRows - 1,
+        );
+        startRow += numRows;
+        return group;
+      }(),
+  ];
+}
+
 Future<List<IndexedRow>> _readParquetIndexedRows(
   DuckDbSession session,
   String pathLiteral,
@@ -205,21 +241,39 @@ Future<List<IndexedRow>> _readParquetIndexedRows(
     return [];
   }
   final wanted = indices.toSet().toList()..sort();
-  final inList = wanted.join(', ');
-  final rows = await session.queryRows(
-    'WITH numbered AS ('
-    'SELECT row_number() OVER () - 1 AS idx, * '
-    'FROM read_parquet($pathLiteral)'
-    ') SELECT * FROM numbered WHERE idx IN ($inList) ORDER BY idx',
-  );
+  final groups = await _parquetRowGroups(session, pathLiteral);
+  final columnList = fieldnames.map((name) => '"$name"').join(', ');
+  final rowsByIndex = <int, Map<String, String>>{};
+
+  for (final group in groups) {
+    final groupIndices = wanted
+        .where((index) => index >= group.startRow && index <= group.endRow)
+        .toList();
+    if (groupIndices.isEmpty) {
+      continue;
+    }
+    final inList = groupIndices.join(', ');
+    final rows = await session.queryRows(
+      'SELECT file_row_number, $columnList '
+      'FROM read_parquet($pathLiteral, file_row_number=true) '
+      'WHERE file_row_number IN ($inList) '
+      'ORDER BY file_row_number',
+    );
+    for (final row in rows) {
+      final index = (row.first as num).toInt();
+      rowsByIndex[index] = {
+        for (var i = 0; i < fieldnames.length; i++)
+          fieldnames[i]: row[i + 1]?.toString() ?? '',
+      };
+    }
+    if (rowsByIndex.length == wanted.length) {
+      break;
+    }
+  }
+
   return [
-    for (final row in rows)
-      IndexedRow(
-        index: (row.first as num).toInt(),
-        values: {
-          for (var i = 0; i < fieldnames.length; i++)
-            fieldnames[i]: row[i + 1]?.toString() ?? '',
-        },
-      ),
+    for (final index in indices)
+      if (rowsByIndex.containsKey(index))
+        IndexedRow(index: index, values: rowsByIndex[index]!),
   ];
 }

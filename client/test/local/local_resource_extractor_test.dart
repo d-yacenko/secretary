@@ -7,6 +7,7 @@ import 'package:personal_secretary/local/local_resource_extractor.dart';
 
 import 'duckdb_test_support.dart';
 import 'format_parity_fixtures.dart';
+import 'pdf_test_support.dart';
 
 void main() {
   setUpAll(configureDuckDbForTests);
@@ -125,6 +126,8 @@ void main() {
   test('quoted csv comma parsed', () async {
     final file = writeFile('quoted.csv', 'name,value\n"Doe, John",42\n"Smith",17');
     final result = await extractor.extractFile(file);
+    final stats = result.representations.firstWhere((r) => r['kind'] == 'statistics');
+    expect(stats['metadata']?['row_count'], 2);
     final sample = result.representations.firstWhere((r) => r['kind'] == 'sample');
     expect(sample['text'], contains('Doe, John'));
   });
@@ -169,7 +172,29 @@ void main() {
     expect(first.representations, second.representations);
   });
 
+  test('large csv preserves quoted multiline across chunk boundary', () async {
+    final file = File('${tempDir.path}/multiline.csv');
+    await writeLargeCsvWithMultilineQuoted(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('multiline_marker_'));
+    expect(joined, contains('end,marker'));
+  });
+
+  test('small csv full mode is not marked truncated', () async {
+    final file = writeFile('small.csv', 'a,b\n1,2\n3,4\n5,6');
+    final result = await extractor.extractFile(file);
+    final metaRep = result.representations.firstWhere(
+      (rep) => rep['metadata']?['dataset_sampling_mode'] != null,
+    );
+    expect(metaRep['metadata']?['dataset_sampling_mode'], 'full');
+    expect(metaRep['metadata']?['dataset_sampling_truncated'], isFalse);
+  });
+
   test('pdf text extraction', () async {
+    if (!await isPdfAvailableForTests()) {
+      return;
+    }
     final file = File('${tempDir.path}/sample.pdf');
     await writeMinimalPdf(file, text: 'pdf distinctive phrase delta');
     final result = await extractor.extractFile(file);
@@ -181,6 +206,9 @@ void main() {
   });
 
   test('blank pdf is metadata-only', () async {
+    if (!await isPdfAvailableForTests()) {
+      return;
+    }
     final file = File('${tempDir.path}/blank.pdf');
     await writeBlankPdf(file);
     final result = await extractor.extractFile(file);
@@ -214,6 +242,17 @@ void main() {
     final result = await extractor.extractFile(file);
     final joined = result.representations.map((r) => r['text']).join('\n');
     expect(joined, contains('slide distinctive gamma'));
+  });
+
+  test('pptx slide order is numeric not lexicographic', () async {
+    final file = File('${tempDir.path}/ordered.pptx');
+    await writeOrderedPptx(file, 12);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    final slide2 = joined.indexOf('slide_text_2');
+    final slide10 = joined.indexOf('slide_text_10');
+    expect(slide2, greaterThan(-1));
+    expect(slide10, greaterThan(slide2));
   });
 
   test('odt extracts text', () async {
@@ -258,7 +297,7 @@ void main() {
       return;
     }
     final file = File('${tempDir.path}/large.parquet');
-    await writeLargeParquet(file, 500, markerRow: 499);
+    await writeLargeParquet(file, 10000, markerRow: 9999);
     final first = await extractor.extractFile(file);
     final second = await extractor.extractFile(file);
     final joined = first.representations.map((r) => r['text']).join('\n');
@@ -276,6 +315,9 @@ void main() {
   });
 
   test('pdf over 50 pages is bounded', () async {
+    if (!await isPdfAvailableForTests()) {
+      return;
+    }
     final file = File('${tempDir.path}/many.pdf');
     await writeMultiPagePdf(file, 55, marker: 'bounded_page');
     final result = await extractor.extractFile(file);
@@ -283,5 +325,14 @@ void main() {
     expect(joined, contains('[page 1]'));
     expect(joined, contains('bounded_page-0'));
     expect(joined, isNot(contains('bounded_page-54')));
+  });
+
+  test('oversized pdf is metadata-only without reading file', () async {
+    final file = File('${tempDir.path}/huge.pdf');
+    await file.writeAsBytes(List.filled(kMaxPdfInputBytes + 1, 0));
+    final result = await extractor.extractFile(file);
+    expect(result.metadataOnly, isTrue);
+    expect(result.extractionFailed, isTrue);
+    expect(result.userMessage, contains('слишком большой'));
   });
 }

@@ -17,7 +17,7 @@ Future<List<Map<String, dynamic>>> extractPptxFile(File file) async {
         (name) => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'),
       )
       .toList()
-    ..sort();
+    ..sort((a, b) => _pptxSlideIndex(a).compareTo(_pptxSlideIndex(b)));
   final truncated = slidePaths.length > kMaxPptxSlides;
   final selected = slidePaths.take(kMaxPptxSlides).toList();
   final lines = <String>[];
@@ -47,4 +47,9 @@ Future<List<Map<String, dynamic>>> extractPptxFile(File file) async {
     text,
     metadata: {'slide_count': selected.length, 'truncated': truncated},
   );
+}
+
+int _pptxSlideIndex(String path) {
+  final match = RegExp(r'slide(\d+)\.xml$').firstMatch(path);
+  return match == null ? 0 : int.parse(match.group(1)!);
 }

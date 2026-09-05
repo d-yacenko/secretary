@@ -5,10 +5,22 @@ import 'extraction_constants.dart';
 import 'representation_builder.dart';
 
 class IndexedRow {
-  const IndexedRow({required this.index, required this.values});
+  const IndexedRow({
+    required this.index,
+    required this.values,
+    this.sheetName,
+  });
 
   final int index;
   final Map<String, String> values;
+  final String? sheetName;
+}
+
+String searchableRowLabel(IndexedRow pair) {
+  if (pair.sheetName != null) {
+    return '[sheet=${pair.sheetName} row=${pair.index + 1}]';
+  }
+  return '[row=${pair.index + 1}]';
 }
 
 List<int> selectDistributedRowIndices(int totalRows, int targetCount) {
@@ -59,7 +71,7 @@ int estimateSearchableRowBytes(
   int rowIndex,
 ) {
   final rowLine = formatDatasetRowLine(sampleRow, fieldnames);
-  final block = '[row=${rowIndex + 1}]\n$rowLine';
+  final block = '${searchableRowLabel(IndexedRow(index: rowIndex, values: sampleRow))}\n$rowLine';
   return utf8ByteLength(block) + 1;
 }
 
@@ -169,7 +181,7 @@ class PlannedSearchable {
 
 int searchableRowBlockBytes(IndexedRow pair, List<String> fieldnames) {
   final rowLine = formatDatasetRowLine(pair.values, fieldnames);
-  final block = '[row=${pair.index + 1}]\n$rowLine';
+  final block = '${searchableRowLabel(pair)}\n$rowLine';
   return utf8ByteLength(block);
 }
 
@@ -179,7 +191,7 @@ String formatSearchableDatasetRows(
 ) {
   final lines = <String>[];
   for (final pair in pairs) {
-    lines.add('[row=${pair.index + 1}]');
+    lines.add(searchableRowLabel(pair));
     lines.add(formatDatasetRowLine(pair.values, fieldnames));
   }
   return lines.join('\n');
@@ -196,7 +208,7 @@ List<Map<String, dynamic>> buildSearchableRowRepresentations(
   final blocks = <String>[];
   for (final pair in pairs) {
     final rowLine = formatDatasetRowLine(pair.values, fieldnames);
-    blocks.add('[row=${pair.index + 1}]\n$rowLine');
+    blocks.add('${searchableRowLabel(pair)}\n$rowLine');
   }
 
   final parts = <String>[];
@@ -409,8 +421,7 @@ List<Map<String, dynamic>> buildIndexedDatasetRepresentations({
   final finalTruncated = representedCount < totalRows ||
       compactTruncated ||
       schemaCapped.$2 ||
-      statsCapped.$2 ||
-      searchableReps.length < fittedSearchable.length;
+      statsCapped.$2;
 
   final datasetMeta = buildDatasetSampleMetadata(
     totalRows: totalRows,

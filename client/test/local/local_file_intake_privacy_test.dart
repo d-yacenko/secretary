@@ -9,13 +9,13 @@ import 'package:personal_secretary/local/local_file_intake_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_secretary_api_client.dart';
-import 'format_parity_fixtures.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   test('clientFileIntake receives derived representations only', () async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'secretary_device_key': 'device-key-1',
+      'secretary_device_display_name': 'Test device',
+    });
     Map<String, dynamic>? capturedBody;
     final mock = MockClient((request) async {
       if (request.url.path == '/local/devices/register') {
@@ -49,8 +49,8 @@ void main() {
       final api = testSecretaryApiClient(mock);
       api.configure(baseUrl: 'https://example.com', token: 'token');
       final service = LocalFileIntakeService(apiClient: api);
-      final file = File('${tempDir.path}/sample.pdf');
-      await writeMinimalPdf(file, text: 'privacy_marker_text');
+      final file = File('${tempDir.path}/sample.txt');
+      file.writeAsStringSync('privacy_marker_text');
 
       await service.registerFile(file);
 

@@ -15,6 +15,20 @@ const _textNs = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
 const _tableNs = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
 const _drawNs = 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0';
 
+class _OdsSheetData {
+  const _OdsSheetData({
+    required this.name,
+    required this.fieldnames,
+    required this.rows,
+    required this.truncated,
+  });
+
+  final String name;
+  final List<String> fieldnames;
+  final List<IndexedRow> rows;
+  final bool truncated;
+}
+
 Future<List<Map<String, dynamic>>> extractOdtFile(File file) async {
   final root = await _readOdfContentXml(file);
   final body = _firstByLocal(root, 'body', 'office');
@@ -27,6 +41,7 @@ Future<List<Map<String, dynamic>>> extractOdtFile(File file) async {
   }
 
   final lines = <String>[];
+  var truncated = false;
   for (final child in officeText.childElements) {
     if (_isTag(child, 'h', 'text') || _isTag(child, 'p', 'text')) {
       final text = elementText(child);
@@ -36,7 +51,9 @@ Future<List<Map<String, dynamic>>> extractOdtFile(File file) async {
     } else if (_isTag(child, 'list', 'text')) {
       lines.addAll(_odtListItems(child));
     } else if (_isTag(child, 'table', 'table')) {
-      lines.addAll(_odtTableRows(child));
+      final table = _odtTableRows(child);
+      truncated = truncated || table.$2;
+      lines.addAll(table.$1);
     }
   }
 
@@ -44,7 +61,10 @@ Future<List<Map<String, dynamic>>> extractOdtFile(File file) async {
   if (text.trim().isEmpty) {
     throw const FormatException('no_extractable_text');
   }
-  return buildTextRepresentations(text);
+  return buildTextRepresentations(
+    text,
+    metadata: truncated ? {'truncated': true} : null,
+  );
 }
 
 Future<List<Map<String, dynamic>>> extractOdpFile(File file) async {
@@ -66,7 +86,9 @@ Future<List<Map<String, dynamic>>> extractOdpFile(File file) async {
   final lines = <String>[];
   for (var index = 0; index < selected.length; index++) {
     lines.add('[slide ${index + 1}]');
-    lines.addAll(_odpPageText(selected[index]));
+    final pageText = _odpPageText(selected[index]);
+    truncated = truncated || pageText.$2;
+    lines.addAll(pageText.$1);
   }
   final text = lines.join('\n');
   if (text.trim().isEmpty) {
@@ -74,7 +96,10 @@ Future<List<Map<String, dynamic>>> extractOdpFile(File file) async {
   }
   return buildTextRepresentations(
     text,
-    metadata: {'slide_count': selected.length, 'truncated': truncated},
+    metadata: {
+      'slide_count': selected.length,
+      'truncated': truncated,
+    },
   );
 }
 
@@ -95,51 +120,56 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
   var truncated = tables.length > kMaxOdfSheets;
   final selectedTables = tables.take(kMaxOdfSheets).toList();
 
-  final schemaLines = <String>['schema'];
-  final sampleLines = <String>['sample'];
-  final statsLines = <String>['statistics'];
-  final searchableLines = <String>[];
-  final allRows = <IndexedRow>[];
-  var totalRows = 0;
-
+  final sheets = <_OdsSheetData>[];
   for (final table in selectedTables) {
     final sheetName = table.getAttribute('name', namespace: _tableNs) ?? 'Sheet';
-    final parsed = _odsTableRows(table);
+    final parsed = _odsTableRows(table, sheetName);
     truncated = truncated || parsed.$2;
-    final rows = parsed.$1;
-    if (rows.isEmpty) {
-      schemaLines.add('$sheetName: (empty)');
-      statsLines.add('$sheetName: rows=0, columns=0');
-      continue;
-    }
-    final header = rows.first;
-    final fieldnames = header.values.keys.toList();
-    final dataRows = rows.sublist(1);
-    totalRows += dataRows.length;
-    schemaLines.add(
-      '$sheetName: ${fieldnames.map((name) => '$name=string').join(', ')}',
+    sheets.add(
+      _OdsSheetData(
+        name: sheetName,
+        fieldnames: parsed.$3,
+        rows: parsed.$1,
+        truncated: parsed.$2,
+      ),
     );
-    sampleLines.add('[$sheetName]');
-    sampleLines.add(_formatOdsRow(0, header.values));
-    for (var i = 0; i < dataRows.length && i < 5; i++) {
-      sampleLines.add(_formatOdsRow(dataRows[i].index, dataRows[i].values));
-    }
-    statsLines.add(
-      '$sheetName: rows=${dataRows.length}, columns=${fieldnames.length}',
-    );
-    for (final row in dataRows) {
-      searchableLines.add(
-        '[sheet=$sheetName row=${row.index + 1}]\n${_formatOdsValues(row.values, fieldnames)}',
-      );
-      allRows.add(row);
-    }
   }
 
-  if (allRows.isEmpty) {
+  final totalRows = sheets.fold<int>(0, (sum, sheet) => sum + sheet.rows.length);
+  if (totalRows == 0) {
     throw const FormatException('no_extractable_text');
   }
 
-  final fieldnames = allRows.first.values.keys.toList();
+  final schemaLines = <String>['schema'];
+  final sampleLines = <String>['sample'];
+  final statsLines = <String>['statistics'];
+  for (final sheet in sheets) {
+    if (sheet.fieldnames.isEmpty) {
+      schemaLines.add('${sheet.name}: (empty)');
+      statsLines.add('${sheet.name}: rows=0, columns=0');
+      continue;
+    }
+    schemaLines.add(
+      '${sheet.name}: ${sheet.fieldnames.map((name) => '$name=string').join(', ')}',
+    );
+    sampleLines.add('[${sheet.name}]');
+    if (sheet.rows.isNotEmpty) {
+      sampleLines.add(
+        _formatOdsRow(sheet.name, sheet.rows.first.index, sheet.rows.first.values, sheet.fieldnames),
+      );
+      for (var i = 0; i < sheet.rows.length && i < 5; i++) {
+        final row = sheet.rows[i];
+        sampleLines.add(
+          _formatOdsRow(sheet.name, row.index, row.values, sheet.fieldnames),
+        );
+      }
+    }
+    statsLines.add(
+      '${sheet.name}: rows=${sheet.rows.length}, columns=${sheet.fieldnames.length}',
+    );
+  }
+
+  final fieldnames = _unionFieldnames(sheets);
   final columnTypes = {for (final name in fieldnames) name: 'string'};
   final statsMeta = <String, dynamic>{
     'row_count': totalRows,
@@ -150,6 +180,14 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
   };
 
   if (totalRows <= kCompactSampleMaxRows) {
+    final searchableLines = <String>[];
+    for (final sheet in sheets) {
+      for (final row in sheet.rows) {
+        searchableLines.add(
+          '${searchableRowLabel(row)}\n${_formatOdsValues(row.values, sheet.fieldnames)}',
+        );
+      }
+    }
     final schemaCapped = capStructuralText(schemaLines.join('\n'));
     final sampleCapped = capStructuralText(sampleLines.join('\n'));
     final statsCapped = capStructuralText(statsLines.join('\n'));
@@ -165,7 +203,25 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
     ]);
   }
 
-  final estimateRow = allRows.first.values;
+  final globalRows = <IndexedRow>[];
+  var globalIndex = 0;
+  for (final sheet in sheets) {
+    for (final row in sheet.rows) {
+      globalRows.add(
+        IndexedRow(
+          index: globalIndex,
+          sheetName: sheet.name,
+          values: {
+            for (final name in fieldnames)
+              name: row.values[name] ?? '',
+          },
+        ),
+      );
+      globalIndex += 1;
+    }
+  }
+
+  final estimateRow = globalRows.first.values;
   final structuralBytes = estimateStructuralBytes(
     fieldnames,
     columnTypes,
@@ -181,20 +237,29 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
       formatSampleText([estimateRow], fieldnames),
     ),
   );
-  final indexedRows = [
-    for (var i = 0; i < allRows.length; i++)
-      IndexedRow(index: i, values: allRows[i].values),
-  ];
   return buildIndexedDatasetRepresentations(
     fieldnames: fieldnames,
     columnTypes: columnTypes,
     statsMeta: statsMeta,
     statsLines: statsLines,
     totalRows: totalRows,
-    indexedRows: indexedRows,
+    indexedRows: globalRows,
     compactIndices: compactIndices,
     searchableIndices: planned.$1.indices,
   );
+}
+
+List<String> _unionFieldnames(List<_OdsSheetData> sheets) {
+  final names = <String>[];
+  final seen = <String>{};
+  for (final sheet in sheets) {
+    for (final name in sheet.fieldnames) {
+      if (seen.add(name)) {
+        names.add(name);
+      }
+    }
+  }
+  return names;
 }
 
 Future<XmlElement> _readOdfContentXml(File file) async {
@@ -205,32 +270,32 @@ Future<XmlElement> _readOdfContentXml(File file) async {
   return parseSafeXml(readArchiveEntry(archive, 'content.xml')).rootElement;
 }
 
-(List<IndexedRow>, bool) _odsTableRows(XmlElement table) {
-  final rows = <IndexedRow>[];
+(List<IndexedRow>, bool, List<String>) _odsTableRows(
+  XmlElement table,
+  String sheetName,
+) {
+  final parsedRows = <List<String>>[];
   var truncated = false;
-  var rowIndex = 0;
   for (final rowElem in _childrenByLocal(table, 'table-row', 'table')) {
-    if (rows.length >= kMaxOdfRowsPerSheet) {
+    if (parsedRows.length >= kMaxOdfRowsPerSheet) {
       truncated = true;
       break;
     }
-    final values = <String, String>{};
-    var colIndex = 0;
+    final values = <String>[];
     for (final cell in _childrenByLocal(rowElem, 'table-cell', 'table')) {
       final cellRepeat = _boundedRepeat(
         cell.getAttribute('number-columns-repeated', namespace: _tableNs),
       );
-      final cellText = elementText(cell);
+      final cellText = odfStoredCellValue(cell, officeNs: _officeNs);
       for (var i = 0; i < cellRepeat.$1; i++) {
-        if (colIndex >= kMaxOdfColumns) {
+        if (values.length >= kMaxOdfColumns) {
           truncated = true;
           break;
         }
-        values['col_$colIndex'] = cellText;
-        colIndex += 1;
+        values.add(cellText);
       }
       truncated = truncated || cellRepeat.$2;
-      if (truncated) {
+      if (truncated && values.length >= kMaxOdfColumns) {
         break;
       }
     }
@@ -239,17 +304,48 @@ Future<XmlElement> _readOdfContentXml(File file) async {
     );
     truncated = truncated || rowRepeat.$2;
     for (var i = 0; i < rowRepeat.$1; i++) {
-      if (values.values.any((value) => value.isNotEmpty)) {
-        rows.add(IndexedRow(index: rowIndex, values: Map.from(values)));
-      }
-      rowIndex += 1;
-      if (rows.length >= kMaxOdfRowsPerSheet) {
+      parsedRows.add(List<String>.from(values));
+      if (parsedRows.length >= kMaxOdfRowsPerSheet) {
         truncated = true;
         break;
       }
     }
   }
-  return (rows, truncated);
+
+  if (parsedRows.isEmpty) {
+    return ([], truncated, []);
+  }
+
+  final header = parsedRows.first;
+  final fieldnames = header
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toList();
+  final effectiveNames = fieldnames.isNotEmpty
+      ? fieldnames
+      : List.generate(header.length, (index) => 'col_$index');
+
+  final rows = <IndexedRow>[];
+  var dataRowIndex = 0;
+  for (var rowOffset = 1; rowOffset < parsedRows.length; rowOffset++) {
+    final raw = parsedRows[rowOffset];
+    final values = <String, String>{};
+    for (var col = 0; col < effectiveNames.length; col++) {
+      values[effectiveNames[col]] =
+          col < raw.length ? raw[col] : '';
+    }
+    if (values.values.any((value) => value.isNotEmpty)) {
+      rows.add(
+        IndexedRow(
+          index: dataRowIndex,
+          sheetName: sheetName,
+          values: values,
+        ),
+      );
+      dataRowIndex += 1;
+    }
+  }
+  return (rows, truncated, effectiveNames);
 }
 
 (int, bool) _boundedRepeat(String? raw, {int defaultValue = 1}) {
@@ -279,31 +375,41 @@ List<String> _odtListItems(XmlElement listElem) {
   return items;
 }
 
-List<String> _odtTableRows(XmlElement table) {
+(List<String>, bool) _odtTableRows(XmlElement table) {
   final lines = <String>[];
+  var truncated = false;
   for (final rowElem in _childrenByLocal(table, 'table-row', 'table')) {
     final rowCells = <String>[];
     for (final cell in _childrenByLocal(rowElem, 'table-cell', 'table')) {
       final repeat = _boundedRepeat(
         cell.getAttribute('number-columns-repeated', namespace: _tableNs),
       );
-      final cellText = elementText(cell);
+      final cellText = odfStoredCellValue(cell, officeNs: _officeNs);
+      truncated = truncated || repeat.$2;
       for (var i = 0; i < repeat.$1; i++) {
         if (rowCells.length >= kMaxOdfColumns) {
+          truncated = true;
           break;
         }
         rowCells.add(cellText);
       }
     }
-    if (rowCells.any((cell) => cell.isNotEmpty)) {
-      lines.add('| ${rowCells.join(' | ')} |');
+    final rowRepeat = _boundedRepeat(
+      rowElem.getAttribute('number-rows-repeated', namespace: _tableNs),
+    );
+    truncated = truncated || rowRepeat.$2;
+    for (var i = 0; i < rowRepeat.$1; i++) {
+      if (rowCells.any((cell) => cell.isNotEmpty)) {
+        lines.add('| ${rowCells.join(' | ')} |');
+      }
     }
   }
-  return lines;
+  return (lines, truncated);
 }
 
-List<String> _odpPageText(XmlElement page) {
+(List<String>, bool) _odpPageText(XmlElement page) {
   final lines = <String>[];
+  var truncated = false;
   for (final element in page.descendants.whereType<XmlElement>()) {
     if (_isTag(element, 'p', 'text')) {
       final text = elementText(element);
@@ -313,14 +419,22 @@ List<String> _odpPageText(XmlElement page) {
     } else if (_isTag(element, 'list', 'text')) {
       lines.addAll(_odtListItems(element));
     } else if (_isTag(element, 'table', 'table')) {
-      lines.addAll(_odtTableRows(element));
+      final table = _odtTableRows(element);
+      truncated = truncated || table.$2;
+      lines.addAll(table.$1);
     }
   }
-  return lines;
+  return (lines, truncated);
 }
 
-String _formatOdsRow(int index, Map<String, String> values) {
-  return 'row=${index + 1} ${values.entries.map((e) => '${e.key}=${e.value}').join(' | ')}';
+String _formatOdsRow(
+  String sheetName,
+  int index,
+  Map<String, String> values,
+  List<String> fieldnames,
+) {
+  return '${searchableRowLabel(IndexedRow(index: index, sheetName: sheetName, values: values))} '
+      '${fieldnames.map((name) => '$name=${values[name] ?? ''}').join(' | ')}';
 }
 
 String _formatOdsValues(Map<String, String> values, List<String> fieldnames) {

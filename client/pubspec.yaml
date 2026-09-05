@@ -28,7 +28,7 @@ dependencies:
   archive: ^4.0.7
   xml: ^6.5.0
   dart_duckdb: ^1.4.4
-  syncfusion_flutter_pdf: ^33.2.13
+  pdfrx: ^2.2.24
 
 dev_dependencies:
   flutter_test:

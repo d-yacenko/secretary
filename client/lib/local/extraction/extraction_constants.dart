@@ -12,6 +12,7 @@ const int kReadWindowBytes = 8000;
 const int kMaxExtractedTextChars = 512000;
 
 const int kMaxPdfPages = 50;
+const int kMaxPdfInputBytes = 32 * 1024 * 1024;
 const int kMaxOoxmlZipEntries = 512;
 const int kMaxOoxmlUncompressedBytes = 32 * 1024 * 1024;
 const int kMaxOoxmlCompressionRatio = 200;

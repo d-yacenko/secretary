@@ -1,9 +1,23 @@
 import 'dart:io';
 
-import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import 'extraction_constants.dart';
 import 'representation_builder.dart';
+
+bool _pdfInitialized = false;
+
+Future<void> _ensurePdfInitialized() async {
+  if (_pdfInitialized) {
+    return;
+  }
+  if (Platform.isAndroid || Platform.isIOS) {
+    await pdfrxFlutterInitialize(dismissPdfiumWasmWarnings: true);
+  } else {
+    await pdfrxInitialize();
+  }
+  _pdfInitialized = true;
+}
 
 class PdfExtractionResult {
   const PdfExtractionResult({
@@ -20,18 +34,36 @@ class PdfExtractionResult {
 }
 
 Future<PdfExtractionResult> extractPdfFile(File file) async {
-  final bytes = await file.readAsBytes();
+  final size = await file.length();
+  if (size > kMaxPdfInputBytes) {
+    return const PdfExtractionResult(
+      representations: [],
+      metadataOnly: true,
+      extractionFailed: true,
+      userMessage: 'PDF слишком большой для локального извлечения текста',
+    );
+  }
+
+  await _ensurePdfInitialized();
   PdfDocument? document;
   try {
-    document = PdfDocument(inputBytes: bytes);
-    final pageCount = document.pages.count;
+    document = await PdfDocument.openFile(file.path);
+    if (document.isEncrypted) {
+      return const PdfExtractionResult(
+        representations: [],
+        metadataOnly: true,
+        extractionFailed: true,
+        userMessage: 'PDF зашифрован; извлечение текста недоступно',
+      );
+    }
+
+    final pageCount = document.pages.length;
     final truncated = pageCount > kMaxPdfPages;
     final lastPage = pageCount < kMaxPdfPages ? pageCount : kMaxPdfPages;
     final parts = <String>[];
     for (var pageIndex = 0; pageIndex < lastPage; pageIndex++) {
-      final pageText = PdfTextExtractor(document)
-          .extractText(startPageIndex: pageIndex, endPageIndex: pageIndex)
-          .trim();
+      final rawText = await document.pages[pageIndex].loadText();
+      final pageText = rawText?.fullText.trim() ?? '';
       if (pageText.isNotEmpty) {
         parts.add('[page ${pageIndex + 1}]\n$pageText');
       }
@@ -52,9 +84,8 @@ Future<PdfExtractionResult> extractPdfFile(File file) async {
         },
       ),
     );
-  } catch (error) {
-    final message = error.toString().toLowerCase();
-    if (message.contains('password') || message.contains('encrypt')) {
+  } on PdfException catch (error) {
+    if (error is PdfPasswordException) {
       return const PdfExtractionResult(
         representations: [],
         metadataOnly: true,
@@ -68,7 +99,14 @@ Future<PdfExtractionResult> extractPdfFile(File file) async {
       extractionFailed: true,
       userMessage: 'Не удалось прочитать PDF',
     );
+  } catch (_) {
+    return const PdfExtractionResult(
+      representations: [],
+      metadataOnly: true,
+      extractionFailed: true,
+      userMessage: 'Не удалось прочитать PDF',
+    );
   } finally {
-    document?.dispose();
+    await document?.dispose();
   }
 }

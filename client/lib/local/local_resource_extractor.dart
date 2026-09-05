@@ -146,7 +146,7 @@ class LocalResourceExtractor {
         );
       case '.csv':
         return _ExtractedPayload(
-          representations: extractCsvFile(file),
+          representations: await extractCsvFile(file),
         );
       case '.pdf':
         final pdf = await extractPdfFile(file);
