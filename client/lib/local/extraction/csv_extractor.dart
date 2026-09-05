@@ -167,22 +167,45 @@ List<Map<String, dynamic>> _buildCsvRepresentations(
 Future<PositionalSchema> _resolveCsvPositionalSchema(File file) async {
   var isHeader = true;
   List<String> rawHeader = [];
-  final observedWidths = <int>[];
+  var maxObservedWidth = 0;
+  var widthOverflow = false;
+
+  void consider(int width) {
+    if (width > kMaxCsvColumns) {
+      widthOverflow = true;
+      if (kMaxCsvColumns > maxObservedWidth) {
+        maxObservedWidth = kMaxCsvColumns;
+      }
+    } else if (width > maxObservedWidth) {
+      maxObservedWidth = width;
+    }
+  }
+
   await for (final row in _streamCsvRows(file)) {
     if (isHeader) {
       rawHeader = row.map((cell) => cell?.toString() ?? '').toList();
+      consider(rawHeader.length);
       isHeader = false;
       continue;
     }
     if (!row.any((cell) => cell?.toString().trim().isNotEmpty ?? false)) {
       continue;
     }
-    observedWidths.add(row.length);
+    consider(row.length);
   }
-  return resolvePositionalSchema(
+  final schema = resolvePositionalSchema(
     rawHeader: rawHeader,
-    observedRowWidths: observedWidths,
+    observedRowWidths:
+        maxObservedWidth == 0 ? const <int>[] : [maxObservedWidth],
     maxColumns: kMaxCsvColumns,
+  );
+  if (!widthOverflow) {
+    return schema;
+  }
+  return PositionalSchema(
+    columnKeys: schema.columnKeys,
+    displayHeaders: schema.displayHeaders,
+    truncated: true,
   );
 }
 
