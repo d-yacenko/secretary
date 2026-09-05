@@ -17,6 +17,11 @@ from app.services.correlation_constants import (
     FOLDER_KIND,
     SEMANTIC_SUMMARY_METADATA_KEY,
 )
+from app.services.evidence_snippet import (
+    CONTEXT_EVIDENCE_MAX_CHARS,
+    build_query_centered_snippet,
+    lexical_match_score,
+)
 from app.services.graph_service import GraphService
 from app.services.representation_service import (
     KIND_CHUNK,
@@ -400,6 +405,7 @@ class ContextService:
                             obj,
                             chunk_rep,
                             why_included="relevant document chunk",
+                            query=query,
                         ),
                     )
                 )
@@ -407,22 +413,29 @@ class ContextService:
         return slots
 
     def _rank_chunks(self, chunk_reps: list[Representation], query: str) -> list[Representation]:
-        embedded = [rep for rep in chunk_reps if rep.embedding is not None]
-        if embedded and self._embedding_service is not None:
+        query_vector: list[float] | None = None
+        if self._embedding_service is not None:
             try:
                 query_vector = self._embedding_service.embed(query)
-                return sorted(
-                    embedded,
-                    key=lambda rep: (
-                        _cosine_distance(list(rep.embedding), query_vector),
-                        rep.part_index or 0,
-                        str(rep.id),
-                    ),
-                )
             except Exception:  # noqa: BLE001
                 logger.warning("chunk ranking embedding failed; using lexical fallback")
+                query_vector = None
 
-        return self._rank_chunks_lexical(chunk_reps, query)
+        def rank_key(rep: Representation) -> tuple[float, float, float, int, str]:
+            substring, coverage = lexical_match_score(rep.text or "", query)
+            if rep.embedding is not None and query_vector is not None:
+                distance = _cosine_distance(list(rep.embedding), query_vector)
+            else:
+                distance = 1.0
+            return (
+                substring,
+                coverage,
+                -distance,
+                -(rep.part_index or 0),
+                str(rep.id),
+            )
+
+        return sorted(chunk_reps, key=rank_key, reverse=True)
 
     def _rank_chunks_lexical(
         self,
@@ -477,12 +490,20 @@ class ContextService:
         obj: Object,
         rep: Representation,
         why_included: str,
+        query: str | None = None,
     ) -> ContextItem:
+        content = rep.text or ""
+        if query and rep.kind == KIND_CHUNK and content:
+            content = build_query_centered_snippet(
+                content,
+                query,
+                CONTEXT_EVIDENCE_MAX_CHARS,
+            )
         return ContextItem(
             object_id=obj.id,
             kind=obj.kind,
             title=obj.title,
-            content=rep.text or "",
+            content=content,
             origin=obj.origin,
             state=obj.state,
             confidence=obj.confidence,

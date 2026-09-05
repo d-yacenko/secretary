@@ -6,12 +6,15 @@ from sqlalchemy.orm import Session
 
 from app.services.retrieval_constants import (
     ATOM_PROBE_LIMIT,
+    CLOUD_CURRENT_REPRESENTATION_GATE_SQL,
+    CLOUD_CURRENT_REPRESENTATION_SQL,
     FTS_DOCUMENT_SQL,
     GENERIC_QUERY_WORDS,
     MAX_QUERY_ATOMS,
     MAX_QUERY_TOKENS_SCANNED,
     MAX_SELECTED_ATOMS,
     MIN_ATOM_LENGTH,
+    RETRIEVAL_REPRESENTATION_KINDS_SQL,
     RUSSIAN_FTS_DOCUMENT_SQL,
 )
 
@@ -48,6 +51,32 @@ _PROBE_TRIGRAM_SQL = f"""
     WHERE {_BASE_WHERE}
       {{filter_suffix}}
       AND o.title % :atom
+    LIMIT :probe_limit
+"""
+
+_PROBE_REP_SIMPLE_SQL = f"""
+    SELECT o.id
+    FROM representations r
+    INNER JOIN objects o ON o.id = r.object_id
+    WHERE {_BASE_WHERE}
+      {{filter_suffix}}
+      {CLOUD_CURRENT_REPRESENTATION_SQL}
+      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+      AND to_tsvector('simple', coalesce(r.text, ''))
+          @@ plainto_tsquery('simple', :atom)
+    LIMIT :probe_limit
+"""
+
+_PROBE_REP_RUSSIAN_SQL = f"""
+    SELECT o.id
+    FROM representations r
+    INNER JOIN objects o ON o.id = r.object_id
+    WHERE {_BASE_WHERE}
+      {{filter_suffix}}
+      {CLOUD_CURRENT_REPRESENTATION_SQL}
+      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+      AND to_tsvector('russian', coalesce(r.text, ''))
+          @@ plainto_tsquery('russian', :atom)
     LIMIT :probe_limit
 """
 
@@ -119,6 +148,11 @@ def probe_atom_selectivity(
             base_params,
         ).scalars()
         counts.append(len(list(russian_ids)))
+        rep_russian_ids = session.execute(
+            text(_PROBE_REP_RUSSIAN_SQL.format(filter_suffix=filter_suffix)),
+            base_params,
+        ).scalars()
+        counts.append(len(list(rep_russian_ids)))
 
     if is_technical_atom(atom) or not is_cyrillic_atom(atom):
         simple_ids = session.execute(
@@ -126,6 +160,11 @@ def probe_atom_selectivity(
             base_params,
         ).scalars()
         counts.append(len(list(simple_ids)))
+        rep_simple_ids = session.execute(
+            text(_PROBE_REP_SIMPLE_SQL.format(filter_suffix=filter_suffix)),
+            base_params,
+        ).scalars()
+        counts.append(len(list(rep_simple_ids)))
 
     trigram_ids = session.execute(
         text(_PROBE_TRIGRAM_SQL.format(filter_suffix=filter_suffix)),
@@ -164,4 +203,9 @@ def select_selective_atoms(
             scored.append((selectivity, atom))
 
     scored.sort(key=lambda item: (item[0], item[1]))
-    return [atom for _, atom in scored[:MAX_SELECTED_ATOMS]]
+    selected = [atom for _, atom in scored[:MAX_SELECTED_ATOMS]]
+    if selected:
+        return selected
+    if candidates:
+        return candidates[:MAX_SELECTED_ATOMS]
+    return []

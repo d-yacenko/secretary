@@ -5,6 +5,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
+from app.services.evidence_snippet import (
+    build_query_centered_snippet,
+    representation_evidence_score,
+)
 from app.services.errors import ValidationError
 from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
@@ -234,6 +238,54 @@ def _build_atom_trigram_sql(filter_suffix: str) -> str:
     """
 
 
+def _build_atom_representation_simple_fts_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM representations r
+    INNER JOIN objects o ON o.id = r.object_id
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      {CLOUD_CURRENT_REPRESENTATION_SQL}
+      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+      AND to_tsvector('simple', coalesce(r.text, ''))
+          @@ plainto_tsquery('simple', :atom)
+    GROUP BY o.id
+    ORDER BY
+      MAX(
+        ts_rank(
+          to_tsvector('simple', coalesce(r.text, '')),
+          plainto_tsquery('simple', :atom)
+        )
+      ) DESC,
+      o.id
+    LIMIT :branch_limit
+    """
+
+
+def _build_atom_representation_russian_fts_sql(filter_suffix: str) -> str:
+    return f"""
+    SELECT o.id
+    FROM representations r
+    INNER JOIN objects o ON o.id = r.object_id
+    WHERE {_BASE_WHERE}
+      {filter_suffix}
+      {CLOUD_CURRENT_REPRESENTATION_SQL}
+      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+      AND to_tsvector('russian', coalesce(r.text, ''))
+          @@ plainto_tsquery('russian', :atom)
+    GROUP BY o.id
+    ORDER BY
+      MAX(
+        ts_rank(
+          to_tsvector('russian', coalesce(r.text, '')),
+          plainto_tsquery('russian', :atom)
+        )
+      ) DESC,
+      o.id
+    LIMIT :branch_limit
+    """
+
+
 def _bounded_round_robin_merge(branches: list[list[UUID]], limit: int) -> list[UUID]:
     seen: set[UUID] = set()
     merged: list[UUID] = []
@@ -338,7 +390,7 @@ _RANK_QUERY = text(
 )
 
 _TERM_RANK_QUERY = text(
-    """
+    f"""
     SELECT
         o.id,
         (
@@ -388,10 +440,60 @@ _TERM_RANK_QUERY = text(
                 OR to_tsvector('russian', coalesce(o.body, ''))
                     @@ plainto_tsquery('russian', atom)
                 OR o.title % atom
-        ) AS atom_match_count
+                OR EXISTS (
+                    SELECT 1
+                    FROM representations r
+                    WHERE r.object_id = o.id
+                      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+                      AND (
+                        {CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
+                      )
+                      AND (
+                        to_tsvector('simple', coalesce(r.text, ''))
+                            @@ plainto_tsquery('simple', atom)
+                        OR to_tsvector('russian', coalesce(r.text, ''))
+                            @@ plainto_tsquery('russian', atom)
+                      )
+                )
+        ) AS atom_match_count,
+        (
+            SELECT MAX(
+                GREATEST(
+                    ts_rank(
+                        to_tsvector('simple', coalesce(r.text, '')),
+                        plainto_tsquery('simple', atom)
+                    ),
+                    ts_rank(
+                        to_tsvector('russian', coalesce(r.text, '')),
+                        plainto_tsquery('russian', atom)
+                    )
+                )
+            )
+            FROM representations r
+            CROSS JOIN unnest(CAST(:atoms AS text[])) AS atom
+            WHERE r.object_id = o.id
+              AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+              AND (
+                {CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
+              )
+        ) AS best_atom_rep_rank
     FROM objects o
     WHERE o.user_id = :user_id
       AND o.id = ANY(:candidate_ids)
+    """
+)
+
+_REPRESENTATIONS_FOR_OBJECTS = text(
+    f"""
+    SELECT r.object_id, r.text
+    FROM representations r
+    INNER JOIN objects o ON o.id = r.object_id
+    WHERE o.user_id = :user_id
+      AND r.object_id = ANY(:object_ids)
+      AND r.kind IN ({RETRIEVAL_REPRESENTATION_KINDS_SQL})
+      AND (
+        {CLOUD_CURRENT_REPRESENTATION_GATE_SQL}
+      )
     """
 )
 
@@ -612,6 +714,8 @@ class RetrievalService:
         simple_sql = _build_atom_simple_fts_sql(filter_suffix)
         russian_sql = _build_atom_russian_fts_sql(filter_suffix)
         trigram_sql = _build_atom_trigram_sql(filter_suffix)
+        rep_simple_sql = _build_atom_representation_simple_fts_sql(filter_suffix)
+        rep_russian_sql = _build_atom_representation_russian_fts_sql(filter_suffix)
 
         for atom in atoms:
             atom_params = {**base_params, "atom": atom}
@@ -629,10 +733,36 @@ class RetrievalService:
                         candidate_ids,
                         max_candidates=max_new_candidates,
                     )
+                for object_id in self._session.execute(
+                    text(rep_russian_sql),
+                    {
+                        **atom_params,
+                        "branch_limit": RELAXED_RUSSIAN_FTS_PER_ATOM,
+                    },
+                ).scalars():
+                    _append_candidate(
+                        object_id,
+                        seen,
+                        candidate_ids,
+                        max_candidates=max_new_candidates,
+                    )
 
             if is_technical_atom(atom) or not is_cyrillic_atom(atom):
                 for object_id in self._session.execute(
                     text(simple_sql),
+                    {
+                        **atom_params,
+                        "branch_limit": RELAXED_SIMPLE_FTS_PER_ATOM,
+                    },
+                ).scalars():
+                    _append_candidate(
+                        object_id,
+                        seen,
+                        candidate_ids,
+                        max_candidates=max_new_candidates,
+                    )
+                for object_id in self._session.execute(
+                    text(rep_simple_sql),
                     {
                         **atom_params,
                         "branch_limit": RELAXED_SIMPLE_FTS_PER_ATOM,
@@ -800,6 +930,8 @@ class RetrievalService:
             ).mappings()
             term_map = {row["id"]: dict(row) for row in term_rows}
 
+        rep_texts_by_object = self._representation_texts_by_object(candidate_ids)
+
         atom_count = len(selected_atoms or [])
         hits: list[RetrievalHit] = []
         for object_id in candidate_ids:
@@ -816,12 +948,14 @@ class RetrievalService:
             best_atom_title_rank = 0.0
             best_atom_body_rank = 0.0
             best_atom_title_sim = 0.0
+            best_atom_rep_rank = 0.0
             coverage = 0.0
             term_row = term_map.get(object_id)
             if term_row is not None and atom_count > 0:
                 best_atom_title_rank = float(term_row["best_atom_title_rank"] or 0.0)
                 best_atom_body_rank = float(term_row["best_atom_body_rank"] or 0.0)
                 best_atom_title_sim = float(term_row["best_atom_title_sim"] or 0.0)
+                best_atom_rep_rank = float(term_row.get("best_atom_rep_rank") or 0.0)
                 coverage = float(term_row["atom_match_count"] or 0.0) / atom_count
 
             strict_quality = (
@@ -834,6 +968,7 @@ class RetrievalService:
                 TITLE_FTS_WEIGHT * best_atom_title_rank
                 + BODY_FTS_WEIGHT * best_atom_body_rank
                 + TRIGRAM_WEIGHT * best_atom_title_sim
+                + REPRESENTATION_FTS_WEIGHT * best_atom_rep_rank
                 + TERM_COVERAGE_BONUS * coverage
             )
             match_quality = (
@@ -845,6 +980,7 @@ class RetrievalService:
             effective_title_rank = max(title_rank, best_atom_title_rank)
             effective_body_rank = max(body_rank, best_atom_body_rank)
             effective_title_sim = max(title_sim, best_atom_title_sim)
+            effective_rep_rank = max(rep_rank, best_atom_rep_rank)
 
             kind_value = str(row["kind"])
             occurred_at = row["occurred_at"]
@@ -862,9 +998,19 @@ class RetrievalService:
                 title_rank=effective_title_rank,
                 body_rank=effective_body_rank,
                 title_sim=effective_title_sim,
-                rep_rank=rep_rank,
+                rep_rank=effective_rep_rank,
                 kind=kind_value,
                 recency_signal=recency_signal,
+            )
+
+            excerpt = _evidence_short_excerpt(
+                title=str(row["title"]),
+                body=row["body"],
+                rep_excerpt=rep_excerpt,
+                rep_texts=rep_texts_by_object.get(object_id, []),
+                query=query,
+                selected_atoms=selected_atoms,
+                max_chars=SHORT_EXCERPT_MAX_CHARS,
             )
 
             hits.append(
@@ -878,17 +1024,30 @@ class RetrievalService:
                     occurred_at=occurred_at,
                     relevance=ranking_score,
                     reasons=reasons,
-                    short_excerpt=_short_excerpt(
-                        title=str(row["title"]),
-                        body=row["body"],
-                        rep_excerpt=rep_excerpt,
-                        max_chars=SHORT_EXCERPT_MAX_CHARS,
-                    ),
+                    short_excerpt=excerpt,
                 )
             )
 
         hits.sort(key=lambda item: (-item.relevance, str(item.object_id)))
         return hits
+
+    def _representation_texts_by_object(self, object_ids: list[UUID]) -> dict[UUID, list[str]]:
+        if not object_ids:
+            return {}
+        rows = self._session.execute(
+            _REPRESENTATIONS_FOR_OBJECTS,
+            {
+                "user_id": self._user_id,
+                "object_ids": object_ids,
+            },
+        ).mappings()
+        texts_by_object: dict[UUID, list[str]] = {}
+        for row in rows:
+            text_value = row["text"] or ""
+            if not text_value.strip():
+                continue
+            texts_by_object.setdefault(row["object_id"], []).append(text_value)
+        return texts_by_object
 
     def _should_stop_horizon_expansion(self, hits: list[RetrievalHit]) -> bool:
         qualified = [hit for hit in hits if _hit_is_qualified(hit)]
@@ -985,6 +1144,50 @@ def _build_reasons(
     if recency_signal:
         reasons.append("recent")
     return reasons
+
+
+def _best_representation_text(
+    rep_texts: list[str],
+    query: str,
+    selected_atoms: list[str] | None,
+) -> str | None:
+    best_text: str | None = None
+    best_key = (-1.0, -1.0, -1)
+    for text_value in rep_texts:
+        key = representation_evidence_score(text_value, query, selected_atoms)
+        if key > best_key:
+            best_key = key
+            best_text = text_value
+    return best_text
+
+
+def _evidence_short_excerpt(
+    *,
+    title: str,
+    body: str | None,
+    rep_excerpt: str | None,
+    rep_texts: list[str],
+    query: str,
+    selected_atoms: list[str] | None,
+    max_chars: int,
+) -> str:
+    candidates = list(rep_texts)
+    if rep_excerpt and rep_excerpt.strip():
+        candidates.append(rep_excerpt)
+    best_rep = _best_representation_text(candidates, query, selected_atoms)
+    if best_rep:
+        return build_query_centered_snippet(
+            best_rep,
+            query,
+            max_chars,
+            selected_atoms,
+        )
+    return _short_excerpt(
+        title=title,
+        body=body,
+        rep_excerpt=None,
+        max_chars=max_chars,
+    )
 
 
 def _short_excerpt(
