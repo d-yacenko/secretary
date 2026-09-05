@@ -276,3 +276,17 @@ def test_changed_revision_bumps_generation_and_summarize_job_matches(
         expected_representation_generation=after_generation,
     )
     assert summary is not None
+
+
+def test_update_summary_for_missing_object_raises_not_found(db_session) -> None:
+    import pytest
+
+    from app.services.errors import NotFoundError
+
+    missing_id = uuid.uuid4()
+    with pytest.raises(NotFoundError) as exc_info:
+        SemanticSummaryService(db_session, BOOTSTRAP_USER_ID).update_summary_for_object(
+            missing_id
+        )
+    assert exc_info.value.resource == "object"
+    assert exc_info.value.entity_id == missing_id

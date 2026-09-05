@@ -14,6 +14,7 @@ from app.services.correlation_constants import (
     SEMANTIC_SUMMARY_METADATA_KEY,
     SEMANTIC_SUMMARY_REVISION_KEY,
 )
+from app.services.errors import NotFoundError
 from app.services.representation_generation import (
     get_representation_generation,
     representation_generation_matches,
