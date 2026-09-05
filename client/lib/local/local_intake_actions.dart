@@ -14,6 +14,10 @@ import '../assistant/assistant_controller.dart';
 import 'local_file_intake_service.dart';
 
 typedef IntakeObjectHandler = void Function(SecretaryObject object);
+typedef ActiveContextChooser = Future<SecretaryObject?> Function(
+  BuildContext context,
+  List<SecretaryObject> objects,
+);
 
 class LocalIntakeActions {
   LocalIntakeActions({
@@ -25,7 +29,9 @@ class LocalIntakeActions {
     this.onIntakeSuccess,
     this.attachToCapture = false,
     this.forInbox = false,
-  })  : _intakeService = LocalFileIntakeService(apiClient: apiClient);
+    this.chooseActiveContext,
+    LocalFileIntakeService? intakeService,
+  })  : _intakeService = intakeService ?? LocalFileIntakeService(apiClient: apiClient);
 
   final SecretaryApiClient apiClient;
   final AuthController authController;
@@ -35,6 +41,7 @@ class LocalIntakeActions {
   final VoidCallback? onIntakeSuccess;
   final bool attachToCapture;
   final bool forInbox;
+  final ActiveContextChooser? chooseActiveContext;
 
   final LocalFileIntakeService _intakeService;
   bool _busy = false;
@@ -265,6 +272,9 @@ class LocalIntakeActions {
     BuildContext context,
     List<SecretaryObject> objects,
   ) async {
+    if (chooseActiveContext != null) {
+      return chooseActiveContext!(context, objects);
+    }
     return showDialog<SecretaryObject>(
       context: context,
       builder: (context) => AlertDialog(

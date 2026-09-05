@@ -10,7 +10,13 @@ import 'format_parity_fixtures.dart';
 import 'pdf_test_support.dart';
 
 void main() {
-  setUpAll(configureDuckDbForTests);
+  late bool pdfAvailable;
+
+  setUpAll(() async {
+    configureDuckDbForTests();
+    pdfAvailable = await isPdfAvailableForTests();
+  });
+
   late Directory tempDir;
   late LocalResourceExtractor extractor;
 
@@ -192,8 +198,8 @@ void main() {
   });
 
   test('pdf text extraction', () async {
-    if (!await isPdfAvailableForTests()) {
-      return;
+    if (!pdfAvailable) {
+      fail('BLOCKED: PDFium is required but unavailable on this host');
     }
     final file = File('${tempDir.path}/sample.pdf');
     await writeMinimalPdf(file, text: 'pdf distinctive phrase delta');
@@ -206,8 +212,8 @@ void main() {
   });
 
   test('blank pdf is metadata-only', () async {
-    if (!await isPdfAvailableForTests()) {
-      return;
+    if (!pdfAvailable) {
+      fail('BLOCKED: PDFium is required but unavailable on this host');
     }
     final file = File('${tempDir.path}/blank.pdf');
     await writeBlankPdf(file);
@@ -280,10 +286,58 @@ void main() {
     expect(joined, contains('odp distinctive slide'));
   });
 
+  test('odt repeated columns are bounded with truncation metadata', () async {
+    final file = File('${tempDir.path}/repeat.odt');
+    await writeOdtWithRepeatedColumns(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('repeat_marker_odt'));
+    final truncated = result.representations.any(
+      (rep) => (rep['metadata'] as Map?)?['truncated'] == true,
+    );
+    expect(truncated, isTrue);
+  });
+
+  test('ods repeated rows expand stored values', () async {
+    final file = File('${tempDir.path}/repeat.ods');
+    await writeOdsWithRepeatedRows(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('repeat_marker_ods'));
+    final statsRep = result.representations.firstWhere((r) => r['kind'] == 'statistics');
+    expect((statsRep['metadata'] as Map?)?['stats_truncated'], isTrue);
+  });
+
+  test('odp repeated table rows are bounded with truncation metadata', () async {
+    final file = File('${tempDir.path}/repeat.odp');
+    await writeOdpWithRepeatedTable(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('repeat_marker_odp'));
+    final truncated = result.representations.any(
+      (rep) => (rep['metadata'] as Map?)?['truncated'] == true,
+    );
+    expect(truncated, isTrue);
+  });
+
+  test('large multi-sheet ods preserves sheet coverage and row counts', () async {
+    final file = File('${tempDir.path}/multi.ods');
+    await writeLargeMultiSheetOds(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('ods_sheet_beta_marker'));
+    expect(joined, contains('Alpha'));
+    expect(joined, contains('Beta'));
+    final statsRep = result.representations.firstWhere((r) => r['kind'] == 'statistics');
+    expect((statsRep['metadata'] as Map?)?['row_count'], 100);
+    final kinds = result.representations.map((r) => r['kind']).toSet();
+    expect(kinds.contains('schema'), isTrue);
+    expect(kinds.contains('sample'), isTrue);
+    expect(kinds.contains('statistics'), isTrue);
+  });
+
   test('parquet small full coverage', () async {
-    if (!isDuckDbAvailable) {
-      return;
-    }
+    requireDuckDbForTests(isDuckDbAvailable);
     final file = File('${tempDir.path}/sample.parquet');
     await writeMinimalParquet(file);
     final result = await extractor.extractFile(file);
@@ -293,9 +347,7 @@ void main() {
   });
 
   test('parquet large distributed deterministic', () async {
-    if (!isDuckDbAvailable) {
-      return;
-    }
+    requireDuckDbForTests(isDuckDbAvailable);
     final file = File('${tempDir.path}/large.parquet');
     await writeLargeParquet(file, 10000, markerRow: 9999);
     final first = await extractor.extractFile(file);
@@ -315,11 +367,11 @@ void main() {
   });
 
   test('pdf over 50 pages is bounded', () async {
-    if (!await isPdfAvailableForTests()) {
-      return;
+    if (!pdfAvailable) {
+      fail('BLOCKED: PDFium is required but unavailable on this host');
     }
     final file = File('${tempDir.path}/many.pdf');
-    await writeMultiPagePdf(file, 55, marker: 'bounded_page');
+    await writeMergedMultiPagePdf(file, 55, marker: 'bounded_page');
     final result = await extractor.extractFile(file);
     final joined = result.representations.map((r) => r['text']).join('\n');
     expect(joined, contains('[page 1]'));

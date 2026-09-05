@@ -3,6 +3,7 @@ import 'dart:io';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import 'client_device_store.dart';
+import 'client_wire_metadata.dart';
 import 'local_resource_extractor.dart';
 
 class LocalFileIntakeService {
@@ -35,7 +36,7 @@ class LocalFileIntakeService {
       size: extraction.size,
       modifiedAt: extraction.modifiedAt,
       contentRevision: extraction.contentRevision,
-      representations: extraction.representations,
+      representations: sanitizeClientRepresentations(extraction.representations),
       contentHash: extraction.contentHash,
       metadataOnly: extraction.metadataOnly,
       intakeMode: intakeMode,

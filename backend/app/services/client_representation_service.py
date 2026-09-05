@@ -12,11 +12,14 @@ from app.services.client_intake_constants import (
     CLIENT_REPRESENTATION_KINDS,
     DATASET_FILE_SUFFIXES,
     DATASET_REPRESENTATION_KINDS,
+    DOCUMENT_FILE_SUFFIXES,
+    DOCUMENT_REPRESENTATION_KINDS,
+    LEGACY_METADATA_ONLY_SUFFIXES,
     MAX_CLIENT_REPRESENTATION_PART_BYTES,
     MAX_CLIENT_REPRESENTATION_PARTS,
     MAX_CLIENT_REPRESENTATION_TOTAL_BYTES,
-    TEXT_FILE_SUFFIXES,
-    TEXT_REPRESENTATION_KINDS,
+    MAX_SAMPLED_ROW_INDICES,
+    ALLOWED_DATASET_SAMPLING_MODES,
     UNSUPPORTED_INDEX_SUFFIXES,
 )
 from app.services.errors import ValidationError
@@ -27,6 +30,36 @@ def _utf8_byte_len(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
+def _require_non_negative_int(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(f"client representation metadata invalid type: {name}")
+    if value < 0:
+        raise ValidationError(f"client representation metadata invalid value: {name}")
+    return value
+
+
+def _require_bool(name: str, value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ValidationError(f"client representation metadata invalid type: {name}")
+    return value
+
+
+def _normalize_sampled_row_indices(value: object) -> list[int]:
+    if not isinstance(value, list):
+        raise ValidationError("client representation metadata invalid type: sampled_row_indices")
+    if len(value) > MAX_SAMPLED_ROW_INDICES:
+        raise ValidationError("client representation metadata exceeds sampled_row_indices limit")
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for item in value:
+        index = _require_non_negative_int("sampled_row_indices", item)
+        if index not in seen:
+            seen.add(index)
+            normalized.append(index)
+    normalized.sort()
+    return normalized
+
+
 def _normalize_rep_metadata(metadata: dict) -> dict:
     if not metadata:
         return {}
@@ -35,9 +68,38 @@ def _normalize_rep_metadata(metadata: dict) -> dict:
         if key not in CLIENT_REP_METADATA_ALLOWLIST:
             raise ValidationError(f"client representation metadata not allowed: {key}")
         if key == "source_chunk_index":
-            normalized[key] = int(value)
+            normalized[key] = _require_non_negative_int(key, value)
+        elif key in {
+            "truncated",
+            "page_truncated",
+            "compact_preview",
+            "dataset_sampling_truncated",
+            "stats_truncated",
+        }:
+            normalized[key] = _require_bool(key, value)
+        elif key in {
+            "page_count",
+            "slide_count",
+            "sheet_count",
+            "dataset_row_count",
+            "dataset_rows_represented",
+            "row_count_in_sample",
+            "row_count",
+            "rows_sampled",
+            "column_count",
+        }:
+            normalized[key] = _require_non_negative_int(key, value)
+        elif key == "dataset_sampling_mode":
+            mode = str(value).strip()
+            if mode not in ALLOWED_DATASET_SAMPLING_MODES:
+                raise ValidationError(
+                    "client representation metadata invalid value: dataset_sampling_mode"
+                )
+            normalized[key] = mode
+        elif key == "sampled_row_indices":
+            normalized[key] = _normalize_sampled_row_indices(value)
         else:
-            normalized[key] = value
+            raise ValidationError(f"client representation metadata not allowed: {key}")
     return normalized
 
 
@@ -54,8 +116,11 @@ class ClientRepresentationValidator:
                 raise ValidationError("metadata_only intake cannot include representations")
             return []
 
-        if suffix in UNSUPPORTED_INDEX_SUFFIXES or (
-            suffix not in TEXT_FILE_SUFFIXES and suffix not in DATASET_FILE_SUFFIXES
+        if suffix in LEGACY_METADATA_ONLY_SUFFIXES:
+            raise ValidationError("legacy file format requires metadata_only intake")
+
+        if suffix in UNSUPPORTED_INDEX_SUFFIXES or suffix not in (
+            DOCUMENT_FILE_SUFFIXES | DATASET_FILE_SUFFIXES
         ):
             raise ValidationError("unsupported file format requires metadata_only intake")
 
@@ -63,16 +128,15 @@ class ClientRepresentationValidator:
             raise ValidationError("client representations exceed max parts")
 
         allowed_kinds = (
-            TEXT_REPRESENTATION_KINDS
-            if suffix in TEXT_FILE_SUFFIXES
+            DOCUMENT_REPRESENTATION_KINDS
+            if suffix in DOCUMENT_FILE_SUFFIXES
             else DATASET_REPRESENTATION_KINDS
         )
 
         seen_indices: set[int] = set()
-        seen_dataset_kinds: set[str] = set()
+        seen_singleton_kinds: set[str] = set()
         total_bytes = 0
         normalized: list[dict] = []
-        full_count = 0
 
         for item in representations:
             kind = str(item.get("kind", "")).strip()
@@ -82,14 +146,10 @@ class ClientRepresentationValidator:
                 raise ValidationError(
                     f"client representation kind {kind} not allowed for {suffix}"
                 )
-            if kind == "full":
-                full_count += 1
-                if full_count > 1:
-                    raise ValidationError("only one full representation allowed")
-            if suffix in DATASET_FILE_SUFFIXES and kind in seen_dataset_kinds:
-                raise ValidationError(f"duplicate dataset representation kind: {kind}")
-            if suffix in DATASET_FILE_SUFFIXES:
-                seen_dataset_kinds.add(kind)
+            if kind in {"full", "schema", "sample", "statistics"}:
+                if kind in seen_singleton_kinds:
+                    raise ValidationError(f"duplicate client representation kind: {kind}")
+                seen_singleton_kinds.add(kind)
 
             text = str(item.get("text", ""))
             part_bytes = _utf8_byte_len(text)

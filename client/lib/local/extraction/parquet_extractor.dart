@@ -256,7 +256,8 @@ Future<List<IndexedRow>> _readParquetIndexedRows(
     final rows = await session.queryRows(
       'SELECT file_row_number, $columnList '
       'FROM read_parquet($pathLiteral, file_row_number=true) '
-      'WHERE file_row_number IN ($inList) '
+      'WHERE file_row_number BETWEEN ${group.startRow} AND ${group.endRow} '
+      'AND file_row_number IN ($inList) '
       'ORDER BY file_row_number',
     );
     for (final row in rows) {

@@ -26,9 +26,9 @@ from app.local.constants import (
 )
 from app.local.paths import normalize_relative_path
 from app.services.client_intake_constants import (
+    CLIENT_INDEXABLE_SUFFIXES,
     CLIENT_REPRESENTATION_KINDS,
-    DATASET_FILE_SUFFIXES,
-    TEXT_FILE_SUFFIXES,
+    LEGACY_METADATA_ONLY_SUFFIXES,
 )
 from app.services.client_representation_service import ClientRepresentationPersistence
 from app.services.errors import NotFoundError, ValidationError
@@ -37,8 +37,6 @@ from app.services.folder_object_service import EXPLICIT_LOCAL_INTAKE_MODE, Folde
 from app.services.local_device_service import LocalDeviceService
 from app.services.pipeline_enqueue import enqueue_embed_object, enqueue_summarize_resource
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
-
-CLIENT_INDEXABLE_SUFFIXES = TEXT_FILE_SUFFIXES | DATASET_FILE_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -120,11 +118,7 @@ class ClientFileIntakeService:
         if content_revision != expected_revision:
             raise ValidationError("invalid client revision")
 
-        kind = infer_local_kind(suffix) if suffix in {".txt", ".md", ".csv"} else "file"
-        if suffix in {".txt", ".md"}:
-            kind = "document"
-        elif suffix == ".csv":
-            kind = "dataset"
+        kind = infer_local_kind(suffix) if suffix in CLIENT_INDEXABLE_SUFFIXES else "file"
 
         incoming_policy = POLICY_METADATA_ONLY if metadata_only else POLICY_INDEX_TEXT
         has_content = not metadata_only and len(reps) > 0

@@ -154,13 +154,11 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
     );
     sampleLines.add('[${sheet.name}]');
     if (sheet.rows.isNotEmpty) {
-      sampleLines.add(
-        _formatOdsRow(sheet.name, sheet.rows.first.index, sheet.rows.first.values, sheet.fieldnames),
-      );
+      sampleLines.add('[${sheet.name}]');
       for (var i = 0; i < sheet.rows.length && i < 5; i++) {
         final row = sheet.rows[i];
         sampleLines.add(
-          _formatOdsRow(sheet.name, row.index, row.values, sheet.fieldnames),
+          _formatOdsRow(sheet.name, row, sheet.fieldnames),
         );
       }
     }
@@ -211,6 +209,7 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
         IndexedRow(
           index: globalIndex,
           sheetName: sheet.name,
+          sourceRowNumber: row.sourceRowNumber ?? (row.index + 1),
           values: {
             for (final name in fieldnames)
               name: row.values[name] ?? '',
@@ -339,6 +338,7 @@ Future<XmlElement> _readOdfContentXml(File file) async {
         IndexedRow(
           index: dataRowIndex,
           sheetName: sheetName,
+          sourceRowNumber: dataRowIndex + 1,
           values: values,
         ),
       );
@@ -429,12 +429,11 @@ List<String> _odtListItems(XmlElement listElem) {
 
 String _formatOdsRow(
   String sheetName,
-  int index,
-  Map<String, String> values,
+  IndexedRow row,
   List<String> fieldnames,
 ) {
-  return '${searchableRowLabel(IndexedRow(index: index, sheetName: sheetName, values: values))} '
-      '${fieldnames.map((name) => '$name=${values[name] ?? ''}').join(' | ')}';
+  return '${searchableRowLabel(row)} '
+      '${fieldnames.map((name) => '$name=${row.values[name] ?? ''}').join(' | ')}';
 }
 
 String _formatOdsValues(Map<String, String> values, List<String> fieldnames) {

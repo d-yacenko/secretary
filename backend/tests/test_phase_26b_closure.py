@@ -283,7 +283,7 @@ def test_representation_bounds_422(closure_client) -> None:
     assert resp.status_code == 422
 
 
-def test_representation_policy_pdf_full_rejected(closure_client) -> None:
+def test_representation_policy_pdf_full_accepted(closure_client) -> None:
     _register_device(closure_client)
     resp = _intake(
         closure_client,
@@ -291,18 +291,23 @@ def test_representation_policy_pdf_full_rejected(closure_client) -> None:
         source_path="/home/user/doc.pdf",
         representations=[{"kind": "full", "text": "fake pdf text"}],
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 201
 
 
-def test_representation_policy_csv_full_rejected(closure_client) -> None:
+def test_representation_policy_csv_full_accepted(closure_client) -> None:
     _register_device(closure_client)
     resp = _intake(
         closure_client,
         filename="data.csv",
         source_path="/home/user/data.csv",
-        representations=[{"kind": "full", "text": "a,b"}],
+        representations=[
+            {"kind": "schema", "text": "columns: a"},
+            {"kind": "sample", "text": "sample"},
+            {"kind": "statistics", "text": "rows: 1"},
+            {"kind": "full", "text": "a\n1"},
+        ],
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 201
 
 
 def test_representation_policy_txt_schema_rejected(closure_client) -> None:
@@ -682,7 +687,7 @@ def test_indexed_intake_empty_representations_rejected(closure_client) -> None:
     assert "mechanical" in resp.json()["detail"].lower()
 
 
-def test_indexed_pdf_requires_metadata_only(closure_client) -> None:
+def test_indexed_pdf_requires_representations(closure_client) -> None:
     _register_device(closure_client)
     resp = _intake(
         closure_client,
@@ -692,7 +697,20 @@ def test_indexed_pdf_requires_metadata_only(closure_client) -> None:
         metadata_only=False,
     )
     assert resp.status_code == 422
-    assert "metadata_only" in resp.json()["detail"].lower()
+    assert "representations" in resp.json()["detail"].lower()
+
+
+def test_indexed_parquet_requires_representations(closure_client) -> None:
+    _register_device(closure_client)
+    resp = _intake(
+        closure_client,
+        source_path="/home/user/data.parquet",
+        filename="data.parquet",
+        representations=[],
+        metadata_only=False,
+    )
+    assert resp.status_code == 422
+    assert "representations" in resp.json()["detail"].lower()
 
 
 def test_indexed_unknown_bin_requires_metadata_only(closure_client) -> None:
@@ -701,19 +719,6 @@ def test_indexed_unknown_bin_requires_metadata_only(closure_client) -> None:
         closure_client,
         source_path="/home/user/data.bin",
         filename="data.bin",
-        representations=[],
-        metadata_only=False,
-    )
-    assert resp.status_code == 422
-    assert "metadata_only" in resp.json()["detail"].lower()
-
-
-def test_indexed_parquet_requires_metadata_only(closure_client) -> None:
-    _register_device(closure_client)
-    resp = _intake(
-        closure_client,
-        source_path="/home/user/data.parquet",
-        filename="data.parquet",
         representations=[],
         metadata_only=False,
     )

@@ -9,18 +9,23 @@ class IndexedRow {
     required this.index,
     required this.values,
     this.sheetName,
+    this.sourceRowNumber,
   });
 
+  /// Global deterministic sampling identity (0-based).
   final int index;
   final Map<String, String> values;
   final String? sheetName;
+  /// 1-based source row number within [sheetName] when applicable.
+  final int? sourceRowNumber;
 }
 
 String searchableRowLabel(IndexedRow pair) {
+  final rowNumber = pair.sourceRowNumber ?? (pair.index + 1);
   if (pair.sheetName != null) {
-    return '[sheet=${pair.sheetName} row=${pair.index + 1}]';
+    return '[sheet=${pair.sheetName} row=$rowNumber]';
   }
-  return '[row=${pair.index + 1}]';
+  return '[row=$rowNumber]';
 }
 
 List<int> selectDistributedRowIndices(int totalRows, int targetCount) {
@@ -289,19 +294,8 @@ List<IndexedRow> fitSearchablePairsToBudget(
   return best;
 }
 
-Set<int> parsePersistedSearchableRowIndices(
-  List<Map<String, dynamic>> reps,
-) {
-  final indices = <int>{};
-  for (final rep in reps) {
-    final text = rep['text'] as String? ?? '';
-    for (final line in text.split('\n')) {
-      if (line.startsWith('[row=') && line.endsWith(']')) {
-        indices.add(int.parse(line.substring(5, line.length - 1)) - 1);
-      }
-    }
-  }
-  return indices;
+Set<int> persistedGlobalRowIndices(Iterable<IndexedRow> rows) {
+  return {for (final row in rows) row.index};
 }
 
 Map<String, dynamic> buildDatasetSampleMetadata({
@@ -388,12 +382,6 @@ List<Map<String, dynamic>> buildIndexedDatasetRepresentations({
     {
       'kind': 'schema',
       'text': schemaCapped.$1,
-      'metadata': {
-        'columns': [
-          for (final name in fieldnames)
-            {'name': name, 'type': columnTypes[name] ?? 'string'},
-        ],
-      },
     },
     {
       'kind': 'sample',
@@ -406,12 +394,15 @@ List<Map<String, dynamic>> buildIndexedDatasetRepresentations({
     {
       'kind': 'statistics',
       'text': statsCapped.$1,
-      'metadata': statsMeta,
+      'metadata': {
+        for (final entry in statsMeta.entries)
+          if (entry.key != 'columns') entry.key: entry.value,
+      },
     },
   ];
 
   final searchablePersistedIndices =
-      parsePersistedSearchableRowIndices(searchableReps);
+      persistedGlobalRowIndices(fittedSearchable);
   final representedIndices = [
     ...{...compactPersistedIndices, ...searchablePersistedIndices},
   ]..sort();

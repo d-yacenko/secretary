@@ -10,6 +10,9 @@ Future<Archive> readZipArchive(File file) async {
   final input = InputFileStream(file.path);
   try {
     final archive = ZipDecoder().decodeStream(input);
+    if (archive.files.isEmpty && file.lengthSync() > 0) {
+      throw const FormatException('invalid zip archive');
+    }
     validateZipArchive(archive);
     return archive;
   } finally {
@@ -32,9 +35,17 @@ XmlDocument parseSafeXml(List<int> bytes) {
 String elementText(XmlElement element) => element.innerText.trim();
 
 String odfStoredCellValue(XmlElement cell, {required String officeNs}) {
+  final visible = elementText(cell);
+  if (visible.isNotEmpty) {
+    return visible;
+  }
   final stringValue = cell.getAttribute('string-value', namespace: officeNs);
   if (stringValue != null && stringValue.isNotEmpty) {
     return stringValue;
+  }
+  final booleanValue = cell.getAttribute('boolean-value', namespace: officeNs);
+  if (booleanValue != null && booleanValue.isNotEmpty) {
+    return booleanValue;
   }
   final value = cell.getAttribute('value', namespace: officeNs);
   if (value != null && value.isNotEmpty) {
@@ -48,7 +59,7 @@ String odfStoredCellValue(XmlElement cell, {required String officeNs}) {
   if (timeValue != null && timeValue.isNotEmpty) {
     return timeValue;
   }
-  return elementText(cell);
+  return '';
 }
 
 String escapeSqlString(String value) => value.replaceAll("'", "''");

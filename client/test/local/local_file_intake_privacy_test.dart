@@ -4,14 +4,19 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/local/local_file_intake_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_secretary_api_client.dart';
+import 'format_parity_fixtures.dart';
 
 void main() {
-  test('clientFileIntake receives derived representations only', () async {
+  Future<void> runPrivacyCase({
+    required String filename,
+    required Future<void> Function(File file) writeFixture,
+    required String marker,
+    required String forbiddenToken,
+  }) async {
     SharedPreferences.setMockInitialValues({
       'secretary_device_key': 'device-key-1',
       'secretary_device_display_name': 'Test device',
@@ -30,7 +35,7 @@ void main() {
           headers: {'content-type': 'application/json'},
         );
       }
-      capturedBody = jsonDecode(request.body) as Map<String, dynamic>;
+      capturedBody = jsonDecode(request.body!) as Map<String, dynamic>;
       return http.Response(
         jsonEncode({
           'object_id': '00000000-0000-0000-0000-000000000001',
@@ -49,8 +54,8 @@ void main() {
       final api = testSecretaryApiClient(mock);
       api.configure(baseUrl: 'https://example.com', token: 'token');
       final service = LocalFileIntakeService(apiClient: api);
-      final file = File('${tempDir.path}/sample.txt');
-      file.writeAsStringSync('privacy_marker_text');
+      final file = File('${tempDir.path}/$filename');
+      await writeFixture(file);
 
       await service.registerFile(file);
 
@@ -59,14 +64,33 @@ void main() {
           capturedBody!['representations'] as List<dynamic>;
       expect(representations, isNotEmpty);
       final payload = jsonEncode(capturedBody);
-      expect(payload, contains('privacy_marker_text'));
-      expect(payload, isNot(contains('%PDF')));
+      expect(payload, contains(marker));
+      expect(payload, isNot(contains(forbiddenToken)));
       expect(capturedBody!.containsKey('raw_bytes'), isFalse);
       expect(capturedBody!.containsKey('file_bytes'), isFalse);
+      expect(payload, isNot(contains('base64')));
     } finally {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
     }
+  }
+
+  test('text local file privacy boundary', () async {
+    await runPrivacyCase(
+      filename: 'sample.txt',
+      writeFixture: (file) async => file.writeAsString('privacy_marker_text'),
+      marker: 'privacy_marker_text',
+      forbiddenToken: '%PDF',
+    );
+  });
+
+  test('binary docx local file privacy boundary', () async {
+    await runPrivacyCase(
+      filename: 'sample.docx',
+      writeFixture: writeMinimalDocx,
+      marker: 'docx paragraph beta',
+      forbiddenToken: 'UEsDB',
+    );
   });
 }

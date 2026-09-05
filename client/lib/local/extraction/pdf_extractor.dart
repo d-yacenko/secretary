@@ -11,12 +11,31 @@ Future<void> _ensurePdfInitialized() async {
   if (_pdfInitialized) {
     return;
   }
-  if (Platform.isAndroid || Platform.isIOS) {
+  _tryConfigureBundledPdfium();
+  try {
     await pdfrxFlutterInitialize(dismissPdfiumWasmWarnings: true);
-  } else {
+  } catch (_) {
     await pdfrxInitialize();
   }
   _pdfInitialized = true;
+}
+
+void _tryConfigureBundledPdfium() {
+  if (!Platform.isLinux || Pdfrx.pdfiumModulePath != null) {
+    return;
+  }
+  final executableDir = File(Platform.resolvedExecutable).parent.path;
+  final candidates = <String>[
+    '$executableDir/lib/libpdfium.so',
+    '${Directory.current.path}/build/linux/x64/debug/bundle/lib/libpdfium.so',
+    '${Directory.current.path}/build/linux/x64/release/bundle/lib/libpdfium.so',
+  ];
+  for (final path in candidates) {
+    if (File(path).existsSync()) {
+      Pdfrx.pdfiumModulePath = path;
+      return;
+    }
+  }
 }
 
 class PdfExtractionResult {

@@ -88,9 +88,10 @@ Future<void> writeMultiPagePdf(File file, int pages, {String marker = 'page_mark
   final pageKids = <String>[];
   final pageObjs = <String>[];
   final contentObjs = <String>[];
-  final fontObj = '5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n';
+  const fontObjNum = 3;
+  final firstPageObjNum = 4;
   for (var index = 0; index < pages; index++) {
-    final pageObjNum = 3 + index * 2;
+    final pageObjNum = firstPageObjNum + index * 2;
     final contentObjNum = pageObjNum + 1;
     pageKids.add('$pageObjNum 0 R');
     final escaped = '$marker-$index'
@@ -100,20 +101,49 @@ Future<void> writeMultiPagePdf(File file, int pages, {String marker = 'page_mark
     final stream = 'BT /F1 12 Tf 50 700 Td ($escaped) Tj ET';
     pageObjs.add(
       '$pageObjNum 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
-      '/Contents $contentObjNum 0 R /Resources<< /Font<< /F1 5 0 R >> >> >>endobj\n',
+      '/Contents $contentObjNum 0 R /Resources<< /Font<< /F1 $fontObjNum 0 R >> >> >>endobj\n',
     );
     contentObjs.add(
       '$contentObjNum 0 obj<< /Length ${stream.length} >>stream\n$stream\nendstream endobj\n',
     );
   }
+  final fontObj =
+      '$fontObjNum 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n';
   final objs = <String>[
     '1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n',
     '2 0 obj<< /Type /Pages /Kids [${pageKids.join(' ')}] /Count $pages >>endobj\n',
+    fontObj,
     ...pageObjs,
     ...contentObjs,
-    fontObj,
   ];
   await file.writeAsBytes(_buildPdf(objs));
+}
+
+Future<void> writeMergedMultiPagePdf(
+  File file,
+  int pages, {
+  String marker = 'page_marker',
+}) async {
+  final partsDir = Directory('${file.parent.path}/pdf-parts-${pages}-${DateTime.now().microsecondsSinceEpoch}');
+  partsDir.createSync(recursive: true);
+  final partPaths = <String>[];
+  try {
+    for (var index = 0; index < pages; index++) {
+      final part = File('${partsDir.path}/page-$index.pdf');
+      await writeMinimalPdf(part, text: '$marker-$index');
+      partPaths.add(part.path);
+    }
+    final result = await Process.run('pdfunite', [...partPaths, file.path]);
+    if (result.exitCode != 0) {
+      throw StateError(
+        'pdfunite failed (${result.exitCode}): ${result.stderr}',
+      );
+    }
+  } finally {
+    if (partsDir.existsSync()) {
+      partsDir.deleteSync(recursive: true);
+    }
+  }
 }
 
 Future<void> writeMinimalDocx(File file, {String text = 'docx paragraph beta'}) async {
@@ -218,6 +248,132 @@ Future<void> writeMinimalOds(File file) async {
           <table:table-cell><text:p>4</text:p></table:table-cell>
         </table:table-row>
       </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.spreadsheet',
+  );
+}
+
+Future<void> writeOdtWithRepeatedColumns(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:text>
+      <table:table>
+        <table:table-row>
+          <table:table-cell table:number-columns-repeated="100">
+            <text:p>repeat_marker_odt</text:p>
+          </table:table-cell>
+        </table:table-row>
+      </table:table>
+    </office:text>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(file, contentXml, 'application/vnd.oasis.opendocument.text');
+}
+
+Future<void> writeOdsWithRepeatedRows(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:spreadsheet>
+      <table:table table:name="Sheet1">
+        <table:table-row>
+          <table:table-cell><text:p>name</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row table:number-rows-repeated="100">
+          <table:table-cell office:value-type="string" office:string-value="repeat_marker_ods"/>
+        </table:table-row>
+      </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.spreadsheet',
+  );
+}
+
+Future<void> writeOdpWithRepeatedTable(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+  xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0">
+  <office:body>
+    <office:presentation>
+      <draw:page>
+        <table:table>
+          <table:table-row table:number-rows-repeated="100">
+            <table:table-cell><text:p>repeat_marker_odp</text:p></table:table-cell>
+          </table:table-row>
+        </table:table>
+      </draw:page>
+    </office:presentation>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.presentation',
+  );
+}
+
+Future<void> writeLargeMultiSheetOds(File file, {int rowsPerSheet = 50}) async {
+  final sheet1Data = StringBuffer()
+    ..writeln('<table:table table:name="Alpha">')
+    ..writeln('<table:table-row>')
+    ..writeln('<table:table-cell><text:p>name</text:p></table:table-cell>')
+    ..writeln('<table:table-cell><text:p>value</text:p></table:table-cell>')
+    ..writeln('</table:table-row>');
+  for (var i = 1; i <= rowsPerSheet; i++) {
+    sheet1Data.writeln(
+      '<table:table-row>'
+      '<table:table-cell><text:p>alpha_$i</text:p></table:table-cell>'
+      '<table:table-cell><text:p>$i</text:p></table:table-cell>'
+      '</table:table-row>',
+    );
+  }
+  sheet1Data.writeln('</table:table>');
+
+  final sheet2Data = StringBuffer()
+    ..writeln('<table:table table:name="Beta">')
+    ..writeln('<table:table-row>')
+    ..writeln('<table:table-cell><text:p>name</text:p></table:table-cell>')
+    ..writeln('<table:table-cell><text:p>value</text:p></table:table-cell>')
+    ..writeln('</table:table-row>');
+  for (var i = 1; i <= rowsPerSheet; i++) {
+    final marker = i == rowsPerSheet ? 'ods_sheet_beta_marker' : 'beta_$i';
+    sheet2Data.writeln(
+      '<table:table-row>'
+      '<table:table-cell><text:p>$marker</text:p></table:table-cell>'
+      '<table:table-cell><text:p>$i</text:p></table:table-cell>'
+      '</table:table-row>',
+    );
+  }
+  sheet2Data.writeln('</table:table>');
+
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:spreadsheet>
+      $sheet1Data
+      $sheet2Data
     </office:spreadsheet>
   </office:body>
 </office:document-content>''';

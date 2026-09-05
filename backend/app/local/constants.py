@@ -20,8 +20,21 @@ MAX_CSV_STATS_SAMPLE_ROWS = 5000
 HASH_CHUNK_BYTES = 64 * 1024
 
 DATASET_SUFFIXES = frozenset({".csv", ".parquet"})
-TEXT_SUFFIXES = frozenset({".txt", ".md"})
-SUPPORTED_LOCAL_SUFFIXES = DATASET_SUFFIXES | TEXT_SUFFIXES
+DOCUMENT_SUFFIXES = frozenset(
+    {
+        ".txt",
+        ".md",
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".odt",
+        ".ods",
+        ".odp",
+    }
+)
+TEXT_SUFFIXES = DOCUMENT_SUFFIXES
+SUPPORTED_LOCAL_SUFFIXES = DATASET_SUFFIXES | DOCUMENT_SUFFIXES
 
 PERSONAL_URI_PREFIX = "personal://device/"
 
@@ -46,6 +59,6 @@ def infer_local_kind(suffix: str) -> str:
     lowered = suffix.lower()
     if lowered in DATASET_SUFFIXES:
         return "dataset"
-    if lowered in TEXT_SUFFIXES:
+    if lowered in DOCUMENT_SUFFIXES:
         return "document"
     return "file"

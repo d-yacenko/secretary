@@ -45,6 +45,25 @@ List<Map<String, dynamic>> boundedRepresentations(
   return (text.substring(0, kMaxExtractedTextChars), true);
 }
 
+Map<String, dynamic> truncationMetadata(bool truncated) {
+  if (!truncated) {
+    return {};
+  }
+  return {'truncated': true};
+}
+
+bool isTextTruncated({
+  required bool textCapTruncated,
+  required int totalChunks,
+  required int selectedChunks,
+  required int inputReps,
+  required int outputReps,
+}) {
+  return textCapTruncated ||
+      (totalChunks > 0 && selectedChunks < totalChunks) ||
+      (inputReps > 0 && outputReps < inputReps);
+}
+
 List<Map<String, dynamic>> buildTextRepresentations(
   String text, {
   Map<String, dynamic>? metadata,
@@ -52,19 +71,30 @@ List<Map<String, dynamic>> buildTextRepresentations(
   final extraMeta = metadata ?? <String, dynamic>{};
   final capped = capText(text);
   final cappedText = capped.$1;
-  final truncated = capped.$2;
+  final textCapTruncated = capped.$2;
   if (cappedText.trim().length <= kSmallTextMaxChars &&
       utf8ByteLength(cappedText) <= kMaxExtractorPartBytes) {
-    return boundedRepresentations([
+    final reps = boundedRepresentations([
       {
         'kind': 'full',
         'text': cappedText,
-        'metadata': {...extraMeta, 'truncated': truncated},
+        'metadata': {
+          ...extraMeta,
+          ...truncationMetadata(textCapTruncated),
+        },
       },
     ]);
+    return reps;
   }
   final chunks = chunkText(cappedText, kChunkSize, kChunkOverlap);
   final indices = selectBoundedIndices(chunks.length, kMaxExtractorParts);
+  final truncated = isTextTruncated(
+    textCapTruncated: textCapTruncated,
+    totalChunks: chunks.length,
+    selectedChunks: indices.length,
+    inputReps: indices.length,
+    outputReps: indices.length,
+  );
   final reps = <Map<String, dynamic>>[];
   for (var slot = 0; slot < indices.length; slot++) {
     final index = indices[slot];
@@ -74,12 +104,25 @@ List<Map<String, dynamic>> buildTextRepresentations(
       'part_index': slot,
       'metadata': {
         ...extraMeta,
-        'truncated': truncated,
+        ...truncationMetadata(truncated),
         'source_chunk_index': index,
       },
     });
   }
-  return boundedRepresentations(reps);
+  final bounded = boundedRepresentations(reps);
+  if (bounded.length < reps.length) {
+    return [
+      for (final rep in bounded)
+        {
+          ...rep,
+          'metadata': {
+            ...(rep['metadata'] as Map<String, dynamic>? ?? {}),
+            ...truncationMetadata(true),
+          },
+        },
+    ];
+  }
+  return bounded;
 }
 
 List<String> chunkText(String text, int chunkSize, int overlap) {
@@ -153,19 +196,29 @@ List<Map<String, dynamic>> buildBoundedTextRepresentations(
   final extraMeta = metadata ?? <String, dynamic>{};
   final capped = capText(text);
   final cappedText = capped.$1;
-  final truncated = capped.$2;
+  final textCapTruncated = capped.$2;
   if (cappedText.length <= kSmallTextMaxChars) {
     return boundedRepresentations([
       {
         'kind': 'full',
         'text': cappedText,
-        'metadata': {...extraMeta, 'truncated': truncated},
+        'metadata': {
+          ...extraMeta,
+          ...truncationMetadata(textCapTruncated),
+        },
       },
     ]);
   }
   final chunks = chunkText(cappedText, kChunkSize, kChunkOverlap);
   final maxChunks = maxParts < kMaxExtractorParts ? maxParts : kMaxExtractorParts;
   final indices = selectBoundedIndices(chunks.length, maxChunks);
+  final truncated = isTextTruncated(
+    textCapTruncated: textCapTruncated,
+    totalChunks: chunks.length,
+    selectedChunks: indices.length,
+    inputReps: indices.length,
+    outputReps: indices.length,
+  );
   final reps = <Map<String, dynamic>>[];
   for (var slot = 0; slot < indices.length; slot++) {
     final index = indices[slot];
@@ -175,10 +228,23 @@ List<Map<String, dynamic>> buildBoundedTextRepresentations(
       'part_index': slot,
       'metadata': {
         ...extraMeta,
-        'truncated': truncated,
+        ...truncationMetadata(truncated),
         'source_chunk_index': index,
       },
     });
   }
-  return boundedRepresentations(reps);
+  final bounded = boundedRepresentations(reps);
+  if (bounded.length < reps.length) {
+    return [
+      for (final rep in bounded)
+        {
+          ...rep,
+          'metadata': {
+            ...(rep['metadata'] as Map<String, dynamic>? ?? {}),
+            ...truncationMetadata(true),
+          },
+        },
+    ];
+  }
+  return bounded;
 }
