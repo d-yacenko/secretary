@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:personal_secretary/local/extraction/duckdb_session.dart';
+import 'package:personal_secretary/local/extraction/extraction_constants.dart';
 
 Future<void> writeMinimalPdf(File file, {String text = 'pdf distinctive phrase delta'}) async {
   await file.writeAsBytes(_minimalPdfBytes(text));
@@ -427,6 +428,65 @@ Future<void> writeOdsSourceRowIdentity(File file) async {
   );
 }
 
+Future<void> writeOdsLargeRepeatWithMarker(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:spreadsheet>
+      <table:table table:name="SheetA">
+        <table:table-row>
+          <table:table-cell><text:p>Name</text:p></table:table-cell>
+          <table:table-cell><text:p>Value</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row table:number-rows-repeated="${kMaxOdfRepeatExpansion + 36}">
+          <table:table-cell office:value-type="string" office:string-value="repeat_gap_filler"/>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell office:value-type="string" office:string-value="after_repeat_marker"/>
+        </table:table-row>
+      </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.spreadsheet',
+  );
+}
+
+Future<void> writeOdsWiderDataThanHeader(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:spreadsheet>
+      <table:table table:name="SheetA">
+        <table:table-row>
+          <table:table-cell><text:p>Name</text:p></table:table-cell>
+          <table:table-cell><text:p>Amount</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell><text:p>Alice</text:p></table:table-cell>
+          <table:table-cell><text:p>42</text:p></table:table-cell>
+          <table:table-cell><text:p>hidden_marker</text:p></table:table-cell>
+        </table:table-row>
+      </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.spreadsheet',
+  );
+}
+
 Future<void> writeOdsPositionalColumns(File file) async {
   final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content
@@ -637,6 +697,14 @@ Future<void> writeLargeCsvWithMultilineQuoted(File file) async {
     buffer.writeln('row${buffer.length},plain');
   }
   buffer.writeln('end,marker');
+  await file.writeAsString(buffer.toString());
+}
+
+Future<void> writeLargeCsvWiderThanHeader(File file) async {
+  final buffer = StringBuffer('name,value\n');
+  while (buffer.length < 300 * 1024) {
+    buffer.writeln('row${buffer.length},plain,extra_marker');
+  }
   await file.writeAsString(buffer.toString());
 }
 

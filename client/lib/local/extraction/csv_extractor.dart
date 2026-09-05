@@ -35,12 +35,16 @@ Future<List<Map<String, dynamic>>> _extractSmallCsv(File file) async {
       {'kind': 'schema', 'text': 'columns: (empty)'},
     ]);
   }
-  final rawHeader = rows.first
-      .map((cell) => cell?.toString() ?? '')
-      .take(kMaxCsvColumns)
-      .toList();
-  final fieldnames = positionalColumnKeys(rawHeader.length);
-  final displayHeaders = displayHeadersFromRaw(rawHeader, fieldnames);
+  final rawHeader = rows.first.map((cell) => cell?.toString() ?? '').toList();
+  final schema = resolvePositionalSchema(
+    rawHeader: rawHeader,
+    observedRowWidths: [
+      for (var i = 1; i < rows.length; i++) rows[i].length,
+    ],
+    maxColumns: kMaxCsvColumns,
+  );
+  final fieldnames = schema.columnKeys;
+  final displayHeaders = schema.displayHeaders;
   final dataRows = <Map<String, String>>[];
   for (var i = 1; i < rows.length; i++) {
     final parsed = rows[i];
@@ -50,13 +54,16 @@ Future<List<Map<String, dynamic>>> _extractSmallCsv(File file) async {
             col < parsed.length ? parsed[col]?.toString() ?? '' : '',
     });
   }
-  return _buildCsvRepresentations(fieldnames, displayHeaders, dataRows);
+  return _withSourceTruncation(
+    _buildCsvRepresentations(fieldnames, displayHeaders, dataRows),
+    schema.truncated,
+  );
 }
 
 Future<List<Map<String, dynamic>>> _extractLargeCsv(File file) async {
-  final header = await _readCsvHeaderPositional(file);
-  final fieldnames = header.$1;
-  final displayHeaders = header.$2;
+  final schema = await _resolveCsvPositionalSchema(file);
+  final fieldnames = schema.columnKeys;
+  final displayHeaders = schema.displayHeaders;
   if (fieldnames.isEmpty) {
     return boundedRepresentations([
       {'kind': 'schema', 'text': 'columns: (empty)'},
@@ -90,15 +97,18 @@ Future<List<Map<String, dynamic>>> _extractLargeCsv(File file) async {
   );
   final allIndices = {...compactIndices, ...planned.$1.indices}.toList()..sort();
   final indexedRows = await _readCsvIndexedRows(file, fieldnames, allIndices);
-  return buildIndexedDatasetRepresentations(
-    fieldnames: fieldnames,
-    columnTypes: columnTypes,
-    statsMeta: statsMeta,
-    statsLines: statsLines,
-    totalRows: totalRows,
-    indexedRows: indexedRows,
-    compactIndices: compactIndices,
-    searchableIndices: planned.$1.indices,
+  return _withSourceTruncation(
+    buildIndexedDatasetRepresentations(
+      fieldnames: fieldnames,
+      columnTypes: columnTypes,
+      statsMeta: statsMeta,
+      statsLines: statsLines,
+      totalRows: totalRows,
+      indexedRows: indexedRows,
+      compactIndices: compactIndices,
+      searchableIndices: planned.$1.indices,
+    ),
+    schema.truncated,
   );
 }
 
@@ -154,16 +164,51 @@ List<Map<String, dynamic>> _buildCsvRepresentations(
   );
 }
 
-Future<(List<String>, List<String>)> _readCsvHeaderPositional(File file) async {
+Future<PositionalSchema> _resolveCsvPositionalSchema(File file) async {
+  var isHeader = true;
+  List<String> rawHeader = [];
+  final observedWidths = <int>[];
   await for (final row in _streamCsvRows(file)) {
-    final rawHeader = row
-        .map((cell) => cell?.toString() ?? '')
-        .take(kMaxCsvColumns)
-        .toList();
-    final columnKeys = positionalColumnKeys(rawHeader.length);
-    return (columnKeys, displayHeadersFromRaw(rawHeader, columnKeys));
+    if (isHeader) {
+      rawHeader = row.map((cell) => cell?.toString() ?? '').toList();
+      isHeader = false;
+      continue;
+    }
+    if (!row.any((cell) => cell?.toString().trim().isNotEmpty ?? false)) {
+      continue;
+    }
+    observedWidths.add(row.length);
   }
-  return (<String>[], <String>[]);
+  return resolvePositionalSchema(
+    rawHeader: rawHeader,
+    observedRowWidths: observedWidths,
+    maxColumns: kMaxCsvColumns,
+  );
+}
+
+List<Map<String, dynamic>> _withSourceTruncation(
+  List<Map<String, dynamic>> reps,
+  bool truncated,
+) {
+  if (!truncated) {
+    return reps;
+  }
+  final meta = truncationMetadata(truncated);
+  return [
+    for (final rep in reps)
+      {
+        ...rep,
+        'metadata': {
+          ...(rep['metadata'] as Map<String, dynamic>? ?? {}),
+          ...meta,
+        },
+      },
+  ];
+}
+
+Future<(List<String>, List<String>)> _readCsvHeaderPositional(File file) async {
+  final schema = await _resolveCsvPositionalSchema(file);
+  return (schema.columnKeys, schema.displayHeaders);
 }
 
 Future<List<String>> _readCsvHeader(File file) async {

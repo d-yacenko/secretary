@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_secretary/local/extraction/extraction_constants.dart';
 import 'package:personal_secretary/local/local_resource_extractor.dart';
 
 import 'format_parity_fixtures.dart';
@@ -20,6 +21,19 @@ void main() {
     }
   });
 
+  test('ods bounded repeat advances logical row past declared gap', () async {
+    final file = File('${tempDir.path}/large_repeat.ods');
+    await writeOdsLargeRepeatWithMarker(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('[sheet=SheetA row=102]'));
+    expect(joined, contains('after_repeat_marker'));
+    final hasTruncated = result.representations.any(
+      (rep) => (rep['metadata'] as Map?)?['truncated'] == true,
+    );
+    expect(hasTruncated, isTrue);
+  });
+
   test('ods source row numbers survive blank and repeated rows', () async {
     final file = File('${tempDir.path}/source_rows.ods');
     await writeOdsSourceRowIdentity(file);
@@ -33,6 +47,16 @@ void main() {
     expect(joined, contains('[sheet=SheetB row=2]'));
     expect(joined, contains('sheetb_row2_value'));
     expect(joined, isNot(contains('[sheet=SheetA row=2]')));
+  });
+
+  test('ods data rows wider than header preserve extra positional columns', () async {
+    final file = File('${tempDir.path}/wide_data.ods');
+    await writeOdsWiderDataThanHeader(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('C=C=string'));
+    expect(joined, contains('hidden_marker'));
+    expect(joined, contains('Alice,42,hidden_marker'));
   });
 
   test('ods positional columns preserve empty and duplicate headers', () async {
@@ -114,5 +138,38 @@ void main() {
     expect(joined, contains('Alice,mid,42'));
     expect(joined, contains('a,b,c'));
     expect(joined, isNot(contains('Amount=mid')));
+  });
+
+  test('small csv data row wider than header preserves extra columns', () async {
+    final file = File('${tempDir.path}/wide_small.csv');
+    file.writeAsStringSync('Name,Amount\nAlice,42,extra_marker\n');
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('columns: A=Name, B=Amount, C=C'));
+    expect(joined, contains('extra_marker'));
+    expect(joined, contains('Alice,42,extra_marker'));
+  });
+
+  test('large csv data row wider than header preserves extra columns', () async {
+    final file = File('${tempDir.path}/wide_large.csv');
+    await writeLargeCsvWiderThanHeader(file);
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, contains('columns: A=name, B=value, C=C'));
+    expect(joined, contains('extra_marker'));
+  });
+
+  test('csv wider than column cap surfaces truncated metadata', () async {
+    final file = File('${tempDir.path}/wide_cap.csv');
+    final header = List.generate(kMaxCsvColumns, (i) => 'h$i').join(',');
+    final data = List.generate(kMaxCsvColumns + 1, (i) => 'v$i').join(',');
+    file.writeAsStringSync('$header\n$data\n');
+    final result = await extractor.extractFile(file);
+    final joined = result.representations.map((r) => r['text']).join('\n');
+    expect(joined, isNot(contains('v$kMaxCsvColumns')));
+    final hasTruncated = result.representations.any(
+      (rep) => (rep['metadata'] as Map?)?['truncated'] == true,
+    );
+    expect(hasTruncated, isTrue);
   });
 }

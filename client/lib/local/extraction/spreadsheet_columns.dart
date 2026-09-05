@@ -64,3 +64,52 @@ List<String> unionPositionalColumnKeys(Iterable<List<String>> perSheetKeys) {
   }
   return positionalColumnKeys(maxLen);
 }
+
+class PositionalSchema {
+  const PositionalSchema({
+    required this.columnKeys,
+    required this.displayHeaders,
+    required this.truncated,
+  });
+
+  final List<String> columnKeys;
+  final List<String> displayHeaders;
+  final bool truncated;
+}
+
+/// Derive bounded positional column identity from header plus observed row widths.
+PositionalSchema resolvePositionalSchema({
+  required List<String> rawHeader,
+  required Iterable<int> observedRowWidths,
+  required int maxColumns,
+}) {
+  var maxWidth = 0;
+  var truncated = false;
+
+  void consider(int width) {
+    if (width > maxColumns) {
+      truncated = true;
+      if (maxColumns > maxWidth) {
+        maxWidth = maxColumns;
+      }
+    } else if (width > maxWidth) {
+      maxWidth = width;
+    }
+  }
+
+  consider(rawHeader.length);
+  for (final width in observedRowWidths) {
+    consider(width);
+  }
+
+  final headerCells = [
+    for (var i = 0; i < maxWidth; i++)
+      i < rawHeader.length ? rawHeader[i] : '',
+  ];
+  final columnKeys = positionalColumnKeys(maxWidth);
+  return PositionalSchema(
+    columnKeys: columnKeys,
+    displayHeaders: displayHeadersFromRaw(headerCells, columnKeys),
+    truncated: truncated,
+  );
+}

@@ -337,23 +337,24 @@ Future<XmlElement> _readOdfContentXml(File file) async {
         break;
       }
     }
-    final rowRepeat = _boundedRepeat(
+    final rowRepeat = _rowRepeatBounds(
       rowElem.getAttribute('number-rows-repeated', namespace: _tableNs),
     );
-    truncated = truncated || rowRepeat.$2;
-    for (var i = 0; i < rowRepeat.$1; i++) {
-      logicalRowNumber += 1;
+    truncated = truncated || rowRepeat.$3;
+    final expansionStart = logicalRowNumber + 1;
+    for (var i = 0; i < rowRepeat.$2; i++) {
       if (parsedRows.length >= kMaxOdfRowsPerSheet) {
         truncated = true;
         break;
       }
       parsedRows.add(
         _ParsedOdsPhysicalRow(
-          sourceRowNumber: logicalRowNumber,
+          sourceRowNumber: expansionStart + i,
           cells: List<String>.from(values),
         ),
       );
     }
+    logicalRowNumber += rowRepeat.$1;
   }
 
   if (parsedRows.isEmpty) {
@@ -361,8 +362,14 @@ Future<XmlElement> _readOdfContentXml(File file) async {
   }
 
   final headerRow = parsedRows.first;
-  final columnKeys = positionalColumnKeys(headerRow.cells.length);
-  final displayHeaders = displayHeadersFromRaw(headerRow.cells, columnKeys);
+  final schema = resolvePositionalSchema(
+    rawHeader: headerRow.cells,
+    observedRowWidths: parsedRows.map((row) => row.cells.length),
+    maxColumns: kMaxOdfColumns,
+  );
+  truncated = truncated || schema.truncated;
+  final columnKeys = schema.columnKeys;
+  final displayHeaders = schema.displayHeaders;
 
   final rows = <IndexedRow>[];
   var dataRowIndex = 0;
@@ -388,18 +395,31 @@ Future<XmlElement> _readOdfContentXml(File file) async {
   return (rows, truncated, columnKeys, displayHeaders);
 }
 
-(int, bool) _boundedRepeat(String? raw, {int defaultValue = 1}) {
+int _declaredRepeat(String? raw, {int defaultValue = 1}) {
   if (raw == null || raw.isEmpty) {
-    return (defaultValue, false);
+    return defaultValue;
   }
   final value = int.tryParse(raw) ?? defaultValue;
-  if (value > kMaxOdfRepeatExpansion) {
+  if (value < 1) {
+    return 1;
+  }
+  return value;
+}
+
+(int declared, int expansion, bool truncated) _rowRepeatBounds(String? raw) {
+  final declared = _declaredRepeat(raw);
+  if (declared > kMaxOdfRepeatExpansion) {
+    return (declared, kMaxOdfRepeatExpansion, true);
+  }
+  return (declared, declared, false);
+}
+
+(int, bool) _boundedRepeat(String? raw, {int defaultValue = 1}) {
+  final declared = _declaredRepeat(raw, defaultValue: defaultValue);
+  if (declared > kMaxOdfRepeatExpansion) {
     return (kMaxOdfRepeatExpansion, true);
   }
-  if (value < 1) {
-    return (1, false);
-  }
-  return (value, false);
+  return (declared, false);
 }
 
 List<String> _odtListItems(XmlElement listElem) {
