@@ -124,6 +124,7 @@ Future<void> writeMergedMultiPagePdf(
   File file,
   int pages, {
   String marker = 'page_marker',
+  int bodyPaddingChars = 0,
 }) async {
   final partsDir = Directory('${file.parent.path}/pdf-parts-${pages}-${DateTime.now().microsecondsSinceEpoch}');
   partsDir.createSync(recursive: true);
@@ -131,7 +132,8 @@ Future<void> writeMergedMultiPagePdf(
   try {
     for (var index = 0; index < pages; index++) {
       final part = File('${partsDir.path}/page-$index.pdf');
-      await writeMinimalPdf(part, text: '$marker-$index');
+      final padding = bodyPaddingChars > 0 ? ' ${'p' * bodyPaddingChars}' : '';
+      await writeMinimalPdf(part, text: '$marker-$index$padding');
       partPaths.add(part.path);
     }
     final result = await Process.run('pdfunite', [...partPaths, file.path]);
@@ -634,13 +636,15 @@ Future<void> writeOdpPresentation(
   File file,
   int slideCount, {
   Map<int, String> markers = const {},
+  int bodyPaddingChars = 0,
 }) async {
   final pages = StringBuffer();
   for (var slide = 1; slide <= slideCount; slide++) {
     final text = markers[slide] ?? 'slide_text_$slide';
+    final padding = bodyPaddingChars > 0 ? ' ${'p' * bodyPaddingChars}' : '';
     pages.writeln('''
       <draw:page>
-        <text:p>$text</text:p>
+        <text:p>$text$padding</text:p>
       </draw:page>''');
   }
   final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -665,17 +669,19 @@ Future<void> writePptxPresentation(
   File file,
   int slideCount, {
   Map<int, String> markers = const {},
+  int bodyPaddingChars = 0,
 }) async {
   final entries = <String, String>{
     '[Content_Types].xml': _genericContentTypes(),
   };
   for (var index = 1; index <= slideCount; index++) {
     final text = markers[index] ?? 'slide_text_$index';
+    final padding = bodyPaddingChars > 0 ? ' ${'p' * bodyPaddingChars}' : '';
     entries['ppt/slides/slide$index.xml'] = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld><p:spTree>
-    <p:sp><p:txBody><a:p><a:r><a:t>$text</a:t></a:r></a:p></p:txBody></p:sp>
+    <p:sp><p:txBody><a:p><a:r><a:t>$text$padding</a:t></a:r></a:p></p:txBody></p:sp>
   </p:spTree></p:cSld>
 </p:sld>''';
   }

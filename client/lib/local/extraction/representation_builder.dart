@@ -39,10 +39,36 @@ List<Map<String, dynamic>> boundedRepresentations(
 }
 
 (String, bool) capText(String text) {
-  if (text.length <= kMaxExtractedTextChars) {
+  if (utf8ByteLength(text) <= kMaxExtractedTextBytes) {
     return (text, false);
   }
-  return (text.substring(0, kMaxExtractedTextChars), true);
+  return (distributedTextSample(text, kMaxExtractedTextBytes), true);
+}
+
+String distributedTextSample(String text, int maxBytes) {
+  if (maxBytes <= 0 || text.isEmpty) {
+    return '';
+  }
+  if (utf8ByteLength(text) <= maxBytes) {
+    return text;
+  }
+  const slotCount = 256;
+  final indices = selectBoundedIndices(slotCount, 64);
+  final slotSize = text.length / slotCount;
+  final buffer = StringBuffer();
+  var usedBytes = 0;
+  for (final slot in indices) {
+    final start = (slot * slotSize).floor();
+    final end = ((slot + 1) * slotSize).floor().clamp(start + 1, text.length);
+    final slice = text.substring(start, end);
+    final sliceBytes = utf8ByteLength(slice);
+    if (usedBytes + sliceBytes > maxBytes) {
+      break;
+    }
+    buffer.write(slice);
+    usedBytes += sliceBytes;
+  }
+  return buffer.toString();
 }
 
 Map<String, dynamic> truncationMetadata(bool truncated) {
@@ -68,13 +94,42 @@ List<Map<String, dynamic>> buildTextRepresentations(
   String text, {
   Map<String, dynamic>? metadata,
 }) {
-  final extraMeta = metadata ?? <String, dynamic>{};
+  return _buildPackedTextRepresentations(
+    text: text,
+    extraMeta: metadata ?? <String, dynamic>{},
+    maxParts: kMaxExtractorParts,
+    maxTotalBytes: kMaxExtractorTotalBytes,
+  );
+}
+
+List<Map<String, dynamic>> buildBoundedTextRepresentations(
+  String text,
+  int maxParts, {
+  Map<String, dynamic>? metadata,
+}) {
+  if (maxParts <= 0 || text.trim().isEmpty) {
+    return [];
+  }
+  return _buildPackedTextRepresentations(
+    text: text,
+    extraMeta: metadata ?? <String, dynamic>{},
+    maxParts: maxParts < kMaxExtractorParts ? maxParts : kMaxExtractorParts,
+    maxTotalBytes: kMaxExtractorTotalBytes,
+  );
+}
+
+List<Map<String, dynamic>> _buildPackedTextRepresentations({
+  required String text,
+  required Map<String, dynamic> extraMeta,
+  required int maxParts,
+  required int maxTotalBytes,
+}) {
   final capped = capText(text);
   final cappedText = capped.$1;
   final textCapTruncated = capped.$2;
   if (cappedText.trim().length <= kSmallTextMaxChars &&
       utf8ByteLength(cappedText) <= kMaxExtractorPartBytes) {
-    final reps = boundedRepresentations([
+    return boundedRepresentations([
       {
         'kind': 'full',
         'text': cappedText,
@@ -84,31 +139,38 @@ List<Map<String, dynamic>> buildTextRepresentations(
         },
       },
     ]);
-    return reps;
   }
-  final chunks = chunkText(cappedText, kChunkSize, kChunkOverlap);
-  final indices = selectBoundedIndices(chunks.length, kMaxExtractorParts);
+
+  final parts = packTextIntoRepresentationParts(cappedText);
+  final selectedIndices = selectRepresentationPartIndices(
+    parts,
+    maxParts: maxParts,
+    maxTotalBytes: maxTotalBytes,
+  );
+  final samplingTruncated = selectedIndices.length < parts.length;
   final truncated = isTextTruncated(
     textCapTruncated: textCapTruncated,
-    totalChunks: chunks.length,
-    selectedChunks: indices.length,
-    inputReps: indices.length,
-    outputReps: indices.length,
+    totalChunks: parts.length,
+    selectedChunks: selectedIndices.length,
+    inputReps: parts.length,
+    outputReps: selectedIndices.length,
   );
+
   final reps = <Map<String, dynamic>>[];
-  for (var slot = 0; slot < indices.length; slot++) {
-    final index = indices[slot];
+  for (var slot = 0; slot < selectedIndices.length; slot++) {
+    final index = selectedIndices[slot];
     reps.add({
       'kind': 'chunk',
-      'text': chunks[index],
+      'text': parts[index],
       'part_index': slot,
       'metadata': {
         ...extraMeta,
-        ...truncationMetadata(truncated),
+        ...truncationMetadata(truncated || samplingTruncated),
         'source_chunk_index': index,
       },
     });
   }
+
   final bounded = boundedRepresentations(reps);
   if (bounded.length < reps.length) {
     return [
@@ -123,6 +185,103 @@ List<Map<String, dynamic>> buildTextRepresentations(
     ];
   }
   return bounded;
+}
+
+List<String> packTextIntoRepresentationParts(String text) {
+  if (text.isEmpty) {
+    return [];
+  }
+  final parts = <String>[];
+  var start = 0;
+  while (start < text.length) {
+    var end = maxEndForUtf8Bytes(text, start, kMaxExtractorPartBytes);
+    if (end >= text.length) {
+      parts.add(text.substring(start));
+      break;
+    }
+    end = preferSplitBoundary(text, start, end);
+    if (end <= start) {
+      end = maxEndForUtf8Bytes(text, start, kMaxExtractorPartBytes);
+      if (end <= start) {
+        end = (start + 1).clamp(0, text.length);
+      }
+    }
+    parts.add(text.substring(start, end));
+    start = end;
+  }
+  return parts;
+}
+
+int maxEndForUtf8Bytes(String text, int start, int maxBytes) {
+  if (start >= text.length || maxBytes <= 0) {
+    return start;
+  }
+  var low = start + 1;
+  var high = text.length;
+  while (low < high) {
+    final mid = (low + high + 1) ~/ 2;
+    if (utf8ByteLength(text.substring(start, mid)) <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return low;
+}
+
+int preferSplitBoundary(String text, int start, int candidateEnd) {
+  final slice = text.substring(start, candidateEnd);
+  final lastNewline = slice.lastIndexOf('\n');
+  if (lastNewline > 0) {
+    final newlineEnd = start + lastNewline + 1;
+    if (utf8ByteLength(text.substring(start, newlineEnd)) <= kMaxExtractorPartBytes) {
+      return newlineEnd;
+    }
+  }
+
+  final lineStart = text.lastIndexOf('\n', candidateEnd - 1) + 1;
+  final nextNewline = text.indexOf('\n', candidateEnd);
+  final lineEnd = nextNewline == -1 ? text.length : nextNewline;
+  if (lineStart < candidateEnd && candidateEnd < lineEnd) {
+    final line = text.substring(lineStart, lineEnd);
+    if (line.startsWith('[slide ') || line.startsWith('[page ')) {
+      if (lineStart > start) {
+        return lineStart;
+      }
+    }
+  }
+  return candidateEnd;
+}
+
+List<int> selectRepresentationPartIndices(
+  List<String> parts, {
+  required int maxParts,
+  required int maxTotalBytes,
+}) {
+  if (parts.isEmpty || maxParts <= 0 || maxTotalBytes <= 0) {
+    return [];
+  }
+  final totalBytes = parts.fold<int>(0, (sum, part) => sum + utf8ByteLength(part));
+  if (parts.length <= maxParts && totalBytes <= maxTotalBytes) {
+    return List.generate(parts.length, (index) => index);
+  }
+
+  var indices = selectBoundedIndices(parts.length, maxParts);
+  while (indices.isNotEmpty &&
+      _indicesByteTotal(parts, indices) > maxTotalBytes &&
+      indices.length > 1) {
+    final mid = indices.length ~/ 2;
+    indices = [...indices.sublist(0, mid), ...indices.sublist(mid + 1)];
+  }
+  return indices;
+}
+
+int _indicesByteTotal(List<String> parts, List<int> indices) {
+  var total = 0;
+  for (final index in indices) {
+    total += utf8ByteLength(parts[index]);
+  }
+  return total;
 }
 
 List<String> chunkText(String text, int chunkSize, int overlap) {
@@ -183,68 +342,4 @@ String formatSampleText(
     lines.add(fieldnames.map((name) => row[name] ?? '').join(','));
   }
   return lines.join('\n');
-}
-
-List<Map<String, dynamic>> buildBoundedTextRepresentations(
-  String text,
-  int maxParts, {
-  Map<String, dynamic>? metadata,
-}) {
-  if (maxParts <= 0 || text.trim().isEmpty) {
-    return [];
-  }
-  final extraMeta = metadata ?? <String, dynamic>{};
-  final capped = capText(text);
-  final cappedText = capped.$1;
-  final textCapTruncated = capped.$2;
-  if (cappedText.length <= kSmallTextMaxChars) {
-    return boundedRepresentations([
-      {
-        'kind': 'full',
-        'text': cappedText,
-        'metadata': {
-          ...extraMeta,
-          ...truncationMetadata(textCapTruncated),
-        },
-      },
-    ]);
-  }
-  final chunks = chunkText(cappedText, kChunkSize, kChunkOverlap);
-  final maxChunks = maxParts < kMaxExtractorParts ? maxParts : kMaxExtractorParts;
-  final indices = selectBoundedIndices(chunks.length, maxChunks);
-  final truncated = isTextTruncated(
-    textCapTruncated: textCapTruncated,
-    totalChunks: chunks.length,
-    selectedChunks: indices.length,
-    inputReps: indices.length,
-    outputReps: indices.length,
-  );
-  final reps = <Map<String, dynamic>>[];
-  for (var slot = 0; slot < indices.length; slot++) {
-    final index = indices[slot];
-    reps.add({
-      'kind': 'chunk',
-      'text': chunks[index],
-      'part_index': slot,
-      'metadata': {
-        ...extraMeta,
-        ...truncationMetadata(truncated),
-        'source_chunk_index': index,
-      },
-    });
-  }
-  final bounded = boundedRepresentations(reps);
-  if (bounded.length < reps.length) {
-    return [
-      for (final rep in bounded)
-        {
-          ...rep,
-          'metadata': {
-            ...(rep['metadata'] as Map<String, dynamic>? ?? {}),
-            ...truncationMetadata(true),
-          },
-        },
-    ];
-  }
-  return bounded;
 }

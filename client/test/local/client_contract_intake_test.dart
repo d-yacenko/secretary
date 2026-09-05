@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_secretary/local/client_wire_metadata.dart';
+import 'package:personal_secretary/local/extraction/extraction_constants.dart';
 import 'package:personal_secretary/local/local_file_intake_service.dart';
 import 'package:personal_secretary/local/local_resource_extractor.dart';
 import 'package:http/http.dart' as http;
@@ -100,12 +101,12 @@ void main() {
     }
   });
 
-  test('large txt serialization marks truncated true when chunk selection drops', () async {
+  test('large txt serialization marks truncated true when payload budget exceeded', () async {
     final extractor = LocalResourceExtractor();
     final tempDir = Directory.systemTemp.createTempSync('contract-large-txt-');
     try {
       final file = File('${tempDir.path}/large.txt');
-      file.writeAsStringSync('x' * 200000);
+      file.writeAsStringSync('x' * (kMaxExtractorTotalBytes + 32 * 1024));
       final result = await extractor.extractFile(file);
       final sanitized = sanitizeClientRepresentations(result.representations);
       final hasTruncated = sanitized.any((rep) {

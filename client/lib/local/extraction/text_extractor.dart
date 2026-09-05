@@ -13,7 +13,7 @@ List<Map<String, dynamic>> extractTextFile(File file) {
 
 List<int> _readBoundedBytes(File file) {
   final size = file.lengthSync();
-  if (size <= kMaxExtractorTotalBytes) {
+  if (size <= kMaxExtractedTextBytes) {
     return file.readAsBytesSync();
   }
   final raf = file.openSync();
@@ -28,11 +28,11 @@ List<int> _readBoundedBytes(File file) {
       raf.setPositionSync(offset);
       final toRead = min(kReadWindowBytes, size - offset);
       buffer.addAll(raf.readSync(toRead));
-      if (buffer.length >= kMaxExtractorTotalBytes) {
+      if (buffer.length >= kMaxExtractedTextBytes) {
         break;
       }
     }
-    return buffer.take(kMaxExtractorTotalBytes).toList();
+    return buffer.take(kMaxExtractedTextBytes).toList();
   } finally {
     raf.closeSync();
   }
