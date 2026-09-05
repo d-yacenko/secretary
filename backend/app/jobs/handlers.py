@@ -62,6 +62,7 @@ from app.services.representation_embedding_worker import (
     load_unembedded_chunk_targets,
     store_representation_embeddings,
 )
+from app.services.representation_generation import representation_generation_matches
 from app.services.representation_service import RepresentationService
 from app.services.semantic_summary_service import SemanticSummaryService
 
@@ -203,6 +204,7 @@ def handle_summarize_resource(
     if not _object_is_active(session, object_id, user_id):
         return
     expected_revision = payload.get("expected_revision")
+    expected_generation = payload.get("expected_representation_generation")
     parent_trace_id = _parent_trace_id_from_payload(payload)
     with ai_trace_session(
         user_id,
@@ -218,13 +220,21 @@ def handle_summarize_resource(
             if obj is None:
                 raise ValueError(f"object ownership mismatch: {object_id}")
             metadata = obj.metadata_ or {}
-            if expected_revision is not None and metadata.get("content_revision") != expected_revision:
+            if not representation_generation_matches(
+                metadata,
+                expected_revision,
+                expected_generation,
+            ):
                 return
             effective = _background_effective_settings(lookup_session, user_id)
             summarizer = create_openai_summarizer_from_effective(effective)
             summary = SemanticSummaryService(
                 lookup_session, user_id, summarizer=summarizer
-            ).update_summary_for_object(object_id)
+            ).update_summary_for_object(
+                object_id,
+                expected_revision=expected_revision,
+                expected_representation_generation=expected_generation,
+            )
             if summary is not None:
                 enqueue_embed_object(lookup_session, object_id, user_id)
             lookup_session.commit()
@@ -351,11 +361,23 @@ def handle_ingest_local_file(
             merged[CONTENT_INGESTED_REVISION_KEY] = expected_revision
         if expected_policy is not None:
             merged[CONTENT_INGESTED_POLICY_KEY] = expected_policy
+        from app.services.representation_generation import (
+            bump_representation_generation,
+            get_representation_generation,
+        )
+
+        merged = bump_representation_generation(merged)
         obj.metadata_ = merged
         ingest_session.flush()
 
         revision = merged.get("content_revision")
-        enqueue_summarize_resource(ingest_session, obj.id, user_id, revision)
+        enqueue_summarize_resource(
+            ingest_session,
+            obj.id,
+            user_id,
+            revision,
+            get_representation_generation(merged),
+        )
         ingest_session.commit()
     except Exception:
         ingest_session.rollback()

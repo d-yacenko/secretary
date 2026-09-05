@@ -264,6 +264,14 @@ class ResourceRegistrationService:
         if content_changed and revision is not None:
             metadata[CONTENT_INGESTED_REVISION_KEY] = revision
 
+        if content_changed:
+            from app.services.representation_generation import (
+                bump_representation_generation,
+                get_representation_generation,
+            )
+
+            metadata = bump_representation_generation(metadata)
+
         obj.metadata_ = dict(metadata)
 
         jobs_enqueued = 0
@@ -275,6 +283,7 @@ class ResourceRegistrationService:
                 obj.id,
                 self._user_id,
                 revision,
+                get_representation_generation(obj.metadata_),
             )
             jobs_enqueued = 1
         elif (

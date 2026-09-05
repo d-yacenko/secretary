@@ -174,8 +174,20 @@ class WebExplicitLinkIntakeService:
             meta[CONTENT_EXTRACTION_STATUS] = STATUS_READY
             meta[MECHANICAL_REPRESENTATION_COUNT] = count
             meta["content_truncated"] = truncated
+            from app.services.representation_generation import (
+                bump_representation_generation,
+                get_representation_generation,
+            )
+
+            meta = bump_representation_generation(meta)
             obj.metadata_ = meta
-            enqueue_summarize_resource(self.session, obj.id, self.user_id, revision)
+            enqueue_summarize_resource(
+                self.session,
+                obj.id,
+                self.user_id,
+                revision,
+                get_representation_generation(meta),
+            )
             enqueue_embed_object(self.session, obj.id, self.user_id)
             jobs = 2
             status = "updated" if not created else "created"

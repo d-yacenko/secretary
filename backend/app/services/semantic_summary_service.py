@@ -14,7 +14,10 @@ from app.services.correlation_constants import (
     SEMANTIC_SUMMARY_METADATA_KEY,
     SEMANTIC_SUMMARY_REVISION_KEY,
 )
-from app.services.errors import NotFoundError
+from app.services.representation_generation import (
+    get_representation_generation,
+    representation_generation_matches,
+)
 from app.services.representation_service import (
     KIND_CHUNK,
     KIND_FULL,
@@ -48,7 +51,13 @@ class SemanticSummaryService:
         self._summarizer = summarizer or FakeSummarizer(max_chars=SEMANTIC_SUMMARY_MAX_CHARS)
         self._representations = RepresentationService(session, user_id)
 
-    def update_summary_for_object(self, object_id: UUID) -> str | None:
+    def update_summary_for_object(
+        self,
+        object_id: UUID,
+        *,
+        expected_revision: str | None = None,
+        expected_representation_generation: int | None = None,
+    ) -> str | None:
         obj = self._session.scalar(
             select(Object).where(Object.id == object_id, Object.user_id == self._user_id)
         )
@@ -56,8 +65,15 @@ class SemanticSummaryService:
             raise NotFoundError("object", object_id)
 
         metadata = dict(obj.metadata_ or {})
-        expected_revision = metadata.get("content_revision")
-        if expected_revision is None:
+        revision = expected_revision if expected_revision is not None else metadata.get("content_revision")
+        generation = (
+            expected_representation_generation
+            if expected_representation_generation is not None
+            else get_representation_generation(metadata)
+        )
+        if revision is None:
+            return None
+        if not representation_generation_matches(metadata, revision, generation):
             return None
 
         reps = self._representations.list_for_object(object_id)
@@ -72,14 +88,18 @@ class SemanticSummaryService:
 
         self._session.refresh(obj)
         current_metadata = dict(obj.metadata_ or {})
-        if current_metadata.get("content_revision") != expected_revision:
+        if not representation_generation_matches(
+            current_metadata,
+            revision,
+            generation,
+        ):
             return None
 
         summary_text = summary_text[:SEMANTIC_SUMMARY_MAX_CHARS]
         reps = self._representations.list_for_object(object_id)
         self._upsert_summary_representation(object_id, summary_text, reps)
         current_metadata[SEMANTIC_SUMMARY_METADATA_KEY] = summary_text
-        current_metadata[SEMANTIC_SUMMARY_REVISION_KEY] = expected_revision
+        current_metadata[SEMANTIC_SUMMARY_REVISION_KEY] = revision
         obj.metadata_ = current_metadata
         self._session.flush()
         return summary_text

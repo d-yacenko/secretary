@@ -48,6 +48,10 @@ from app.content_extraction.yandex_disk_content import fetch_yandex_disk_public_
 from app.db.models import Object
 from app.resources.constants import PROVIDER_WEB
 from app.services.pipeline_enqueue import enqueue_summarize_resource
+from app.services.representation_generation import (
+    bump_representation_generation,
+    get_representation_generation,
+)
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 
 
@@ -265,6 +269,7 @@ class ExplicitResourceContentExtractor:
 
         count = self._persistence.replace_mechanical_for_object(obj.id, reps)
         merged = invalidate_semantic_summary_metadata(merged)
+        merged = bump_representation_generation(merged)
         merged.update(extract_meta)
         merged[CONTENT_EXTRACTION_STATUS] = STATUS_READY
         merged[CONTENT_EXTRACTION_VERSION] = EXTRACTION_VERSION
@@ -279,6 +284,7 @@ class ExplicitResourceContentExtractor:
             obj.id,
             self._user_id,
             final_revision,
+            get_representation_generation(merged),
         )
         return True
 

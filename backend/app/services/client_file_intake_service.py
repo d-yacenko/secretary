@@ -36,6 +36,10 @@ from app.services.folder_containment_service import FolderContainmentService
 from app.services.folder_object_service import EXPLICIT_LOCAL_INTAKE_MODE, FolderObjectService
 from app.services.local_device_service import LocalDeviceService
 from app.services.pipeline_enqueue import enqueue_embed_object, enqueue_summarize_resource
+from app.services.representation_generation import (
+    bump_representation_generation,
+    get_representation_generation,
+)
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 
 
@@ -221,7 +225,9 @@ class ClientFileIntakeService:
         if metadata_only:
             if had_mechanical_reps or prior_policy == POLICY_INDEX_TEXT:
                 self._representations.delete_all_for_object(obj.id)
-                obj.metadata_ = invalidate_semantic_summary_metadata(dict(obj.metadata_ or {}))
+                obj.metadata_ = bump_representation_generation(
+                    invalidate_semantic_summary_metadata(dict(obj.metadata_ or {}))
+                )
                 obj.embedding = None
                 enqueue_embed_object(self._session, obj.id, self._user_id)
                 jobs_enqueued = 1
@@ -252,6 +258,8 @@ class ClientFileIntakeService:
             if truly_unchanged:
                 status = "unchanged"
             else:
+                obj.metadata_ = bump_representation_generation(dict(obj.metadata_ or {}))
+                self._session.flush()
                 representations_created = self._representations.replace_for_object(
                     obj.id,
                     filename_value,
@@ -259,7 +267,11 @@ class ClientFileIntakeService:
                     metadata_only=False,
                 )
                 enqueue_summarize_resource(
-                    self._session, obj.id, self._user_id, expected_revision
+                    self._session,
+                    obj.id,
+                    self._user_id,
+                    expected_revision,
+                    get_representation_generation(obj.metadata_),
                 )
                 jobs_enqueued = 1
                 status = "created" if created else "updated"

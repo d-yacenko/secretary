@@ -67,18 +67,33 @@ def enqueue_summarize_resource(
     object_id: UUID,
     user_id: UUID,
     expected_revision: str | None,
+    expected_representation_generation: int | None = None,
 ) -> None:
+    generation = expected_representation_generation
+    if generation is None:
+        from app.db.models import Object
+        from app.services.representation_generation import get_representation_generation
+
+        obj = session.scalar(
+            select(Object).where(Object.id == object_id, Object.user_id == user_id)
+        )
+        generation = get_representation_generation(obj.metadata_ if obj is not None else None)
+    dedupe_extra = {
+        "expected_revision": expected_revision,
+        "expected_representation_generation": generation,
+    }
     if _has_pending_job(
         session,
         user_id,
         JOB_TYPE_SUMMARIZE_RESOURCE,
         object_id,
-        {"expected_revision": expected_revision},
+        dedupe_extra,
     ):
         return
     payload: dict = {
         "object_id": str(object_id),
         "expected_revision": expected_revision,
+        "expected_representation_generation": generation,
     }
     parent_trace_id = _active_parent_trace_id()
     if parent_trace_id is not None:

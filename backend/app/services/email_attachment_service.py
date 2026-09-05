@@ -185,6 +185,12 @@ class EmailAttachmentService:
 
             prior_meta["content_revision"] = revision
             prior_meta["content_hash"] = revision
+            from app.services.representation_generation import (
+                bump_representation_generation,
+                get_representation_generation,
+            )
+
+            prior_meta = bump_representation_generation(prior_meta)
             obj.metadata_ = prior_meta
 
             reps = RepresentationService(self._session, self._user_id)
@@ -199,7 +205,13 @@ class EmailAttachmentService:
                 text = data.decode("utf-8", errors="replace")
                 count = len(reps.ingest_text_content(obj.id, text))
             if count:
-                enqueue_summarize_resource(self._session, obj.id, self._user_id, revision)
+                enqueue_summarize_resource(
+                    self._session,
+                    obj.id,
+                    self._user_id,
+                    revision,
+                    get_representation_generation(obj.metadata_),
+                )
             elif was_created or not self._has_usable_embedding(obj):
                 enqueue_embed_object(self._session, obj.id, self._user_id)
 

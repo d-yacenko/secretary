@@ -84,7 +84,28 @@ String distributedTextSample(String text, int maxBytes) {
       return buffer.toString();
     }
   }
-  return truncateToUtf8Bytes(text, maxBytes);
+  final anchorQuota = maxBytes ~/ 3;
+  if (anchorQuota > 0) {
+    final anchors = [
+      sliceAroundPosition(text, 0, anchorQuota),
+      sliceAroundPosition(text, text.length ~/ 2, anchorQuota),
+      sliceAroundPosition(text, text.length - 1, anchorQuota),
+    ];
+    final buffer = StringBuffer();
+    var usedBytes = 0;
+    for (final slice in anchors) {
+      final sliceBytes = utf8ByteLength(slice);
+      if (usedBytes + sliceBytes > maxBytes) {
+        return '';
+      }
+      buffer.write(slice);
+      usedBytes += sliceBytes;
+    }
+    if (usedBytes > 0) {
+      return buffer.toString();
+    }
+  }
+  return '';
 }
 
 String sliceAroundPosition(String text, int position, int maxBytes) {
@@ -92,10 +113,118 @@ String sliceAroundPosition(String text, int position, int maxBytes) {
     return '';
   }
   final pos = position.clamp(0, math.max(0, text.length - 1)).toInt();
-  final half = math.max(1, maxBytes ~/ 2);
-  final start = math.max(0, pos - half).toInt();
-  final end = math.min(text.length, pos + half).toInt();
-  return truncateToUtf8Bytes(text.substring(start, end), maxBytes);
+  final encoded = utf8.encode(text);
+  if (encoded.length <= maxBytes) {
+    return text;
+  }
+
+  final anchorByte = utf8.encode(text.substring(0, pos)).length;
+  var leftBudget = maxBytes ~/ 2;
+  var rightBudget = maxBytes - leftBudget;
+  var startByte = anchorByte - leftBudget;
+  var endByte = anchorByte + rightBudget;
+  if (startByte < 0) {
+    endByte -= startByte;
+    startByte = 0;
+  }
+  if (endByte > encoded.length) {
+    startByte -= endByte - encoded.length;
+    endByte = encoded.length;
+    if (startByte < 0) {
+      startByte = 0;
+    }
+  }
+
+  startByte = _alignUtf8Start(encoded, startByte);
+  endByte = _alignUtf8End(encoded, endByte);
+  if (endByte <= startByte) {
+    return '';
+  }
+
+  var slice = utf8.decode(encoded.sublist(startByte, endByte), allowMalformed: true);
+  while (utf8ByteLength(slice) > maxBytes && slice.isNotEmpty) {
+    final trimChars = math.max(1, slice.length ~/ 20);
+    final anchorInSlice = slice.indexOf(text[pos]);
+    if (anchorInSlice >= 0) {
+      if (anchorInSlice > trimChars) {
+        slice = slice.substring(trimChars);
+      } else if (slice.length - anchorInSlice > trimChars) {
+        slice = slice.substring(0, slice.length - trimChars);
+      } else {
+        break;
+      }
+    } else {
+      slice = slice.substring(0, slice.length - trimChars);
+    }
+  }
+  if (slice.isEmpty || !slice.contains(text[pos])) {
+    final forced = _centeredCharSlice(text, pos, maxBytes);
+    if (forced.isNotEmpty && forced.contains(text[pos])) {
+      return forced;
+    }
+    return '';
+  }
+  return slice;
+}
+
+int _alignUtf8Start(List<int> bytes, int offset) {
+  var start = offset.clamp(0, bytes.length).toInt();
+  while (start > 0 && (bytes[start] & 0xC0) == 0x80) {
+    start -= 1;
+  }
+  return start;
+}
+
+int _alignUtf8End(List<int> bytes, int offset) {
+  var end = offset.clamp(0, bytes.length).toInt();
+  while (end > 0 && (bytes[end - 1] & 0xC0) == 0x80) {
+    end -= 1;
+  }
+  return end;
+}
+
+String _centeredCharSlice(String text, int position, int maxBytes) {
+  final pos = position.clamp(0, math.max(0, text.length - 1)).toInt();
+  var left = 0;
+  var right = 0;
+  final buffer = StringBuffer()..write(text[pos]);
+  while (utf8ByteLength(buffer.toString()) < maxBytes) {
+    final expanded = left <= right;
+    if (expanded && pos - left - 1 >= 0) {
+      left += 1;
+      buffer
+        ..clear()
+        ..write(text.substring(pos - left, pos + right + 1));
+      continue;
+    }
+    if (pos + right + 1 < text.length) {
+      right += 1;
+      buffer
+        ..clear()
+        ..write(text.substring(pos - left, pos + right + 1));
+      continue;
+    }
+    if (left > 0 && pos - left >= 0) {
+      left -= 1;
+      buffer
+        ..clear()
+        ..write(text.substring(pos - left, pos + right + 1));
+      continue;
+    }
+    break;
+  }
+  var slice = buffer.toString();
+  while (utf8ByteLength(slice) > maxBytes && slice.length > 1) {
+    if (left >= right && left > 0) {
+      left -= 1;
+    } else if (right > 0) {
+      right -= 1;
+    } else {
+      break;
+    }
+    slice = text.substring(pos - left, pos + right + 1);
+  }
+  return slice.contains(text[pos]) ? slice : '';
 }
 
 Map<String, dynamic> truncationMetadata(bool truncated) {
@@ -294,21 +423,14 @@ List<int> selectRepresentationPartIndices(
   }
 
   final upperBound = parts.length < maxParts ? parts.length : maxParts;
-  var best = <int>[];
-  var low = 1;
-  var high = upperBound;
-  while (low <= high) {
-    final candidate = (low + high) ~/ 2;
+  for (var candidate = upperBound; candidate >= 1; candidate--) {
     final indices = selectBoundedIndices(parts.length, candidate);
     final bytes = _indicesByteTotal(parts, indices);
     if (bytes <= maxTotalBytes) {
-      best = indices;
-      low = candidate + 1;
-    } else {
-      high = candidate - 1;
+      return indices;
     }
   }
-  return best;
+  return [];
 }
 
 int _indicesByteTotal(List<String> parts, List<int> indices) {
@@ -350,28 +472,61 @@ List<int> selectBoundedIndices(int total, int maxChunks) {
     return [0, total - 1];
   }
 
-  final anchors = <int>{0, total - 1, total ~/ 2};
-  final alternateMiddle = (total - 1) ~/ 2;
-  if (alternateMiddle != total ~/ 2) {
-    anchors.add(alternateMiddle);
-  }
   final indices = <int>[];
   final seen = <int>{};
-  for (final anchor in anchors) {
-    if (!seen.contains(anchor)) {
-      seen.add(anchor);
-      indices.add(anchor);
+
+  void addIndex(int index) {
+    final bounded = index.clamp(0, total - 1).toInt();
+    if (seen.add(bounded)) {
+      indices.add(bounded);
     }
   }
-  final remaining = maxChunks - indices.length;
+
+  addIndex(0);
+  addIndex(total - 1);
+  if (maxChunks == 3) {
+    addIndex(total ~/ 2);
+    indices.sort();
+    return indices;
+  }
+
+  addIndex(total ~/ 2);
+  if (maxChunks >= 5) {
+    final alternateMiddle = (total - 1) ~/ 2;
+    if (alternateMiddle != total ~/ 2) {
+      addIndex(alternateMiddle);
+    }
+  }
+
+  var remaining = maxChunks - indices.length;
   for (var slot = 0; slot < remaining; slot++) {
-    final index = ((slot + 1) * (total - 1) / (remaining + 1)).round();
-    if (!seen.contains(index)) {
-      seen.add(index);
-      indices.add(index);
+    if (indices.length >= maxChunks) {
+      break;
+    }
+    final primary = ((slot + 1) * (total - 1) / (remaining + 1)).round();
+    if (seen.add(primary.clamp(0, total - 1).toInt())) {
+      indices.add(primary.clamp(0, total - 1).toInt());
+      continue;
+    }
+    var offset = 1;
+    while (indices.length < maxChunks && offset < total) {
+      final left = primary - offset;
+      if (left >= 0 && seen.add(left)) {
+        indices.add(left);
+        break;
+      }
+      final right = primary + offset;
+      if (right < total && seen.add(right)) {
+        indices.add(right);
+        break;
+      }
+      offset += 1;
     }
   }
   indices.sort();
+  if (indices.length > maxChunks) {
+    return indices.sublist(0, maxChunks);
+  }
   return indices;
 }
 

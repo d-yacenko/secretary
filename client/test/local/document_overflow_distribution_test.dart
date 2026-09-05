@@ -133,6 +133,53 @@ void main() {
     expect(first, second);
   });
 
+  test('E >2MiB Cyrillic capText keeps begin middle and tail markers', () {
+    const begin = 'CAP_UTF8_BEGIN';
+    const middle = 'CAP_UTF8_MIDDLE';
+    const tail = 'CAP_UTF8_TAIL';
+    final block = '${'щ' * 12000}\n';
+    final buffer = StringBuffer('$begin\n$block');
+    for (var index = 0; index < 95; index++) {
+      buffer.write(block);
+    }
+    buffer.write('$middle\n$block');
+    for (var index = 0; index < 95; index++) {
+      buffer.write(block);
+    }
+    buffer.write('$tail\n');
+    final source = buffer.toString();
+    expect(utf8ByteLength(source), greaterThan(kMaxExtractedTextBytes));
+
+    final cappedFirst = capText(source);
+    final cappedSecond = capText(source);
+    expect(cappedFirst.$2, isTrue);
+    expect(utf8ByteLength(cappedFirst.$1), lessThanOrEqualTo(kMaxExtractedTextBytes));
+    expect(cappedFirst.$1, contains(begin));
+    expect(cappedFirst.$1, contains(middle));
+    expect(cappedFirst.$1, contains(tail));
+    expect(cappedFirst.$1, cappedSecond.$1);
+
+    final repsFirst = _buildReps(source);
+    final repsSecond = _buildReps(source);
+    final joined = _joined(repsFirst);
+    expect(joined, contains(begin));
+    expect(joined, contains(middle));
+    expect(joined, contains(tail));
+    _assertByteBounds(repsFirst);
+    expect(repsFirst, repsSecond);
+  });
+
+  test('sliceAroundPosition keeps emoji anchor inside byte-bounded slice', () {
+    const prefix = 'abc';
+    const anchor = '🙂';
+    const suffix = 'defghijklmnopqrstuvwxyz';
+    final text = '$prefix$anchor$suffix';
+    final anchorPos = prefix.length;
+    final slice = sliceAroundPosition(text, anchorPos, 8);
+    expect(slice, contains(anchor));
+    expect(utf8ByteLength(slice), lessThanOrEqualTo(8));
+  });
+
   test('D Cyrillic overflow keeps distributed markers within byte bounds', () {
     const begin = 'НАЧАЛО_МАРКЕР';
     const middle = 'СЕРЕДИНА_МАРКЕР';
