@@ -94,12 +94,16 @@ Future<List<Map<String, dynamic>>> extractOdpFile(File file) async {
   final pages = presentation.childElements
       .where((child) => _isTag(child, 'page', 'draw'))
       .toList();
-  var truncated = pages.length > kMaxOdpSlides;
-  final selected = pages.take(kMaxOdpSlides).toList();
+  final totalSlides = pages.length;
+  final sourceTruncated = totalSlides > kMaxOdpSlides;
+  final selectedIndices =
+      selectDistributedRowIndices(totalSlides, kMaxOdpSlides);
+  var truncated = sourceTruncated;
   final lines = <String>[];
-  for (var index = 0; index < selected.length; index++) {
-    lines.add('[slide ${index + 1}]');
-    final pageText = _odpPageText(selected[index]);
+  for (final index in selectedIndices) {
+    final slideNumber = index + 1;
+    lines.add('[slide $slideNumber]');
+    final pageText = _odpPageText(pages[index]);
     truncated = truncated || pageText.$2;
     lines.addAll(pageText.$1);
   }
@@ -110,7 +114,7 @@ Future<List<Map<String, dynamic>>> extractOdpFile(File file) async {
   return buildTextRepresentations(
     text,
     metadata: {
-      'slide_count': selected.length,
+      'slide_count': totalSlides,
       'truncated': truncated,
     },
   );

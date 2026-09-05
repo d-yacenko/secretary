@@ -366,7 +366,7 @@ void main() {
     expect(result.extractionFailed, isTrue);
   });
 
-  test('pdf over 50 pages is bounded', () async {
+  test('pdf over old 50-page prefix limit still extracts tail pages', () async {
     if (!pdfAvailable) {
       fail('BLOCKED: PDFium is required but unavailable on this host');
     }
@@ -376,7 +376,11 @@ void main() {
     final joined = result.representations.map((r) => r['text']).join('\n');
     expect(joined, contains('[page 1]'));
     expect(joined, contains('bounded_page-0'));
-    expect(joined, isNot(contains('bounded_page-54')));
+    expect(joined, contains('[page 55]'));
+    expect(joined, contains('bounded_page-54'));
+    final meta = result.representations.first['metadata'] as Map?;
+    expect(meta?['page_count'], 55);
+    expect(meta?['page_truncated'], isNot(true));
   });
 
   test('oversized pdf is metadata-only without reading file', () async {

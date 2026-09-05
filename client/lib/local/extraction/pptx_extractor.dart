@@ -4,6 +4,7 @@ import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import 'archive_xml_utils.dart';
+import 'dataset_sampling.dart';
 import 'extraction_constants.dart';
 import 'representation_builder.dart';
 
@@ -18,11 +19,14 @@ Future<List<Map<String, dynamic>>> extractPptxFile(File file) async {
       )
       .toList()
     ..sort((a, b) => _pptxSlideIndex(a).compareTo(_pptxSlideIndex(b)));
-  final truncated = slidePaths.length > kMaxPptxSlides;
-  final selected = slidePaths.take(kMaxPptxSlides).toList();
+  final totalSlides = slidePaths.length;
+  final sourceTruncated = totalSlides > kMaxPptxSlides;
+  final selectedIndices =
+      selectDistributedRowIndices(totalSlides, kMaxPptxSlides);
   final lines = <String>[];
-  for (var index = 0; index < selected.length; index++) {
-    final slidePath = selected[index];
+  for (final index in selectedIndices) {
+    final slidePath = slidePaths[index];
+    final slideNumber = _pptxSlideIndex(slidePath);
     final root =
         parseSafeXml(readArchiveEntry(archive, slidePath)).rootElement;
     final texts = root
@@ -36,7 +40,7 @@ Future<List<Map<String, dynamic>>> extractPptxFile(File file) async {
         .map((node) => node.innerText.trim())
         .where((text) => text.isNotEmpty)
         .toList();
-    lines.add('[slide ${index + 1}]');
+    lines.add('[slide $slideNumber]');
     lines.addAll(texts);
   }
   final text = lines.join('\n');
@@ -45,7 +49,7 @@ Future<List<Map<String, dynamic>>> extractPptxFile(File file) async {
   }
   return buildTextRepresentations(
     text,
-    metadata: {'slide_count': selected.length, 'truncated': truncated},
+    metadata: {'slide_count': totalSlides, 'truncated': sourceTruncated},
   );
 }
 

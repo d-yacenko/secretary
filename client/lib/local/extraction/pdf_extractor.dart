@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:pdfrx/pdfrx.dart';
 
+import 'dataset_sampling.dart';
 import 'extraction_constants.dart';
 import 'representation_builder.dart';
 
@@ -77,10 +78,11 @@ Future<PdfExtractionResult> extractPdfFile(File file) async {
     }
 
     final pageCount = document.pages.length;
-    final truncated = pageCount > kMaxPdfPages;
-    final lastPage = pageCount < kMaxPdfPages ? pageCount : kMaxPdfPages;
+    final sourceTruncated = pageCount > kMaxPdfPages;
+    final selectedPageIndices =
+        selectDistributedRowIndices(pageCount, kMaxPdfPages);
     final parts = <String>[];
-    for (var pageIndex = 0; pageIndex < lastPage; pageIndex++) {
+    for (final pageIndex in selectedPageIndices) {
       final rawText = await document.pages[pageIndex].loadText();
       final pageText = rawText?.fullText.trim() ?? '';
       if (pageText.isNotEmpty) {
@@ -98,8 +100,8 @@ Future<PdfExtractionResult> extractPdfFile(File file) async {
       representations: buildTextRepresentations(
         parts.join('\n\n'),
         metadata: {
-          'page_count': lastPage,
-          'page_truncated': truncated,
+          'page_count': pageCount,
+          'page_truncated': sourceTruncated,
         },
       ),
     );

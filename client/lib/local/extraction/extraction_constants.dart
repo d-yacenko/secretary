@@ -11,7 +11,7 @@ const int kCheapHashMaxBytes = 256 * 1024;
 const int kReadWindowBytes = 8000;
 const int kMaxExtractedTextChars = 512000;
 
-const int kMaxPdfPages = 50;
+const int kMaxPdfPages = 300;
 const int kMaxPdfInputBytes = 32 * 1024 * 1024;
 const int kMaxOoxmlZipEntries = 512;
 const int kMaxOoxmlUncompressedBytes = 32 * 1024 * 1024;
@@ -19,12 +19,12 @@ const int kMaxOoxmlCompressionRatio = 200;
 const int kMaxXlsxSheets = 16;
 const int kMaxXlsxRowsPerSheet = 200;
 const int kMaxXlsxColumns = 64;
-const int kMaxPptxSlides = 40;
+const int kMaxPptxSlides = 500;
 const int kMaxOdfSheets = 16;
 const int kMaxOdfRowsPerSheet = 200;
 const int kMaxOdfColumns = 64;
 const int kMaxOdfRepeatExpansion = 64;
-const int kMaxOdpSlides = 40;
+const int kMaxOdpSlides = 500;
 
 const int kDatasetStructuralParts = 3;
 const int kCompactSampleMaxRows = 5;

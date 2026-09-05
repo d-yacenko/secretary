@@ -630,6 +630,58 @@ $sheetDataRows  </sheetData>
   });
 }
 
+Future<void> writeOdpPresentation(
+  File file,
+  int slideCount, {
+  Map<int, String> markers = const {},
+}) async {
+  final pages = StringBuffer();
+  for (var slide = 1; slide <= slideCount; slide++) {
+    final text = markers[slide] ?? 'slide_text_$slide';
+    pages.writeln('''
+      <draw:page>
+        <text:p>$text</text:p>
+      </draw:page>''');
+  }
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0">
+  <office:body>
+    <office:presentation>
+      $pages
+    </office:presentation>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.presentation',
+  );
+}
+
+Future<void> writePptxPresentation(
+  File file,
+  int slideCount, {
+  Map<int, String> markers = const {},
+}) async {
+  final entries = <String, String>{
+    '[Content_Types].xml': _genericContentTypes(),
+  };
+  for (var index = 1; index <= slideCount; index++) {
+    final text = markers[index] ?? 'slide_text_$index';
+    entries['ppt/slides/slide$index.xml'] = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp><p:txBody><a:p><a:r><a:t>$text</a:t></a:r></a:p></p:txBody></p:sp>
+  </p:spTree></p:cSld>
+</p:sld>''';
+  }
+  await _writeOoxmlZip(file, entries);
+}
+
 Future<void> writeMinimalOdp(File file) async {
   final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content
