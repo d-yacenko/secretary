@@ -293,4 +293,29 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         },
         "strict": False,
     },
+    "create_calendar_event": {
+        "type": "function",
+        "name": "create_calendar_event",
+        "description": (
+            "Create an event on the user's own Google Calendar primary calendar. "
+            "Requires explicit user approval before Google is written. "
+            "Pass exact start_at and end_at instants (ISO 8601). "
+            "If multiple Google accounts are connected, pass account_email. "
+            "Do not include attendees, recurrence, or conference data."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "start_at": {"type": "string"},
+                "end_at": {"type": "string"},
+                "description": {"type": ["string", "null"]},
+                "location": {"type": ["string", "null"]},
+                "account_email": {"type": ["string", "null"]},
+            },
+            "required": ["summary", "start_at", "end_at"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
 }

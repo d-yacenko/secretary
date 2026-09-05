@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.schemas import ContextItem, EdgeOut, NotificationOut, ObjectOut
 
@@ -241,3 +241,89 @@ class ListNotificationsInput(BaseModel):
 
 class ListNotificationsOutput(BaseModel):
     notifications: list[NotificationOut]
+
+
+MAX_CALENDAR_EVENT_SUMMARY_CHARS = 300
+MAX_CALENDAR_EVENT_DESCRIPTION_CHARS = 4000
+MAX_CALENDAR_EVENT_LOCATION_CHARS = 500
+
+
+def _strip_optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return value  # type: ignore[return-value]
+    stripped = value.strip()
+    return stripped or None
+
+
+class CreateCalendarEventInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=MAX_CALENDAR_EVENT_SUMMARY_CHARS)
+    start_at: datetime
+    end_at: datetime
+    description: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_DESCRIPTION_CHARS)
+    location: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_LOCATION_CHARS)
+    account_email: str | None = None
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _strip_summary(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("description", "location", "account_email", mode="before")
+    @classmethod
+    def _strip_optional(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> Self:
+        if self.end_at <= self.start_at:
+            raise ValueError("end_at must be after start_at")
+        return self
+
+
+class CreateCalendarEventCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=MAX_CALENDAR_EVENT_SUMMARY_CHARS)
+    start_at: datetime
+    end_at: datetime
+    description: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_DESCRIPTION_CHARS)
+    location: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_LOCATION_CHARS)
+    account_email: str = Field(min_length=1)
+    calendar_id: Literal["primary"] = "primary"
+    operation_id: str = Field(min_length=5, max_length=1024)
+
+    @field_validator("summary", "account_email", "operation_id", mode="before")
+    @classmethod
+    def _strip_required(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("description", "location", mode="before")
+    @classmethod
+    def _strip_optional(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> Self:
+        if self.end_at <= self.start_at:
+            raise ValueError("end_at must be after start_at")
+        return self
+
+
+class CreateCalendarEventOutput(BaseModel):
+    provider: Literal["google_calendar"] = "google_calendar"
+    account_email: str
+    calendar_id: Literal["primary"] = "primary"
+    event_id: str
+    summary: str
+    start_at: datetime
+    end_at: datetime
+    canonical_uri: str | None = None
+    changed: bool

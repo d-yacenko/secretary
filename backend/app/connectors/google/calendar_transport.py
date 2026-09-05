@@ -82,6 +82,42 @@ class CalendarTransport:
             max_results=max_results,
         ).events
 
+    def insert_event(
+        self,
+        access_token: str,
+        calendar_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        encoded_calendar_id = quote(calendar_id, safe="")
+        response = self._http.post(
+            f"{CALENDAR_API_BASE}/calendars/{encoded_calendar_id}/events",
+            json=body,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        raise_for_google_response(response, "insert_event")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise_for_google_response(response, "insert_event")
+        return payload
+
+    def get_event(
+        self,
+        access_token: str,
+        calendar_id: str,
+        event_id: str,
+    ) -> dict[str, Any]:
+        encoded_calendar_id = quote(calendar_id, safe="")
+        encoded_event_id = quote(event_id, safe="")
+        response = self._http.get(
+            f"{CALENDAR_API_BASE}/calendars/{encoded_calendar_id}/events/{encoded_event_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        raise_for_google_response(response, "get_event")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise_for_google_response(response, "get_event")
+        return payload
+
 
 def _format_rfc3339(value: datetime) -> str:
     if value.tzinfo is None:

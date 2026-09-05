@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.api.deps import get_db
 from app.connectors.google.constants import (
+    CALENDAR_EVENTS_SCOPE,
     CALENDAR_READONLY_SCOPE,
     DRIVE_READONLY_SCOPE,
     GMAIL_READONLY_SCOPE,
@@ -182,6 +183,55 @@ def test_oauth_callback_rejects_reused_state(client, db_session, google_settings
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "oauth state already used"
+
+
+def test_oauth_callback_missing_scope_uses_canonical_oauth_scopes(
+    client,
+    db_session,
+    google_settings,
+    oauth_client_file: str,
+):
+    state_service = OAuthStateService(db_session)
+    state = state_service.create_state(BOOTSTRAP_USER_ID)
+    db_session.flush()
+    fake_http = FakeHttpClient(
+        {
+            ("POST", "https://oauth2.googleapis.com/token"): lambda data: httpx.Response(
+                200,
+                json={
+                    "access_token": "callback-access",
+                    "refresh_token": "callback-refresh",
+                    "expires_in": 3600,
+                },
+            ),
+            ("GET", "https://gmail.googleapis.com/gmail/v1/users/me/profile"): lambda params, headers: httpx.Response(
+                200,
+                json={"emailAddress": "scope-fallback@example.com"},
+            ),
+        }
+    )
+    oauth_service = GoogleOAuthService(
+        oauth_client_file,
+        "http://localhost:18080/auth/google/callback",
+        http_client=fake_http,
+    )
+    from unittest.mock import patch
+
+    with patch("app.api.google._google_oauth_service", return_value=oauth_service), patch(
+        "app.api.google.GmailTransport",
+        return_value=GmailTransport(http_client=fake_http),
+    ):
+        response = client.get(
+            "/auth/google/callback",
+            params={"code": "auth-code", "state": state},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert CALENDAR_EVENTS_SCOPE in body["scopes"]
+    assert GMAIL_READONLY_SCOPE in body["scopes"]
+    assert CALENDAR_READONLY_SCOPE in body["scopes"]
+    assert DRIVE_READONLY_SCOPE in body["scopes"]
+    assert set(body["scopes"]) == set(GOOGLE_OAUTH_SCOPES)
 
 
 def test_encrypted_token_storage_roundtrip(db_session, credential_key: str) -> None:
@@ -751,16 +801,16 @@ def test_no_db_transaction_held_during_fake_network_wait(
     assert tx_during_network == [False, False]
 
 
-def test_no_gmail_or_calendar_external_write_mcp_tools() -> None:
+def test_no_gmail_send_or_unapproved_calendar_mcp_tools() -> None:
     forbidden = {
         "send_email",
         "sync_gmail",
         "gmail_sync",
         "search_calendar",
         "propose_calendar_event",
-        "create_calendar_event",
     }
     assert not MCP_TOOL_NAMES.intersection(forbidden)
+    assert "create_calendar_event" in MCP_TOOL_NAMES
 
 
 def test_oauth_token_refresh_on_expired_access_token(
@@ -944,6 +994,7 @@ def test_authorization_url_returns_google_url_with_required_scopes(
     scope = params["scope"][0]
     assert GMAIL_READONLY_SCOPE in scope
     assert CALENDAR_READONLY_SCOPE in scope
+    assert CALENDAR_EVENTS_SCOPE in scope
     assert DRIVE_READONLY_SCOPE in scope
     assert params["redirect_uri"] == ["http://localhost:18080/auth/google/callback"]
     assert params["access_type"] == ["offline"]

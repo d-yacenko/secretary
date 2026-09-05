@@ -8,6 +8,7 @@ from pydantic import ValidationError as PydanticValidationError
 from app.mcp.gateway_runner import execute_mcp_tool
 from app.tools.registry import MCP_TOOL_NAMES  # noqa: F401 — re-exported for tests
 from app.tools.schemas import (
+    CreateCalendarEventOutput,
     CreateTaskOutput,
     DeleteTaskOutput,
     GetContextOutput,
@@ -245,5 +246,28 @@ def create_mcp_server() -> MCPServer:
     def get_today() -> GetTodayOutput:
         """Return the current datetime in SECRETARY_TIMEZONE."""
         return _run_tool("get_today", "get_today", {})
+
+    @mcp.tool()
+    def create_calendar_event(
+        summary: str,
+        start_at: datetime,
+        end_at: datetime,
+        description: str | None = None,
+        location: str | None = None,
+        account_email: str | None = None,
+    ) -> CreateCalendarEventOutput:
+        """Create a Google Calendar event (requires approval; MCP cannot execute the write)."""
+        arguments: dict = {
+            "summary": summary,
+            "start_at": start_at,
+            "end_at": end_at,
+        }
+        if description is not None:
+            arguments["description"] = description
+        if location is not None:
+            arguments["location"] = location
+        if account_email is not None:
+            arguments["account_email"] = account_email
+        return _run_tool("create_calendar_event", "create_calendar_event", arguments)
 
     return mcp

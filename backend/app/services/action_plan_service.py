@@ -185,11 +185,22 @@ def _to_view(plan: PendingActionPlan) -> PendingActionPlanView:
     )
 
 
+_PUBLIC_ARGUMENT_HIDDEN_KEYS = frozenset({"operation_id"})
+
+
+def _public_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in arguments.items()
+        if key not in _PUBLIC_ARGUMENT_HIDDEN_KEYS
+    }
+
+
 def _public_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
             "tool_name": action["tool_name"],
-            "arguments": action["arguments"],
+            "arguments": _public_arguments(action["arguments"]),
         }
         for action in actions
     ]

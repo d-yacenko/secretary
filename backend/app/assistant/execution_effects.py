@@ -8,6 +8,8 @@ def classify_tool_execution_effect(tool_name: str, output: dict[str, Any] | None
         return "failed"
     if tool_name == "create_task":
         return "created"
+    if tool_name == "create_calendar_event":
+        return "created" if output.get("changed") else "no_op"
     if tool_name == "remove_relation":
         return "removed" if output.get("changed") else "no_op"
     if tool_name == "link_objects":
@@ -27,6 +29,12 @@ def describe_execution_effect(tool_name: str, output: dict[str, Any] | None) -> 
             return (
                 f"link_objects: created relation {edge.get('type')} "
                 f"({edge.get('source_id')} -> {edge.get('target_id')})"
+            )
+        if tool_name == "create_calendar_event":
+            return (
+                f"create_calendar_event: created Google Calendar event "
+                f"{(output or {}).get('event_id')} on {(output or {}).get('account_email')}; "
+                f"changed=true"
             )
         obj = (output or {}).get("object") or {}
         return f"{tool_name}: created object {obj.get('id')} ({obj.get('kind')})"
@@ -68,6 +76,11 @@ def describe_execution_effect(tool_name: str, output: dict[str, Any] | None) -> 
         if tool_name == "set_task_status":
             return (
                 f"set_task_status: status already {output.get('new_status')}; changed=false"
+            )
+        if tool_name == "create_calendar_event":
+            return (
+                f"create_calendar_event: event already present "
+                f"{(output or {}).get('event_id')}; changed=false"
             )
         return f"{tool_name}: no state change; changed=false"
     return f"{tool_name}: execution failed or produced no output"

@@ -35,6 +35,7 @@ _MUTATION_TOOLS = frozenset(
         "delete_task",
         "link_objects",
         "remove_relation",
+        "create_calendar_event",
     }
 )
 

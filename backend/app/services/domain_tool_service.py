@@ -41,6 +41,9 @@ from app.services.task_mutation_service import TaskMutationService
 from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import (
     MAX_TASK_EVIDENCE_IDS,
+    CreateCalendarEventCanonicalInput,
+    CreateCalendarEventInput,
+    CreateCalendarEventOutput,
     CreateTaskInput,
     CreateTaskOutput,
     DeleteTaskInput,
@@ -84,10 +87,14 @@ class DomainToolService:
         defer_write_embeddings: bool = False,
         write_mode: DomainWriteMode = DomainWriteMode.AGENT_PROPOSED,
         client_timezone: str | None = None,
+        calendar_transport=None,
+        calendar_token_session_factory=None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._write_mode = write_mode
+        self._calendar_transport = calendar_transport
+        self._calendar_token_session_factory = calendar_token_session_factory
         from app.core.client_timezone import get_request_timezone
 
         self._client_timezone = client_timezone or get_request_timezone()
@@ -518,3 +525,23 @@ class DomainToolService:
         tz_name = self._client_timezone
         now = datetime.now(ZoneInfo(tz_name))
         return GetTodayOutput(datetime=now, timezone=tz_name)
+
+    def _calendar_actions(self):
+        from app.services.calendar_external_action_service import CalendarExternalActionService
+
+        kwargs = {}
+        if self._calendar_transport is not None:
+            kwargs["transport"] = self._calendar_transport
+        if self._calendar_token_session_factory is not None:
+            kwargs["token_session_factory"] = self._calendar_token_session_factory
+        return CalendarExternalActionService(self._session, self._user_id, **kwargs)
+
+    def prepare_create_calendar_event(
+        self, payload: CreateCalendarEventInput
+    ) -> CreateCalendarEventCanonicalInput:
+        return self._calendar_actions().prepare_create_event(payload, self._client_timezone)
+
+    def create_calendar_event(
+        self, payload: CreateCalendarEventCanonicalInput
+    ) -> CreateCalendarEventOutput:
+        return self._calendar_actions().create_event(payload)

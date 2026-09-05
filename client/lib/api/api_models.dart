@@ -882,6 +882,8 @@ class PendingAction {
         return 'Delete task';
       case 'link_objects':
         return 'Link objects';
+      case 'create_calendar_event':
+        return _calendarEventLabel(arguments);
       default:
         return toolName.replaceAll('_', ' ');
     }
@@ -893,6 +895,33 @@ class PendingAction {
       return raw.trim();
     }
     return null;
+  }
+
+  static String _calendarEventLabel(Map<String, dynamic> arguments) {
+    final parts = <String>['Create calendar event'];
+    final summary = arguments['summary'];
+    if (summary is String && summary.trim().isNotEmpty) {
+      parts.add(summary.trim());
+    }
+    final account = arguments['account_email'];
+    if (account is String && account.trim().isNotEmpty) {
+      parts.add(account.trim());
+    }
+    parts.add('calendar: primary');
+    final start = arguments['start_at'];
+    final end = arguments['end_at'];
+    if (start != null && end != null) {
+      parts.add('$start -> $end');
+    }
+    final description = arguments['description'];
+    if (description is String && description.trim().isNotEmpty) {
+      parts.add(description.trim());
+    }
+    final location = arguments['location'];
+    if (location is String && location.trim().isNotEmpty) {
+      parts.add(location.trim());
+    }
+    return parts.join(' | ');
   }
 }
 

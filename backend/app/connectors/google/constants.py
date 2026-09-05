@@ -1,10 +1,13 @@
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+PRIMARY_CALENDAR_ID = "primary"
 
 GOOGLE_OAUTH_SCOPES = [
     GMAIL_READONLY_SCOPE,
     CALENDAR_READONLY_SCOPE,
+    CALENDAR_EVENTS_SCOPE,
     DRIVE_READONLY_SCOPE,
 ]
 

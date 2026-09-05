@@ -274,6 +274,19 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
     if tool_name == "get_today":
         return raw_output
 
+    if tool_name == "create_calendar_event":
+        return {
+            "provider": raw_output.get("provider"),
+            "account_email": raw_output.get("account_email"),
+            "calendar_id": raw_output.get("calendar_id"),
+            "event_id": raw_output.get("event_id"),
+            "summary": raw_output.get("summary"),
+            "start_at": raw_output.get("start_at"),
+            "end_at": raw_output.get("end_at"),
+            "canonical_uri": raw_output.get("canonical_uri"),
+            "changed": raw_output.get("changed", False),
+        }
+
     return raw_output
 
 

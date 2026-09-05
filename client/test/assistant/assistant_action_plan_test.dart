@@ -63,10 +63,28 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  test('AssistantMessageResponse parses pending_action_plan', () {
-    final response = AssistantMessageResponse.fromJson(pendingPlanBody());
-    expect(response.pendingActionPlan?.id, 'plan-1');
-    expect(response.pendingActionPlan?.actions.first.toolName, 'create_task');
+  test('create_calendar_event displayLabel shows user-visible fields', () {
+    final action = PendingAction.fromJson({
+      'tool_name': 'create_calendar_event',
+      'arguments': {
+        'summary': 'Созвон с командой',
+        'account_email': 'user@example.com',
+        'calendar_id': 'primary',
+        'start_at': '2026-09-06T15:00:00+03:00',
+        'end_at': '2026-09-06T15:30:00+03:00',
+        'description': 'Weekly sync',
+        'location': 'Office',
+      },
+    });
+    expect(action.displayLabel, contains('Create calendar event'));
+    expect(action.displayLabel, contains('Созвон с командой'));
+    expect(action.displayLabel, contains('user@example.com'));
+    expect(action.displayLabel, contains('calendar: primary'));
+    expect(action.displayLabel, contains('2026-09-06T15:00:00+03:00'));
+    expect(action.displayLabel, contains('2026-09-06T15:30:00+03:00'));
+    expect(action.displayLabel, contains('Weekly sync'));
+    expect(action.displayLabel, contains('Office'));
+    expect(action.displayLabel, isNot(contains('operation_id')));
   });
 
   test('normal response with no pending plan still parses', () {

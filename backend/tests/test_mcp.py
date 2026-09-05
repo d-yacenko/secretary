@@ -122,6 +122,21 @@ async def test_mcp_create_task_requires_approval(db_session, mcp_server) -> None
 
 
 @pytest.mark.asyncio
+async def test_mcp_create_calendar_event_requires_approval(mcp_server) -> None:
+    async with Client(mcp_server) as client:
+        result = await client.call_tool(
+            "create_calendar_event",
+            {
+                "summary": "MCP calendar event",
+                "start_at": "2026-09-06T15:00:00+03:00",
+                "end_at": "2026-09-06T15:30:00+03:00",
+            },
+        )
+    assert result.is_error
+    assert "Traceback" not in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_mcp_list_notifications(db_session, mcp_server) -> None:
     from app.services.notification_service import NotificationService
 

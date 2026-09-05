@@ -11,7 +11,12 @@ from app.tools.policy import (
     evaluate_policy,
     policy_block_message,
 )
-from app.tools.registry import execute_registered_tool, get_tool_spec, validate_tool_arguments
+from app.tools.registry import (
+    execute_registered_tool,
+    get_tool_spec,
+    prepare_registered_tool,
+    validate_tool_arguments,
+)
 from app.tools.results import ToolExecutionResult, ToolExecutionStatus
 from app.tools.schemas import ToolError
 
@@ -33,8 +38,11 @@ class ToolExecutionGateway:
                 status=ToolExecutionStatus.UNKNOWN_TOOL,
             )
 
+        approved = context == ExecutionContext.APPROVED_ACTION_PLAN
+        argument_model = spec.execution_input_model if approved and getattr(spec, "execution_input_model", None) else spec.input_model
+
         try:
-            validated_arguments = validate_tool_arguments(spec, arguments)
+            validated_arguments = validate_tool_arguments(spec, arguments, model=argument_model)
         except ValidationError:
             return ToolExecutionResult(
                 success=False,
@@ -52,6 +60,17 @@ class ToolExecutionGateway:
 
         decision = evaluate_policy(spec.permission, context)
         if decision == PolicyDecision.REQUIRE_APPROVAL:
+            staged_arguments = validated_arguments
+            if getattr(spec, "prepare_method", None):
+                try:
+                    staged_arguments = prepare_registered_tool(tools, spec, validated_arguments)
+                except ToolError as exc:
+                    return ToolExecutionResult(
+                        success=False,
+                        tool_name=tool_name,
+                        error=exc.message,
+                        status=ToolExecutionStatus.TOOL_ERROR,
+                    )
             return ToolExecutionResult(
                 success=False,
                 tool_name=tool_name,
@@ -61,9 +80,9 @@ class ToolExecutionGateway:
                 staged_action={
                     "tool_name": tool_name,
                     "permission": spec.permission.value,
-                    "arguments": validated_arguments,
+                    "arguments": staged_arguments,
                 },
-                validated_arguments=validated_arguments,
+                validated_arguments=staged_arguments,
             )
         if decision == PolicyDecision.DENY:
             return ToolExecutionResult(

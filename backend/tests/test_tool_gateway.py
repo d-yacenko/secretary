@@ -36,6 +36,7 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "link_objects",
         "remove_relation",
         "get_today",
+        "create_calendar_event",
     }
 )
 
@@ -70,6 +71,7 @@ def test_registry_covers_executor_dispatch_tools():
         "link_objects",
         "remove_relation",
         "get_today",
+        "create_calendar_event",
     }
     assert registered_tool_names() == expected
 
@@ -120,6 +122,10 @@ def test_permission_classifications():
         assert TOOL_REGISTRY[name].permission == ToolPermission.INTERNAL_WRITE
     for name in destructive:
         assert TOOL_REGISTRY[name].permission == ToolPermission.DESTRUCTIVE_INTERNAL_WRITE
+    assert TOOL_REGISTRY["create_calendar_event"].permission == ToolPermission.EXTERNAL_WRITE
+    assert TOOL_REGISTRY["create_calendar_event"].assistant_exposed is True
+    assert TOOL_REGISTRY["create_calendar_event"].mcp_exposed is True
+    assert TOOL_REGISTRY["create_calendar_event"].prepare_method == "prepare_create_calendar_event"
 
 
 def test_baseline_policy_allows_read_and_internal_write():
@@ -131,6 +137,28 @@ def test_baseline_policy_allows_read_and_internal_write():
 def test_baseline_policy_requires_approval_for_external_classes():
     assert evaluate_policy(ToolPermission.EXTERNAL_WRITE) == PolicyDecision.REQUIRE_APPROVAL
     assert evaluate_policy(ToolPermission.COMMUNICATE) == PolicyDecision.REQUIRE_APPROVAL
+
+
+def test_approved_action_plan_allows_external_write_and_communicate():
+    assert (
+        evaluate_policy(ToolPermission.EXTERNAL_WRITE, ExecutionContext.APPROVED_ACTION_PLAN)
+        == PolicyDecision.ALLOW
+    )
+    assert (
+        evaluate_policy(ToolPermission.COMMUNICATE, ExecutionContext.APPROVED_ACTION_PLAN)
+        == PolicyDecision.ALLOW
+    )
+
+
+def test_interactive_and_mcp_external_write_require_approval():
+    assert (
+        evaluate_policy(ToolPermission.EXTERNAL_WRITE, ExecutionContext.INTERACTIVE_ASSISTANT)
+        == PolicyDecision.REQUIRE_APPROVAL
+    )
+    assert (
+        evaluate_policy(ToolPermission.EXTERNAL_WRITE, ExecutionContext.MCP)
+        == PolicyDecision.REQUIRE_APPROVAL
+    )
 
 
 def test_gateway_executes_read_tool():

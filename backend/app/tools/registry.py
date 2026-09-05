@@ -10,6 +10,8 @@ from app.services.domain_tool_service import DomainToolService
 from app.tools.assistant_contracts import ASSISTANT_FUNCTION_SCHEMAS
 from app.tools.policy import ToolPermission
 from app.tools.schemas import (
+    CreateCalendarEventCanonicalInput,
+    CreateCalendarEventInput,
     CreateTaskInput,
     DeleteTaskInput,
     GetContextInput,
@@ -36,6 +38,8 @@ class ToolSpec:
     assistant_exposed: bool
     mcp_exposed: bool
     assistant_definition: dict | None = None
+    prepare_method: str | None = None
+    execution_input_model: type[BaseModel] | None = None
 
 
 def _assistant_definition(name: str) -> dict:
@@ -177,6 +181,17 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         mcp_exposed=True,
         assistant_definition=_assistant_definition("get_today"),
     ),
+    ToolSpec(
+        name="create_calendar_event",
+        permission=ToolPermission.EXTERNAL_WRITE,
+        input_model=CreateCalendarEventInput,
+        service_method="create_calendar_event",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("create_calendar_event"),
+        prepare_method="prepare_create_calendar_event",
+        execution_input_model=CreateCalendarEventCanonicalInput,
+    ),
 )
 
 TOOL_REGISTRY: dict[str, ToolSpec] = _build_tool_registry(TOOL_SPECS)
@@ -203,11 +218,35 @@ def registered_tool_names() -> frozenset[str]:
     return frozenset(TOOL_REGISTRY.keys())
 
 
-def validate_tool_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> dict[str, Any]:
-    if spec.input_model is None:
+def validate_tool_arguments(
+    spec: ToolSpec,
+    arguments: dict[str, Any],
+    *,
+    model: type[BaseModel] | None = None,
+) -> dict[str, Any]:
+    input_model = spec.input_model if model is None else model
+    if input_model is None:
         return {}
-    validated = spec.input_model.model_validate(arguments)
+    validated = input_model.model_validate(arguments)
     return validated.model_dump(mode="json", exclude_unset=True)
+
+
+def prepare_registered_tool(
+    tools: DomainToolService,
+    spec: ToolSpec,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    prepare_method = getattr(spec, "prepare_method", None)
+    if not prepare_method:
+        return arguments
+    method: Callable[..., BaseModel | dict[str, Any]] = getattr(tools, prepare_method)
+    if spec.input_model is None:
+        prepared = method()
+    else:
+        prepared = method(spec.input_model.model_validate(arguments))
+    if isinstance(prepared, BaseModel):
+        return prepared.model_dump(mode="json")
+    return prepared
 
 
 def execute_registered_tool(
@@ -216,9 +255,10 @@ def execute_registered_tool(
     arguments: dict[str, Any],
 ) -> BaseModel:
     method: Callable[..., BaseModel] = getattr(tools, spec.service_method)
-    if spec.input_model is None:
+    execution_model = getattr(spec, "execution_input_model", None) or spec.input_model
+    if execution_model is None:
         return method()
-    validated = spec.input_model.model_validate(arguments)
+    validated = execution_model.model_validate(arguments)
     return method(validated)
 
 
