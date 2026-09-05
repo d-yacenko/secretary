@@ -9,6 +9,7 @@ import 'archive_xml_utils.dart';
 import 'dataset_sampling.dart';
 import 'extraction_constants.dart';
 import 'representation_builder.dart';
+import 'spreadsheet_columns.dart';
 
 const _officeNs = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
 const _textNs = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
@@ -18,15 +19,27 @@ const _drawNs = 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0';
 class _OdsSheetData {
   const _OdsSheetData({
     required this.name,
-    required this.fieldnames,
+    required this.columnKeys,
+    required this.displayHeaders,
     required this.rows,
     required this.truncated,
   });
 
   final String name;
-  final List<String> fieldnames;
+  final List<String> columnKeys;
+  final List<String> displayHeaders;
   final List<IndexedRow> rows;
   final bool truncated;
+}
+
+class _ParsedOdsPhysicalRow {
+  const _ParsedOdsPhysicalRow({
+    required this.sourceRowNumber,
+    required this.cells,
+  });
+
+  final int sourceRowNumber;
+  final List<String> cells;
 }
 
 Future<List<Map<String, dynamic>>> extractOdtFile(File file) async {
@@ -128,7 +141,8 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
     sheets.add(
       _OdsSheetData(
         name: sheetName,
-        fieldnames: parsed.$3,
+        columnKeys: parsed.$3,
+        displayHeaders: parsed.$4,
         rows: parsed.$1,
         truncated: parsed.$2,
       ),
@@ -144,30 +158,34 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
   final sampleLines = <String>['sample'];
   final statsLines = <String>['statistics'];
   for (final sheet in sheets) {
-    if (sheet.fieldnames.isEmpty) {
+    if (sheet.columnKeys.isEmpty) {
       schemaLines.add('${sheet.name}: (empty)');
       statsLines.add('${sheet.name}: rows=0, columns=0');
       continue;
     }
     schemaLines.add(
-      '${sheet.name}: ${sheet.fieldnames.map((name) => '$name=string').join(', ')}',
+      formatSheetPositionalSchema(
+        sheet.name,
+        sheet.columnKeys,
+        sheet.displayHeaders,
+      ),
     );
-    sampleLines.add('[${sheet.name}]');
     if (sheet.rows.isNotEmpty) {
       sampleLines.add('[${sheet.name}]');
       for (var i = 0; i < sheet.rows.length && i < 5; i++) {
-        final row = sheet.rows[i];
         sampleLines.add(
-          _formatOdsRow(sheet.name, row, sheet.fieldnames),
+          _formatOdsRow(sheet.name, sheet.rows[i], sheet.columnKeys),
         );
       }
     }
     statsLines.add(
-      '${sheet.name}: rows=${sheet.rows.length}, columns=${sheet.fieldnames.length}',
+      '${sheet.name}: rows=${sheet.rows.length}, columns=${sheet.columnKeys.length}',
     );
   }
 
-  final fieldnames = _unionFieldnames(sheets);
+  final fieldnames = unionPositionalColumnKeys(
+    sheets.map((sheet) => sheet.columnKeys),
+  );
   final columnTypes = {for (final name in fieldnames) name: 'string'};
   final statsMeta = <String, dynamic>{
     'row_count': totalRows,
@@ -176,27 +194,48 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
     'stats_truncated': truncated,
     'columns': <String, dynamic>{},
   };
+  final sourceTruncationMeta = truncationMetadata(truncated);
 
   if (totalRows <= kCompactSampleMaxRows) {
     final searchableLines = <String>[];
     for (final sheet in sheets) {
       for (final row in sheet.rows) {
         searchableLines.add(
-          '${searchableRowLabel(row)}\n${_formatOdsValues(row.values, sheet.fieldnames)}',
+          '${searchableRowLabel(row)}\n${_formatOdsValues(row.values, sheet.columnKeys)}',
         );
       }
     }
     final schemaCapped = capStructuralText(schemaLines.join('\n'));
     final sampleCapped = capStructuralText(sampleLines.join('\n'));
     final statsCapped = capStructuralText(statsLines.join('\n'));
+    final structuralTruncated =
+        truncated || schemaCapped.$2 || sampleCapped.$2 || statsCapped.$2;
     final searchableReps = buildBoundedTextRepresentations(
       searchableLines.join('\n'),
       kMaxExtractorParts - kDatasetStructuralParts,
     );
     return boundedRepresentations([
-      {'kind': 'schema', 'text': schemaCapped.$1, 'metadata': statsMeta},
-      {'kind': 'sample', 'text': sampleCapped.$1},
-      {'kind': 'statistics', 'text': statsCapped.$1, 'metadata': statsMeta},
+      {
+        'kind': 'schema',
+        'text': schemaCapped.$1,
+        'metadata': {
+          ...statsMeta,
+          ...truncationMetadata(structuralTruncated),
+        },
+      },
+      {
+        'kind': 'sample',
+        'text': sampleCapped.$1,
+        'metadata': truncationMetadata(structuralTruncated),
+      },
+      {
+        'kind': 'statistics',
+        'text': statsCapped.$1,
+        'metadata': {
+          ...statsMeta,
+          ...truncationMetadata(structuralTruncated),
+        },
+      },
       ...searchableReps,
     ]);
   }
@@ -209,10 +248,9 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
         IndexedRow(
           index: globalIndex,
           sheetName: sheet.name,
-          sourceRowNumber: row.sourceRowNumber ?? (row.index + 1),
+          sourceRowNumber: row.sourceRowNumber,
           values: {
-            for (final name in fieldnames)
-              name: row.values[name] ?? '',
+            for (final key in fieldnames) key: row.values[key] ?? '',
           },
         ),
       );
@@ -236,7 +274,7 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
       formatSampleText([estimateRow], fieldnames),
     ),
   );
-  return buildIndexedDatasetRepresentations(
+  final reps = buildIndexedDatasetRepresentations(
     fieldnames: fieldnames,
     columnTypes: columnTypes,
     statsMeta: statsMeta,
@@ -246,19 +284,19 @@ Future<List<Map<String, dynamic>>> extractOdsFile(File file) async {
     compactIndices: compactIndices,
     searchableIndices: planned.$1.indices,
   );
-}
-
-List<String> _unionFieldnames(List<_OdsSheetData> sheets) {
-  final names = <String>[];
-  final seen = <String>{};
-  for (final sheet in sheets) {
-    for (final name in sheet.fieldnames) {
-      if (seen.add(name)) {
-        names.add(name);
-      }
-    }
+  if (sourceTruncationMeta.isEmpty) {
+    return reps;
   }
-  return names;
+  return [
+    for (final rep in reps)
+      {
+        ...rep,
+        'metadata': {
+          ...(rep['metadata'] as Map<String, dynamic>? ?? {}),
+          ...sourceTruncationMeta,
+        },
+      },
+  ];
 }
 
 Future<XmlElement> _readOdfContentXml(File file) async {
@@ -269,12 +307,13 @@ Future<XmlElement> _readOdfContentXml(File file) async {
   return parseSafeXml(readArchiveEntry(archive, 'content.xml')).rootElement;
 }
 
-(List<IndexedRow>, bool, List<String>) _odsTableRows(
+(List<IndexedRow>, bool, List<String>, List<String>) _odsTableRows(
   XmlElement table,
   String sheetName,
 ) {
-  final parsedRows = <List<String>>[];
+  final parsedRows = <_ParsedOdsPhysicalRow>[];
   var truncated = false;
+  var logicalRowNumber = 0;
   for (final rowElem in _childrenByLocal(table, 'table-row', 'table')) {
     if (parsedRows.length >= kMaxOdfRowsPerSheet) {
       truncated = true;
@@ -303,49 +342,50 @@ Future<XmlElement> _readOdfContentXml(File file) async {
     );
     truncated = truncated || rowRepeat.$2;
     for (var i = 0; i < rowRepeat.$1; i++) {
-      parsedRows.add(List<String>.from(values));
+      logicalRowNumber += 1;
       if (parsedRows.length >= kMaxOdfRowsPerSheet) {
         truncated = true;
         break;
       }
+      parsedRows.add(
+        _ParsedOdsPhysicalRow(
+          sourceRowNumber: logicalRowNumber,
+          cells: List<String>.from(values),
+        ),
+      );
     }
   }
 
   if (parsedRows.isEmpty) {
-    return ([], truncated, []);
+    return ([], truncated, [], []);
   }
 
-  final header = parsedRows.first;
-  final fieldnames = header
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toList();
-  final effectiveNames = fieldnames.isNotEmpty
-      ? fieldnames
-      : List.generate(header.length, (index) => 'col_$index');
+  final headerRow = parsedRows.first;
+  final columnKeys = positionalColumnKeys(headerRow.cells.length);
+  final displayHeaders = displayHeadersFromRaw(headerRow.cells, columnKeys);
 
   final rows = <IndexedRow>[];
   var dataRowIndex = 0;
   for (var rowOffset = 1; rowOffset < parsedRows.length; rowOffset++) {
-    final raw = parsedRows[rowOffset];
+    final physical = parsedRows[rowOffset];
     final values = <String, String>{};
-    for (var col = 0; col < effectiveNames.length; col++) {
-      values[effectiveNames[col]] =
-          col < raw.length ? raw[col] : '';
+    for (var col = 0; col < columnKeys.length; col++) {
+      values[columnKeys[col]] =
+          col < physical.cells.length ? physical.cells[col] : '';
     }
     if (values.values.any((value) => value.isNotEmpty)) {
       rows.add(
         IndexedRow(
           index: dataRowIndex,
           sheetName: sheetName,
-          sourceRowNumber: dataRowIndex + 1,
+          sourceRowNumber: physical.sourceRowNumber,
           values: values,
         ),
       );
       dataRowIndex += 1;
     }
   }
-  return (rows, truncated, effectiveNames);
+  return (rows, truncated, columnKeys, displayHeaders);
 }
 
 (int, bool) _boundedRepeat(String? raw, {int defaultValue = 1}) {
@@ -430,14 +470,14 @@ List<String> _odtListItems(XmlElement listElem) {
 String _formatOdsRow(
   String sheetName,
   IndexedRow row,
-  List<String> fieldnames,
+  List<String> columnKeys,
 ) {
   return '${searchableRowLabel(row)} '
-      '${fieldnames.map((name) => '$name=${row.values[name] ?? ''}').join(' | ')}';
+      '${columnKeys.map((key) => '$key=${row.values[key] ?? ''}').join(' | ')}';
 }
 
-String _formatOdsValues(Map<String, String> values, List<String> fieldnames) {
-  return fieldnames.map((name) => values[name] ?? '').join(',');
+String _formatOdsValues(Map<String, String> values, List<String> columnKeys) {
+  return columnKeys.map((key) => values[key] ?? '').join(',');
 }
 
 bool _isTag(XmlElement element, String local, String nsKey) {

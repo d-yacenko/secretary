@@ -8,6 +8,7 @@ import '../client_content_revision.dart';
 import 'dataset_sampling.dart';
 import 'extraction_constants.dart';
 import 'representation_builder.dart';
+import 'spreadsheet_columns.dart';
 
 const _csvConverter = CsvToListConverter(shouldParseNumbers: false, eol: '\n');
 
@@ -34,10 +35,12 @@ Future<List<Map<String, dynamic>>> _extractSmallCsv(File file) async {
       {'kind': 'schema', 'text': 'columns: (empty)'},
     ]);
   }
-  final fieldnames = rows.first
+  final rawHeader = rows.first
       .map((cell) => cell?.toString() ?? '')
       .take(kMaxCsvColumns)
       .toList();
+  final fieldnames = positionalColumnKeys(rawHeader.length);
+  final displayHeaders = displayHeadersFromRaw(rawHeader, fieldnames);
   final dataRows = <Map<String, String>>[];
   for (var i = 1; i < rows.length; i++) {
     final parsed = rows[i];
@@ -47,18 +50,20 @@ Future<List<Map<String, dynamic>>> _extractSmallCsv(File file) async {
             col < parsed.length ? parsed[col]?.toString() ?? '' : '',
     });
   }
-  return _buildCsvRepresentations(fieldnames, dataRows);
+  return _buildCsvRepresentations(fieldnames, displayHeaders, dataRows);
 }
 
 Future<List<Map<String, dynamic>>> _extractLargeCsv(File file) async {
-  final fieldnames = await _readCsvHeader(file);
+  final header = await _readCsvHeaderPositional(file);
+  final fieldnames = header.$1;
+  final displayHeaders = header.$2;
   if (fieldnames.isEmpty) {
     return boundedRepresentations([
       {'kind': 'schema', 'text': 'columns: (empty)'},
     ]);
   }
 
-  final stats = await _streamCsvStats(file, fieldnames);
+  final stats = await _streamCsvStats(file, fieldnames, displayHeaders);
   final statsMeta = stats.$1;
   final statsLines = stats.$2;
   final columnTypes = stats.$3;
@@ -99,6 +104,7 @@ Future<List<Map<String, dynamic>>> _extractLargeCsv(File file) async {
 
 List<Map<String, dynamic>> _buildCsvRepresentations(
   List<String> fieldnames,
+  List<String> displayHeaders,
   List<Map<String, String>> dataRows,
 ) {
   final columnTypes = {for (final name in fieldnames) name: 'string'};
@@ -110,6 +116,7 @@ List<Map<String, dynamic>> _buildCsvRepresentations(
     'columns': <String, dynamic>{},
   };
   final statsLines = <String>[
+    formatPositionalSchemaLine(fieldnames, displayHeaders),
     'rows: ${dataRows.length}',
     'columns: ${fieldnames.length}',
   ];
@@ -147,14 +154,21 @@ List<Map<String, dynamic>> _buildCsvRepresentations(
   );
 }
 
-Future<List<String>> _readCsvHeader(File file) async {
+Future<(List<String>, List<String>)> _readCsvHeaderPositional(File file) async {
   await for (final row in _streamCsvRows(file)) {
-    return row
+    final rawHeader = row
         .map((cell) => cell?.toString() ?? '')
         .take(kMaxCsvColumns)
         .toList();
+    final columnKeys = positionalColumnKeys(rawHeader.length);
+    return (columnKeys, displayHeadersFromRaw(rawHeader, columnKeys));
   }
-  return [];
+  return (<String>[], <String>[]);
+}
+
+Future<List<String>> _readCsvHeader(File file) async {
+  final header = await _readCsvHeaderPositional(file);
+  return header.$1;
 }
 
 Future<int> _countCsvRows(File file) async {
@@ -176,7 +190,11 @@ Future<(
   Map<String, dynamic>,
   List<String>,
   Map<String, String>,
-)> _streamCsvStats(File file, List<String> fieldnames) async {
+)> _streamCsvStats(
+  File file,
+  List<String> fieldnames,
+  List<String> displayHeaders,
+) async {
   final columnTypes = {for (final name in fieldnames) name: 'string'};
   final numericValues = {for (final name in fieldnames) name: <double>[]};
   var rowsSeen = 0;
@@ -223,6 +241,7 @@ Future<(
     'columns': <String, dynamic>{},
   };
   final lines = <String>[
+    formatPositionalSchemaLine(fieldnames, displayHeaders),
     'rows: ${truncated ? 'unknown (sampled)' : rowsSeen}',
     'columns: ${fieldnames.length}',
   ];

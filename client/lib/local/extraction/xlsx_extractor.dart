@@ -69,22 +69,32 @@ Future<List<Map<String, dynamic>>> extractXlsxFile(File file) async {
   final sampleCapped = capStructuralText(sampleLines.join('\n'));
   final statsCapped = capStructuralText(statsLines.join('\n'));
   truncated = truncated || schemaCapped.$2 || sampleCapped.$2 || statsCapped.$2;
+  final truncationMeta = truncationMetadata(truncated);
 
   final structuralReps = <Map<String, dynamic>>[
     {
       'kind': 'schema',
       'text': schemaCapped.$1,
-      'metadata': {'sheet_count': selectedSheets.length},
+      'metadata': {
+        'sheet_count': selectedSheets.length,
+        ...truncationMeta,
+      },
     },
     {
       'kind': 'sample',
       'text': sampleCapped.$1,
-      'metadata': {'sheet_count': selectedSheets.length},
+      'metadata': {
+        'sheet_count': selectedSheets.length,
+        ...truncationMeta,
+      },
     },
     {
       'kind': 'statistics',
       'text': statsCapped.$1,
-      'metadata': {'sheet_count': selectedSheets.length},
+      'metadata': {
+        'sheet_count': selectedSheets.length,
+        ...truncationMeta,
+      },
     },
   ];
 
@@ -93,7 +103,10 @@ Future<List<Map<String, dynamic>>> extractXlsxFile(File file) async {
   final searchableReps = buildBoundedTextRepresentations(
     searchableLines.join('\n'),
     remainingParts,
-    metadata: {'sheet_count': selectedSheets.length},
+    metadata: {
+      'sheet_count': selectedSheets.length,
+      ...truncationMeta,
+    },
   );
 
   return boundedRepresentations([...structuralReps, ...searchableReps]);

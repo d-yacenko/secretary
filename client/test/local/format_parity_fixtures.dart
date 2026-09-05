@@ -384,6 +384,192 @@ Future<void> writeLargeMultiSheetOds(File file, {int rowsPerSheet = 50}) async {
   );
 }
 
+Future<void> writeOdsSourceRowIdentity(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:spreadsheet>
+      <table:table table:name="SheetA">
+        <table:table-row>
+          <table:table-cell><text:p>Name</text:p></table:table-cell>
+          <table:table-cell><text:p>Value</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell><text:p></text:p></table:table-cell>
+          <table:table-cell><text:p></text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell><text:p>after_blank</text:p></table:table-cell>
+          <table:table-cell><text:p>v1</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row table:number-rows-repeated="2">
+          <table:table-cell office:value-type="string" office:string-value="repeat_marker"/>
+        </table:table-row>
+      </table:table>
+      <table:table table:name="SheetB">
+        <table:table-row>
+          <table:table-cell><text:p>Key</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell office:value-type="string" office:string-value="sheetb_row2_value"/>
+        </table:table-row>
+      </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.spreadsheet',
+  );
+}
+
+Future<void> writeOdsPositionalColumns(File file) async {
+  final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
+  <office:body>
+    <office:spreadsheet>
+      <table:table table:name="SheetA">
+        <table:table-row>
+          <table:table-cell><text:p>Name</text:p></table:table-cell>
+          <table:table-cell><text:p></text:p></table:table-cell>
+          <table:table-cell><text:p>Amount</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell><text:p>Alice</text:p></table:table-cell>
+          <table:table-cell><text:p>mid</text:p></table:table-cell>
+          <table:table-cell><text:p>42</text:p></table:table-cell>
+        </table:table-row>
+      </table:table>
+      <table:table table:name="SheetB">
+        <table:table-row>
+          <table:table-cell><text:p>Name</text:p></table:table-cell>
+          <table:table-cell><text:p>Name</text:p></table:table-cell>
+          <table:table-cell><text:p>Qty</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell><text:p>a</text:p></table:table-cell>
+          <table:table-cell><text:p>b</text:p></table:table-cell>
+          <table:table-cell><text:p>1</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row>
+          <table:table-cell><text:p>a2</text:p></table:table-cell>
+          <table:table-cell><text:p>b2</text:p></table:table-cell>
+          <table:table-cell><text:p>2</text:p></table:table-cell>
+        </table:table-row>
+      </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>''';
+  await _writeOdfZip(
+    file,
+    contentXml,
+    'application/vnd.oasis.opendocument.spreadsheet',
+  );
+}
+
+Future<void> writeXlsxWithRowCount(File file, int dataRows) async {
+  final sheetRows = StringBuffer()
+    ..writeln(
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>header</t></is></c></row>',
+    );
+  for (var i = 1; i <= dataRows; i++) {
+    final rowNum = i + 1;
+    sheetRows.writeln(
+      '<row r="$rowNum"><c r="A$rowNum" t="inlineStr"><is><t>row_$i</t></is></c></row>',
+    );
+  }
+  await _writeSingleSheetXlsx(file, sheetRows.toString());
+}
+
+Future<void> writeXlsxWithWideColumn(File file) async {
+  const sheet = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr"><is><t>h</t></is></c>
+      <c r="BM1" t="inlineStr"><is><t>wide_header</t></is></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="inlineStr"><is><t>left</t></is></c>
+      <c r="BM2" t="inlineStr"><is><t>beyond_column_cap</t></is></c>
+    </row>
+  </sheetData>
+</worksheet>''';
+  await _writeSingleSheetXlsx(file, '', sheetXml: sheet);
+}
+
+Future<void> writeXlsxWithSheetCount(File file, int sheetCount) async {
+  final relEntries = StringBuffer();
+  final workbookSheets = StringBuffer();
+  final contentTypes = StringBuffer(
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>',
+  );
+  final archiveEntries = <String, String>{};
+  for (var i = 1; i <= sheetCount; i++) {
+    workbookSheets.writeln(
+      '<sheet name="Sheet$i" sheetId="$i" r:id="rId$i"/>',
+    );
+    relEntries.writeln(
+      '<Relationship Id="rId$i" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet$i.xml"/>',
+    );
+    contentTypes.writeln(
+      '<Override PartName="/xl/worksheets/sheet$i.xml" '
+      'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+    );
+    archiveEntries['xl/worksheets/sheet$i.xml'] = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1" t="inlineStr"><is><t>sheet_$i</t></is></c></row>
+  </sheetData>
+</worksheet>''';
+  }
+  archiveEntries['[Content_Types].xml'] = '$contentTypes</Types>';
+  archiveEntries['xl/_rels/workbook.xml.rels'] = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+$relEntries</Relationships>''';
+  archiveEntries['xl/workbook.xml'] = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>$workbookSheets</sheets>
+</workbook>''';
+  await _writeOoxmlZip(file, archiveEntries);
+}
+
+Future<void> _writeSingleSheetXlsx(
+  File file,
+  String sheetDataRows, {
+  String? sheetXml,
+}) async {
+  final sheet = sheetXml ??
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+$sheetDataRows  </sheetData>
+</worksheet>''';
+  await _writeOoxmlZip(file, {
+    '[Content_Types].xml': _genericContentTypes(),
+    'xl/workbook.xml': '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>''',
+    'xl/_rels/workbook.xml.rels': '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>''',
+    'xl/worksheets/sheet1.xml': sheet,
+  });
+}
+
 Future<void> writeMinimalOdp(File file) async {
   final contentXml = '''<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content
