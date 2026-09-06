@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete
 
+from app.assistant.action_plan_constants import PENDING_ACTION_PLAN_STATUS_EXECUTED
 from app.connectors.google.constants import (
     CALENDAR_EVENTS_SCOPE,
     CALENDAR_READONLY_SCOPE,
@@ -459,6 +460,77 @@ def test_yandex_mail_approve_sends_once(google_settings, credential_key, monkeyp
         session.close()
 
 
+def test_yandex_mail_action_plan_survives_post_smtp_copy_error(google_settings, credential_key, monkeypatch):
+    smtp, imap = _mail_fakes()
+    _patch_mail(monkeypatch, smtp, imap)
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("sent-copy bookkeeping exploded")
+
+    monkeypatch.setattr(EmailExternalActionService, "_complete_yandex_sent_copy", boom)
+    session, user_id = _isolated_mail(credential_key)
+    try:
+        tools = _tools_mail(session, user_id, smtp, imap)
+        staged = ToolExecutionGateway().execute(
+            tools, "send_email", _mail_args(provider="yandex"), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        )
+        plan = ActionPlanService(session, user_id).create_plan([staged.staged_action])
+        first = ActionPlanService(session, user_id).approve(plan.id)
+        assert first.status == PENDING_ACTION_PLAN_STATUS_EXECUTED
+        assert first.failure is None
+        output = first.result["actions"][0]["output"]
+        assert output["delivery_status"] == "sent"
+        assert output["changed"] is True
+        assert output["sent_copy_status"] == "unconfirmed"
+        assert len(smtp.send_calls) == 1
+        repeated = ActionPlanService(session, user_id).approve(plan.id)
+        assert repeated.status == PENDING_ACTION_PLAN_STATUS_EXECUTED
+        assert len(smtp.send_calls) == 1
+    finally:
+        _cleanup_isolated(session, user_id)
+
+
+def test_yandex_mail_action_plan_lock_serializes_approve(google_settings, credential_key, monkeypatch):
+    smtp, imap = _mail_fakes()
+    _patch_mail(monkeypatch, smtp, imap)
+    session, user_id = _isolated_mail(credential_key)
+    try:
+        staged = ToolExecutionGateway().execute(
+            _tools_mail(session, user_id, smtp, imap),
+            "send_email",
+            _mail_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        plan = ActionPlanService(session, user_id).create_plan([staged.staged_action])
+        session.commit()
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            worker_session = SessionLocal()
+            try:
+                ActionPlanService(worker_session, user_id).approve(plan.id)
+                worker_session.commit()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                worker_session.close()
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert len(smtp.send_calls) == 1
+        assert [call for call in imap.append_calls if call["folder"] == SECRETARY_UNCERTAIN_FOLDER] == []
+        session.expire_all()
+        stored = ActionPlanService(session, user_id).approve(plan.id)
+        assert stored.status == PENDING_ACTION_PLAN_STATUS_EXECUTED
+        assert len(smtp.send_calls) == 1
+    finally:
+        _cleanup_isolated(session, user_id)
+
+
 def test_yandex_mail_concurrent_smtp_once(google_settings, credential_key, monkeypatch):
     smtp, imap = _mail_fakes()
     _patch_mail(monkeypatch, smtp, imap)
@@ -496,6 +568,7 @@ def test_yandex_mail_concurrent_smtp_once(google_settings, credential_key, monke
         assert len(smtp.send_calls) == 1
         sent_appends = [call for call in imap.append_calls if call["folder"] == SENT_FOLDER]
         assert len(sent_appends) == 1
+        assert [call for call in imap.append_calls if call["folder"] == SECRETARY_UNCERTAIN_FOLDER] == []
     finally:
         session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
         session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))

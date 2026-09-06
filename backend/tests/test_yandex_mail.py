@@ -1,3 +1,4 @@
+import imaplib
 import uuid
 from datetime import UTC, datetime
 from email import policy
@@ -216,6 +217,19 @@ def test_imaplib_transport_append_and_create() -> None:
     transport.append_message("Sent", b"raw-bytes", flags=["\\Seen"])
     assert stub.appended == [("Sent", "(\\Seen)", b"raw-bytes")]
     assert transport._selected_folder is None
+
+
+class _AbortAppendImap:
+    def append(self, mailbox, flags, date_time, message):
+        raise imaplib.IMAP4.abort("socket error: EOF")
+
+
+def test_imaplib_append_abort_is_retryable() -> None:
+    transport = ImaplibTransport("imap.yandex.ru", 993, "user@yandex.ru", "pass")
+    transport._imap = _AbortAppendImap()
+    with pytest.raises(YandexImapError) as caught:
+        transport.append_message("Sent", b"raw-bytes", flags=["\\Seen"])
+    assert caught.value.retryable is True
 
 
 def test_normalize_imap_message_matches_email_object_shape() -> None:

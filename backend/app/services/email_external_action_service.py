@@ -438,7 +438,10 @@ class EmailExternalActionService:
             delivery_status="sent",
             extra_metadata={METADATA_SENT_COPY_STATE: SENT_COPY_NOT_STARTED},
         )
-        copy_status = self._complete_yandex_sent_copy(payload, imap, message_bytes)
+        copy_status = self._best_effort_sent_copy(
+            payload,
+            lambda: self._complete_yandex_sent_copy(payload, imap, message_bytes),
+        )
         return self._output(
             payload,
             None,
@@ -457,39 +460,61 @@ class EmailExternalActionService:
         if attempt.state == ATTEMPT_FAILED_DEFINITE:
             raise ToolError(_FAILED_DEFINITE_MESSAGE)
         if attempt.state == ATTEMPT_SUCCEEDED:
-            copy_state = self._copy_state(attempt, METADATA_SENT_COPY_STATE)
-            if copy_state == SENT_COPY_STORED:
-                return self._output(
-                    payload,
-                    attempt.provider_external_id,
-                    delivery_status="already_sent",
-                    changed=False,
-                    sent_copy_status="already_present",
-                )
-            if copy_state == SENT_COPY_NOT_STARTED:
-                copy_status = self._complete_yandex_sent_copy(payload, imap, message_bytes)
-                return self._output(
-                    payload,
-                    attempt.provider_external_id,
-                    delivery_status="already_sent",
-                    changed=False,
-                    sent_copy_status=copy_status,
-                )
-            copy_status = self._reconcile_yandex_mailbox_copy(
-                payload,
-                imap,
-                self._sent_folder(imap),
-                METADATA_SENT_COPY_STATE,
-                allow_append=False,
-            )
+            return self._resume_succeeded_yandex_copy(payload, attempt, imap, message_bytes)
+        if attempt.state == ATTEMPT_STARTED:
+            raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
+        return self._after_ambiguous_yandex_send(payload, imap, message_bytes)
+
+    def _resume_succeeded_yandex_copy(
+        self,
+        payload: SendEmailCanonicalInput,
+        attempt: ExternalActionAttempt,
+        imap,
+        message_bytes: bytes,
+    ) -> SendEmailOutput:
+        copy_state = self._copy_state(attempt, METADATA_SENT_COPY_STATE)
+        if copy_state == SENT_COPY_STORED:
             return self._output(
                 payload,
                 attempt.provider_external_id,
                 delivery_status="already_sent",
                 changed=False,
-                sent_copy_status=copy_status,
+                sent_copy_status="already_present",
             )
-        return self._after_ambiguous_yandex_send(payload, imap, message_bytes)
+
+        def _copy() -> str:
+            if copy_state == SENT_COPY_NOT_STARTED:
+                return self._complete_yandex_sent_copy(payload, imap, message_bytes)
+            return self._reconcile_yandex_mailbox_copy(
+                payload,
+                imap,
+                self._sent_folder_or_none(imap),
+                METADATA_SENT_COPY_STATE,
+                allow_append=False,
+            )
+
+        copy_status = self._best_effort_sent_copy(payload, _copy)
+        return self._output(
+            payload,
+            attempt.provider_external_id,
+            delivery_status="already_sent",
+            changed=False,
+            sent_copy_status=copy_status,
+        )
+
+    def _best_effort_sent_copy(self, payload: SendEmailCanonicalInput, work) -> str:
+        try:
+            return work()
+        except Exception:  # noqa: BLE001
+            try:
+                self._set_copy_state(
+                    payload.operation_id,
+                    METADATA_SENT_COPY_STATE,
+                    SENT_COPY_UNCERTAIN,
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
+            return "unconfirmed"
 
     def _after_ambiguous_yandex_send(
         self,
@@ -580,9 +605,6 @@ class EmailExternalActionService:
             METADATA_UNCERTAIN_COPY_STATE,
             create_folder=True,
         )
-
-    def _sent_folder(self, imap) -> str:
-        return imap.discover_sent_folder()
 
     def _sent_folder_or_none(self, imap) -> str | None:
         try:

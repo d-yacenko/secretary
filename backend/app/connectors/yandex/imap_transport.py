@@ -419,6 +419,8 @@ class ImaplibTransport:
             status, _ = imap.append(folder, flag_str, None, message_bytes)
         except (TimeoutError, OSError) as exc:
             raise YandexImapError("failed to append imap message", retryable=True) from exc
+        except imaplib.IMAP4.abort as exc:
+            raise YandexImapError("failed to append imap message", retryable=True) from exc
         except imaplib.IMAP4.error as exc:
             raise YandexImapError("failed to append imap message") from exc
         if status != "OK":
