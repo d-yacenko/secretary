@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.db.engine import engine
 from app.db.models import Job, Notification, Object, User
+from app.domain.object_visibility import tombstone_object
 from app.domain.recurrence import (
     RecurrenceSpec,
     as_utc,
@@ -199,25 +200,85 @@ def _persist_recurring(
             confidence=None,
             enqueue_embedding=False,
         )
-        job = session.scalar(
+        job = session.scalars(
             select(Job).where(
                 Job.user_id == user_id,
                 Job.type == JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
-                Job.status == JOB_STATUS_PENDING,
             )
         )
-        assert job is not None
+        matched = next(
+            (
+                row
+                for row in job
+                if (row.payload or {}).get("activity_id") == str(obj.id)
+            ),
+            None,
+        )
+        assert matched is not None
         stored_due = first
         if due_at is not None:
             obj.due_at = due_at
-            job.run_after = due_at
-            payload = dict(job.payload or {})
+            matched.run_after = due_at
+            payload = dict(matched.payload or {})
             payload["occurrence_due_at"] = instant_to_iso(due_at)
-            job.payload = payload
+            matched.payload = payload
             stored_due = due_at
-        activity_id, job_id = obj.id, job.id
+        activity_id, job_id = obj.id, matched.id
         session.commit()
     return activity_id, job_id, stored_due
+
+
+def _persist_once(
+    user_id: uuid.UUID,
+    *,
+    due_at: datetime | None = None,
+    title: str = "Persisted once",
+) -> tuple[uuid.UUID, uuid.UUID, datetime]:
+    create_at = datetime.now(UTC) + timedelta(hours=2)
+    with Session(engine) as session:
+        graph = GraphService(session, user_id)
+        obj = ScheduledActivityService(session, user_id, graph).create_once(
+            title=title,
+            body="Once body",
+            run_at=create_at,
+            priority="normal",
+            origin_state="confirmed",
+            confidence=None,
+            enqueue_embedding=False,
+        )
+        job = session.scalars(
+            select(Job).where(
+                Job.user_id == user_id,
+                Job.type == JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+            )
+        )
+        matched = next(
+            (
+                row
+                for row in job
+                if (row.payload or {}).get("activity_id") == str(obj.id)
+            ),
+            None,
+        )
+        assert matched is not None
+        stored_due = create_at
+        if due_at is not None:
+            obj.due_at = due_at
+            matched.run_after = due_at
+            stored_due = due_at
+        activity_id, job_id = obj.id, matched.id
+        session.commit()
+    return activity_id, job_id, stored_due
+
+
+def _patch_metadata(activity_id: uuid.UUID, updater) -> None:
+    with Session(engine) as session:
+        obj = session.get(Object, activity_id)
+        assert obj is not None
+        metadata = dict(obj.metadata_ or {})
+        updater(metadata)
+        obj.metadata_ = metadata
+        session.commit()
 
 
 def _load(model, entity_id):
@@ -989,3 +1050,177 @@ def test_handler_source_has_no_llm_or_external_actions() -> None:
         "external_action",
     ):
         assert needle not in combined
+
+
+def _assert_fail_closed(activity_id: uuid.UUID, job_id: uuid.UUID, stored_due: datetime) -> None:
+    activity = _load(Object, activity_id)
+    assert activity.status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+    assert same_instant(activity.due_at, stored_due)
+    assert activity.occurred_at is None
+    assert _notification_count(activity.user_id) == 0
+    successors = [
+        job
+        for job in _pending_run_jobs(activity.user_id)
+        if job.id != job_id
+    ]
+    assert successors == []
+
+
+def test_exact_once_schedule_kind_still_completes() -> None:
+    user_id = _persist_user()
+    try:
+        activity_id, job_id, _ = _persist_once(
+            user_id, due_at=datetime.now(UTC) - timedelta(seconds=1)
+        )
+        assert _load(Object, activity_id).metadata_[METADATA_SCHEDULE_KIND] == SCHEDULE_KIND_ONCE
+        _drain_until_job(job_id)
+        activity = _load(Object, activity_id)
+        assert activity.status == SCHEDULED_ACTIVITY_STATUS_COMPLETED
+        assert activity.occurred_at is not None
+        assert _notification_count(user_id) == 1
+        assert _pending_run_jobs(user_id) == []
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_unknown_schedule_kind_monthly_fails_closed() -> None:
+    user_id = _persist_user()
+    try:
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        activity_id, job_id, stored_due = _persist_once(user_id, due_at=due)
+        _patch_metadata(activity_id, lambda meta: meta.__setitem__(METADATA_SCHEDULE_KIND, "monthly"))
+        payload = {"activity_id": str(activity_id)}
+        with Session(engine) as session:
+            with pytest.raises(ValueError, match="unknown schedule_kind"):
+                handle_run_scheduled_activity(session, None, payload, user_id)
+            session.rollback()
+        _assert_fail_closed(activity_id, job_id, stored_due)
+        processed = process_one_job()
+        assert processed is True
+        job = _load(Job, job_id)
+        assert job.status != JOB_STATUS_DONE
+        assert "unknown schedule_kind" in (job.last_error or "")
+        _assert_fail_closed(activity_id, job_id, stored_due)
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_missing_schedule_kind_fails_closed() -> None:
+    user_id = _persist_user()
+    try:
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        activity_id, job_id, stored_due = _persist_once(user_id, due_at=due)
+        _patch_metadata(activity_id, lambda meta: meta.pop(METADATA_SCHEDULE_KIND, None))
+        payload = {"activity_id": str(activity_id)}
+        with Session(engine) as session:
+            with pytest.raises(ValueError, match="unknown schedule_kind"):
+                handle_run_scheduled_activity(session, None, payload, user_id)
+            session.rollback()
+        _assert_fail_closed(activity_id, job_id, stored_due)
+        assert _load(Object, activity_id).status != SCHEDULED_ACTIVITY_STATUS_COMPLETED
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_daily_with_corrupt_recurrence_metadata_fails_closed() -> None:
+    user_id = _persist_user()
+    try:
+        spec = _spec_daily()
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        activity_id, job_id, stored_due = _persist_recurring(user_id, spec, due_at=due)
+        _patch_metadata(activity_id, lambda meta: meta.pop(METADATA_TIMEZONE, None))
+        payload = {
+            "activity_id": str(activity_id),
+            "occurrence_due_at": instant_to_iso(stored_due),
+        }
+        with Session(engine) as session:
+            with pytest.raises(ValueError, match="invalid recurrence metadata"):
+                handle_run_scheduled_activity(session, None, payload, user_id)
+            session.rollback()
+        activity = _load(Object, activity_id)
+        assert activity.status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+        assert same_instant(activity.due_at, stored_due)
+        assert activity.occurred_at is None
+        assert _notification_count(user_id) == 0
+        assert len(_pending_run_jobs(user_id)) == 1
+        processed = process_one_job()
+        assert processed is True
+        assert _load(Job, job_id).status != JOB_STATUS_DONE
+        assert _notification_count(user_id) == 0
+        assert same_instant(_load(Object, activity_id).due_at, stored_due)
+        assert len(_pending_run_jobs(user_id)) == 1
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_stale_occurrence_fence_is_not_an_error() -> None:
+    user_id = _persist_user()
+    try:
+        spec = _spec_daily()
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        activity_id, job_id, stored_due = _persist_recurring(user_id, spec, due_at=due)
+        _drain_until_job(job_id)
+        _commit(
+            lambda session: handle_run_scheduled_activity(
+                session,
+                None,
+                {
+                    "activity_id": str(activity_id),
+                    "occurrence_due_at": instant_to_iso(stored_due),
+                },
+                user_id,
+            )
+        )
+        assert _notification_count(user_id) == 1
+        assert len(_pending_run_jobs(user_id)) == 1
+        assert _load(Object, activity_id).status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_cancelled_completed_tombstoned_remain_noop_even_with_unknown_kind() -> None:
+    user_id = _persist_user()
+    try:
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        cancelled_id, _, cancelled_due = _persist_once(user_id, due_at=due, title="C")
+        _commit(
+            lambda session: ScheduledActivityService(
+                session, user_id, GraphService(session, user_id)
+            ).cancel(cancelled_id)
+        )
+        _patch_metadata(cancelled_id, lambda meta: meta.__setitem__(METADATA_SCHEDULE_KIND, "monthly"))
+        _commit(
+            lambda session: handle_run_scheduled_activity(
+                session,
+                None,
+                {"activity_id": str(cancelled_id), "occurrence_due_at": instant_to_iso(cancelled_due)},
+                user_id,
+            )
+        )
+        assert _load(Object, cancelled_id).status == SCHEDULED_ACTIVITY_STATUS_CANCELLED
+        assert _notification_count(user_id) == 0
+
+        completed_id, completed_job, _ = _persist_once(
+            user_id, due_at=datetime.now(UTC) - timedelta(seconds=1), title="D"
+        )
+        _drain_until_job(completed_job)
+        assert _notification_count(user_id) == 1
+        _patch_metadata(completed_id, lambda meta: meta.__setitem__(METADATA_SCHEDULE_KIND, "monthly"))
+        _commit(
+            lambda session: handle_run_scheduled_activity(
+                session, None, {"activity_id": str(completed_id)}, user_id
+            )
+        )
+        assert _load(Object, completed_id).status == SCHEDULED_ACTIVITY_STATUS_COMPLETED
+        assert _notification_count(user_id) == 1
+
+        tomb_id, tomb_job, _ = _persist_once(
+            user_id, due_at=datetime.now(UTC) - timedelta(seconds=1), title="T"
+        )
+        _patch_metadata(tomb_id, lambda meta: meta.__setitem__(METADATA_SCHEDULE_KIND, "monthly"))
+        _commit(lambda session: tombstone_object(session.get(Object, tomb_id)))
+        _drain_until_job(tomb_job)
+        assert _notification_count(user_id) == 1
+        assert _load(Object, tomb_id).status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+    finally:
+        _cleanup_user(user_id)

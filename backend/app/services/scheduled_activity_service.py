@@ -198,10 +198,13 @@ class ScheduledActivityService:
             return
         metadata = dict(obj.metadata_ or {})
         schedule_kind = metadata.get(METADATA_SCHEDULE_KIND)
+        if schedule_kind == SCHEDULE_KIND_ONCE:
+            self._fire_once(obj, metadata)
+            return
         if schedule_kind in RECURRING_SCHEDULE_KINDS:
             self._fire_recurring(obj, metadata, payload or {})
             return
-        self._fire_once(obj, metadata)
+        raise ValueError("scheduled activity has unknown schedule_kind")
 
     def _fire_once(self, obj: Object, metadata: dict) -> None:
         self._emit_notification(obj, metadata, scheduled_for=None)
@@ -214,7 +217,7 @@ class ScheduledActivityService:
     def _fire_recurring(self, obj: Object, metadata: dict, payload: dict) -> None:
         spec = spec_from_metadata(metadata)
         if spec is None:
-            return
+            raise ValueError("scheduled activity has invalid recurrence metadata")
         fence = parse_instant(payload.get("occurrence_due_at"))
         if not same_instant(fence, obj.due_at):
             return
