@@ -1,6 +1,8 @@
 import imaplib
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Protocol
 
 from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER
@@ -10,6 +12,8 @@ from app.connectors.yandex.imap_mailboxes import (
     parse_imap_list_line,
     sent_folder_from_mailboxes,
 )
+
+_INTERNALDATE_RE = re.compile(r'INTERNALDATE\s+"([^"]+)"', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,30 @@ def normalize_history_search_uids(
             continue
         unique.add(uid)
     return sorted(unique)
+
+
+def _imap_payload_text(raw: object) -> str:
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    if isinstance(raw, tuple):
+        return " ".join(_imap_payload_text(part) for part in raw if part is not None)
+    if isinstance(raw, list):
+        return " ".join(_imap_payload_text(part) for part in raw if part is not None)
+    return str(raw)
+
+
+def parse_imap_internaldate(raw: object) -> datetime:
+    text = _imap_payload_text(raw)
+    match = _INTERNALDATE_RE.search(text)
+    if match is None:
+        raise YandexImapError("malformed imap INTERNALDATE")
+    try:
+        parsed = parsedate_to_datetime(match.group(1))
+    except (TypeError, ValueError, IndexError) as exc:
+        raise YandexImapError("malformed imap INTERNALDATE") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def history_uids_page_from_search(
@@ -148,6 +176,9 @@ class ImapTransport(Protocol):
         ...
 
     def fetch_message(self, folder: str, uid: int) -> bytes:
+        ...
+
+    def fetch_internaldate(self, folder: str, uid: int) -> datetime:
         ...
 
 
@@ -317,6 +348,20 @@ class ImaplibTransport:
             return part[1]
         raise YandexImapError(f"failed to fetch imap message uid {uid}")
 
+    def fetch_internaldate(self, folder: str, uid: int) -> datetime:
+        self.select_folder(folder)
+        imap = self._connect()
+        try:
+            status, data = imap.uid("fetch", str(uid), "(INTERNALDATE)")
+        except imaplib.IMAP4.error as exc:
+            raise YandexImapError(f"failed to fetch imap INTERNALDATE uid {uid}") from exc
+        if status != "OK" or not data or data[0] is None:
+            raise YandexImapError(f"failed to fetch imap INTERNALDATE uid {uid}")
+        try:
+            return parse_imap_internaldate(data)
+        except YandexImapError as exc:
+            raise YandexImapError(f"failed to fetch imap INTERNALDATE uid {uid}") from exc
+
 
 class FakeImapTransport:
     def __init__(
@@ -342,6 +387,12 @@ class FakeImapTransport:
         self.incremental_search_calls: list[dict[str, object]] = []
         self.list_calls = 0
         self.window_search_calls: list[dict[str, object]] = []
+        self.internaldate_fetch_calls: list[int] = []
+        self._internaldates: dict[tuple[str, int], datetime] = {}
+        now = datetime.now(UTC)
+        for folder_name, store in self._folder_messages.items():
+            for uid in store:
+                self._internaldates[(folder_name, uid)] = now
         self._tx_checker = tx_checker
         self._history_matching_uids = history_matching_uids
         self._selected_folder = folder
@@ -459,5 +510,26 @@ class FakeImapTransport:
             raise YandexImapError(f"failed to fetch imap message uid {uid}")
         return store[uid]
 
-    def add_message(self, folder: str, uid: int, raw: bytes) -> None:
+    def fetch_internaldate(self, folder: str, uid: int) -> datetime:
+        self._check_tx()
+        self.select_folder(folder)
+        self.internaldate_fetch_calls.append(uid)
+        key = (self._selected_folder, uid)
+        stored = self._internaldates.get(key)
+        if stored is None:
+            raise YandexImapError(f"failed to fetch imap INTERNALDATE uid {uid}")
+        return stored.astimezone(UTC)
+
+    def add_message(
+        self,
+        folder: str,
+        uid: int,
+        raw: bytes,
+        *,
+        internaldate: datetime | None = None,
+    ) -> None:
         self._folder_messages.setdefault(folder, {})[uid] = raw
+        stamp = internaldate or datetime.now(UTC)
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=UTC)
+        self._internaldates[(folder, uid)] = stamp.astimezone(UTC)

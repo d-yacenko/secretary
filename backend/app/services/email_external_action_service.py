@@ -60,6 +60,23 @@ MAX_SENT_LIST_PAGES = 5
 MAX_SENT_CANDIDATES = 200
 
 
+def yandex_sent_evidence_window(started_at: datetime) -> tuple[datetime, datetime]:
+    started = started_at.astimezone(UTC)
+    return started - SENT_RECONCILE_LOOKBACK, started + SENT_RECONCILE_LOOKAHEAD
+
+
+def yandex_sent_coarse_imap_bounds(started_at: datetime) -> tuple[datetime, datetime]:
+    """Day-level IMAP SINCE/BEFORE prefilter covering the exact ±2h window.
+
+    IMAP SINCE is inclusive of the given date. IMAP BEFORE is exclusive of the
+    given date, so the exclusive upper date is the UTC day after the window end.
+    """
+    window_start, window_end = yandex_sent_evidence_window(started_at)
+    since = datetime(window_start.year, window_start.month, window_start.day, tzinfo=UTC)
+    end_day = datetime(window_end.year, window_end.month, window_end.day, tzinfo=UTC)
+    return since, end_day + timedelta(days=1)
+
+
 def generate_operation_id() -> str:
     return uuid4().hex
 
@@ -451,10 +468,10 @@ class EmailExternalActionService:
         attempt: ExternalActionAttempt,
     ) -> SendEmailOutput:
         started_at = self._attempt_started_at(payload.operation_id) or attempt.started_at or _utcnow()
+        window_start, window_end = yandex_sent_evidence_window(started_at)
         try:
             sent_folder = imap.discover_sent_folder()
-            since = started_at - SENT_RECONCILE_LOOKBACK
-            before = started_at + SENT_RECONCILE_LOOKAHEAD + timedelta(days=1)
+            since, before = yandex_sent_coarse_imap_bounds(started_at)
             uids, incomplete = imap.search_uids_since_before(
                 sent_folder,
                 since,
@@ -469,7 +486,7 @@ class EmailExternalActionService:
             )
             raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
 
-        if incomplete:
+        if incomplete or len(uids) > MAX_SENT_CANDIDATES:
             self._persist_attempt_state(
                 payload.operation_id,
                 ATTEMPT_UNCERTAIN,
@@ -479,6 +496,17 @@ class EmailExternalActionService:
 
         tagged: list[Any] = []
         for uid in uids:
+            try:
+                internaldate = imap.fetch_internaldate(sent_folder, uid)
+            except YandexImapError as exc:
+                self._persist_attempt_state(
+                    payload.operation_id,
+                    ATTEMPT_UNCERTAIN,
+                    error=_UNCERTAIN_DELIVERY_MESSAGE,
+                )
+                raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
+            if internaldate < window_start or internaldate > window_end:
+                continue
             try:
                 raw = imap.fetch_message(sent_folder, uid)
                 parsed = BytesParser(policy=email_default_policy).parsebytes(raw)

@@ -22,7 +22,10 @@ from app.connectors.google.constants import (
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.caldav_transport import CalDavCalendar, FakeCalDavTransport
-from app.connectors.yandex.caldav_write import event_href_from_operation_id
+from app.connectors.yandex.caldav_write import (
+    event_href_from_operation_id,
+    select_default_yandex_calendar,
+)
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.connectors.yandex.errors import YandexCalDavError, YandexSmtpError
@@ -31,7 +34,7 @@ from app.connectors.yandex.imap_mailboxes import (
     parse_imap_list_line,
     sent_folder_from_mailboxes,
 )
-from app.connectors.yandex.imap_transport import FakeImapTransport
+from app.connectors.yandex.imap_transport import FakeImapTransport, parse_imap_internaldate
 from app.connectors.yandex.smtp_transport import FakeSmtpTransport
 from app.core.config import settings
 from app.db.models import ExternalActionAttempt, GoogleAccount, PendingActionPlan, User
@@ -45,6 +48,8 @@ from app.services.email_external_action_service import (
     EmailExternalActionService,
     build_email_message,
     rfc822_message_id_from_operation_id,
+    yandex_sent_coarse_imap_bounds,
+    yandex_sent_evidence_window,
 )
 from app.tools.execution_context import ExecutionContext
 from app.tools.gateway import ToolExecutionGateway
@@ -53,6 +58,7 @@ from app.tools.schemas import (
     CreateCalendarEventCanonicalInput,
     SendEmailCanonicalInput,
     SendEmailInput,
+    ToolError,
 )
 
 
@@ -561,6 +567,10 @@ def test_yandex_mail_reconciliation_cases(db_session, google_settings, credentia
     result, smtp, imap = _execute_yandex_send(db_session, owner, smtp, imap)
     assert result.success is False
     assert imap.window_search_calls[0]["folder"] == SENT_FOLDER
+    assert imap.window_search_calls[0]["max_results"] == 200
+    assert imap.fetch_calls == []
+    assert imap.internaldate_fetch_calls == []
+    assert len(smtp.send_calls) == 1
 
     smtp, imap = _mail_fakes()
     smtp.send_error = YandexSmtpError("password=yandex-app-password leaked", retryable=False)
@@ -797,6 +807,216 @@ def test_yandex_calendar_default_and_cross_provider(
     )
     assert len(google.insert_calls) == 1
     assert len(yandex.put_calls) == 1
+
+
+def test_select_default_yandex_calendar_requires_events_default() -> None:
+    default = CalDavCalendar(
+        href="/calendars/user@yandex.ru/events-default/",
+        display_name="Shared looking name",
+        sync_token="t",
+    )
+    work = CalDavCalendar(href="/calendars/user@yandex.ru/work/", display_name="Work", sync_token=None)
+    home = CalDavCalendar(href="/calendars/user@yandex.ru/home/", display_name="Home", sync_token=None)
+    other_default = CalDavCalendar(
+        href="/calendars/other@yandex.ru/events-default/",
+        display_name="Other",
+        sync_token=None,
+    )
+    assert select_default_yandex_calendar([default]) is default
+    assert select_default_yandex_calendar([work, default, home]) is default
+    with pytest.raises(ToolError, match="not available"):
+        select_default_yandex_calendar([])
+    with pytest.raises(ToolError, match="cannot identify default"):
+        select_default_yandex_calendar([work])
+    with pytest.raises(ToolError, match="cannot identify default"):
+        select_default_yandex_calendar([work, home])
+    with pytest.raises(ToolError, match="cannot identify default"):
+        select_default_yandex_calendar([default, other_default])
+
+
+def test_yandex_calendar_sole_non_default_fails_closed(
+    db_session, google_settings, credential_key, owner, monkeypatch
+):
+    sole = FakeCalDavTransport(
+        calendars=[
+            CalDavCalendar(href="/calendars/user@yandex.ru/shared/", display_name="Shared", sync_token="t")
+        ]
+    )
+    _patch_calendar(monkeypatch, sole)
+    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
+    blocked = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, sole),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert blocked.status == ToolExecutionStatus.TOOL_ERROR
+    assert "default" in (blocked.error or "").lower()
+    assert sole.put_calls == []
+
+
+def test_parse_imap_internaldate_uses_server_timestamp() -> None:
+    parsed = parse_imap_internaldate(b'1 (UID 7 INTERNALDATE "06-Sep-2026 10:00:00 +0000")')
+    assert parsed == datetime(2026, 9, 6, 10, 0, tzinfo=UTC)
+
+
+def _tagged_sent_bytes(args: dict, *, subject: str | None = None, date_header: str | None = None) -> bytes:
+    message = build_email_message(SendEmailCanonicalInput.model_validate(args))
+    if subject is not None:
+        message.replace_header("Subject", subject)
+    if date_header is not None:
+        if "Date" in message:
+            message.replace_header("Date", date_header)
+        else:
+            message["Date"] = date_header
+    return message.as_bytes(policy=SMTP)
+
+
+def test_yandex_sent_internaldate_window(google_settings, credential_key):
+    started_at = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    window_start, window_end = yandex_sent_evidence_window(started_at)
+    assert window_start == datetime(2026, 9, 6, 10, 0, tzinfo=UTC)
+    assert window_end == datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
+    since, before = yandex_sent_coarse_imap_bounds(started_at)
+    assert since == datetime(2026, 9, 6, 0, 0, tzinfo=UTC)
+    assert before == datetime(2026, 9, 7, 0, 0, tzinfo=UTC)
+
+    session = SessionLocal()
+    user_id = uuid4()
+    try:
+        session.add(User(id=user_id, display_name="yandex-window"))
+        session.commit()
+        _add_yandex_mail(session, credential_key, "user@yandex.ru", user_id=user_id)
+        session.commit()
+
+        def resume(subject: str):
+            imap = _sent_imap()
+            smtp = FakeSmtpTransport(imap=imap, sent_folder=SENT_FOLDER)
+            tools = _tools_mail(session, user_id, smtp, imap)
+            gateway = ToolExecutionGateway()
+            args = gateway.execute(
+                tools,
+                "send_email",
+                _mail_args(provider="yandex", subject=subject),
+                context=ExecutionContext.INTERACTIVE_ASSISTANT,
+            ).staged_action["arguments"]
+            claim = SessionLocal()
+            claim.add(
+                ExternalActionAttempt(
+                    user_id=user_id,
+                    operation_id=args["operation_id"],
+                    tool_name="send_email",
+                    state=ATTEMPT_STARTED,
+                    started_at=started_at,
+                )
+            )
+            claim.commit()
+            claim.close()
+            return gateway, tools, smtp, imap, args
+
+        gateway, tools, smtp, imap, args = resume("In window")
+        imap.add_message(
+            SENT_FOLDER,
+            11,
+            _tagged_sent_bytes(args, date_header="01 Jan 2000 00:00:00 +0000"),
+            internaldate=started_at,
+        )
+        in_window = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert in_window.success is True
+        assert in_window.output["changed"] is False
+        assert smtp.send_calls == []
+        assert imap.fetch_calls == [11]
+
+        gateway, tools, smtp, imap, args = resume("Below")
+        imap.add_message(
+            SENT_FOLDER,
+            12,
+            _tagged_sent_bytes(args),
+            internaldate=window_start - timedelta(seconds=1),
+        )
+        below = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert below.success is False
+        assert smtp.send_calls == []
+        assert imap.fetch_calls == []
+
+        gateway, tools, smtp, imap, args = resume("Above")
+        imap.add_message(
+            SENT_FOLDER,
+            13,
+            _tagged_sent_bytes(args),
+            internaldate=window_end + timedelta(seconds=1),
+        )
+        above = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert above.success is False
+        assert smtp.send_calls == []
+        assert imap.fetch_calls == []
+
+        gateway, tools, smtp, imap, args = resume("Low bound")
+        imap.add_message(SENT_FOLDER, 14, _tagged_sent_bytes(args), internaldate=window_start)
+        low = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert low.success is True
+        assert smtp.send_calls == []
+
+        gateway, tools, smtp, imap, args = resume("High bound")
+        imap.add_message(SENT_FOLDER, 15, _tagged_sent_bytes(args), internaldate=window_end)
+        high = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert high.success is True
+        assert smtp.send_calls == []
+
+        gateway, tools, smtp, imap, args = resume("Mixed")
+        tagged = _tagged_sent_bytes(args)
+        imap.add_message(
+            SENT_FOLDER, 16, tagged, internaldate=window_start - timedelta(hours=1)
+        )
+        imap.add_message(SENT_FOLDER, 17, tagged, internaldate=started_at)
+        mixed = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert mixed.success is True
+        assert mixed.output["changed"] is False
+        assert smtp.send_calls == []
+        assert imap.fetch_calls == [17]
+
+        gateway, tools, smtp, imap, args = resume("Overflow")
+        for index in range(1, 202):
+            imap.add_message(SENT_FOLDER, index, b"From: a@b.c\r\nSubject: x\r\n\r\nx")
+        overflow = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert overflow.success is False
+        assert smtp.send_calls == []
+        assert imap.fetch_calls == []
+        assert imap.internaldate_fetch_calls == []
+        assert imap.window_search_calls[0]["max_results"] == 200
+
+        gateway, tools, smtp, imap, args = resume("Mismatch")
+        imap.add_message(
+            SENT_FOLDER,
+            18,
+            _tagged_sent_bytes(args, subject="other"),
+            internaldate=started_at,
+        )
+        mismatch = gateway.execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert mismatch.success is False
+        assert "does not match" in (mismatch.error or "")
+        assert smtp.send_calls == []
+    finally:
+        session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
+        session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))
+        session.commit()
+        session.close()
 
 
 def test_send_email_input_rejects_unknown_provider():

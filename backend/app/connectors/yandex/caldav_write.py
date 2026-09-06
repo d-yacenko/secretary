@@ -44,12 +44,10 @@ def _is_default_calendar_href(href: str) -> bool:
 def select_default_yandex_calendar(calendars: list[CalDavCalendar]) -> CalDavCalendar:
     if not calendars:
         raise ToolError("Yandex calendar is not available")
-    if len(calendars) == 1:
-        return calendars[0]
     defaults = [calendar for calendar in calendars if _is_default_calendar_href(calendar.href)]
     if len(defaults) == 1:
         return defaults[0]
-    raise ToolError("multiple Yandex calendars; cannot identify default calendar")
+    raise ToolError("cannot identify default Yandex calendar")
 
 
 def _escape_ical_text(value: str) -> str:

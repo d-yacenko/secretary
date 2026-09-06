@@ -99,7 +99,11 @@ class FakeSmtpTransport:
             extras = self._imap._folder_messages.setdefault(self._sent_folder, {})
             start = (max(extras) + 1) if extras else 1
             for index in range(201):
-                extras[start + index] = b"From: filler@example.com\r\nSubject: filler\r\n\r\nfiller"
+                self._imap.add_message(
+                    self._sent_folder,
+                    start + index,
+                    b"From: filler@example.com\r\nSubject: filler\r\n\r\nfiller",
+                )
         if self.lose_send_response:
             self.lose_send_response = False
             raise YandexSmtpError("lost SMTP response", retryable=True)
