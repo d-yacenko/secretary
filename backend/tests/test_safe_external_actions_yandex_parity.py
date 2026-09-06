@@ -24,8 +24,9 @@ from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.caldav_transport import CalDavCalendar, FakeCalDavTransport
 from app.connectors.yandex.caldav_write import (
+    MAX_TARGET_CALENDARS,
     event_href_from_operation_id,
-    select_default_yandex_calendar,
+    select_unique_vevent_calendar,
 )
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
@@ -1193,7 +1194,7 @@ def test_yandex_calendar_default_and_cross_provider(
     assert len(yandex.put_calls) == 1
 
 
-def test_select_default_yandex_calendar_requires_unique_vevent() -> None:
+def test_select_unique_vevent_calendar_requires_unique_vevent() -> None:
     events = _vevent_calendar(
         "/calendars/user@yandex.ru/events-18154946/",
         display_name="Мои события",
@@ -1213,18 +1214,29 @@ def test_select_default_yandex_calendar_requires_unique_vevent() -> None:
         sync_token="t",
     )
     second_vevent = _vevent_calendar("/calendars/user@yandex.ru/work/", display_name="Work")
-    assert select_default_yandex_calendar([todos, events]) is events
-    assert select_default_yandex_calendar([misleading_todo, ugly_vevent]) is ugly_vevent
+    assert select_unique_vevent_calendar([todos, events]) is events
+    assert select_unique_vevent_calendar([misleading_todo, ugly_vevent]) is ugly_vevent
     with pytest.raises(ToolError, match="not available"):
-        select_default_yandex_calendar([])
+        select_unique_vevent_calendar([])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([todos])
+        select_unique_vevent_calendar([todos])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([events, second_vevent, todos])
+        select_unique_vevent_calendar([events, second_vevent, todos])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([missing])
+        select_unique_vevent_calendar([missing])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([todos, missing])
+        select_unique_vevent_calendar([todos, missing])
+    ten = [_vtodo_calendar(f"/calendars/user@yandex.ru/todo-{i}/") for i in range(9)]
+    ten.insert(4, events)
+    assert select_unique_vevent_calendar(ten) is events
+    overflow = ten + [_vtodo_calendar("/calendars/user@yandex.ru/todo-extra/")]
+    with pytest.raises(ToolError, match="cannot identify default"):
+        select_unique_vevent_calendar(overflow)
+    overflow_last_vevent = [
+        _vtodo_calendar(f"/calendars/user@yandex.ru/todo-{i}/") for i in range(10)
+    ] + [events]
+    with pytest.raises(ToolError, match="cannot identify default"):
+        select_unique_vevent_calendar(overflow_last_vevent)
 
 
 def test_yandex_calendar_sole_non_default_fails_closed(
@@ -1304,6 +1316,73 @@ def test_yandex_calendar_vtodo_or_multiple_vevent_fails_closed(
     )
     assert blocked_two.status == ToolExecutionStatus.TOOL_ERROR
     assert two_events.put_calls == []
+
+
+def _bounded_calendars(*, count: int, vevent_index: int) -> list[CalDavCalendar]:
+    calendars: list[CalDavCalendar] = []
+    for index in range(count):
+        href = f"/calendars/user@yandex.ru/cal-{index}/"
+        if index == vevent_index:
+            calendars.append(_vevent_calendar(href, display_name=f"cal-{index}"))
+        else:
+            calendars.append(_vtodo_calendar(href, display_name=f"todo-{index}"))
+    return calendars
+
+
+def test_yandex_calendar_complete_bound_selects_unique_vevent(
+    db_session, google_settings, credential_key, owner, monkeypatch
+):
+    ten = FakeCalDavTransport(calendars=_bounded_calendars(count=10, vevent_index=7))
+    _patch_calendar(monkeypatch, ten)
+    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
+    staged = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, ten),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert staged.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert staged.staged_action["arguments"]["calendar_href"] == (
+        "/calendars/user@yandex.ru/cal-7/"
+    )
+    assert ten.put_calls == []
+    assert ten.discover_max_results == [MAX_TARGET_CALENDARS + 1]
+
+
+def test_yandex_calendar_overflow_discovery_fails_closed(
+    db_session, google_settings, credential_key, owner, monkeypatch
+):
+    first_ten_unique = FakeCalDavTransport(
+        calendars=_bounded_calendars(count=11, vevent_index=0)
+    )
+    _patch_calendar(monkeypatch, first_ten_unique)
+    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
+    blocked_prefix = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, first_ten_unique),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert blocked_prefix.status == ToolExecutionStatus.TOOL_ERROR
+    assert "not available" not in (blocked_prefix.error or "").lower()
+    assert "cannot identify" in (blocked_prefix.error or "").lower()
+    assert first_ten_unique.put_calls == []
+    assert first_ten_unique.discover_max_results == [MAX_TARGET_CALENDARS + 1]
+
+    eleventh_vevent = FakeCalDavTransport(
+        calendars=_bounded_calendars(count=11, vevent_index=10)
+    )
+    _patch_calendar(monkeypatch, eleventh_vevent)
+    blocked_last = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, eleventh_vevent),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert blocked_last.status == ToolExecutionStatus.TOOL_ERROR
+    assert "not available" not in (blocked_last.error or "").lower()
+    assert "cannot identify" in (blocked_last.error or "").lower()
+    assert eleventh_vevent.put_calls == []
 
 
 def test_parse_imap_internaldate_uses_server_timestamp() -> None:

@@ -26,7 +26,7 @@ from app.connectors.yandex.caldav_write import (
     build_vevent_ics,
     event_href_from_operation_id,
     event_matches_frozen_payload,
-    select_default_yandex_calendar,
+    resolve_unique_vevent_calendar,
 )
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.errors import YandexCalDavError
@@ -120,8 +120,8 @@ class CalendarExternalActionService:
             self._require_write_scope(account)
         else:
             yandex_account = self._require_yandex_calendar_account(resolved.email)
-            calendar = select_default_yandex_calendar(
-                self._yandex_caldav_for_account(yandex_account).discover_calendars(10)
+            calendar = resolve_unique_vevent_calendar(
+                self._yandex_caldav_for_account(yandex_account)
             )
             calendar_href = calendar.href
             calendar_label = calendar.display_name or "default"

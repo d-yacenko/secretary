@@ -630,6 +630,7 @@ class FakeCalDavTransport:
         self.query_calls: list[str] = []
         self.multiget_calls: list[tuple[str, list[str]]] = []
         self.discover_calls = 0
+        self.discover_max_results: list[int] = []
         self._tx_checker = tx_checker
         self.objects: dict[str, str] = {}
         self.put_calls: list[dict[str, object]] = []
@@ -648,6 +649,7 @@ class FakeCalDavTransport:
     def discover_calendars(self, max_results: int) -> list[CalDavCalendar]:
         self._check_tx()
         self.discover_calls += 1
+        self.discover_max_results.append(max_results)
         if self._calendar_order is not None:
             href_map = {calendar.href: calendar for calendar in self._calendars}
             ordered = [href_map[href] for href in self._calendar_order if href in href_map]
