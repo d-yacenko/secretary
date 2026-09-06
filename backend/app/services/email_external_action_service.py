@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import parseaddr
@@ -38,7 +38,15 @@ _UNCERTAIN_DELIVERY_MESSAGE = (
     "could not confirm email delivery; not retrying send"
 )
 _MISMATCH_MESSAGE = "existing sent message does not match frozen fields"
+_DUPLICATE_OPERATION_MESSAGE = "multiple sent messages match this operation"
 _FAILED_DEFINITE_MESSAGE = "email send previously failed; create a new plan"
+
+SECRETARY_OPERATION_HEADER = "X-Secretary-Operation-ID"
+SENT_RECONCILE_LOOKBACK = timedelta(hours=2)
+SENT_RECONCILE_LOOKAHEAD = timedelta(hours=2)
+SENT_LIST_PAGE_SIZE = 50
+MAX_SENT_LIST_PAGES = 5
+MAX_SENT_CANDIDATES = 200
 
 
 def generate_operation_id() -> str:
@@ -52,8 +60,19 @@ def rfc822_message_id_from_operation_id(operation_id: str) -> str:
     return f"<secretary.{compact}@secretary.invalid>"
 
 
-def sent_message_query(rfc822_message_id: str) -> str:
-    return f"in:sent rfc822msgid:{rfc822_message_id}"
+def secretary_operation_header_value(operation_id: str) -> str:
+    compact = operation_id.replace("-", "").strip()
+    if len(compact) < 5 or len(compact) > 1024:
+        raise ToolError("invalid operation_id")
+    return compact
+
+
+def sent_window_query(started_at: datetime) -> str:
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    after_epoch = int((started_at - SENT_RECONCILE_LOOKBACK).timestamp())
+    before_epoch = int((started_at + SENT_RECONCILE_LOOKAHEAD).timestamp()) + 1
+    return f"in:sent after:{after_epoch} before:{before_epoch}"
 
 
 def build_rfc822_raw(payload: SendEmailCanonicalInput) -> str:
@@ -62,6 +81,7 @@ def build_rfc822_raw(payload: SendEmailCanonicalInput) -> str:
     message["To"] = ", ".join(payload.to)
     message["Subject"] = payload.subject
     message["Message-ID"] = payload.rfc822_message_id
+    message[SECRETARY_OPERATION_HEADER] = secretary_operation_header_value(payload.operation_id)
     message.set_content(payload.body, subtype="plain", charset="utf-8")
     raw = message.as_bytes(policy=SMTP)
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -158,7 +178,7 @@ class EmailExternalActionService:
             )
         except GoogleApiError as exc:
             if _is_ambiguous_send_error(exc):
-                return self._after_ambiguous_send(account, payload, access_token)
+                return self._after_ambiguous_send(account, payload, access_token, attempt)
             self._persist_attempt_state(
                 payload.operation_id,
                 ATTEMPT_FAILED_DEFINITE,
@@ -166,7 +186,7 @@ class EmailExternalActionService:
             )
             raise ToolError(self._bounded_provider_error(exc)) from exc
         except httpx.RequestError:
-            return self._after_ambiguous_send(account, payload, access_token)
+            return self._after_ambiguous_send(account, payload, access_token, attempt)
 
         provider_id = str(sent.get("id") or "").strip() or None
         self._persist_attempt_state(
@@ -193,34 +213,33 @@ class EmailExternalActionService:
         if attempt.state == ATTEMPT_FAILED_DEFINITE:
             raise ToolError(_FAILED_DEFINITE_MESSAGE)
         access_token = self._valid_access_token(account.id)
-        return self._reconcile_sent(account, payload, access_token)
+        return self._reconcile_sent(account, payload, access_token, attempt)
 
     def _after_ambiguous_send(
         self,
         account: GoogleAccount,
         payload: SendEmailCanonicalInput,
         access_token: str,
+        attempt: ExternalActionAttempt,
     ) -> SendEmailOutput:
         self._persist_attempt_state(
             payload.operation_id,
             ATTEMPT_UNCERTAIN,
             error=_UNCERTAIN_DELIVERY_MESSAGE,
         )
-        return self._reconcile_sent(account, payload, access_token)
+        return self._reconcile_sent(account, payload, access_token, attempt)
 
     def _reconcile_sent(
         self,
         account: GoogleAccount,
         payload: SendEmailCanonicalInput,
         access_token: str,
+        attempt: ExternalActionAttempt,
     ) -> SendEmailOutput:
+        started_at = self._attempt_started_at(payload.operation_id) or attempt.started_at or _utcnow()
+        query = sent_window_query(started_at)
         try:
-            ids = self._transport.list_message_ids(
-                access_token=access_token,
-                user_id="me",
-                query=sent_message_query(payload.rfc822_message_id),
-                max_results=5,
-            )
+            ids, incomplete = self._list_sent_candidate_ids(access_token, query)
         except (GoogleApiError, httpx.RequestError) as exc:
             self._persist_attempt_state(
                 payload.operation_id,
@@ -229,7 +248,7 @@ class EmailExternalActionService:
             )
             raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
 
-        if not ids:
+        if incomplete:
             self._persist_attempt_state(
                 payload.operation_id,
                 ATTEMPT_UNCERTAIN,
@@ -237,7 +256,7 @@ class EmailExternalActionService:
             )
             raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
 
-        matched: dict[str, Any] | None = None
+        tagged: list[dict[str, Any]] = []
         for message_id in ids:
             try:
                 message = self._transport.get_message(access_token, "me", message_id)
@@ -249,21 +268,38 @@ class EmailExternalActionService:
                 )
                 raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
             if not isinstance(message, dict):
-                raise ToolError(_MISMATCH_MESSAGE)
-            if self._message_identity_matches(payload, message):
-                if not self._message_content_matches(account, payload, message):
-                    raise ToolError(_MISMATCH_MESSAGE)
-                matched = message
-                continue
-            if self._header_value(message, "Message-ID") == payload.rfc822_message_id:
-                raise ToolError(_MISMATCH_MESSAGE)
-        if matched is None:
+                self._persist_attempt_state(
+                    payload.operation_id,
+                    ATTEMPT_UNCERTAIN,
+                    error=_UNCERTAIN_DELIVERY_MESSAGE,
+                )
+                raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
+            if self._operation_header_matches(payload, message):
+                tagged.append(message)
+
+        if len(tagged) > 1:
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_UNCERTAIN,
+                error=_DUPLICATE_OPERATION_MESSAGE,
+            )
+            raise ToolError(_DUPLICATE_OPERATION_MESSAGE)
+        if not tagged:
             self._persist_attempt_state(
                 payload.operation_id,
                 ATTEMPT_UNCERTAIN,
                 error=_UNCERTAIN_DELIVERY_MESSAGE,
             )
             raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
+
+        matched = tagged[0]
+        if not self._message_content_matches(account, payload, matched):
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_FAILED_DEFINITE,
+                error=_MISMATCH_MESSAGE,
+            )
+            raise ToolError(_MISMATCH_MESSAGE)
 
         provider_id = str(matched.get("id") or "").strip() or None
         self._persist_attempt_state(
@@ -278,6 +314,32 @@ class EmailExternalActionService:
             delivery_status="already_sent",
             changed=False,
         )
+
+    def _list_sent_candidate_ids(
+        self,
+        access_token: str,
+        query: str,
+    ) -> tuple[list[str], bool]:
+        ids: list[str] = []
+        page_token: str | None = None
+        pages = 0
+        while pages < MAX_SENT_LIST_PAGES and len(ids) < MAX_SENT_CANDIDATES:
+            remaining = MAX_SENT_CANDIDATES - len(ids)
+            page = self._transport.list_message_ids_page(
+                access_token=access_token,
+                user_id="me",
+                query=query,
+                max_results=min(SENT_LIST_PAGE_SIZE, remaining),
+                page_token=page_token,
+            )
+            pages += 1
+            ids.extend(page.message_ids[:remaining])
+            if not page.next_page_token:
+                return ids, False
+            if len(ids) >= MAX_SENT_CANDIDATES:
+                return ids[:MAX_SENT_CANDIDATES], True
+            page_token = page.next_page_token
+        return ids[:MAX_SENT_CANDIDATES], True
 
     def _claim_started(self, operation_id: str) -> tuple[ExternalActionAttempt, bool]:
         session = self._attempt_session_factory()
@@ -348,6 +410,24 @@ class EmailExternalActionService:
         finally:
             session.close()
 
+    def _attempt_started_at(self, operation_id: str) -> datetime | None:
+        session = self._attempt_session_factory()
+        try:
+            attempt = session.scalar(
+                select(ExternalActionAttempt).where(
+                    ExternalActionAttempt.user_id == self._user_id,
+                    ExternalActionAttempt.operation_id == operation_id,
+                )
+            )
+            if attempt is None or attempt.started_at is None:
+                return None
+            started = attempt.started_at
+            if started.tzinfo is None:
+                return started.replace(tzinfo=UTC)
+            return started
+        finally:
+            session.close()
+
     def _valid_access_token(self, account_id: UUID) -> str:
         if not settings.secretary_credential_key:
             raise ToolError("google credentials are not configured")
@@ -400,12 +480,14 @@ class EmailExternalActionService:
         encryption = CredentialEncryption(settings.secretary_credential_key)
         return GoogleAccountStore(self._session, encryption)
 
-    def _message_identity_matches(
+    def _operation_header_matches(
         self,
         payload: SendEmailCanonicalInput,
         message: dict[str, Any],
     ) -> bool:
-        return self._header_value(message, "Message-ID") == payload.rfc822_message_id
+        expected = secretary_operation_header_value(payload.operation_id)
+        actual = (self._header_value(message, SECRETARY_OPERATION_HEADER) or "").strip()
+        return actual == expected
 
     def _message_content_matches(
         self,

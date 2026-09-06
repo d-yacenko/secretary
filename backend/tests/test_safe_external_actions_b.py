@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import copy
+import re
 import threading
 from datetime import UTC, datetime, timedelta
 from email import policy
@@ -27,7 +29,7 @@ from app.connectors.google.constants import (
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleApiError
-from app.connectors.google.gmail_transport import GmailTransport
+from app.connectors.google.gmail_transport import GmailMessagePage, GmailTransport
 from app.core.config import settings
 from app.db.models import ExternalActionAttempt, PendingActionPlan, User
 from app.db.session import SessionLocal
@@ -37,9 +39,12 @@ from app.services.email_external_action_service import (
     ATTEMPT_FAILED_DEFINITE,
     ATTEMPT_STARTED,
     ATTEMPT_UNCERTAIN,
+    SECRETARY_OPERATION_HEADER,
     EmailExternalActionService,
+    build_rfc822_raw,
     rfc822_message_id_from_operation_id,
-    sent_message_query,
+    secretary_operation_header_value,
+    sent_window_query,
 )
 from app.services.errors import ValidationError as ServiceValidationError
 from app.tools.execution_context import ExecutionContext
@@ -60,6 +65,10 @@ class FakeGmailTransport:
         self.malformed_success = False
         self.before_send = None
         self.field_overrides: dict[str, str] | None = None
+        self.strip_operation_header = False
+        self.also_store_untagged_clone = False
+        self.also_store_tagged_clone = False
+        self.force_incomplete_listing = False
 
     def send_message(self, access_token: str, user_id: str, raw: str) -> dict:
         with self.lock:
@@ -69,6 +78,13 @@ class FakeGmailTransport:
                 {"access_token": access_token, "user_id": user_id, "raw": raw}
             )
             parsed = _payload_from_raw(raw, f"msg-{len(self.send_calls)}")
+            _apply_gmail_provider_rewrite(parsed)
+            if self.strip_operation_header:
+                parsed["payload"]["headers"] = [
+                    header
+                    for header in parsed["payload"]["headers"]
+                    if str(header.get("name") or "").lower() != SECRETARY_OPERATION_HEADER.lower()
+                ]
             if self.field_overrides:
                 headers = parsed["payload"]["headers"]
                 for name, value in self.field_overrides.items():
@@ -81,6 +97,20 @@ class FakeGmailTransport:
                         headers.append({"name": name, "value": value})
             if self.persist_on_send:
                 self.messages[parsed["id"]] = parsed
+                if self.also_store_untagged_clone:
+                    clone = copy.deepcopy(parsed)
+                    clone["id"] = f"{parsed['id']}-untagged"
+                    clone["payload"]["headers"] = [
+                        header
+                        for header in clone["payload"]["headers"]
+                        if str(header.get("name") or "").lower()
+                        != SECRETARY_OPERATION_HEADER.lower()
+                    ]
+                    self.messages[clone["id"]] = clone
+                if self.also_store_tagged_clone:
+                    clone = copy.deepcopy(parsed)
+                    clone["id"] = f"{parsed['id']}-tagged-dup"
+                    self.messages[clone["id"]] = clone
             if self.lose_send_response:
                 self.lose_send_response = False
                 raise httpx.TimeoutException("lost send response")
@@ -96,15 +126,34 @@ class FakeGmailTransport:
                 )
             return {"id": parsed["id"]}
 
-    def list_message_ids(self, access_token: str, user_id: str, query: str, max_results: int) -> list[str]:
+    def list_message_ids_page(
+        self,
+        access_token: str,
+        user_id: str,
+        query: str,
+        max_results: int,
+        page_token: str | None = None,
+    ) -> GmailMessagePage:
         with self.lock:
             self.list_calls.append(query)
-            ids: list[str] = []
-            for message_id, payload in self.messages.items():
-                message_id_header = _header(payload, "Message-ID") or ""
-                if message_id_header and message_id_header in query:
-                    ids.append(message_id)
-            return ids[:max_results]
+            if self.force_incomplete_listing:
+                start = int(page_token or 0)
+                ids = [f"filler-{start + index}" for index in range(max_results)]
+                return GmailMessagePage(ids, next_page_token=str(start + max_results))
+            ids = [
+                message_id
+                for message_id, payload in self.messages.items()
+                if _matches_sent_window(payload, query)
+            ]
+            start = int(page_token or 0)
+            chunk = ids[start : start + max_results]
+            next_token = str(start + len(chunk)) if start + len(chunk) < len(ids) else None
+            return GmailMessagePage(chunk, next_token)
+
+    def list_message_ids(self, access_token: str, user_id: str, query: str, max_results: int) -> list[str]:
+        return self.list_message_ids_page(
+            access_token, user_id, query, max_results
+        ).message_ids
 
     def get_message(self, access_token: str, user_id: str, message_id: str) -> dict:
         with self.lock:
@@ -122,6 +171,32 @@ def _header(payload: dict, name: str) -> str | None:
     return None
 
 
+def _apply_gmail_provider_rewrite(payload: dict) -> None:
+    gmail_id = str(payload["id"])
+    rewritten = f"<{gmail_id}@mail.gmail.com>"
+    headers = payload.setdefault("payload", {}).setdefault("headers", [])
+    replaced = False
+    for header in headers:
+        if str(header.get("name") or "").lower() == "message-id":
+            header["value"] = rewritten
+            replaced = True
+    if not replaced:
+        headers.append({"name": "Message-ID", "value": rewritten})
+    payload["internalDate"] = str(int(datetime.now(UTC).timestamp() * 1000))
+
+
+def _matches_sent_window(payload: dict, query: str) -> bool:
+    if "in:sent" not in query:
+        return False
+    after_match = re.search(r"after:(\d+)", query)
+    before_match = re.search(r"before:(\d+)", query)
+    stamp_ms = payload.get("internalDate")
+    epoch = int(int(stamp_ms) / 1000) if stamp_ms else int(datetime.now(UTC).timestamp())
+    if after_match and epoch < int(after_match.group(1)):
+        return False
+    return not (before_match and epoch >= int(before_match.group(1)))
+
+
 def _payload_from_raw(raw: str, gmail_id: str) -> dict:
     padded = raw + "=" * (-len(raw) % 4)
     parsed = BytesParser(policy=policy.default).parsebytes(
@@ -131,16 +206,23 @@ def _payload_from_raw(raw: str, gmail_id: str) -> dict:
     if isinstance(body, bytes):
         body = body.decode("utf-8")
     encoded = base64.urlsafe_b64encode(str(body).encode("utf-8")).decode("ascii").rstrip("=")
+    headers = [
+        {"name": "From", "value": str(parsed.get("From") or "")},
+        {"name": "To", "value": str(parsed.get("To") or "")},
+        {"name": "Subject", "value": str(parsed.get("Subject") or "")},
+        {"name": "Message-ID", "value": str(parsed.get("Message-ID") or "")},
+    ]
+    operation_header = parsed.get(SECRETARY_OPERATION_HEADER)
+    if operation_header:
+        headers.append(
+            {"name": SECRETARY_OPERATION_HEADER, "value": str(operation_header)}
+        )
     return {
         "id": gmail_id,
+        "internalDate": str(int(datetime.now(UTC).timestamp() * 1000)),
         "payload": {
             "mimeType": "text/plain",
-            "headers": [
-                {"name": "From", "value": str(parsed.get("From") or "")},
-                {"name": "To", "value": str(parsed.get("To") or "")},
-                {"name": "Subject", "value": str(parsed.get("Subject") or "")},
-                {"name": "Message-ID", "value": str(parsed.get("Message-ID") or "")},
-            ],
+            "headers": headers,
             "body": {"data": encoded},
         },
     }
@@ -338,6 +420,17 @@ def test_approve_sends_frozen_message_once(
             body_data + "=" * (-len(body_data) % 4)
         ).decode("utf-8")
         assert "Краткий статус" in decoded_body
+        assert _header(parsed, SECRETARY_OPERATION_HEADER) == staged.staged_action["arguments"][
+            "operation_id"
+        ]
+        stored_sent = next(iter(fake.messages.values()))
+        assert (_header(stored_sent, "Message-ID") or "").endswith("@mail.gmail.com>")
+        assert _header(stored_sent, "Message-ID") != staged.staged_action["arguments"][
+            "rfc822_message_id"
+        ]
+        assert _header(stored_sent, SECRETARY_OPERATION_HEADER) == staged.staged_action[
+            "arguments"
+        ]["operation_id"]
         second = ActionPlanService(session, committed_mail_user).approve(plan.id)
         assert second.status == "executed"
         assert len(fake.send_calls) == 1
@@ -435,6 +528,8 @@ def test_security_input_bounds(db_session, google_settings, credential_key, mail
         {"rfc822_message_id": "<x@y>"},
         {"message_id": "<x@y>"},
         {"html": "<b>x</b>"},
+        {SECRETARY_OPERATION_HEADER: "evil-id"},
+        {"x_secretary_operation_id": "evil-id"},
     ):
         result = gateway.execute(
             tools,
@@ -471,6 +566,10 @@ def test_llm_cannot_smuggle_extra_fields_into_input_model():
         SendEmailInput.model_validate({**_mail_args(), "operation_id": "abcde12345"})
     with pytest.raises(PydanticValidationError):
         SendEmailInput.model_validate({**_mail_args(), "rfc822_message_id": "<x@y>"})
+    with pytest.raises(PydanticValidationError):
+        SendEmailInput.model_validate(
+            {**_mail_args(), SECRETARY_OPERATION_HEADER: "deadbeefdeadbeefdeadbeefdeadbeef"}
+        )
 
 
 def test_attempt_started_is_visible_before_provider_send(
@@ -601,7 +700,53 @@ def test_concurrent_same_operation_id_sends_once(
         session.close()
 
 
-def test_started_attempt_from_crash_reconciles_without_resend(
+def test_started_attempt_from_crash_reconciles_existing_sent_without_resend(
+    google_settings, credential_key, monkeypatch, committed_mail_user
+):
+    fake = FakeGmailTransport()
+    _patch_execution(monkeypatch, fake)
+    session = SessionLocal()
+    try:
+        tools = DomainToolService(session, committed_mail_user, gmail_transport=fake)
+        staged = ToolExecutionGateway().execute(
+            tools, "send_email", _mail_args(), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        )
+        args = staged.staged_action["arguments"]
+        stored = _payload_from_raw(
+            build_rfc822_raw(SendEmailCanonicalInput.model_validate(args)),
+            "gmail-crash",
+        )
+        _apply_gmail_provider_rewrite(stored)
+        fake.messages[stored["id"]] = stored
+        assert (_header(stored, "Message-ID") or "").endswith("@mail.gmail.com>")
+        assert _header(stored, "Message-ID") != args["rfc822_message_id"]
+        assert _header(stored, SECRETARY_OPERATION_HEADER) == args["operation_id"]
+        claim = SessionLocal()
+        try:
+            claim.add(
+                ExternalActionAttempt(
+                    user_id=committed_mail_user,
+                    operation_id=args["operation_id"],
+                    tool_name="send_email",
+                    state=ATTEMPT_STARTED,
+                    started_at=datetime.now(UTC),
+                )
+            )
+            claim.commit()
+        finally:
+            claim.close()
+        executed = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert executed.success is True
+        assert executed.output["changed"] is False
+        assert executed.output["delivery_status"] == "already_sent"
+        assert fake.send_calls == []
+    finally:
+        session.close()
+
+
+def test_started_attempt_from_crash_without_sent_stays_uncertain(
     google_settings, credential_key, monkeypatch, committed_mail_user
 ):
     fake = FakeGmailTransport()
@@ -688,6 +833,18 @@ def test_timeout_after_accept_reconciles_changed_false(
         assert executed.output["changed"] is False
         assert executed.output["delivery_status"] == "already_sent"
         assert len(fake.send_calls) == 1
+        stored_sent = next(iter(fake.messages.values()))
+        assert (_header(stored_sent, "Message-ID") or "").endswith("@mail.gmail.com>")
+        assert _header(stored_sent, "Message-ID") != staged.staged_action["arguments"][
+            "rfc822_message_id"
+        ]
+        assert _header(stored_sent, SECRETARY_OPERATION_HEADER) == staged.staged_action[
+            "arguments"
+        ]["operation_id"]
+        assert fake.list_calls
+        assert "rfc822msgid:" not in fake.list_calls[0]
+        assert fake.list_calls[0].startswith("in:sent after:")
+        assert "before:" in fake.list_calls[0]
     finally:
         session.close()
 
@@ -782,11 +939,12 @@ def test_ambiguous_without_sent_match_stays_uncertain_no_resend(
         session.close()
 
 
-def test_same_message_id_with_mismatch_fails_closed(
+def test_operation_header_mismatch_fails_closed(
     google_settings, credential_key, monkeypatch, committed_mail_user
 ):
     fake = FakeGmailTransport()
-    fake.field_overrides = {"To": "other@example.com"}
+    fake.lose_send_response = True
+    fake.field_overrides = {"Subject": "other subject"}
     _patch_execution(monkeypatch, fake)
     session = SessionLocal()
     try:
@@ -798,23 +956,124 @@ def test_same_message_id_with_mismatch_fails_closed(
         first = ToolExecutionGateway().execute(
             tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
         )
-        assert first.success is True
-        observer = SessionLocal()
-        try:
-            attempt = observer.scalar(
-                select(ExternalActionAttempt).where(
-                    ExternalActionAttempt.operation_id == args["operation_id"]
-                )
-            )
-            attempt.state = ATTEMPT_STARTED
-            observer.commit()
-        finally:
-            observer.close()
+        assert first.success is False
+        assert "does not match" in (first.error or "")
         second = ToolExecutionGateway().execute(
             tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
         )
         assert second.success is False
-        assert "does not match" in (second.error or "")
+        assert len(fake.send_calls) == 1
+    finally:
+        session.close()
+
+
+def test_matching_content_without_operation_header_is_not_this_operation(
+    google_settings, credential_key, monkeypatch, committed_mail_user
+):
+    fake = FakeGmailTransport()
+    fake.lose_send_response = True
+    fake.strip_operation_header = True
+    _patch_execution(monkeypatch, fake)
+    session = SessionLocal()
+    try:
+        tools = DomainToolService(session, committed_mail_user, gmail_transport=fake)
+        staged = ToolExecutionGateway().execute(
+            tools, "send_email", _mail_args(), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        )
+        args = staged.staged_action["arguments"]
+        first = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert first.success is False
+        assert "could not confirm" in (first.error or "")
+        second = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert second.success is False
+        assert len(fake.send_calls) == 1
+    finally:
+        session.close()
+
+
+def test_identical_untagged_neighbor_is_ignored(
+    google_settings, credential_key, monkeypatch, committed_mail_user
+):
+    fake = FakeGmailTransport()
+    fake.lose_send_response = True
+    fake.also_store_untagged_clone = True
+    _patch_execution(monkeypatch, fake)
+    session = SessionLocal()
+    try:
+        tools = DomainToolService(session, committed_mail_user, gmail_transport=fake)
+        staged = ToolExecutionGateway().execute(
+            tools, "send_email", _mail_args(), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        )
+        executed = ToolExecutionGateway().execute(
+            tools,
+            "send_email",
+            staged.staged_action["arguments"],
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert executed.success is True
+        assert executed.output["changed"] is False
+        assert executed.output["provider_message_id"] == "msg-1"
+        assert "msg-1-untagged" in fake.messages
+        assert len(fake.send_calls) == 1
+    finally:
+        session.close()
+
+
+def test_duplicate_operation_header_is_uncertain_without_resend(
+    google_settings, credential_key, monkeypatch, committed_mail_user
+):
+    fake = FakeGmailTransport()
+    fake.lose_send_response = True
+    fake.also_store_tagged_clone = True
+    _patch_execution(monkeypatch, fake)
+    session = SessionLocal()
+    try:
+        tools = DomainToolService(session, committed_mail_user, gmail_transport=fake)
+        staged = ToolExecutionGateway().execute(
+            tools, "send_email", _mail_args(), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        )
+        args = staged.staged_action["arguments"]
+        first = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert first.success is False
+        assert "multiple sent messages" in (first.error or "")
+        second = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert second.success is False
+        assert len(fake.send_calls) == 1
+    finally:
+        session.close()
+
+
+def test_incomplete_sent_search_is_uncertain_without_resend(
+    google_settings, credential_key, monkeypatch, committed_mail_user
+):
+    fake = FakeGmailTransport()
+    fake.lose_send_response = True
+    fake.force_incomplete_listing = True
+    _patch_execution(monkeypatch, fake)
+    session = SessionLocal()
+    try:
+        tools = DomainToolService(session, committed_mail_user, gmail_transport=fake)
+        staged = ToolExecutionGateway().execute(
+            tools, "send_email", _mail_args(), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        )
+        args = staged.staged_action["arguments"]
+        first = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert first.success is False
+        assert "could not confirm" in (first.error or "")
+        second = ToolExecutionGateway().execute(
+            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert second.success is False
         assert len(fake.send_calls) == 1
     finally:
         session.close()
@@ -911,9 +1170,23 @@ def test_deterministic_message_id_algorithm():
     assert rfc822_message_id_from_operation_id(operation_id) == (
         "<secretary.deadbeefdeadbeefdeadbeefdeadbeef@secretary.invalid>"
     )
-    assert "rfc822msgid:" in sent_message_query(
-        rfc822_message_id_from_operation_id(operation_id)
+    assert secretary_operation_header_value(operation_id) == operation_id
+    started = datetime(2026, 9, 6, 6, 30, tzinfo=UTC)
+    query = sent_window_query(started_at=started)
+    assert query.startswith("in:sent after:")
+    assert "before:" in query
+    assert "rfc822msgid:" not in query
+    payload = SendEmailCanonicalInput.model_validate(
+        {
+            **_mail_args(),
+            "account_email": "user@example.com",
+            "operation_id": operation_id,
+            "rfc822_message_id": rfc822_message_id_from_operation_id(operation_id),
+        }
     )
+    parsed = _payload_from_raw(build_rfc822_raw(payload), "mime")
+    assert _header(parsed, SECRETARY_OPERATION_HEADER) == operation_id
+    assert _header(parsed, "Message-ID") == rfc822_message_id_from_operation_id(operation_id)
 
 
 def test_tokens_and_raw_mime_absent_from_public_plan(
@@ -931,6 +1204,7 @@ def test_tokens_and_raw_mime_absent_from_public_plan(
     plan = ActionPlanService(db_session, mail_user).create_plan([staged.staged_action])
     assert "rfc822_message_id" not in str(plan.actions)
     assert "operation_id" not in str(plan.actions)
+    assert SECRETARY_OPERATION_HEADER not in str(plan.actions)
     assert "MIME-Version" not in str(plan.actions)
     assert "raw" not in plan.actions[0]["arguments"]
 
