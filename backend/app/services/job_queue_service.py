@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -111,21 +112,40 @@ class JobQueueService:
         self._session.flush()
         return job
 
-    def claim_next(self) -> ClaimedJob | None:
+    def claim_next(
+        self,
+        *,
+        include_types: Collection[str] | None = None,
+        exclude_types: Collection[str] | None = None,
+    ) -> ClaimedJob | None:
+        if include_types is not None and exclude_types is not None:
+            raise ValueError(
+                "claim_next include_types and exclude_types are mutually exclusive"
+            )
+        if include_types is not None and not include_types:
+            raise ValueError("claim_next include_types must not be empty")
+        if exclude_types is not None and not exclude_types:
+            raise ValueError("claim_next exclude_types must not be empty")
+
         now = utcnow()
         stale_threshold = now - timedelta(minutes=STALE_LOCK_MINUTES)
+        conditions = [
+            or_(
+                and_(Job.status == JOB_STATUS_PENDING, Job.run_after <= now),
+                and_(
+                    Job.status == JOB_STATUS_RUNNING,
+                    Job.locked_at.is_not(None),
+                    Job.locked_at < stale_threshold,
+                ),
+            )
+        ]
+        if include_types is not None:
+            conditions.append(Job.type.in_(tuple(include_types)))
+        if exclude_types is not None:
+            conditions.append(Job.type.notin_(tuple(exclude_types)))
         stmt = (
             select(Job)
-            .where(
-                or_(
-                    and_(Job.status == JOB_STATUS_PENDING, Job.run_after <= now),
-                    and_(
-                        Job.status == JOB_STATUS_RUNNING,
-                        Job.locked_at.is_not(None),
-                        Job.locked_at < stale_threshold,
-                    ),
-                )
-            )
+            .where(*conditions)
             .order_by(Job.run_after, Job.created_at, Job.id)
             .limit(1)
             .with_for_update(skip_locked=True)

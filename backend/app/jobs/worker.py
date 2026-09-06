@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Collection
 
 from app.ai_audit.context import reset_current_job_id, set_current_job_id
 from app.db.session import SessionLocal
@@ -18,11 +19,19 @@ from app.services.source_sync_preference_service import SourceSyncPreferenceServ
 logger = logging.getLogger(__name__)
 
 
-def process_one_job(embedding_service: EmbeddingService | None = None) -> bool:
+def process_one_job(
+    embedding_service: EmbeddingService | None = None,
+    *,
+    include_types: Collection[str] | None = None,
+    exclude_types: Collection[str] | None = None,
+) -> bool:
     session = SessionLocal()
     try:
         queue = JobQueueService(session)
-        claimed = queue.claim_next()
+        claimed = queue.claim_next(
+            include_types=include_types,
+            exclude_types=exclude_types,
+        )
         if claimed is None:
             return False
         session.commit()

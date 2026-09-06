@@ -14,6 +14,7 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_EMBED_OBJECT,
+    JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
     MAX_JOB_ATTEMPTS,
 )
 from app.jobs.handlers import get_handler
@@ -322,4 +323,152 @@ def test_stale_running_job_at_max_attempts_marks_failed(queue) -> None:
     assert stored is not None
     assert stored.status == JOB_STATUS_FAILED
     assert stored.locked_at is None
+
+
+def test_claim_next_unfiltered_picks_earliest_regardless_of_type(queue) -> None:
+    later = utcnow() + timedelta(seconds=1)
+    scheduled = queue.enqueue(
+        JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+        {"activity_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=later,
+    )
+    general = queue.enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow() - timedelta(seconds=1),
+    )
+    claimed = queue.claim_next()
+    assert claimed is not None
+    assert claimed.id == general.id
+    assert claimed.type == JOB_TYPE_EMBED_OBJECT
+    leftover = queue.get_job(scheduled.id)
+    assert leftover is not None
+    assert leftover.status == JOB_STATUS_PENDING
+    assert leftover.locked_at is None
+
+
+def test_claim_next_include_types_claims_only_scheduled(queue) -> None:
+    general = queue.enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow() - timedelta(minutes=1),
+    )
+    scheduled = queue.enqueue(
+        JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+        {"activity_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow(),
+    )
+    claimed = queue.claim_next(include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert claimed is not None
+    assert claimed.id == scheduled.id
+    stored_general = queue.get_job(general.id)
+    assert stored_general is not None
+    assert stored_general.status == JOB_STATUS_PENDING
+    assert stored_general.locked_at is None
+
+
+def test_claim_next_exclude_types_claims_only_general(queue) -> None:
+    scheduled = queue.enqueue(
+        JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+        {"activity_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow() - timedelta(minutes=1),
+    )
+    general = queue.enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow(),
+    )
+    claimed = queue.claim_next(exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert claimed is not None
+    assert claimed.id == general.id
+    stored_scheduled = queue.get_job(scheduled.id)
+    assert stored_scheduled is not None
+    assert stored_scheduled.status == JOB_STATUS_PENDING
+    assert stored_scheduled.locked_at is None
+
+
+def test_claim_next_include_preserves_run_after_order_inside_lane(queue) -> None:
+    later = queue.enqueue(
+        JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+        {"activity_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow() - timedelta(seconds=1),
+    )
+    earlier = queue.enqueue(
+        JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+        {"activity_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow() - timedelta(seconds=10),
+    )
+    queue.enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+        run_after=utcnow() - timedelta(minutes=5),
+    )
+    claimed = queue.claim_next(include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert claimed is not None
+    assert claimed.id == earlier.id
+    second = queue.claim_next(include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert second is not None
+    assert second.id == later.id
+
+
+def test_stale_running_scheduled_job_reclaimed_by_scheduled_lane(queue) -> None:
+    job = queue.enqueue(
+        JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+        {"activity_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+    )
+    claimed = queue.claim_next(include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert claimed is not None
+    stored = queue.get_job(job.id)
+    assert stored is not None
+    stored.locked_at = utcnow() - timedelta(minutes=16)
+    stored.status = JOB_STATUS_RUNNING
+    assert queue.claim_next(exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY}) is None
+    recovered = queue.claim_next(include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert recovered is not None
+    assert recovered.id == job.id
+    assert recovered.attempts == 2
+
+
+def test_stale_running_general_job_reclaimed_by_general_lane(queue) -> None:
+    job = queue.enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(uuid.uuid4())},
+        BOOTSTRAP_USER_ID,
+    )
+    claimed = queue.claim_next(exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert claimed is not None
+    stored = queue.get_job(job.id)
+    assert stored is not None
+    stored.locked_at = utcnow() - timedelta(minutes=16)
+    stored.status = JOB_STATUS_RUNNING
+    assert queue.claim_next(include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY}) is None
+    recovered = queue.claim_next(exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY})
+    assert recovered is not None
+    assert recovered.id == job.id
+    assert recovered.attempts == 2
+
+
+def test_claim_next_rejects_include_and_exclude_together(queue) -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        queue.claim_next(
+            include_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY},
+            exclude_types={JOB_TYPE_EMBED_OBJECT},
+        )
+
+
+def test_claim_next_rejects_empty_type_filters(queue) -> None:
+    with pytest.raises(ValueError, match="include_types must not be empty"):
+        queue.claim_next(include_types=set())
+    with pytest.raises(ValueError, match="exclude_types must not be empty"):
+        queue.claim_next(exclude_types=set())
 
