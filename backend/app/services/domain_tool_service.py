@@ -422,7 +422,6 @@ class DomainToolService:
             body=payload.body,
             run_at=run_at,
             priority=payload.priority,
-            schedule_kind="once",
         )
 
     def create_scheduled_activity(

@@ -475,7 +475,6 @@ class SendEmailOutput(BaseModel):
 MAX_SCHEDULED_ACTIVITY_TITLE_CHARS = 300
 MAX_SCHEDULED_ACTIVITY_BODY_CHARS = 5000
 ScheduledActivityPriority = Literal["low", "normal", "high", "urgent"]
-ScheduledActivityScheduleKind = Literal["once"]
 
 
 class CreateScheduledActivityInput(BaseModel):
@@ -506,7 +505,6 @@ class CreateScheduledActivityCanonicalInput(BaseModel):
     body: str | None = Field(default=None, max_length=MAX_SCHEDULED_ACTIVITY_BODY_CHARS)
     run_at: datetime
     priority: ScheduledActivityPriority = "normal"
-    schedule_kind: ScheduledActivityScheduleKind = "once"
 
     @field_validator("title", mode="before")
     @classmethod

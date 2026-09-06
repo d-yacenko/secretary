@@ -229,7 +229,9 @@ def test_interactive_create_requires_approval_without_object_or_job(db_session) 
     assert args["title"] == "Call the dentist"
     assert args["body"] == "Bring insurance card"
     assert args["priority"] == "high"
-    assert args["schedule_kind"] == SCHEDULE_KIND_ONCE
+    assert "run_at" in args
+    assert "schedule_kind" not in args
+    assert set(args) <= {"title", "body", "run_at", "priority"}
     assert "job" not in str(args).lower()
     assert "activity_id" not in args
     public = ActionPlanService(db_session, BOOTSTRAP_USER_ID).create_plan(
@@ -240,6 +242,8 @@ def test_interactive_create_requires_approval_without_object_or_job(db_session) 
     assert shown["body"] == "Bring insurance card"
     assert "run_at" in shown
     assert shown["priority"] == "high"
+    assert "schedule_kind" not in shown
+    assert set(shown) <= {"title", "body", "run_at", "priority"}
     assert "job_id" not in shown
     assert "activity_id" not in shown
 
