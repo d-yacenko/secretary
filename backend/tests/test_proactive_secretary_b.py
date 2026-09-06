@@ -281,6 +281,16 @@ def _patch_metadata(activity_id: uuid.UUID, updater) -> None:
         session.commit()
 
 
+def _patch_job_payload(job_id: uuid.UUID, updater) -> None:
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        assert job is not None
+        payload = dict(job.payload or {})
+        updater(payload)
+        job.payload = payload
+        session.commit()
+
+
 def _load(model, entity_id):
     with Session(engine) as session:
         row = session.get(model, entity_id)
@@ -1222,5 +1232,85 @@ def test_cancelled_completed_tombstoned_remain_noop_even_with_unknown_kind() -> 
         _drain_until_job(tomb_job)
         assert _notification_count(user_id) == 1
         assert _load(Object, tomb_id).status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+    finally:
+        _cleanup_user(user_id)
+
+
+def _assert_corrupt_occurrence_fence(payload: dict) -> None:
+    user_id = _persist_user()
+    try:
+        spec = _spec_daily()
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        activity_id, job_id, stored_due = _persist_recurring(user_id, spec, due_at=due)
+        handler_payload = {"activity_id": str(activity_id), **payload}
+
+        def _apply_job_payload(job_payload: dict) -> None:
+            job_payload.clear()
+            job_payload.update(handler_payload)
+
+        _patch_job_payload(job_id, _apply_job_payload)
+        with Session(engine) as session:
+            with pytest.raises(ValueError, match="invalid occurrence fence"):
+                handle_run_scheduled_activity(session, None, handler_payload, user_id)
+            session.rollback()
+        activity = _load(Object, activity_id)
+        assert activity.status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+        assert same_instant(activity.due_at, stored_due)
+        assert activity.occurred_at is None
+        assert _notification_count(user_id) == 0
+        assert len(_pending_run_jobs(user_id)) == 1
+        processed = process_one_job()
+        assert processed is True
+        job = _load(Job, job_id)
+        assert job.status != JOB_STATUS_DONE
+        assert "invalid occurrence fence" in (job.last_error or "")
+        activity = _load(Object, activity_id)
+        assert activity.status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+        assert same_instant(activity.due_at, stored_due)
+        assert activity.occurred_at is None
+        assert _notification_count(user_id) == 0
+        assert len(_pending_run_jobs(user_id)) == 1
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_recurring_missing_occurrence_due_at_fails_closed() -> None:
+    _assert_corrupt_occurrence_fence({})
+
+
+def test_recurring_malformed_occurrence_due_at_fails_closed() -> None:
+    _assert_corrupt_occurrence_fence({"occurrence_due_at": "not-a-timestamp"})
+
+
+def test_recurring_naive_occurrence_due_at_fails_closed() -> None:
+    _assert_corrupt_occurrence_fence({"occurrence_due_at": "2026-03-08T07:30:00"})
+
+
+def test_recurring_wrong_type_occurrence_due_at_fails_closed() -> None:
+    _assert_corrupt_occurrence_fence({"occurrence_due_at": 123})
+
+
+def test_valid_mismatched_occurrence_fence_is_safe_noop() -> None:
+    user_id = _persist_user()
+    try:
+        spec = _spec_daily()
+        due = datetime.now(UTC) - timedelta(seconds=1)
+        activity_id, job_id, stored_due = _persist_recurring(user_id, spec, due_at=due)
+        stale = instant_to_iso(as_utc(stored_due) - timedelta(days=1))
+        _commit(
+            lambda session: handle_run_scheduled_activity(
+                session,
+                None,
+                {"activity_id": str(activity_id), "occurrence_due_at": stale},
+                user_id,
+            )
+        )
+        activity = _load(Object, activity_id)
+        assert activity.status == SCHEDULED_ACTIVITY_STATUS_SCHEDULED
+        assert same_instant(activity.due_at, stored_due)
+        assert activity.occurred_at is None
+        assert _notification_count(user_id) == 0
+        assert len(_pending_run_jobs(user_id)) == 1
+        assert _load(Job, job_id).status == JOB_STATUS_PENDING
     finally:
         _cleanup_user(user_id)

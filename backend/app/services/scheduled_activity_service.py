@@ -11,7 +11,6 @@ from app.domain.recurrence import (
     RecurrenceSpec,
     instant_to_iso,
     next_occurrence,
-    parse_instant,
     same_instant,
     spec_from_metadata,
 )
@@ -51,6 +50,19 @@ def require_future_run_at(run_at: datetime) -> None:
     instant = run_at.astimezone(UTC) if run_at.tzinfo is not None else run_at.replace(tzinfo=UTC)
     if instant < utcnow():
         raise ToolError("run_at is in the past")
+
+
+def require_occurrence_fence(raw: object) -> datetime:
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("scheduled activity has invalid occurrence fence")
+    text = raw.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("scheduled activity has invalid occurrence fence") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("scheduled activity has invalid occurrence fence")
+    return parsed.astimezone(UTC)
 
 
 class ScheduledActivityService:
@@ -218,7 +230,7 @@ class ScheduledActivityService:
         spec = spec_from_metadata(metadata)
         if spec is None:
             raise ValueError("scheduled activity has invalid recurrence metadata")
-        fence = parse_instant(payload.get("occurrence_due_at"))
+        fence = require_occurrence_fence(payload.get("occurrence_due_at"))
         if not same_instant(fence, obj.due_at):
             return
         now = utcnow()
