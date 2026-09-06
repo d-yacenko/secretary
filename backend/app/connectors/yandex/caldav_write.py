@@ -5,8 +5,9 @@ from urllib.parse import urljoin
 
 from app.connectors.yandex.caldav_transport import CalDavCalendar
 from app.connectors.yandex.calendar_normalize import normalize_caldav_event
-from app.connectors.yandex.constants import YANDEX_DEFAULT_CALENDAR_SEGMENT
 from app.tools.schemas import CreateCalendarEventCanonicalInput, ToolError
+
+VEVENT_COMPONENT = "VEVENT"
 
 
 def compact_operation_id(operation_id: str) -> str:
@@ -36,17 +37,16 @@ def event_href_from_operation_id(calendar_href: str, operation_id: str) -> str:
     return join_calendar_href(calendar_href, caldav_resource_name(operation_id))
 
 
-def _is_default_calendar_href(href: str) -> bool:
-    parts = [part for part in href.split("/") if part]
-    return bool(parts) and parts[-1].lower() == YANDEX_DEFAULT_CALENDAR_SEGMENT
-
-
 def select_default_yandex_calendar(calendars: list[CalDavCalendar]) -> CalDavCalendar:
     if not calendars:
         raise ToolError("Yandex calendar is not available")
-    defaults = [calendar for calendar in calendars if _is_default_calendar_href(calendar.href)]
-    if len(defaults) == 1:
-        return defaults[0]
+    vevent_calendars = [
+        calendar
+        for calendar in calendars
+        if VEVENT_COMPONENT in calendar.supported_components
+    ]
+    if len(vevent_calendars) == 1:
+        return vevent_calendars[0]
     raise ToolError("cannot identify default Yandex calendar")
 
 

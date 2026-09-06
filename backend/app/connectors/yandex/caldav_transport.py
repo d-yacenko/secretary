@@ -90,6 +90,37 @@ def _parse_multistatus_root(xml_text: str) -> ET.Element:
         raise YandexCalDavError("caldav response xml malformed") from exc
 
 
+def _comp_name(element: ET.Element) -> str | None:
+    for key, value in element.attrib.items():
+        if _local_name(key) == "name" and value.strip():
+            return value.strip().upper()
+    return None
+
+
+def _parse_supported_components(comp_set: ET.Element) -> frozenset[str]:
+    names: set[str] = set()
+    for child in comp_set:
+        if _local_name(child.tag) != "comp":
+            continue
+        name = _comp_name(child)
+        if name:
+            names.add(name)
+    return frozenset(names)
+
+
+def _supported_components_from_response(response: ET.Element) -> frozenset[str]:
+    for propstat in _find_children(response, "propstat"):
+        if not _ok_propstat(propstat):
+            continue
+        prop = _find_child(propstat, "prop")
+        if prop is None:
+            continue
+        for child in prop:
+            if _local_name(child.tag) == "supported-calendar-component-set":
+                return _parse_supported_components(child)
+    return frozenset()
+
+
 def _merge_ok_prop_values(response: ET.Element) -> dict[str, str]:
     merged: dict[str, str] = {}
     for propstat in _find_children(response, "propstat"):
@@ -116,6 +147,7 @@ class CalDavCalendar:
     href: str
     display_name: str | None
     sync_token: str | None
+    supported_components: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -313,6 +345,7 @@ class CalDavHttpTransport:
             "<d:displayname/>"
             "<d:resourcetype/>"
             "<d:sync-token/>"
+            "<c:supported-calendar-component-set/>"
             "</d:prop>"
             "</d:propfind>"
         )
@@ -479,6 +512,7 @@ class CalDavHttpTransport:
                     href=href,
                     display_name=merged.get("displayname"),
                     sync_token=merged.get("sync-token"),
+                    supported_components=_supported_components_from_response(response),
                 )
             )
         return calendars

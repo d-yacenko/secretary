@@ -223,11 +223,16 @@ class DiscoveryHttpClient:
         self._principal_xml = principal_xml
         self._home_xml = home_xml
         self.requests: list[tuple[str, str, str]] = []
+        self.bodies: list[str] = []
 
     def request(self, method: str, url: str, **kwargs) -> httpx.Response:
         depth = kwargs.get("headers", {}).get("Depth", "0")
         path = url.split("caldav.yandex.ru", 1)[-1]
+        body = kwargs.get("content") or b""
+        if isinstance(body, bytes):
+            body = body.decode("utf-8")
         self.requests.append((method, path, depth))
+        self.bodies.append(body)
         if PRINCIPAL_HREF in path:
             return httpx.Response(200, text=self._principal_xml)
         if HOME_HREF in path:
@@ -250,7 +255,9 @@ def test_caldav_discovery_uses_principal_then_calendar_home() -> None:
         "<d:response><d:href>" + CALENDAR_HREF + "</d:href>"
         "<d:propstat><d:prop><d:displayname>Work</d:displayname>"
         "<d:resourcetype><d:collection/><c:calendar/></d:resourcetype>"
-        "<d:sync-token>token-home</d:sync-token></d:prop>"
+        "<d:sync-token>token-home</d:sync-token>"
+        "<c:supported-calendar-component-set><c:comp name='VEVENT'/></c:supported-calendar-component-set>"
+        "</d:prop>"
         "<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
         "</d:multistatus>"
     )
@@ -263,8 +270,10 @@ def test_caldav_discovery_uses_principal_then_calendar_home() -> None:
     calendars = transport.discover_calendars(10)
     assert len(calendars) == 1
     assert calendars[0].href == CALENDAR_HREF
+    assert calendars[0].supported_components == frozenset({"VEVENT"})
     assert http.requests[0] == ("PROPFIND", PRINCIPAL_HREF, "0")
     assert http.requests[1] == ("PROPFIND", HOME_HREF, "1")
+    assert "<c:supported-calendar-component-set/>" in http.bodies[1]
 
 
 def test_query_events_does_not_use_expand_on_yandex_incompatible_calendar_query() -> None:
@@ -289,6 +298,60 @@ def test_query_events_does_not_use_expand_on_yandex_incompatible_calendar_query(
     assert "<d:getetag/>" in captured["body"]
     assert "<c:time-range" in captured["body"]
     assert "</c:filter>" in captured["body"]
+
+
+def test_caldav_discovery_parses_vevent_and_vtodo_component_sets() -> None:
+    principal_xml = (
+        "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+        "<d:response><d:href>" + PRINCIPAL_HREF + "</d:href>"
+        "<d:propstat><d:prop><c:calendar-home-set><d:href>" + HOME_HREF + "</d:href>"
+        "</c:calendar-home-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>"
+        "</d:response></d:multistatus>"
+    )
+    events_href = "/calendars/user@yandex.ru/events-18154946/"
+    todos_href = "/calendars/user@yandex.ru/todos-7121590/"
+    home_xml = (
+        "<D:multistatus xmlns:D='DAV:'>"
+        "<D:response><href xmlns='DAV:'>" + events_href + "</href>"
+        "<D:propstat><D:prop>"
+        "<D:displayname>Мои события</D:displayname>"
+        "<D:resourcetype><C:calendar xmlns:C='urn:ietf:params:xml:ns:caldav'/><D:collection/></D:resourcetype>"
+        "<C:supported-calendar-component-set xmlns:C='urn:ietf:params:xml:ns:caldav'>"
+        "<C:comp name='VEVENT'/></C:supported-calendar-component-set>"
+        "</D:prop><status xmlns='DAV:'>HTTP/1.1 200 OK</status></D:propstat></D:response>"
+        "<D:response><href xmlns='DAV:'>" + todos_href + "</href>"
+        "<D:propstat><D:prop>"
+        "<D:displayname>Не забыть</D:displayname>"
+        "<D:resourcetype><C:calendar xmlns:C='urn:ietf:params:xml:ns:caldav'/><D:collection/></D:resourcetype>"
+        "<C:supported-calendar-component-set xmlns:C='urn:ietf:params:xml:ns:caldav'>"
+        "<C:comp name='VTODO'/></C:supported-calendar-component-set>"
+        "</D:prop><status xmlns='DAV:'>HTTP/1.1 200 OK</status></D:propstat></D:response>"
+        "</D:multistatus>"
+    )
+    http = DiscoveryHttpClient(principal_xml, home_xml)
+    transport = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=http,
+    )
+    calendars = transport.discover_calendars(10)
+    by_href = {calendar.href: calendar for calendar in calendars}
+    assert by_href[events_href].supported_components == frozenset({"VEVENT"})
+    assert by_href[todos_href].supported_components == frozenset({"VTODO"})
+    missing_xml = (
+        "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav'>"
+        "<d:response><d:href>" + CALENDAR_HREF + "</d:href>"
+        "<d:propstat><d:prop><d:displayname>Work</d:displayname>"
+        "<d:resourcetype><d:collection/><c:calendar/></d:resourcetype>"
+        "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+        "</d:multistatus>"
+    )
+    missing = CalDavHttpTransport(
+        email="user@yandex.ru",
+        password="pass",
+        http_client=DiscoveryHttpClient(principal_xml, missing_xml),
+    ).discover_calendars(10)
+    assert missing[0].supported_components == frozenset()
 
 
 def test_calendar_multiget_uses_expand_with_bounded_range() -> None:

@@ -210,10 +210,34 @@ def _mail_fakes() -> tuple[FakeSmtpTransport, FakeImapTransport]:
     return FakeSmtpTransport(imap=imap, sent_folder=SENT_FOLDER), imap
 
 
-def _calendar_fake() -> FakeCalDavTransport:
-    return FakeCalDavTransport(
-        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="default", sync_token="t")]
+def _vevent_calendar(
+    href: str,
+    display_name: str | None = "default",
+    sync_token: str | None = "t",
+) -> CalDavCalendar:
+    return CalDavCalendar(
+        href=href,
+        display_name=display_name,
+        sync_token=sync_token,
+        supported_components=frozenset({"VEVENT"}),
     )
+
+
+def _vtodo_calendar(
+    href: str,
+    display_name: str | None = "todos",
+    sync_token: str | None = "t",
+) -> CalDavCalendar:
+    return CalDavCalendar(
+        href=href,
+        display_name=display_name,
+        sync_token=sync_token,
+        supported_components=frozenset({"VTODO"}),
+    )
+
+
+def _calendar_fake() -> FakeCalDavTransport:
+    return FakeCalDavTransport(calendars=[_vevent_calendar(CALENDAR_HREF)])
 
 
 def _patch_mail(monkeypatch, smtp: FakeSmtpTransport, imap: FakeImapTransport) -> None:
@@ -1169,29 +1193,38 @@ def test_yandex_calendar_default_and_cross_provider(
     assert len(yandex.put_calls) == 1
 
 
-def test_select_default_yandex_calendar_requires_events_default() -> None:
-    default = CalDavCalendar(
+def test_select_default_yandex_calendar_requires_unique_vevent() -> None:
+    events = _vevent_calendar(
+        "/calendars/user@yandex.ru/events-18154946/",
+        display_name="Мои события",
+    )
+    todos = _vtodo_calendar(
+        "/calendars/user@yandex.ru/todos-7121590/",
+        display_name="Не забыть",
+    )
+    misleading_todo = _vtodo_calendar(
+        "/calendars/user@yandex.ru/events-999/",
+        display_name="Мои события",
+    )
+    ugly_vevent = _vevent_calendar("/calendars/user@yandex.ru/shared-xyz/", display_name="zzz")
+    missing = CalDavCalendar(
         href="/calendars/user@yandex.ru/events-default/",
-        display_name="Shared looking name",
+        display_name="Мои события",
         sync_token="t",
     )
-    work = CalDavCalendar(href="/calendars/user@yandex.ru/work/", display_name="Work", sync_token=None)
-    home = CalDavCalendar(href="/calendars/user@yandex.ru/home/", display_name="Home", sync_token=None)
-    other_default = CalDavCalendar(
-        href="/calendars/other@yandex.ru/events-default/",
-        display_name="Other",
-        sync_token=None,
-    )
-    assert select_default_yandex_calendar([default]) is default
-    assert select_default_yandex_calendar([work, default, home]) is default
+    second_vevent = _vevent_calendar("/calendars/user@yandex.ru/work/", display_name="Work")
+    assert select_default_yandex_calendar([todos, events]) is events
+    assert select_default_yandex_calendar([misleading_todo, ugly_vevent]) is ugly_vevent
     with pytest.raises(ToolError, match="not available"):
         select_default_yandex_calendar([])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([work])
+        select_default_yandex_calendar([todos])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([work, home])
+        select_default_yandex_calendar([events, second_vevent, todos])
     with pytest.raises(ToolError, match="cannot identify default"):
-        select_default_yandex_calendar([default, other_default])
+        select_default_yandex_calendar([missing])
+    with pytest.raises(ToolError, match="cannot identify default"):
+        select_default_yandex_calendar([todos, missing])
 
 
 def test_yandex_calendar_sole_non_default_fails_closed(
@@ -1213,6 +1246,64 @@ def test_yandex_calendar_sole_non_default_fails_closed(
     assert blocked.status == ToolExecutionStatus.TOOL_ERROR
     assert "default" in (blocked.error or "").lower()
     assert sole.put_calls == []
+
+
+def test_yandex_calendar_selects_vevent_not_vtodo(
+    db_session, google_settings, credential_key, owner, monkeypatch
+):
+    caldav = FakeCalDavTransport(
+        calendars=[
+            _vtodo_calendar("/calendars/user@yandex.ru/todos-7121590/", display_name="Не забыть"),
+            _vevent_calendar("/calendars/user@yandex.ru/events-18154946/", display_name="Мои события"),
+        ]
+    )
+    _patch_calendar(monkeypatch, caldav)
+    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
+    staged = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, caldav),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert staged.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert staged.staged_action["arguments"]["calendar_href"] == (
+        "/calendars/user@yandex.ru/events-18154946/"
+    )
+    assert caldav.put_calls == []
+
+
+def test_yandex_calendar_vtodo_or_multiple_vevent_fails_closed(
+    db_session, google_settings, credential_key, owner, monkeypatch
+):
+    only_todo = FakeCalDavTransport(
+        calendars=[_vtodo_calendar("/calendars/user@yandex.ru/todos-7121590/")]
+    )
+    _patch_calendar(monkeypatch, only_todo)
+    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
+    blocked_todo = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, only_todo),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert blocked_todo.status == ToolExecutionStatus.TOOL_ERROR
+    assert only_todo.put_calls == []
+
+    two_events = FakeCalDavTransport(
+        calendars=[
+            _vevent_calendar("/calendars/user@yandex.ru/events-1/"),
+            _vevent_calendar("/calendars/user@yandex.ru/events-2/"),
+        ]
+    )
+    _patch_calendar(monkeypatch, two_events)
+    blocked_two = ToolExecutionGateway().execute(
+        _tools_cal(db_session, owner, two_events),
+        "create_calendar_event",
+        _event_args(provider="yandex"),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    assert blocked_two.status == ToolExecutionStatus.TOOL_ERROR
+    assert two_events.put_calls == []
 
 
 def test_parse_imap_internaldate_uses_server_timestamp() -> None:
