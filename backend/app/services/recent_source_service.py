@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import String, and_, func, or_, select
+from sqlalchemy import ColumnElement, String, and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, array
 from sqlalchemy.orm import Session
 
@@ -45,6 +46,44 @@ GMAIL_NOISE_LABELS = (
     "CATEGORY_FORUMS",
 )
 
+_SOURCE_EVENT_KINDS = ("event", "calendar_event")
+
+
+def inbox_feed_at(obj: Object) -> datetime:
+    if obj.origin == "source":
+        if obj.kind in _SOURCE_EVENT_KINDS:
+            return obj.start_at or obj.occurred_at or obj.updated_at or obj.created_at
+        return obj.occurred_at or obj.updated_at or obj.created_at
+    return obj.created_at
+
+
+def inbox_feed_at_sql() -> ColumnElement[datetime]:
+    source_event_at = func.coalesce(
+        Object.start_at,
+        Object.occurred_at,
+        Object.updated_at,
+        Object.created_at,
+    )
+    source_object_at = func.coalesce(
+        Object.occurred_at,
+        Object.updated_at,
+        Object.created_at,
+    )
+    return case(
+        (
+            Object.origin == "source",
+            case(
+                (Object.kind.in_(_SOURCE_EVENT_KINDS), source_event_at),
+                else_=source_object_at,
+            ),
+        ),
+        (
+            or_(Object.origin == "explicit", Object.origin == "user"),
+            Object.created_at,
+        ),
+        else_=Object.created_at,
+    )
+
 
 class RecentSourceService:
     def __init__(self, session: Session, user_id: UUID) -> None:
@@ -61,6 +100,16 @@ class RecentSourceService:
             Object.provider != "gmail",
             labels.is_(None),
             ~noise_any,
+        )
+
+    @staticmethod
+    def _not_child_email_attachment_clause() -> object:
+        parent_email_id = Object.metadata_["parent_email_id"].as_string()
+        return ~and_(
+            Object.origin == "source",
+            Object.kind == "file",
+            parent_email_id.is_not(None),
+            parent_email_id != "",
         )
 
     def _source_feed_clause(self) -> object:
@@ -84,17 +133,20 @@ class RecentSourceService:
             Object.deleted_at.is_(None),
             or_(Object.status.is_(None), Object.status != "deleted"),
             self._gmail_feed_eligible_clause(),
+            self._not_child_email_attachment_clause(),
         )
 
     def list_recent(self, limit: int = RECENT_SOURCE_DEFAULT_LIMIT) -> list[Object]:
         bounded_limit = min(max(limit, 1), RECENT_SOURCE_MAX_LIMIT)
         eligible_filters = self._eligible_filters()
+        feed_at = inbox_feed_at_sql()
+        feed_order = (feed_at.desc(), Object.id.desc())
 
         top_provider_rows = self._session.execute(
             select(Object.provider)
             .where(eligible_filters, Object.provider.is_not(None))
             .group_by(Object.provider)
-            .order_by(func.max(Object.created_at).desc(), Object.provider.asc())
+            .order_by(func.max(feed_at).desc(), Object.provider.asc())
             .limit(RECENT_SOURCE_MAX_RESERVED_PROVIDERS)
         ).all()
         selected_providers = [row[0] for row in top_provider_rows]
@@ -103,7 +155,7 @@ class RecentSourceService:
         if selected_providers:
             row_number = func.row_number().over(
                 partition_by=Object.provider,
-                order_by=(Object.created_at.desc(), Object.id.desc()),
+                order_by=feed_order,
             )
             ranked = (
                 select(Object.id, row_number.label("row_number"))
@@ -123,7 +175,7 @@ class RecentSourceService:
             fill_stmt = (
                 select(Object.id)
                 .where(eligible_filters)
-                .order_by(Object.created_at.desc(), Object.id.desc())
+                .order_by(*feed_order)
             )
             if reserved_ids:
                 fill_stmt = fill_stmt.where(Object.id.not_in(reserved_ids))
@@ -137,7 +189,7 @@ class RecentSourceService:
         objects = list(
             self._session.scalars(select(Object).where(Object.id.in_(all_ids)))
         )
-        objects.sort(key=lambda obj: (obj.created_at, obj.id), reverse=True)
+        objects.sort(key=lambda obj: (inbox_feed_at(obj), obj.id), reverse=True)
         return objects
 
     @staticmethod
