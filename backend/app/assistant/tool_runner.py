@@ -10,7 +10,13 @@ from app.assistant.reference_ids import (
 )
 from app.assistant.tool_output import serialize_tool_output_for_assistant
 from app.assistant.turn_telemetry import AssistantTurnTelemetry
+from app.tools.policy import ToolPermission
+from app.tools.registry import get_tool_spec
 from app.tools.results import ToolExecutionResult, ToolExecutionStatus
+
+_IRREVERSIBLE_PERMISSIONS = frozenset(
+    {ToolPermission.EXTERNAL_WRITE, ToolPermission.COMMUNICATE}
+)
 
 _READ_TOOLS = frozenset(
     {
@@ -98,7 +104,7 @@ class PerTurnToolBudget:
             )
         self._calls += 1
 
-        if tool_name in _MUTATION_TOOLS:
+        if tool_name in _MUTATION_TOOLS or _is_irreversible_tool(tool_name):
             if self._plan_sealed:
                 if self._telemetry is not None:
                     self._telemetry.tool_calls += 1
@@ -117,6 +123,11 @@ class PerTurnToolBudget:
                     error="action plan exceeds maximum actions",
                     status=ToolExecutionStatus.TOOL_ERROR,
                 )
+            irreversible_error = self._irreversible_staging_error(tool_name)
+            if irreversible_error is not None:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return irreversible_error
 
         if tool_name in _EVIDENCE_WRITE_TOOLS:
             evidence_error = self._validate_evidence_allowlist(tool_name, arguments)
@@ -169,8 +180,35 @@ class PerTurnToolBudget:
             self._telemetry.tool_calls += 1
         return result
 
+    def _irreversible_staging_error(self, tool_name: str) -> ToolExecutionResult | None:
+        if self._has_irreversible_staged():
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="no additional mutation may be staged after an external action",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        if _is_irreversible_tool(tool_name) and self._staged_actions:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="external action cannot be mixed with other staged actions",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        return None
+
+    def _has_irreversible_staged(self) -> bool:
+        return any(
+            _is_irreversible_tool(action.get("tool_name")) for action in self._staged_actions
+        )
+
     def _stage_action(self, staged_action: dict) -> None:
         if self._is_duplicate_action(staged_action):
+            return
+        tool_name = staged_action.get("tool_name")
+        if self._has_irreversible_staged():
+            return
+        if _is_irreversible_tool(tool_name) and self._staged_actions:
             return
         self._staged_actions.append(staged_action)
 
@@ -279,3 +317,12 @@ class BoundAssistantToolRunner:
 
     def commit_model_visible_outputs(self) -> None:
         self._budget.commit_model_visible_outputs()
+
+
+def _is_irreversible_tool(tool_name: object) -> bool:
+    if not isinstance(tool_name, str) or not tool_name:
+        return False
+    spec = get_tool_spec(tool_name)
+    if spec is None:
+        return False
+    return spec.permission in _IRREVERSIBLE_PERMISSIONS

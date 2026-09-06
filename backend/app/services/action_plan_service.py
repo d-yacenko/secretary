@@ -22,6 +22,8 @@ from app.db.models import PendingActionPlan
 from app.services.domain_tool_service import DomainToolService
 from app.services.domain_write_mode import DomainWriteMode
 from app.services.errors import NotFoundError, ValidationError
+from app.tools.policy import ToolPermission
+from app.tools.registry import get_tool_spec
 
 
 @dataclass
@@ -46,10 +48,7 @@ class ActionPlanService:
         self._user_id = user_id
 
     def create_plan(self, actions: list[dict[str, Any]]) -> PendingActionPlanView:
-        if not actions:
-            raise ValidationError("action plan cannot be empty")
-        if len(actions) > MAX_ACTIONS_PER_PLAN:
-            raise ValidationError("action plan exceeds maximum actions")
+        validate_action_plan_actions(actions)
 
         now = datetime.now(UTC)
         plan = PendingActionPlan(
@@ -81,6 +80,13 @@ class ActionPlanService:
 
         if plan.status != PENDING_ACTION_PLAN_STATUS_PENDING:
             raise ActionPlanConflictError("action plan is not pending")
+
+        try:
+            validate_action_plan_actions(plan.actions)
+        except ValidationError as exc:
+            plan.status = PENDING_ACTION_PLAN_STATUS_FAILED
+            plan.failure = exc.message
+            return _to_view(plan)
 
         plan.approved_at = now
         tools = DomainToolService(
@@ -186,6 +192,33 @@ def _to_view(plan: PendingActionPlan) -> PendingActionPlanView:
 
 
 _PUBLIC_ARGUMENT_HIDDEN_KEYS = frozenset({"operation_id"})
+_IRREVERSIBLE_PERMISSIONS = frozenset(
+    {ToolPermission.EXTERNAL_WRITE, ToolPermission.COMMUNICATE}
+)
+
+
+def validate_action_plan_actions(actions: list[dict[str, Any]]) -> None:
+    if not actions:
+        raise ValidationError("action plan cannot be empty")
+    if len(actions) > MAX_ACTIONS_PER_PLAN:
+        raise ValidationError("action plan exceeds maximum actions")
+    irreversible = any(
+        _permission_for_tool(action.get("tool_name")) in _IRREVERSIBLE_PERMISSIONS
+        for action in actions
+    )
+    if irreversible and len(actions) != 1:
+        raise ValidationError(
+            "external and communicate actions must be the only action in the plan"
+        )
+
+
+def _permission_for_tool(tool_name: object) -> ToolPermission | None:
+    if not isinstance(tool_name, str) or not tool_name:
+        return None
+    spec = get_tool_spec(tool_name)
+    if spec is None:
+        return None
+    return spec.permission
 
 
 def _public_arguments(arguments: dict[str, Any]) -> dict[str, Any]:

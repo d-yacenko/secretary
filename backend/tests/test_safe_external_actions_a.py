@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -11,7 +11,13 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy import func, select
 
+from app.assistant.action_plan_constants import (
+    PENDING_ACTION_PLAN_STATUS_FAILED,
+    PENDING_ACTION_PLAN_STATUS_PENDING,
+)
+from app.assistant.tool_runner import PerTurnToolBudget
 from app.connectors.google.calendar_transport import CalendarTransport
 from app.connectors.google.constants import (
     CALENDAR_API_BASE,
@@ -24,15 +30,18 @@ from app.connectors.google.constants import (
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleApiError
+from app.connectors.google.oauth_service import GoogleOAuthService
 from app.core.client_timezone import set_request_timezone
 from app.core.config import settings
-from app.db.models import PendingActionPlan, User
+from app.db.models import GoogleAccount, Object, PendingActionPlan, User
+from app.db.session import SessionLocal
 from app.services.action_plan_service import ActionPlanService
 from app.services.calendar_external_action_service import (
     CalendarExternalActionService,
     calendar_event_id_from_operation_id,
 )
 from app.services.domain_tool_service import DomainToolService
+from app.services.errors import ValidationError as ServiceValidationError
 from app.tools.execution_context import ExecutionContext
 from app.tools.gateway import ToolExecutionGateway
 from app.tools.results import ToolExecutionStatus
@@ -50,6 +59,9 @@ class FakeCalendarTransport:
         self.get_calls: list[str] = []
         self.lose_insert_response = False
         self.insert_conflict = False
+        self.persist_on_insert = True
+        self.stored_summary_override: str | None = None
+        self.insert_error: GoogleApiError | None = None
         self.lock = threading.Lock()
 
     def insert_event(self, access_token: str, calendar_id: str, body: dict) -> dict:
@@ -69,14 +81,19 @@ class FakeCalendarTransport:
                 stored["description"] = body["description"]
             if "location" in body:
                 stored["location"] = body["location"]
+            if self.stored_summary_override is not None:
+                stored["summary"] = self.stored_summary_override
             if self.insert_conflict or event_id in self.events:
                 if event_id not in self.events:
                     self.events[event_id] = stored
                 raise GoogleApiError("already exists", operation="insert_event", status_code=409)
-            self.events[event_id] = stored
+            if self.persist_on_insert:
+                self.events[event_id] = stored
             if self.lose_insert_response:
                 self.lose_insert_response = False
                 raise httpx.TimeoutException("lost insert response")
+            if self.insert_error is not None:
+                raise self.insert_error
             return dict(stored)
 
     def get_event(self, access_token: str, calendar_id: str, event_id: str) -> dict:
@@ -675,3 +692,409 @@ def test_calendar_transport_insert_and_get_are_mechanical():
     fetched = transport.get_event("tok", "primary", "abcde12345")
     assert fetched["id"] == "abcde12345"
     assert CALENDAR_API_BASE.startswith("https://")
+
+
+def test_calendar_transport_malformed_2xx_raises_google_api_error() -> None:
+    class MalformedClient:
+        def post(self, url, json=None, headers=None, **kwargs):
+            return httpx.Response(200, json=["not", "an", "object"])
+
+        def get(self, url, headers=None, **kwargs):
+            return httpx.Response(200, content=b"null")
+
+    transport = CalendarTransport(http_client=MalformedClient())
+    with pytest.raises(GoogleApiError) as insert_exc:
+        transport.insert_event("tok", "primary", {"id": "abcde12345", "summary": "S"})
+    assert insert_exc.value.retryable is True
+    assert insert_exc.value.status_code == 200
+    with pytest.raises(GoogleApiError) as get_exc:
+        transport.get_event("tok", "primary", "abcde12345")
+    assert get_exc.value.retryable is True
+    assert get_exc.value.status_code == 200
+
+
+def _bind_tool_session(monkeypatch, db_session) -> None:
+    class BoundSession:
+        def __init__(self) -> None:
+            self._session = db_session
+
+        def close(self) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+
+    monkeypatch.setattr("app.assistant.session.SessionLocal", BoundSession)
+
+
+def _task_count(db_session, user_id) -> int:
+    return db_session.scalar(
+        select(func.count()).select_from(Object).where(
+            Object.user_id == user_id,
+            Object.kind == "task",
+        )
+    )
+
+
+def test_refreshed_tokens_persist_without_committing_outer_plan_transaction(
+    google_settings, credential_key, monkeypatch
+):
+    user_id = uuid4()
+    email = f"token-persist-{user_id.hex}@example.com"
+    setup = SessionLocal()
+    try:
+        setup.add(User(id=user_id, display_name="token-persist-user"))
+        setup.commit()
+        account = GoogleAccountStore(setup, CredentialEncryption(credential_key)).upsert_tokens(
+            user_id=user_id,
+            email=email,
+            scopes=_write_scopes(),
+            access_token="expired-access-token",
+            refresh_token="old-refresh-token",
+            token_expiry=datetime.now(UTC) - timedelta(hours=1),
+        )
+        setup.commit()
+        account_id = account.id
+        old_access_encrypted = account.access_token_encrypted
+        old_refresh_encrypted = account.refresh_token_encrypted
+    finally:
+        setup.close()
+
+    def fake_refresh(self, refresh_token: str) -> dict:
+        assert refresh_token == "old-refresh-token"
+        return {
+            "access_token": "new-access-token",
+            "refresh_token": "new-refresh-token",
+            "expires_in": 3600,
+        }
+
+    monkeypatch.setattr(GoogleOAuthService, "refresh_access_token", fake_refresh)
+
+    plan_session = SessionLocal()
+    try:
+        plan = PendingActionPlan(
+            user_id=user_id,
+            status=PENDING_ACTION_PLAN_STATUS_PENDING,
+            actions=[{"tool_name": "create_task", "arguments": {"title": "outer-uncommitted"}}],
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+        plan_session.add(plan)
+        plan_session.flush()
+        plan_id = plan.id
+        token = CalendarExternalActionService(plan_session, user_id)._valid_access_token(
+            account_id
+        )
+        assert token == "new-access-token"
+        observer = SessionLocal()
+        try:
+            assert observer.get(PendingActionPlan, plan_id) is None
+            stored = observer.get(GoogleAccount, account_id)
+            assert stored is not None
+            assert stored.access_token_encrypted != old_access_encrypted
+            assert stored.refresh_token_encrypted != old_refresh_encrypted
+            snapshot = GoogleAccountStore(
+                observer, CredentialEncryption(credential_key)
+            ).load_credential_snapshot(account_id, user_id)
+            assert snapshot is not None
+            assert snapshot.access_token == "new-access-token"
+            assert snapshot.refresh_token == "new-refresh-token"
+            assert snapshot.token_expiry is not None
+            assert snapshot.token_expiry > datetime.now(UTC)
+        finally:
+            observer.close()
+        plan_session.rollback()
+    finally:
+        plan_session.close()
+        cleanup = SessionLocal()
+        try:
+            account_row = cleanup.get(GoogleAccount, account_id)
+            if account_row is not None:
+                cleanup.delete(account_row)
+            user_row = cleanup.get(User, user_id)
+            if user_row is not None:
+                cleanup.delete(user_row)
+            cleanup.commit()
+        finally:
+            cleanup.close()
+
+
+def test_two_create_calendar_event_calls_stage_only_one_external_action(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user, fake_embedding_service
+):
+    fake = FakeCalendarTransport()
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    _bind_tool_session(monkeypatch, db_session)
+    budget = PerTurnToolBudget()
+    first = budget.run(calendar_user, "create_calendar_event", _event_args())
+    second = budget.run(calendar_user, "create_calendar_event", _event_args(summary="Second event"))
+    assert first.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert second.status == ToolExecutionStatus.TOOL_ERROR
+    assert len(budget.staged_actions) == 1
+    assert budget.staged_actions[0]["arguments"]["operation_id"]
+    plan = ActionPlanService(db_session, calendar_user).create_plan(budget.staged_actions)
+    approved = ActionPlanService(db_session, calendar_user).approve(plan.id)
+    assert approved.status == "executed"
+    assert len(fake.insert_calls) == 1
+    assert len(fake.events) == 1
+
+
+def test_internal_then_calendar_does_not_append_external(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user, fake_embedding_service
+):
+    fake = FakeCalendarTransport()
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    _bind_tool_session(monkeypatch, db_session)
+    budget = PerTurnToolBudget()
+    internal = budget.run(calendar_user, "create_task", {"title": "Already staged", "confidence": 0.9})
+    external = budget.run(calendar_user, "create_calendar_event", _event_args())
+    assert internal.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert external.status == ToolExecutionStatus.TOOL_ERROR
+    assert [action["tool_name"] for action in budget.staged_actions] == ["create_task"]
+    assert fake.insert_calls == []
+
+
+def test_calendar_then_internal_rejects_second_mutation(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user, fake_embedding_service
+):
+    fake = FakeCalendarTransport()
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    _bind_tool_session(monkeypatch, db_session)
+    budget = PerTurnToolBudget()
+    external = budget.run(calendar_user, "create_calendar_event", _event_args())
+    internal = budget.run(calendar_user, "create_task", {"title": "Too late", "confidence": 0.9})
+    assert external.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert internal.status == ToolExecutionStatus.TOOL_ERROR
+    assert [action["tool_name"] for action in budget.staged_actions] == ["create_calendar_event"]
+
+
+def test_create_plan_rejects_mixed_external_and_internal(
+    db_session, google_settings, credential_key, calendar_user
+):
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    with pytest.raises(ServiceValidationError, match="only action"):
+        ActionPlanService(db_session, calendar_user).create_plan(
+            [
+                {
+                    "tool_name": "create_calendar_event",
+                    "permission": "INTERNAL_WRITE",
+                    "arguments": _event_args(),
+                },
+                {
+                    "tool_name": "create_task",
+                    "arguments": {"title": "Mixed", "confidence": 0.9},
+                },
+            ]
+        )
+
+
+def test_approve_mixed_legacy_plan_fails_closed_before_provider(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user
+):
+    fake = FakeCalendarTransport()
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    tools = DomainToolService(db_session, calendar_user, calendar_transport=fake)
+    staged = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        _event_args(),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    plan = PendingActionPlan(
+        user_id=calendar_user,
+        status=PENDING_ACTION_PLAN_STATUS_PENDING,
+        actions=[
+            staged.staged_action,
+            {
+                "tool_name": "create_task",
+                "permission": "INTERNAL_WRITE",
+                "arguments": {"title": "Will fail if executed", "confidence": 0.9},
+            },
+        ],
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    db_session.add(plan)
+    db_session.flush()
+    approved = ActionPlanService(db_session, calendar_user).approve(plan.id)
+    assert approved.status == PENDING_ACTION_PLAN_STATUS_FAILED
+    assert "only action" in (approved.failure or "")
+    assert fake.insert_calls == []
+    persisted = db_session.get(PendingActionPlan, plan.id)
+    assert persisted.status == PENDING_ACTION_PLAN_STATUS_FAILED
+    assert persisted.approved_at is None
+
+
+def test_internal_two_action_plan_still_executes(db_session, calendar_user):
+    before = _task_count(db_session, calendar_user)
+    plan = ActionPlanService(db_session, calendar_user).create_plan(
+        [
+            {"tool_name": "create_task", "arguments": {"title": "Internal A", "confidence": 0.9}},
+            {"tool_name": "create_task", "arguments": {"title": "Internal B", "confidence": 0.9}},
+        ]
+    )
+    approved = ActionPlanService(db_session, calendar_user).approve(plan.id)
+    assert approved.status == "executed"
+    assert _task_count(db_session, calendar_user) == before + 2
+
+
+def test_retryable_503_after_store_reconciles_without_second_create(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user
+):
+    fake = FakeCalendarTransport()
+    fake.insert_error = GoogleApiError(
+        "backend unavailable",
+        operation="insert_event",
+        status_code=503,
+        retryable=True,
+    )
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    tools = DomainToolService(db_session, calendar_user, calendar_transport=fake)
+    staged = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        _event_args(),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    executed = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        staged.staged_action["arguments"],
+        context=ExecutionContext.APPROVED_ACTION_PLAN,
+    )
+    assert executed.success is True
+    assert executed.output["changed"] is False
+    assert len(fake.events) == 1
+    assert len(fake.insert_calls) == 1
+    assert fake.get_calls == [calendar_event_id_from_operation_id(staged.staged_action["arguments"]["operation_id"])]
+
+
+def test_retryable_503_without_stored_event_fails_after_one_insert(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user
+):
+    fake = FakeCalendarTransport()
+    fake.persist_on_insert = False
+    fake.insert_error = GoogleApiError(
+        "backend unavailable",
+        operation="insert_event",
+        status_code=503,
+        retryable=True,
+    )
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    tools = DomainToolService(db_session, calendar_user, calendar_transport=fake)
+    staged = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        _event_args(),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    executed = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        staged.staged_action["arguments"],
+        context=ExecutionContext.APPROVED_ACTION_PLAN,
+    )
+    assert executed.success is False
+    assert "failed to create calendar event" in (executed.error or "")
+    assert fake.events == {}
+    assert len(fake.insert_calls) == 1
+
+
+def test_malformed_2xx_after_accept_reconciles_same_event(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user
+):
+    fake = FakeCalendarTransport()
+    fake.insert_error = GoogleApiError(
+        "insert_event returned a malformed response",
+        operation="insert_event",
+        status_code=200,
+        retryable=True,
+    )
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    tools = DomainToolService(db_session, calendar_user, calendar_transport=fake)
+    staged = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        _event_args(),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    executed = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        staged.staged_action["arguments"],
+        context=ExecutionContext.APPROVED_ACTION_PLAN,
+    )
+    assert executed.success is True
+    assert executed.output["changed"] is False
+    assert len(fake.events) == 1
+    assert len(fake.insert_calls) == 1
+
+
+def test_deterministic_id_with_different_canonical_fields_fails_closed(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user
+):
+    fake = FakeCalendarTransport()
+    fake.stored_summary_override = "Different summary"
+    fake.insert_error = GoogleApiError(
+        "backend unavailable",
+        operation="insert_event",
+        status_code=503,
+        retryable=True,
+    )
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    tools = DomainToolService(db_session, calendar_user, calendar_transport=fake)
+    staged = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        _event_args(),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    executed = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        staged.staged_action["arguments"],
+        context=ExecutionContext.APPROVED_ACTION_PLAN,
+    )
+    assert executed.success is False
+    assert "does not match frozen fields" in (executed.error or "")
+    event_id = calendar_event_id_from_operation_id(staged.staged_action["arguments"]["operation_id"])
+    assert fake.events[event_id]["summary"] == "Different summary"
+    assert len(fake.insert_calls) == 1
+
+
+def test_clear_4xx_does_not_reconcile(
+    db_session, google_settings, credential_key, monkeypatch, calendar_user
+):
+    fake = FakeCalendarTransport()
+    fake.persist_on_insert = False
+    fake.insert_error = GoogleApiError(
+        "invalid request",
+        operation="insert_event",
+        status_code=400,
+        retryable=False,
+    )
+    _patch_execution(monkeypatch, fake)
+    _add_google_account(db_session, credential_key, "user@example.com", _write_scopes(), user_id=calendar_user)
+    tools = DomainToolService(db_session, calendar_user, calendar_transport=fake)
+    staged = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        _event_args(),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
+    )
+    executed = ToolExecutionGateway().execute(
+        tools,
+        "create_calendar_event",
+        staged.staged_action["arguments"],
+        context=ExecutionContext.APPROVED_ACTION_PLAN,
+    )
+    assert executed.success is False
+    assert "invalid request" in (executed.error or "")
+    assert fake.get_calls == []
+    assert len(fake.insert_calls) == 1

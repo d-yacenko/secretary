@@ -123,6 +123,8 @@ class CalendarExternalActionService:
             if exc.status_code == 409:
                 existing = self._require_matching_existing(access_token, payload, event_id)
                 return self._output(payload, existing, event_id, changed=False)
+            if _is_ambiguous_insert_error(exc):
+                return self._reconcile_after_uncertain_insert(access_token, payload, event_id)
             raise ToolError(self._bounded_provider_error(exc)) from exc
         except httpx.RequestError:
             return self._reconcile_after_uncertain_insert(access_token, payload, event_id)
@@ -186,9 +188,15 @@ class CalendarExternalActionService:
                 redirect_uri=settings.google_redirect_uri,
             )
             token_manager = GoogleTokenManager(token_session, store, oauth_service)
-            return token_manager.get_valid_access_token(account_id, self._user_id)
+            token = token_manager.get_valid_access_token(account_id, self._user_id)
+            token_session.commit()
+            return token
         except (GoogleConnectorError, GoogleOAuthError) as exc:
+            token_session.rollback()
             raise ToolError(exc.message) from exc
+        except Exception:
+            token_session.rollback()
+            raise
         finally:
             token_session.close()
 
@@ -290,3 +298,9 @@ class CalendarExternalActionService:
         if any(token in lowered for token in ("access_token", "refresh_token", "bearer ", "ya29.")):
             return "Google Calendar request failed"
         return message[:500]
+
+
+def _is_ambiguous_insert_error(exc: GoogleApiError) -> bool:
+    if exc.retryable:
+        return True
+    return exc.status_code is not None and exc.status_code >= 500

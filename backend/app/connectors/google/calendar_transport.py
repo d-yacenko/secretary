@@ -7,6 +7,7 @@ import httpx
 
 from app.connectors.google.api_errors import raise_for_google_response
 from app.connectors.google.constants import CALENDAR_API_BASE
+from app.connectors.google.errors import GoogleApiError
 
 
 @dataclass(frozen=True)
@@ -95,10 +96,7 @@ class CalendarTransport:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         raise_for_google_response(response, "insert_event")
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise_for_google_response(response, "insert_event")
-        return payload
+        return _json_object_payload(response, "insert_event")
 
     def get_event(
         self,
@@ -113,10 +111,22 @@ class CalendarTransport:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         raise_for_google_response(response, "get_event")
+        return _json_object_payload(response, "get_event")
+
+
+def _json_object_payload(response: httpx.Response, operation: str) -> dict[str, Any]:
+    try:
         payload = response.json()
-        if not isinstance(payload, dict):
-            raise_for_google_response(response, "get_event")
-        return payload
+    except (ValueError, TypeError):
+        payload = None
+    if not isinstance(payload, dict):
+        raise GoogleApiError(
+            f"{operation} returned a malformed response",
+            operation=operation,
+            status_code=response.status_code,
+            retryable=True,
+        )
+    return payload
 
 
 def _format_rfc3339(value: datetime) -> str:
