@@ -8,7 +8,7 @@ def classify_tool_execution_effect(tool_name: str, output: dict[str, Any] | None
         return "failed"
     if tool_name == "create_task":
         return "created"
-    if tool_name == "create_scheduled_activity":
+    if tool_name in ("create_scheduled_activity", "create_recurring_scheduled_activity"):
         return "created"
     if tool_name == "create_calendar_event":
         return "created" if output.get("changed") else "no_op"

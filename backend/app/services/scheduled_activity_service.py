@@ -7,11 +7,23 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ObjectCreate
 from app.db.models import Job, Object
 from app.domain.object_visibility import is_object_tombstoned
+from app.domain.recurrence import (
+    RecurrenceSpec,
+    instant_to_iso,
+    next_occurrence,
+    parse_instant,
+    same_instant,
+    spec_from_metadata,
+)
 from app.domain.scheduled_activity import (
     KIND_SCHEDULED_ACTIVITY,
+    METADATA_LOCAL_TIME,
     METADATA_PRIORITY,
     METADATA_SCHEDULE_KIND,
+    METADATA_TIMEZONE,
+    METADATA_WEEKDAYS,
     NOTIFICATION_PROPOSAL_TYPE,
+    RECURRING_SCHEDULE_KINDS,
     SCHEDULE_KIND_ONCE,
     SCHEDULED_ACTIVITY_STATUS_CANCELLED,
     SCHEDULED_ACTIVITY_STATUS_COMPLETED,
@@ -95,6 +107,62 @@ class ScheduledActivityService:
             )
         return obj
 
+    def create_recurring(
+        self,
+        *,
+        title: str,
+        body: str | None,
+        spec: RecurrenceSpec,
+        run_at: datetime,
+        priority: str,
+        origin_state: str,
+        confidence: float | None,
+        enqueue_embedding: bool,
+    ) -> Object:
+        require_future_run_at(run_at)
+        if priority not in NOTIFICATION_PRIORITIES:
+            raise ToolError(f"invalid notification priority: {priority}")
+        metadata: dict = {
+            METADATA_SCHEDULE_KIND: spec.schedule_kind,
+            METADATA_PRIORITY: priority,
+            METADATA_TIMEZONE: spec.timezone,
+            METADATA_LOCAL_TIME: spec.local_time,
+        }
+        if spec.schedule_kind == "weekly":
+            metadata[METADATA_WEEKDAYS] = list(spec.weekdays)
+        try:
+            obj = self._write_graph.create_object(
+                ObjectCreate(
+                    kind=KIND_SCHEDULED_ACTIVITY,
+                    title=title,
+                    origin=AGENT_ORIGIN,
+                    state=origin_state,
+                    body=body,
+                    status=SCHEDULED_ACTIVITY_STATUS_SCHEDULED,
+                    due_at=run_at,
+                    confidence=confidence,
+                    metadata=metadata,
+                )
+            )
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        self._jobs.enqueue(
+            JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+            {
+                "activity_id": str(obj.id),
+                "occurrence_due_at": instant_to_iso(run_at),
+            },
+            user_id=self._user_id,
+            run_after=run_at,
+        )
+        if enqueue_embedding:
+            self._jobs.enqueue(
+                JOB_TYPE_EMBED_OBJECT,
+                {"object_id": str(obj.id)},
+                user_id=self._user_id,
+            )
+        return obj
+
     def cancel(self, activity_id: UUID) -> tuple[Object, bool]:
         obj = self._lock_owned_row(activity_id)
         if obj is None or is_object_tombstoned(obj):
@@ -113,7 +181,7 @@ class ScheduledActivityService:
         self._session.flush()
         return obj, True
 
-    def fire(self, activity_id: UUID) -> None:
+    def fire(self, activity_id: UUID, payload: dict | None = None) -> None:
         obj = self._lock_owned_row(activity_id)
         if obj is None:
             return
@@ -129,24 +197,67 @@ class ScheduledActivityService:
         if obj.status != SCHEDULED_ACTIVITY_STATUS_SCHEDULED:
             return
         metadata = dict(obj.metadata_ or {})
-        priority = metadata.get(METADATA_PRIORITY, "normal")
-        if priority not in NOTIFICATION_PRIORITIES:
-            priority = "normal"
-        NotificationService(self._session, self._user_id).create(
-            title=obj.title,
-            body=obj.body,
-            priority=str(priority),
-            proposal={
-                "type": NOTIFICATION_PROPOSAL_TYPE,
-                "activity_id": str(obj.id),
-            },
-            source_object_id=obj.id,
-        )
+        schedule_kind = metadata.get(METADATA_SCHEDULE_KIND)
+        if schedule_kind in RECURRING_SCHEDULE_KINDS:
+            self._fire_recurring(obj, metadata, payload or {})
+            return
+        self._fire_once(obj, metadata)
+
+    def _fire_once(self, obj: Object, metadata: dict) -> None:
+        self._emit_notification(obj, metadata, scheduled_for=None)
         now = utcnow()
         obj.status = SCHEDULED_ACTIVITY_STATUS_COMPLETED
         obj.occurred_at = now
         obj.updated_at = now
         self._session.flush()
+
+    def _fire_recurring(self, obj: Object, metadata: dict, payload: dict) -> None:
+        spec = spec_from_metadata(metadata)
+        if spec is None:
+            return
+        fence = parse_instant(payload.get("occurrence_due_at"))
+        if not same_instant(fence, obj.due_at):
+            return
+        now = utcnow()
+        next_due = next_occurrence(spec, now)
+        self._emit_notification(obj, metadata, scheduled_for=instant_to_iso(obj.due_at))
+        obj.occurred_at = now
+        obj.due_at = next_due
+        obj.updated_at = now
+        self._jobs.enqueue(
+            JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+            {
+                "activity_id": str(obj.id),
+                "occurrence_due_at": instant_to_iso(next_due),
+            },
+            user_id=self._user_id,
+            run_after=next_due,
+        )
+        self._session.flush()
+
+    def _emit_notification(
+        self,
+        obj: Object,
+        metadata: dict,
+        *,
+        scheduled_for: str | None,
+    ) -> None:
+        priority = metadata.get(METADATA_PRIORITY, "normal")
+        if priority not in NOTIFICATION_PRIORITIES:
+            priority = "normal"
+        proposal = {
+            "type": NOTIFICATION_PROPOSAL_TYPE,
+            "activity_id": str(obj.id),
+        }
+        if scheduled_for is not None:
+            proposal["scheduled_for"] = scheduled_for
+        NotificationService(self._session, self._user_id).create(
+            title=obj.title,
+            body=obj.body,
+            priority=str(priority),
+            proposal=proposal,
+            source_object_id=obj.id,
+        )
 
     def _lock_owned_row(self, activity_id: UUID) -> Object | None:
         return self._session.scalar(

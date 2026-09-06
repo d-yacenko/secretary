@@ -21,4 +21,4 @@ def handle_run_scheduled_activity(
         session,
         user_id,
         GraphService(session, user_id),
-    ).fire(activity_id)
+    ).fire(activity_id, payload)

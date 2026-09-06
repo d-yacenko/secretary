@@ -216,7 +216,7 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             payload["truncated"] = True
         return payload
 
-    if tool_name in ("create_task", "update_task", "create_scheduled_activity"):
+    if tool_name in ("create_task", "update_task", "create_scheduled_activity", "create_recurring_scheduled_activity"):
         obj = raw_output.get("object")
         payload: dict[str, Any] = {"object": _bounded_object(obj) if obj else None}
         if tool_name == "update_task":

@@ -45,12 +45,16 @@ def collect_object_ids_from_bounded_tool(
         "set_task_status",
         "delete_task",
         "create_scheduled_activity",
+        "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
     ):
         obj = bounded.get("object")
         if obj:
             _append_uuid(candidate_ids, obj.get("id"))
-            if tool_name == "create_task" or tool_name == "create_scheduled_activity" or tool_name == "update_task" and bounded.get("changed") or tool_name in ("set_task_status", "delete_task", "cancel_scheduled_activity") and bounded.get("changed"):
+            if tool_name == "create_task" or tool_name in (
+                "create_scheduled_activity",
+                "create_recurring_scheduled_activity",
+            ) or tool_name == "update_task" and bounded.get("changed") or tool_name in ("set_task_status", "delete_task", "cancel_scheduled_activity") and bounded.get("changed"):
                 _append_uuid(affected_ids, obj.get("id"))
 
 
@@ -90,6 +94,7 @@ def collect_seen_object_ids_from_bounded_tool(
         "set_task_status",
         "delete_task",
         "create_scheduled_activity",
+        "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
     ):
         obj = bounded.get("object")

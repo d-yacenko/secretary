@@ -43,6 +43,7 @@ _MUTATION_TOOLS = frozenset(
         "link_objects",
         "remove_relation",
         "create_scheduled_activity",
+        "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
@@ -172,6 +173,7 @@ class PerTurnToolBudget:
             model_output = serialize_tool_output_for_assistant(tool_name, result.output)
             if tool_name in _READ_TOOLS or tool_name in _EVIDENCE_WRITE_TOOLS or tool_name in (
                 "create_scheduled_activity",
+                "create_recurring_scheduled_activity",
                 "cancel_scheduled_activity",
             ):
                 for object_id in collect_seen_object_ids_from_bounded_tool(

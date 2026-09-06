@@ -318,11 +318,54 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         },
         "strict": False,
     },
+    "create_recurring_scheduled_activity": {
+        "type": "function",
+        "name": "create_recurring_scheduled_activity",
+        "description": (
+            "Schedule a daily or weekly internal reminder. "
+            "Uses local wall-clock time in an IANA timezone. "
+            "Creates a scheduled_activity that stays scheduled until cancelled and "
+            "emits one internal notification per occurrence. "
+            "Does not send email, change calendars, or run LLM. Requires user approval. "
+            "For weekly schedules pass unique weekdays (mon-sun). "
+            "Omit timezone to use the trusted client timezone."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "body": {"type": ["string", "null"]},
+                "schedule_kind": {"type": "string", "enum": ["daily", "weekly"]},
+                "local_time": {
+                    "type": "string",
+                    "description": "Local wall-clock time as 24-hour HH:MM.",
+                },
+                "timezone": {
+                    "type": ["string", "null"],
+                    "description": "IANA timezone such as Europe/Moscow. Not a UTC offset.",
+                },
+                "weekdays": {
+                    "type": ["array", "null"],
+                    "items": {
+                        "type": "string",
+                        "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+                    },
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "normal", "high", "urgent"],
+                },
+            },
+            "required": ["title", "schedule_kind", "local_time"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
     "cancel_scheduled_activity": {
         "type": "function",
         "name": "cancel_scheduled_activity",
         "description": (
-            "Cancel a scheduled_activity that has not yet fired. "
+            "Cancel a scheduled_activity (one-shot or recurring) that is still scheduled. "
             "Requires user approval. Does not undo an already delivered notification."
         ),
         "parameters": {

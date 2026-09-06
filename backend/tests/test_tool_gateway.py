@@ -37,6 +37,7 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "remove_relation",
         "get_today",
         "create_scheduled_activity",
+        "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
@@ -75,6 +76,7 @@ def test_registry_covers_executor_dispatch_tools():
         "remove_relation",
         "get_today",
         "create_scheduled_activity",
+        "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
@@ -98,7 +100,7 @@ def test_openai_provider_uses_registry_assistant_definitions():
 
     source = inspect.getsource(OpenAIAssistantProvider.run)
     assert "ASSISTANT_TOOL_DEFINITIONS" in source
-    assert "tool_definitions" not in source
+    assert "tools=ASSISTANT_TOOL_DEFINITIONS" in source
 
 
 def test_mcp_exposed_tools_match_registry():
@@ -125,6 +127,7 @@ def test_permission_classifications():
         "update_task",
         "link_objects",
         "create_scheduled_activity",
+        "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
     }
     destructive = {"delete_task", "remove_relation"}

@@ -264,8 +264,37 @@ def create_mcp_server() -> MCPServer:
         return _run_tool("create_scheduled_activity", "create_scheduled_activity", arguments)
 
     @mcp.tool()
+    def create_recurring_scheduled_activity(
+        title: str,
+        schedule_kind: str,
+        local_time: str,
+        body: str | None = None,
+        timezone: str | None = None,
+        weekdays: list[str] | None = None,
+        priority: str = "normal",
+    ) -> CreateScheduledActivityOutput:
+        """Schedule a daily/weekly internal reminder (requires approval; MCP cannot execute)."""
+        arguments: dict = {
+            "title": title,
+            "schedule_kind": schedule_kind,
+            "local_time": local_time,
+            "priority": priority,
+        }
+        if body is not None:
+            arguments["body"] = body
+        if timezone is not None:
+            arguments["timezone"] = timezone
+        if weekdays is not None:
+            arguments["weekdays"] = weekdays
+        return _run_tool(
+            "create_recurring_scheduled_activity",
+            "create_recurring_scheduled_activity",
+            arguments,
+        )
+
+    @mcp.tool()
     def cancel_scheduled_activity(activity_id: str) -> CancelScheduledActivityOutput:
-        """Cancel a one-shot scheduled activity before it fires (requires approval)."""
+        """Cancel a scheduled activity before future occurrences fire (requires approval)."""
         return _run_tool(
             "cancel_scheduled_activity",
             "cancel_scheduled_activity",

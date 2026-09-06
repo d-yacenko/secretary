@@ -475,6 +475,8 @@ class SendEmailOutput(BaseModel):
 MAX_SCHEDULED_ACTIVITY_TITLE_CHARS = 300
 MAX_SCHEDULED_ACTIVITY_BODY_CHARS = 5000
 ScheduledActivityPriority = Literal["low", "normal", "high", "urgent"]
+ScheduledActivityWeekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+RecurringScheduleKind = Literal["daily", "weekly"]
 
 
 class CreateScheduledActivityInput(BaseModel):
@@ -521,6 +523,138 @@ class CreateScheduledActivityCanonicalInput(BaseModel):
 
 class CreateScheduledActivityOutput(BaseModel):
     object: ObjectOut
+
+
+class CreateRecurringScheduledActivityInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=MAX_SCHEDULED_ACTIVITY_TITLE_CHARS)
+    body: str | None = Field(default=None, max_length=MAX_SCHEDULED_ACTIVITY_BODY_CHARS)
+    schedule_kind: RecurringScheduleKind
+    local_time: str
+    timezone: str | None = None
+    weekdays: list[ScheduledActivityWeekday] | None = None
+    priority: ScheduledActivityPriority = "normal"
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _strip_body(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def _strip_timezone(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @field_validator("local_time")
+    @classmethod
+    def _validate_local_time(cls, value: str) -> str:
+        from app.domain.recurrence import parse_local_time
+
+        try:
+            parse_local_time(value)
+        except ValueError as exc:
+            raise ValueError("local_time must be HH:MM") from exc
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        from app.domain.recurrence import require_iana_timezone
+
+        try:
+            return require_iana_timezone(value)
+        except ValueError as exc:
+            raise ValueError("invalid timezone") from exc
+
+    @model_validator(mode="after")
+    def _validate_weekdays(self) -> Self:
+        from app.domain.recurrence import canonicalize_weekdays
+
+        try:
+            weekdays = canonicalize_weekdays(
+                list(self.weekdays) if self.weekdays is not None else None,
+                required=self.schedule_kind == "weekly",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+        if self.schedule_kind == "weekly":
+            self.weekdays = list(weekdays)
+        else:
+            self.weekdays = None
+        return self
+
+
+class CreateRecurringScheduledActivityCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=MAX_SCHEDULED_ACTIVITY_TITLE_CHARS)
+    body: str | None = Field(default=None, max_length=MAX_SCHEDULED_ACTIVITY_BODY_CHARS)
+    schedule_kind: RecurringScheduleKind
+    local_time: str
+    timezone: str
+    weekdays: list[ScheduledActivityWeekday] | None = None
+    priority: ScheduledActivityPriority = "normal"
+    run_at: datetime
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _strip_body(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @field_validator("local_time")
+    @classmethod
+    def _validate_local_time(cls, value: str) -> str:
+        from app.domain.recurrence import parse_local_time
+
+        try:
+            parse_local_time(value)
+        except ValueError as exc:
+            raise ValueError("local_time must be HH:MM") from exc
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, value: str) -> str:
+        from app.domain.recurrence import require_iana_timezone
+
+        try:
+            return require_iana_timezone(value)
+        except ValueError as exc:
+            raise ValueError("invalid timezone") from exc
+
+    @model_validator(mode="after")
+    def _validate_weekdays(self) -> Self:
+        from app.domain.recurrence import canonicalize_weekdays
+
+        try:
+            weekdays = canonicalize_weekdays(
+                list(self.weekdays) if self.weekdays is not None else None,
+                required=self.schedule_kind == "weekly",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+        if self.schedule_kind == "weekly":
+            self.weekdays = list(weekdays)
+        else:
+            self.weekdays = None
+        return self
 
 
 class CancelScheduledActivityInput(BaseModel):

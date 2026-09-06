@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -46,6 +46,8 @@ from app.tools.schemas import (
     CreateCalendarEventCanonicalInput,
     CreateCalendarEventInput,
     CreateCalendarEventOutput,
+    CreateRecurringScheduledActivityCanonicalInput,
+    CreateRecurringScheduledActivityInput,
     CreateScheduledActivityCanonicalInput,
     CreateScheduledActivityInput,
     CreateScheduledActivityOutput,
@@ -438,6 +440,65 @@ class DomainToolService:
             title=payload.title,
             body=payload.body,
             run_at=run_at,
+            priority=payload.priority,
+            origin_state=self._new_artifact_state(),
+            confidence=confidence,
+            enqueue_embedding=self._job_queue is not None,
+        )
+        return CreateScheduledActivityOutput(object=ObjectOut.from_model(obj))
+
+    def prepare_create_recurring_scheduled_activity(
+        self, payload: CreateRecurringScheduledActivityInput
+    ) -> dict:
+        from app.domain.recurrence import RecurrenceSpec, next_occurrence, resolve_iana_timezone
+        from app.services.scheduled_activity_service import require_future_run_at
+
+        try:
+            timezone = resolve_iana_timezone(payload.timezone, self._client_timezone)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+        spec = RecurrenceSpec(
+            schedule_kind=payload.schedule_kind,
+            timezone=timezone,
+            local_time=payload.local_time,
+            weekdays=tuple(payload.weekdays or ()),
+        )
+        try:
+            run_at = next_occurrence(spec, datetime.now(UTC))
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+        require_future_run_at(run_at)
+        canonical = CreateRecurringScheduledActivityCanonicalInput(
+            title=payload.title,
+            body=payload.body,
+            schedule_kind=payload.schedule_kind,
+            local_time=payload.local_time,
+            timezone=timezone,
+            weekdays=payload.weekdays,
+            priority=payload.priority,
+            run_at=run_at,
+        )
+        return canonical.model_dump(mode="json", exclude_none=True)
+
+    def create_recurring_scheduled_activity(
+        self, payload: CreateRecurringScheduledActivityCanonicalInput
+    ) -> CreateScheduledActivityOutput:
+        from app.domain.recurrence import RecurrenceSpec
+        from app.services.scheduled_activity_service import require_future_run_at
+
+        require_future_run_at(payload.run_at)
+        spec = RecurrenceSpec(
+            schedule_kind=payload.schedule_kind,
+            timezone=payload.timezone,
+            local_time=payload.local_time,
+            weekdays=tuple(payload.weekdays or ()),
+        )
+        confidence = None if self._write_mode == DomainWriteMode.APPROVED_CONFIRMED else 1.0
+        obj = self._scheduled_activities().create_recurring(
+            title=payload.title,
+            body=payload.body,
+            spec=spec,
+            run_at=payload.run_at,
             priority=payload.priority,
             origin_state=self._new_artifact_state(),
             confidence=confidence,
