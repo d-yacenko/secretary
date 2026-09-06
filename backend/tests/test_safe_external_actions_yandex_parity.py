@@ -25,6 +25,7 @@ from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.caldav_transport import CalDavCalendar, FakeCalDavTransport
 from app.connectors.yandex.caldav_write import (
     MAX_TARGET_CALENDARS,
+    build_vevent_ics,
     caldav_resource_name,
     caldav_uid_from_operation_id,
     event_href_from_operation_id,
@@ -41,15 +42,25 @@ from app.connectors.yandex.imap_mailboxes import (
 from app.connectors.yandex.imap_transport import FakeImapTransport, parse_imap_internaldate
 from app.connectors.yandex.smtp_transport import FakeSmtpTransport
 from app.core.config import settings
-from app.db.models import ExternalActionAttempt, GoogleAccount, PendingActionPlan, User
+from app.db.models import (
+    ExternalActionAttempt,
+    GoogleAccount,
+    PendingActionPlan,
+    User,
+    YandexCalendarAccount,
+)
 from app.db.session import SessionLocal
 from app.services.action_plan_service import ActionPlanService
-from app.services.calendar_external_action_service import CalendarExternalActionService
-from app.services.domain_tool_service import DomainToolService
-from app.services.email_external_action_service import (
+from app.services.calendar_external_action_service import (
     ATTEMPT_FAILED_DEFINITE,
+    ATTEMPT_STARTED,
     ATTEMPT_SUCCEEDED,
     ATTEMPT_UNCERTAIN,
+    CALENDAR_TOOL_NAME,
+    CalendarExternalActionService,
+)
+from app.services.domain_tool_service import DomainToolService
+from app.services.email_external_action_service import (
     METADATA_SENT_COPY_STATE,
     SECRETARY_OPERATION_HEADER,
     SECRETARY_UNCERTAIN_FOLDER,
@@ -662,6 +673,33 @@ def _attempt_for(db_session, owner, operation_id: str) -> ExternalActionAttempt:
     ).one()
 
 
+def _with_provider_valarm(ics: str) -> str:
+    alarm = (
+        "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Yandex reminder\r\n"
+        "TRIGGER:-PT15M\r\nEND:VALARM\r\n"
+    )
+    return ics.replace("END:VEVENT", alarm + "END:VEVENT", 1)
+
+
+def _isolated_calendar(credential_key: str):
+    session = SessionLocal()
+    user_id = uuid4()
+    session.add(User(id=user_id, display_name="yandex-cal"))
+    session.commit()
+    _add_yandex_calendar(session, credential_key, "user@yandex.ru", user_id=user_id)
+    session.commit()
+    return session, user_id
+
+
+def _cleanup_isolated_calendar(session, user_id) -> None:
+    session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
+    session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))
+    session.execute(delete(GoogleAccount).where(GoogleAccount.user_id == user_id))
+    session.execute(delete(YandexCalendarAccount).where(YandexCalendarAccount.user_id == user_id))
+    session.commit()
+    session.close()
+
+
 def test_yandex_mail_clear_success_appends_sent_once(
     db_session, google_settings, credential_key, owner
 ):
@@ -1028,147 +1066,612 @@ def test_cross_provider_mail_dispatch(db_session, google_settings, credential_ke
     assert len(smtp.send_calls) == 1
 
 
-def test_yandex_calendar_create_and_gates(db_session, google_settings, credential_key, owner, monkeypatch):
+def test_yandex_calendar_create_and_gates(google_settings, credential_key, monkeypatch):
     caldav = _calendar_fake()
     google = FakeCalendarTransport()
     _patch_calendar(monkeypatch, caldav)
-    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
-    tools = _tools_cal(db_session, owner, caldav, google)
-    gateway = ToolExecutionGateway()
-    interactive = gateway.execute(
-        tools,
-        "create_calendar_event",
-        _event_args(provider="yandex"),
-        context=ExecutionContext.INTERACTIVE_ASSISTANT,
-    )
-    assert interactive.status == ToolExecutionStatus.APPROVAL_REQUIRED
-    args = interactive.staged_action["arguments"]
-    assert args["provider"] == "yandex"
-    assert args["calendar_href"] == CALENDAR_HREF
-    assert caldav.put_calls == []
-    public = ActionPlanService(db_session, owner).create_plan([interactive.staged_action])
-    assert "calendar_href" not in str(public.actions)
-    assert "yandex-caldav-password" not in str(public.actions)
-    mcp = gateway.execute(
-        tools, "create_calendar_event", _event_args(provider="yandex"), context=ExecutionContext.MCP
-    )
-    assert mcp.status == ToolExecutionStatus.APPROVAL_REQUIRED
-    service = ActionPlanService(db_session, owner)
-    rejected = gateway.execute(
-        tools,
-        "create_calendar_event",
-        _event_args(provider="yandex", summary="Reject"),
-        context=ExecutionContext.INTERACTIVE_ASSISTANT,
-    )
-    service.reject(service.create_plan([rejected.staged_action]).id)
-    expired = gateway.execute(
-        tools,
-        "create_calendar_event",
-        _event_args(provider="yandex", summary="Expire"),
-        context=ExecutionContext.INTERACTIVE_ASSISTANT,
-    )
-    expired_plan = service.create_plan([expired.staged_action])
-    row = db_session.get(PendingActionPlan, expired_plan.id)
-    row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
-    service.approve(expired_plan.id)
-    assert caldav.put_calls == []
-    executed = gateway.execute(
-        tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-    )
-    assert executed.success is True
-    assert executed.output["provider"] == "yandex_calendar"
-    assert len(caldav.put_calls) == 1
-    assert google.insert_calls == []
-    href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
-    uid = caldav_uid_from_operation_id(args["operation_id"])
-    assert caldav_resource_name(args["operation_id"]) == uid.replace("@", "%40") + ".ics"
-    assert href.endswith("/" + caldav_resource_name(args["operation_id"]))
-    assert caldav.put_calls[0]["href"] == href
-    assert caldav.put_calls[0]["if_none_match"] == "*"
-    repeated = gateway.execute(
-        tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-    )
-    assert repeated.success is True
-    assert repeated.output["changed"] is False
-    assert caldav.put_hrefs == [href, href]
-    assert [call["if_none_match"] for call in caldav.put_calls] == ["*", "*"]
-    assert caldav.get_object_calls == [href]
-    assert list(caldav.objects) == [href]
-
-
-def test_yandex_calendar_mismatch_timeout_rejects(
-    db_session, google_settings, credential_key, owner, monkeypatch
-):
-    caldav = _calendar_fake()
-    _patch_calendar(monkeypatch, caldav)
-    _add_yandex_calendar(db_session, credential_key, "user@yandex.ru", user_id=owner)
-    tools = _tools_cal(db_session, owner, caldav)
-    gateway = ToolExecutionGateway()
-    staged = gateway.execute(
-        tools,
-        "create_calendar_event",
-        _event_args(provider="yandex"),
-        context=ExecutionContext.INTERACTIVE_ASSISTANT,
-    )
-    args = staged.staged_action["arguments"]
-    href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
-    caldav.objects[href] = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:other\nSUMMARY:nope\nEND:VEVENT\nEND:VCALENDAR\n"
-    mismatch = gateway.execute(
-        tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-    )
-    assert mismatch.success is False
-
-    caldav2 = _calendar_fake()
-    caldav2.lose_put_response = True
-    _patch_calendar(monkeypatch, caldav2)
-    tools2 = _tools_cal(db_session, owner, caldav2)
-    staged2 = gateway.execute(
-        tools2,
-        "create_calendar_event",
-        _event_args(provider="yandex", summary="Timeout"),
-        context=ExecutionContext.INTERACTIVE_ASSISTANT,
-    )
-    timeout = gateway.execute(
-        tools2,
-        "create_calendar_event",
-        staged2.staged_action["arguments"],
-        context=ExecutionContext.APPROVED_ACTION_PLAN,
-    )
-    assert timeout.success is True
-    href2 = event_href_from_operation_id(CALENDAR_HREF, staged2.staged_action["arguments"]["operation_id"])
-    assert caldav2.put_hrefs == [href2]
-
-    caldav3 = _calendar_fake()
-    caldav3.put_error = YandexCalDavError("HTTP 503", operation="PUT", status_code=503, retryable=True)
-    _patch_calendar(monkeypatch, caldav3)
-    tools3 = _tools_cal(db_session, owner, caldav3)
-    staged3 = gateway.execute(
-        tools3,
-        "create_calendar_event",
-        _event_args(provider="yandex", summary="Retryable"),
-        context=ExecutionContext.INTERACTIVE_ASSISTANT,
-    )
-    retryable = gateway.execute(
-        tools3,
-        "create_calendar_event",
-        staged3.staged_action["arguments"],
-        context=ExecutionContext.APPROVED_ACTION_PLAN,
-    )
-    assert retryable.success is True
-
-    for extra in (
-        {"attendees": ["a@b.c"]},
-        {"ics": "BEGIN:VCALENDAR"},
-        {"calendar_href": "/calendars/other/"},
-        {"rrule": "FREQ=DAILY"},
-    ):
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        tools = _tools_cal(db_session, owner, caldav, google)
+        gateway = ToolExecutionGateway()
+        interactive = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        assert interactive.status == ToolExecutionStatus.APPROVAL_REQUIRED
+        args = interactive.staged_action["arguments"]
+        assert args["provider"] == "yandex"
+        assert args["calendar_href"] == CALENDAR_HREF
+        assert caldav.put_calls == []
+        public = ActionPlanService(db_session, owner).create_plan([interactive.staged_action])
+        assert "calendar_href" not in str(public.actions)
+        assert "yandex-caldav-password" not in str(public.actions)
+        mcp = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.MCP,
+        )
+        assert mcp.status == ToolExecutionStatus.APPROVAL_REQUIRED
+        service = ActionPlanService(db_session, owner)
         rejected = gateway.execute(
             tools,
             "create_calendar_event",
-            _event_args(provider="yandex", **extra),
+            _event_args(provider="yandex", summary="Reject"),
             context=ExecutionContext.INTERACTIVE_ASSISTANT,
         )
-        assert rejected.status == ToolExecutionStatus.TOOL_ERROR
+        service.reject(service.create_plan([rejected.staged_action]).id)
+        expired = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex", summary="Expire"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        expired_plan = service.create_plan([expired.staged_action])
+        row = db_session.get(PendingActionPlan, expired_plan.id)
+        row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        service.approve(expired_plan.id)
+        assert caldav.put_calls == []
+        db_session.expire_all()
+        assert (
+            db_session.query(ExternalActionAttempt)
+            .filter_by(user_id=owner, tool_name=CALENDAR_TOOL_NAME)
+            .count()
+            == 0
+        )
+        executed = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert executed.success is True
+        assert executed.output["provider"] == "yandex_calendar"
+        assert len(caldav.put_calls) == 1
+        assert google.insert_calls == []
+        href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
+        uid = caldav_uid_from_operation_id(args["operation_id"])
+        assert caldav_resource_name(args["operation_id"]) == uid.replace("@", "%40") + ".ics"
+        assert href.endswith("/" + caldav_resource_name(args["operation_id"]))
+        assert caldav.put_calls[0]["href"] == href
+        assert caldav.put_calls[0]["if_none_match"] == "*"
+        db_session.expire_all()
+        attempt = _attempt_for(db_session, owner, args["operation_id"])
+        assert attempt.state == ATTEMPT_SUCCEEDED
+        assert attempt.tool_name == CALENDAR_TOOL_NAME
+        assert attempt.provider_external_id == href
+        stored = caldav.objects[href]
+        repeated = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert repeated.success is True
+        assert repeated.output["changed"] is False
+        assert caldav.put_hrefs == [href]
+        assert [call["if_none_match"] for call in caldav.put_calls] == ["*"]
+        assert caldav.objects[href] == stored
+        assert list(caldav.objects) == [href]
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_yandex_calendar_mismatch_timeout_rejects(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _patch_calendar(monkeypatch, caldav)
+        tools = _tools_cal(db_session, owner, caldav)
+        gateway = ToolExecutionGateway()
+        staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
+        caldav.objects[href] = (
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:other\nSUMMARY:nope\nEND:VEVENT\nEND:VCALENDAR\n"
+        )
+        mismatch = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert mismatch.success is False
+        assert "does not match frozen fields" in (mismatch.error or "")
+        assert caldav.put_calls == []
+        db_session.expire_all()
+        assert _attempt_for(db_session, owner, args["operation_id"]).state == ATTEMPT_FAILED_DEFINITE
+
+        caldav2 = _calendar_fake()
+        caldav2.lose_put_response = True
+        _patch_calendar(monkeypatch, caldav2)
+        tools2 = _tools_cal(db_session, owner, caldav2)
+        staged2 = gateway.execute(
+            tools2,
+            "create_calendar_event",
+            _event_args(provider="yandex", summary="Timeout"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        timeout = gateway.execute(
+            tools2,
+            "create_calendar_event",
+            staged2.staged_action["arguments"],
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert timeout.success is True
+        href2 = event_href_from_operation_id(
+            CALENDAR_HREF, staged2.staged_action["arguments"]["operation_id"]
+        )
+        assert caldav2.put_hrefs == [href2]
+        db_session.expire_all()
+        assert (
+            _attempt_for(
+                db_session, owner, staged2.staged_action["arguments"]["operation_id"]
+            ).state
+            == ATTEMPT_SUCCEEDED
+        )
+
+        caldav3 = _calendar_fake()
+        caldav3.put_error = YandexCalDavError(
+            "HTTP 503", operation="PUT", status_code=503, retryable=True
+        )
+        _patch_calendar(monkeypatch, caldav3)
+        tools3 = _tools_cal(db_session, owner, caldav3)
+        staged3 = gateway.execute(
+            tools3,
+            "create_calendar_event",
+            _event_args(provider="yandex", summary="Retryable"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        retryable = gateway.execute(
+            tools3,
+            "create_calendar_event",
+            staged3.staged_action["arguments"],
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert retryable.success is True
+        assert caldav3.put_hrefs == [
+            event_href_from_operation_id(
+                CALENDAR_HREF, staged3.staged_action["arguments"]["operation_id"]
+            )
+        ]
+
+        for extra in (
+            {"attendees": ["a@b.c"]},
+            {"ics": "BEGIN:VCALENDAR"},
+            {"calendar_href": "/calendars/other/"},
+            {"rrule": "FREQ=DAILY"},
+        ):
+            rejected = gateway.execute(
+                tools,
+                "create_calendar_event",
+                _event_args(provider="yandex", **extra),
+                context=ExecutionContext.INTERACTIVE_ASSISTANT,
+            )
+            assert rejected.status == ToolExecutionStatus.TOOL_ERROR
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_fake_caldav_if_none_match_overwrites_like_yandex() -> None:
+    caldav = _calendar_fake()
+    href = "/calendars/user@yandex.ru/events-default/secretary-abc%40secretary.ics"
+    caldav.objects[href] = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nBEGIN:VALARM\nEND:VALARM\nEND:VEVENT\n"
+    status = caldav.put_calendar_object(href, "OVERWRITTEN", if_none_match="*")
+    assert status == 201
+    assert caldav.objects[href] == "OVERWRITTEN"
+
+
+def test_yandex_calendar_legacy_exact_and_valarm_resume(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _patch_calendar(monkeypatch, caldav)
+        tools = _tools_cal(db_session, owner, caldav)
+        gateway = ToolExecutionGateway()
+        staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        payload = CreateCalendarEventCanonicalInput.model_validate(args)
+        href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
+        with_alarm = _with_provider_valarm(build_vevent_ics(payload))
+        caldav.objects[href] = with_alarm
+        recovered = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert recovered.success is True
+        assert recovered.output["changed"] is False
+        assert caldav.put_calls == []
+        assert "BEGIN:VALARM" in caldav.objects[href]
+        assert caldav.objects[href] == with_alarm
+        db_session.expire_all()
+        attempt = _attempt_for(db_session, owner, args["operation_id"])
+        assert attempt.state == ATTEMPT_SUCCEEDED
+        assert attempt.provider_external_id == href
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_yandex_calendar_started_and_uncertain_resume(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _patch_calendar(monkeypatch, caldav)
+        tools = _tools_cal(db_session, owner, caldav)
+        gateway = ToolExecutionGateway()
+        staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex", summary="Started exact"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
+        payload = CreateCalendarEventCanonicalInput.model_validate(args)
+        db_session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=args["operation_id"],
+                tool_name=CALENDAR_TOOL_NAME,
+                state=ATTEMPT_STARTED,
+                started_at=datetime.now(UTC),
+            )
+        )
+        db_session.commit()
+        caldav.objects[href] = build_vevent_ics(payload)
+        resumed = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert resumed.success is True
+        assert resumed.output["changed"] is False
+        assert caldav.put_calls == []
+        db_session.expire_all()
+        assert _attempt_for(db_session, owner, args["operation_id"]).state == ATTEMPT_SUCCEEDED
+
+        missing = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex", summary="Started missing"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        missing_args = missing.staged_action["arguments"]
+        db_session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=missing_args["operation_id"],
+                tool_name=CALENDAR_TOOL_NAME,
+                state=ATTEMPT_STARTED,
+                started_at=datetime.now(UTC),
+            )
+        )
+        db_session.commit()
+        crashed = gateway.execute(
+            tools, "create_calendar_event", missing_args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert crashed.success is False
+        assert "could not confirm calendar event creation" in (crashed.error or "")
+        assert caldav.put_calls == []
+        db_session.expire_all()
+        assert _attempt_for(db_session, owner, missing_args["operation_id"]).state == ATTEMPT_UNCERTAIN
+
+        uncertain_stage = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex", summary="Uncertain exact"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        uncertain_args = uncertain_stage.staged_action["arguments"]
+        uncertain_href = event_href_from_operation_id(CALENDAR_HREF, uncertain_args["operation_id"])
+        db_session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=uncertain_args["operation_id"],
+                tool_name=CALENDAR_TOOL_NAME,
+                state=ATTEMPT_UNCERTAIN,
+                started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC),
+            )
+        )
+        db_session.commit()
+        caldav.objects[uncertain_href] = build_vevent_ics(
+            CreateCalendarEventCanonicalInput.model_validate(uncertain_args)
+        )
+        reconciled = gateway.execute(
+            tools,
+            "create_calendar_event",
+            uncertain_args,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert reconciled.success is True
+        assert reconciled.output["changed"] is False
+        assert caldav.put_calls == []
+        db_session.expire_all()
+        assert _attempt_for(db_session, owner, uncertain_args["operation_id"]).state == ATTEMPT_SUCCEEDED
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_yandex_calendar_ambiguous_put_absent_stays_uncertain(
+    google_settings, credential_key, monkeypatch
+):
+    caldav = _calendar_fake()
+    caldav.persist_on_put = False
+    caldav.lose_put_response = True
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _patch_calendar(monkeypatch, caldav)
+        tools = _tools_cal(db_session, owner, caldav)
+        gateway = ToolExecutionGateway()
+        staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        first = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert first.success is False
+        assert "could not confirm calendar event creation; not retrying create" in (
+            first.error or ""
+        )
+        assert len(caldav.put_calls) == 1
+        db_session.expire_all()
+        assert _attempt_for(db_session, owner, args["operation_id"]).state == ATTEMPT_UNCERTAIN
+        second = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert second.success is False
+        assert len(caldav.put_calls) == 1
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_yandex_calendar_definite_put_failure(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    caldav.persist_on_put = False
+    caldav.put_error = YandexCalDavError(
+        "HTTP 403", operation="PUT", status_code=403, retryable=False
+    )
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _patch_calendar(monkeypatch, caldav)
+        tools = _tools_cal(db_session, owner, caldav)
+        gateway = ToolExecutionGateway()
+        staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        failed = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert failed.success is False
+        assert len(caldav.put_calls) == 1
+        db_session.expire_all()
+        assert _attempt_for(db_session, owner, args["operation_id"]).state == ATTEMPT_FAILED_DEFINITE
+        again = gateway.execute(
+            tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
+        )
+        assert again.success is False
+        assert len(caldav.put_calls) == 1
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_yandex_calendar_get_unavailable_does_not_put(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    caldav.get_error = YandexCalDavError(
+        "HTTP 503", operation="GET", status_code=503, retryable=True
+    )
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _patch_calendar(monkeypatch, caldav)
+        tools = _tools_cal(db_session, owner, caldav)
+        gateway = ToolExecutionGateway()
+        staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        blocked = gateway.execute(
+            tools,
+            "create_calendar_event",
+            staged.staged_action["arguments"],
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert blocked.success is False
+        assert caldav.put_calls == []
+        db_session.expire_all()
+        assert (
+            _attempt_for(db_session, owner, staged.staged_action["arguments"]["operation_id"]).state
+            == ATTEMPT_UNCERTAIN
+        )
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
+
+
+def test_yandex_calendar_concurrent_same_operation_put_once(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    _patch_calendar(monkeypatch, caldav)
+    session, user_id = _isolated_calendar(credential_key)
+    try:
+        args = ToolExecutionGateway().execute(
+            _tools_cal(session, user_id, caldav),
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        ).staged_action["arguments"]
+        put_started = threading.Event()
+        continue_put = threading.Event()
+        caldav.before_put = lambda: (put_started.set(), continue_put.wait(10))
+        winner_result: list = []
+
+        def winner() -> None:
+            worker_session = SessionLocal()
+            try:
+                winner_result.append(
+                    ToolExecutionGateway().execute(
+                        DomainToolService(
+                            worker_session, user_id, yandex_caldav_transport=caldav
+                        ),
+                        "create_calendar_event",
+                        args,
+                        context=ExecutionContext.APPROVED_ACTION_PLAN,
+                    )
+                )
+            finally:
+                worker_session.close()
+
+        thread = threading.Thread(target=winner)
+        thread.start()
+        assert put_started.wait(5)
+        loser_session = SessionLocal()
+        try:
+            loser = ToolExecutionGateway().execute(
+                DomainToolService(loser_session, user_id, yandex_caldav_transport=caldav),
+                "create_calendar_event",
+                args,
+                context=ExecutionContext.APPROVED_ACTION_PLAN,
+            )
+        finally:
+            loser_session.close()
+        assert loser.success is False
+        assert "could not confirm" in (loser.error or "")
+        assert len(caldav.put_calls) == 1
+        continue_put.set()
+        thread.join(10)
+        caldav.before_put = None
+        assert winner_result[0].success is True
+        assert winner_result[0].output["changed"] is True
+        assert len(caldav.put_calls) == 1
+        errors: list[BaseException] = []
+
+        def parallel() -> None:
+            worker_session = SessionLocal()
+            try:
+                result = ToolExecutionGateway().execute(
+                    DomainToolService(worker_session, user_id, yandex_caldav_transport=caldav),
+                    "create_calendar_event",
+                    args,
+                    context=ExecutionContext.APPROVED_ACTION_PLAN,
+                )
+                if not result.success:
+                    errors.append(RuntimeError(result.error))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                worker_session.close()
+
+        threads = [threading.Thread(target=parallel) for _ in range(2)]
+        for item in threads:
+            item.start()
+        for item in threads:
+            item.join()
+        assert errors == []
+        assert len(caldav.put_calls) == 1
+    finally:
+        _cleanup_isolated_calendar(session, user_id)
+
+
+def test_yandex_calendar_outer_rollback_keeps_claim(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    _patch_calendar(monkeypatch, caldav)
+    session, user_id = _isolated_calendar(credential_key)
+    try:
+        plan_session = SessionLocal()
+        try:
+            staged = ToolExecutionGateway().execute(
+                DomainToolService(plan_session, user_id, yandex_caldav_transport=caldav),
+                "create_calendar_event",
+                _event_args(provider="yandex"),
+                context=ExecutionContext.INTERACTIVE_ASSISTANT,
+            )
+            args = staged.staged_action["arguments"]
+            nested = plan_session.begin_nested()
+            try:
+                executed = ToolExecutionGateway().execute(
+                    DomainToolService(plan_session, user_id, yandex_caldav_transport=caldav),
+                    "create_calendar_event",
+                    args,
+                    context=ExecutionContext.APPROVED_ACTION_PLAN,
+                )
+                assert executed.success is True
+            finally:
+                nested.rollback()
+            plan_session.rollback()
+        finally:
+            plan_session.close()
+        assert len(caldav.put_calls) == 1
+        observer = SessionLocal()
+        try:
+            attempt = observer.query(ExternalActionAttempt).filter_by(
+                user_id=user_id, operation_id=args["operation_id"]
+            ).one()
+            assert attempt.state == ATTEMPT_SUCCEEDED
+        finally:
+            observer.close()
+        resume_session = SessionLocal()
+        try:
+            resumed = ToolExecutionGateway().execute(
+                DomainToolService(resume_session, user_id, yandex_caldav_transport=caldav),
+                "create_calendar_event",
+                args,
+                context=ExecutionContext.APPROVED_ACTION_PLAN,
+            )
+        finally:
+            resume_session.close()
+        assert resumed.success is True
+        assert resumed.output["changed"] is False
+        assert len(caldav.put_calls) == 1
+    finally:
+        _cleanup_isolated_calendar(session, user_id)
+
+
+def test_yandex_calendar_action_plan_lock_serializes_approve(google_settings, credential_key, monkeypatch):
+    caldav = _calendar_fake()
+    _patch_calendar(monkeypatch, caldav)
+    session, user_id = _isolated_calendar(credential_key)
+    try:
+        staged = ToolExecutionGateway().execute(
+            DomainToolService(session, user_id, yandex_caldav_transport=caldav),
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        plan = ActionPlanService(session, user_id).create_plan([staged.staged_action])
+        session.commit()
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            worker_session = SessionLocal()
+            try:
+                ActionPlanService(worker_session, user_id).approve(plan.id)
+                worker_session.commit()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                worker_session.close()
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert len(caldav.put_calls) == 1
+        session.expire_all()
+        stored = ActionPlanService(session, user_id).approve(plan.id)
+        assert stored.status == PENDING_ACTION_PLAN_STATUS_EXECUTED
+        assert len(caldav.put_calls) == 1
+    finally:
+        _cleanup_isolated_calendar(session, user_id)
 
 
 def test_yandex_calendar_default_and_cross_provider(
@@ -1196,33 +1699,43 @@ def test_yandex_calendar_default_and_cross_provider(
     monkeypatch.setattr(
         CalendarExternalActionService, "_valid_access_token", lambda self, account_id: "access-token"
     )
-    _add_google(db_session, credential_key, "user@example.com", user_id=owner)
-    tools = DomainToolService(
-        db_session, owner, calendar_transport=google, yandex_caldav_transport=yandex
-    )
-    gateway = ToolExecutionGateway()
-    g_staged = gateway.execute(
-        tools, "create_calendar_event", _event_args(provider="google"), context=ExecutionContext.INTERACTIVE_ASSISTANT
-    )
-    gateway.execute(
-        tools,
-        "create_calendar_event",
-        g_staged.staged_action["arguments"],
-        context=ExecutionContext.APPROVED_ACTION_PLAN,
-    )
-    assert len(google.insert_calls) == 1
-    assert yandex.put_calls == []
-    y_staged = gateway.execute(
-        tools, "create_calendar_event", _event_args(provider="yandex"), context=ExecutionContext.INTERACTIVE_ASSISTANT
-    )
-    gateway.execute(
-        tools,
-        "create_calendar_event",
-        y_staged.staged_action["arguments"],
-        context=ExecutionContext.APPROVED_ACTION_PLAN,
-    )
-    assert len(google.insert_calls) == 1
-    assert len(yandex.put_calls) == 1
+    db_session, owner = _isolated_calendar(credential_key)
+    try:
+        _add_google(db_session, credential_key, "user@example.com", user_id=owner)
+        db_session.commit()
+        _patch_calendar(monkeypatch, yandex)
+        tools = _tools_cal(db_session, owner, yandex, google)
+        gateway = ToolExecutionGateway()
+        g_staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="google"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        gateway.execute(
+            tools,
+            "create_calendar_event",
+            g_staged.staged_action["arguments"],
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert len(google.insert_calls) == 1
+        assert yandex.put_calls == []
+        y_staged = gateway.execute(
+            tools,
+            "create_calendar_event",
+            _event_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        gateway.execute(
+            tools,
+            "create_calendar_event",
+            y_staged.staged_action["arguments"],
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert len(google.insert_calls) == 1
+        assert len(yandex.put_calls) == 1
+    finally:
+        _cleanup_isolated_calendar(db_session, owner)
 
 
 def test_select_unique_vevent_calendar_requires_unique_vevent() -> None:

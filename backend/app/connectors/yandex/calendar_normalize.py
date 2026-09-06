@@ -102,7 +102,16 @@ def _parse_ical_datetime_value(value: str, params: dict[str, str]) -> datetime |
 def _parse_vevent_block(block: str) -> dict[str, Any]:
     fields: dict[str, str] = {}
     property_params: dict[str, dict[str, str]] = {}
+    nested_depth = 0
     for line in _unfold_ical_lines(block):
+        upper = line.strip().upper()
+        if upper.startswith("BEGIN:") and not upper.startswith("BEGIN:VEVENT"):
+            nested_depth += 1
+            continue
+        if nested_depth:
+            if upper.startswith("END:"):
+                nested_depth -= 1
+            continue
         parsed = _parse_ical_property(line)
         if parsed is None:
             continue

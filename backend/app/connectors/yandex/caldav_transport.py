@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Protocol
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
@@ -636,11 +637,15 @@ class FakeCalDavTransport:
         self.put_calls: list[dict[str, object]] = []
         self.get_object_calls: list[str] = []
         self.lose_put_response = False
+        self.lose_get_response = False
         self.persist_on_put = True
         self.put_error: YandexCalDavError | None = None
+        self.get_error: YandexCalDavError | None = None
         self.stored_ics_override: str | None = None
         self.force_new_href_on_put = False
         self.put_hrefs: list[str] = []
+        self.before_put = None
+        self._lock = Lock()
 
     def _check_tx(self) -> None:
         if self._tx_checker is not None:
@@ -740,39 +745,52 @@ class FakeCalDavTransport:
     ) -> int:
         self._check_tx()
         target = f"{href}-retry" if self.force_new_href_on_put else href
-        self.put_calls.append(
-            {
-                "href": href,
-                "target": target,
-                "calendar_data": calendar_data,
-                "if_none_match": if_none_match,
-            }
-        )
-        self.put_hrefs.append(target)
-        stored = self.stored_ics_override if self.stored_ics_override is not None else calendar_data
-        if if_none_match == "*" and href in self.objects:
-            raise YandexCalDavError(
-                "HTTP 412",
-                operation="PUT",
-                path=href,
-                status_code=412,
-                category="request",
-                retryable=False,
+        with self._lock:
+            self.put_calls.append(
+                {
+                    "href": href,
+                    "target": target,
+                    "calendar_data": calendar_data,
+                    "if_none_match": if_none_match,
+                }
             )
-        if self.persist_on_put:
-            self.objects[target] = stored
-        if self.lose_put_response:
-            self.lose_put_response = False
+            self.put_hrefs.append(target)
+        if self.before_put is not None:
+            self.before_put()
+        stored = self.stored_ics_override if self.stored_ics_override is not None else calendar_data
+        with self._lock:
+            if self.persist_on_put:
+                # Real Yandex CalDAV returns 201 and overwrites even with If-None-Match: *.
+                self.objects[target] = stored
+            lose = self.lose_put_response
+            if lose:
+                self.lose_put_response = False
+            error = self.put_error
+        if lose:
             raise raise_for_caldav_request_error(
                 httpx.TimeoutException("lost put response"),
                 operation="PUT",
                 path=href,
             )
-        if self.put_error is not None:
-            raise self.put_error
+        if error is not None:
+            raise error
         return 201
 
     def get_calendar_object(self, href: str) -> str | None:
         self._check_tx()
-        self.get_object_calls.append(href)
-        return self.objects.get(href)
+        with self._lock:
+            self.get_object_calls.append(href)
+            error = self.get_error
+            lose = self.lose_get_response
+            if lose:
+                self.lose_get_response = False
+            body = self.objects.get(href)
+        if error is not None:
+            raise error
+        if lose:
+            raise raise_for_caldav_request_error(
+                httpx.TimeoutException("lost get response"),
+                operation="GET",
+                path=href,
+            )
+        return body

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.connectors.google.calendar_transport import CalendarTransport
 from app.connectors.google.constants import (
@@ -31,7 +34,7 @@ from app.connectors.yandex.caldav_write import (
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.errors import YandexCalDavError
 from app.core.config import settings
-from app.db.models import GoogleAccount, YandexCalendarAccount
+from app.db.models import ExternalActionAttempt, GoogleAccount, YandexCalendarAccount
 from app.db.session import SessionLocal
 from app.services.external_account_resolution import (
     execution_provider,
@@ -48,6 +51,17 @@ from app.tools.schemas import (
 _RECONNECT_WRITE_SCOPE_MESSAGE = (
     "Google must be reconnected to grant calendar write permission"
 )
+ATTEMPT_STARTED = "started"
+ATTEMPT_SUCCEEDED = "succeeded"
+ATTEMPT_FAILED_DEFINITE = "failed_definite"
+ATTEMPT_UNCERTAIN = "uncertain"
+CALENDAR_TOOL_NAME = "create_calendar_event"
+_UNCERTAIN_CREATE_MESSAGE = (
+    "could not confirm calendar event creation; not retrying create"
+)
+_MISMATCH_MESSAGE = "existing calendar event does not match frozen fields"
+_MISSING_EVENT_MESSAGE = "calendar event is missing; not retrying create"
+_FAILED_DEFINITE_MESSAGE = "calendar event creation previously failed; create a new plan"
 
 
 def calendar_event_id_from_operation_id(operation_id: str) -> str:
@@ -59,6 +73,10 @@ def calendar_event_id_from_operation_id(operation_id: str) -> str:
 
 def generate_operation_id() -> str:
     return uuid4().hex
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 def _format_rfc3339(value: datetime) -> str:
@@ -87,12 +105,14 @@ class CalendarExternalActionService:
         *,
         transport: CalendarTransport | None = None,
         token_session_factory=SessionLocal,
+        attempt_session_factory=SessionLocal,
         yandex_caldav_transport=None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._transport = transport or CalendarTransport()
         self._token_session_factory = token_session_factory
+        self._attempt_session_factory = attempt_session_factory
         self._yandex_caldav_transport = yandex_caldav_transport
 
     def prepare_create_event(
@@ -189,53 +209,138 @@ class CalendarExternalActionService:
         transport = self._yandex_caldav_for_account(account)
         href = event_href_from_operation_id(payload.calendar_href, payload.operation_id)
         event_id = calendar_event_id_from_operation_id(payload.operation_id)
+        attempt, claimed = self._claim_started(payload.operation_id)
+        if not claimed:
+            return self._resume_yandex_attempt(transport, payload, href, event_id, attempt)
+        inspection = self._inspect_canonical(transport, payload, href)
+        if inspection == "match":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_SUCCEEDED,
+                provider_external_id=href,
+            )
+            return self._yandex_output(payload, event_id, changed=False)
+        if inspection == "mismatch":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_FAILED_DEFINITE,
+                error=_MISMATCH_MESSAGE,
+            )
+            raise ToolError(_MISMATCH_MESSAGE)
+        if inspection == "unverifiable":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_UNCERTAIN,
+                error=_UNCERTAIN_CREATE_MESSAGE,
+            )
+            raise ToolError(_UNCERTAIN_CREATE_MESSAGE)
         ics = build_vevent_ics(payload)
         try:
-            transport.put_calendar_object(href, ics, if_none_match="*")
+            status = transport.put_calendar_object(href, ics, if_none_match="*")
         except YandexCalDavError as exc:
-            if exc.status_code == 412:
-                return self._yandex_matching_existing(transport, payload, href, event_id)
             if _is_ambiguous_caldav_error(exc):
-                return self._reconcile_yandex_event(transport, payload, href, event_id)
-            raise ToolError(self._bounded_caldav_error(exc)) from exc
+                return self._after_ambiguous_put(transport, payload, href, event_id)
+            message = self._bounded_caldav_error(exc)
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_FAILED_DEFINITE,
+                error=message,
+            )
+            raise ToolError(message) from exc
+        self._persist_attempt_state(
+            payload.operation_id,
+            ATTEMPT_SUCCEEDED,
+            provider_external_id=href,
+            extra_metadata={"provider_status": status},
+        )
         return self._yandex_output(payload, event_id, changed=True)
 
-    def _yandex_matching_existing(
+    def _resume_yandex_attempt(
         self,
         transport,
         payload: CreateCalendarEventCanonicalInput,
         href: str,
         event_id: str,
+        attempt: ExternalActionAttempt,
     ) -> CreateCalendarEventOutput:
-        existing = self._get_yandex_event(transport, href)
-        if existing is None:
-            raise ToolError("failed to create calendar event")
-        if not event_matches_frozen_payload(
-            payload, existing, payload.calendar_href or "", href
-        ):
-            raise ToolError("existing calendar event does not match frozen fields")
-        return self._yandex_output(payload, event_id, changed=False)
+        if attempt.state == ATTEMPT_FAILED_DEFINITE:
+            raise ToolError(_FAILED_DEFINITE_MESSAGE)
+        inspection = self._inspect_canonical(transport, payload, href)
+        if attempt.state == ATTEMPT_SUCCEEDED:
+            if inspection == "match":
+                return self._yandex_output(payload, event_id, changed=False)
+            if inspection == "absent":
+                raise ToolError(_MISSING_EVENT_MESSAGE)
+            if inspection == "mismatch":
+                raise ToolError(_MISMATCH_MESSAGE)
+            raise ToolError(_UNCERTAIN_CREATE_MESSAGE)
+        if inspection == "match":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_SUCCEEDED,
+                provider_external_id=href,
+            )
+            return self._yandex_output(payload, event_id, changed=False)
+        if inspection == "mismatch":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_FAILED_DEFINITE,
+                error=_MISMATCH_MESSAGE,
+            )
+            raise ToolError(_MISMATCH_MESSAGE)
+        self._persist_attempt_state(
+            payload.operation_id,
+            ATTEMPT_UNCERTAIN,
+            error=_UNCERTAIN_CREATE_MESSAGE,
+        )
+        raise ToolError(_UNCERTAIN_CREATE_MESSAGE)
 
-    def _reconcile_yandex_event(
+    def _after_ambiguous_put(
         self,
         transport,
         payload: CreateCalendarEventCanonicalInput,
         href: str,
         event_id: str,
     ) -> CreateCalendarEventOutput:
+        self._persist_attempt_state(
+            payload.operation_id,
+            ATTEMPT_UNCERTAIN,
+            error=_UNCERTAIN_CREATE_MESSAGE,
+        )
+        inspection = self._inspect_canonical(transport, payload, href)
+        if inspection == "match":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_SUCCEEDED,
+                provider_external_id=href,
+            )
+            return self._yandex_output(payload, event_id, changed=True)
+        if inspection == "mismatch":
+            self._persist_attempt_state(
+                payload.operation_id,
+                ATTEMPT_FAILED_DEFINITE,
+                error=_MISMATCH_MESSAGE,
+            )
+            raise ToolError(_MISMATCH_MESSAGE)
+        raise ToolError(_UNCERTAIN_CREATE_MESSAGE)
+
+    def _inspect_canonical(
+        self,
+        transport,
+        payload: CreateCalendarEventCanonicalInput,
+        href: str,
+    ) -> str:
         try:
             existing = self._get_yandex_event(transport, href)
-        except ToolError as exc:
-            raise ToolError(
-                "could not confirm calendar event creation; not retrying with a new event id"
-            ) from exc
+        except ToolError:
+            return "unverifiable"
         if existing is None:
-            raise ToolError("failed to create calendar event")
-        if not event_matches_frozen_payload(
+            return "absent"
+        if event_matches_frozen_payload(
             payload, existing, payload.calendar_href or "", href
         ):
-            raise ToolError("existing calendar event does not match frozen fields")
-        return self._yandex_output(payload, event_id, changed=False)
+            return "match"
+        return "mismatch"
 
     def _get_yandex_event(self, transport, href: str) -> str | None:
         try:
@@ -244,6 +349,79 @@ class CalendarExternalActionService:
             if exc.status_code == 404:
                 return None
             raise ToolError(self._bounded_caldav_error(exc)) from exc
+
+    def _claim_started(self, operation_id: str) -> tuple[ExternalActionAttempt, bool]:
+        session = self._attempt_session_factory()
+        try:
+            attempt = ExternalActionAttempt(
+                user_id=self._user_id,
+                operation_id=operation_id,
+                tool_name=CALENDAR_TOOL_NAME,
+                state=ATTEMPT_STARTED,
+                started_at=_utcnow(),
+            )
+            session.add(attempt)
+            session.commit()
+            session.refresh(attempt)
+            return attempt, True
+        except IntegrityError:
+            session.rollback()
+            existing = session.scalar(
+                select(ExternalActionAttempt).where(
+                    ExternalActionAttempt.user_id == self._user_id,
+                    ExternalActionAttempt.operation_id == operation_id,
+                )
+            )
+            if existing is None:
+                raise ToolError("failed to claim create_calendar_event operation")
+            return existing, False
+        finally:
+            session.close()
+
+    def _persist_attempt_state(
+        self,
+        operation_id: str,
+        state: str,
+        *,
+        provider_external_id: str | None = None,
+        error: str | None = None,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        session = self._attempt_session_factory()
+        try:
+            attempt = session.scalar(
+                select(ExternalActionAttempt).where(
+                    ExternalActionAttempt.user_id == self._user_id,
+                    ExternalActionAttempt.operation_id == operation_id,
+                )
+            )
+            if attempt is None:
+                return
+            if attempt.state == ATTEMPT_FAILED_DEFINITE and state != ATTEMPT_FAILED_DEFINITE:
+                return
+            metadata = dict(attempt.result_metadata or {})
+            if error:
+                metadata["error"] = error[:500]
+            if extra_metadata:
+                metadata.update(extra_metadata)
+            if attempt.state == ATTEMPT_SUCCEEDED and state != ATTEMPT_SUCCEEDED:
+                attempt.result_metadata = metadata
+                flag_modified(attempt, "result_metadata")
+                session.commit()
+                return
+            attempt.state = state
+            attempt.result_metadata = metadata
+            flag_modified(attempt, "result_metadata")
+            if provider_external_id:
+                attempt.provider_external_id = provider_external_id[:200]
+            if state != ATTEMPT_STARTED:
+                attempt.finished_at = _utcnow()
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def _assert_safe_calendar_href(self, href: str) -> None:
         if not href.startswith("/") or ".." in href or "\n" in href or "\r" in href:

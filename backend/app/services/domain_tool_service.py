@@ -551,6 +551,8 @@ class DomainToolService:
             kwargs["token_session_factory"] = self._calendar_token_session_factory
         if self._yandex_caldav_transport is not None:
             kwargs["yandex_caldav_transport"] = self._yandex_caldav_transport
+        if self._attempt_session_factory is not None:
+            kwargs["attempt_session_factory"] = self._attempt_session_factory
         return CalendarExternalActionService(self._session, self._user_id, **kwargs)
 
     def _email_actions(self):
