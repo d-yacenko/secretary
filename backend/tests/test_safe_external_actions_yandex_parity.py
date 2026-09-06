@@ -25,6 +25,8 @@ from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.caldav_transport import CalDavCalendar, FakeCalDavTransport
 from app.connectors.yandex.caldav_write import (
     MAX_TARGET_CALENDARS,
+    caldav_resource_name,
+    caldav_uid_from_operation_id,
     event_href_from_operation_id,
     select_unique_vevent_calendar,
 )
@@ -105,6 +107,27 @@ class FakeGmailTransport:
 
 SENT_FOLDER = "Отправленные"
 CALENDAR_HREF = "/calendars/user@yandex.ru/events-default/"
+ENCODED_CALENDAR_HREF = "/calendars/ydv%40arenadata.io/events-18154946/"
+
+
+def test_caldav_resource_name_is_percent_encoded_uid() -> None:
+    operation_id = "c553a47646e34a3c83113233666a2396"
+    uid = caldav_uid_from_operation_id(operation_id)
+    assert uid == "secretary-c553a47646e34a3c83113233666a2396@secretary"
+    assert caldav_resource_name(operation_id) == (
+        "secretary-c553a47646e34a3c83113233666a2396%40secretary.ics"
+    )
+    assert event_href_from_operation_id(CALENDAR_HREF, operation_id) == (
+        "/calendars/user@yandex.ru/events-default/"
+        "secretary-c553a47646e34a3c83113233666a2396%40secretary.ics"
+    )
+    encoded = event_href_from_operation_id(ENCODED_CALENDAR_HREF, operation_id)
+    assert encoded == (
+        "/calendars/ydv%40arenadata.io/events-18154946/"
+        "secretary-c553a47646e34a3c83113233666a2396%40secretary.ics"
+    )
+    assert "%2540" not in encoded
+    assert encoded.count("%40") == 2
 
 
 @pytest.fixture
@@ -1057,12 +1080,20 @@ def test_yandex_calendar_create_and_gates(db_session, google_settings, credentia
     assert len(caldav.put_calls) == 1
     assert google.insert_calls == []
     href = event_href_from_operation_id(CALENDAR_HREF, args["operation_id"])
+    uid = caldav_uid_from_operation_id(args["operation_id"])
+    assert caldav_resource_name(args["operation_id"]) == uid.replace("@", "%40") + ".ics"
+    assert href.endswith("/" + caldav_resource_name(args["operation_id"]))
     assert caldav.put_calls[0]["href"] == href
+    assert caldav.put_calls[0]["if_none_match"] == "*"
     repeated = gateway.execute(
         tools, "create_calendar_event", args, context=ExecutionContext.APPROVED_ACTION_PLAN
     )
+    assert repeated.success is True
     assert repeated.output["changed"] is False
     assert caldav.put_hrefs == [href, href]
+    assert [call["if_none_match"] for call in caldav.put_calls] == ["*", "*"]
+    assert caldav.get_object_calls == [href]
+    assert list(caldav.objects) == [href]
 
 
 def test_yandex_calendar_mismatch_timeout_rejects(

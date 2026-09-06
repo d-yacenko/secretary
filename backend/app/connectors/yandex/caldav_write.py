@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 from app.connectors.yandex.caldav_transport import CalDavCalendar
 from app.connectors.yandex.calendar_normalize import normalize_caldav_event
@@ -23,7 +23,7 @@ def caldav_uid_from_operation_id(operation_id: str) -> str:
 
 
 def caldav_resource_name(operation_id: str) -> str:
-    return f"secretary-{compact_operation_id(operation_id)}.ics"
+    return quote(caldav_uid_from_operation_id(operation_id), safe="") + ".ics"
 
 
 def join_calendar_href(calendar_href: str, resource_name: str) -> str:
