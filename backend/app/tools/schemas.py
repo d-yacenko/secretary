@@ -470,3 +470,68 @@ class SendEmailOutput(BaseModel):
     delivery_status: Literal["sent", "already_sent", "uncertain", "failed"]
     changed: bool
     sent_copy_status: Literal["stored", "already_present", "unconfirmed"] | None = None
+
+
+MAX_SCHEDULED_ACTIVITY_TITLE_CHARS = 300
+MAX_SCHEDULED_ACTIVITY_BODY_CHARS = 5000
+ScheduledActivityPriority = Literal["low", "normal", "high", "urgent"]
+ScheduledActivityScheduleKind = Literal["once"]
+
+
+class CreateScheduledActivityInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=MAX_SCHEDULED_ACTIVITY_TITLE_CHARS)
+    body: str | None = Field(default=None, max_length=MAX_SCHEDULED_ACTIVITY_BODY_CHARS)
+    run_at: datetime
+    priority: ScheduledActivityPriority = "normal"
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _strip_body(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+
+class CreateScheduledActivityCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=MAX_SCHEDULED_ACTIVITY_TITLE_CHARS)
+    body: str | None = Field(default=None, max_length=MAX_SCHEDULED_ACTIVITY_BODY_CHARS)
+    run_at: datetime
+    priority: ScheduledActivityPriority = "normal"
+    schedule_kind: ScheduledActivityScheduleKind = "once"
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _strip_body(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+
+class CreateScheduledActivityOutput(BaseModel):
+    object: ObjectOut
+
+
+class CancelScheduledActivityInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    activity_id: UUID
+
+
+class CancelScheduledActivityOutput(BaseModel):
+    object: ObjectOut
+    changed: bool = False
+    status: str

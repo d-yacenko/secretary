@@ -41,9 +41,14 @@ from app.services.task_mutation_service import TaskMutationService
 from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import (
     MAX_TASK_EVIDENCE_IDS,
+    CancelScheduledActivityInput,
+    CancelScheduledActivityOutput,
     CreateCalendarEventCanonicalInput,
     CreateCalendarEventInput,
     CreateCalendarEventOutput,
+    CreateScheduledActivityCanonicalInput,
+    CreateScheduledActivityInput,
+    CreateScheduledActivityOutput,
     CreateTaskInput,
     CreateTaskOutput,
     DeleteTaskInput,
@@ -397,6 +402,59 @@ class DomainToolService:
             )
         self._enqueue_object_embedding(obj.id)
         return CreateTaskOutput(object=ObjectOut.from_model(obj))
+
+    def _scheduled_activities(self):
+        from app.services.scheduled_activity_service import ScheduledActivityService
+
+        return ScheduledActivityService(self._session, self._user_id, self._write_graph)
+
+    def prepare_create_scheduled_activity(
+        self, payload: CreateScheduledActivityInput
+    ) -> CreateScheduledActivityCanonicalInput:
+        from app.services.scheduled_activity_service import require_future_run_at
+
+        run_at = normalize_tool_datetime(payload.run_at, self._client_timezone)
+        if run_at is None:
+            raise ToolError("run_at is required")
+        require_future_run_at(run_at)
+        return CreateScheduledActivityCanonicalInput(
+            title=payload.title,
+            body=payload.body,
+            run_at=run_at,
+            priority=payload.priority,
+            schedule_kind="once",
+        )
+
+    def create_scheduled_activity(
+        self, payload: CreateScheduledActivityCanonicalInput
+    ) -> CreateScheduledActivityOutput:
+        from app.services.scheduled_activity_service import require_future_run_at
+
+        run_at = normalize_tool_datetime(payload.run_at, self._client_timezone)
+        if run_at is None:
+            raise ToolError("run_at is required")
+        require_future_run_at(run_at)
+        confidence = None if self._write_mode == DomainWriteMode.APPROVED_CONFIRMED else 1.0
+        obj = self._scheduled_activities().create_once(
+            title=payload.title,
+            body=payload.body,
+            run_at=run_at,
+            priority=payload.priority,
+            origin_state=self._new_artifact_state(),
+            confidence=confidence,
+            enqueue_embedding=self._job_queue is not None,
+        )
+        return CreateScheduledActivityOutput(object=ObjectOut.from_model(obj))
+
+    def cancel_scheduled_activity(
+        self, payload: CancelScheduledActivityInput
+    ) -> CancelScheduledActivityOutput:
+        obj, changed = self._scheduled_activities().cancel(payload.activity_id)
+        return CancelScheduledActivityOutput(
+            object=ObjectOut.from_model(obj),
+            changed=changed,
+            status=obj.status or "",
+        )
 
     def update_task(self, input: UpdateTaskInput) -> UpdateTaskOutput:
         obj = self._get_task_for_mutation(input.object_id)

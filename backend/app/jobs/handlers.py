@@ -21,6 +21,7 @@ from app.jobs.constants import (
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
     JOB_TYPE_INGEST_LOCAL_FILE,
+    JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
@@ -28,6 +29,7 @@ from app.jobs.constants import (
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_YANDEX_MAIL,
 )
+from app.jobs.scheduled_activity_handler import handle_run_scheduled_activity
 from app.jobs.source_sync_handlers import (
     handle_sync_google_calendar,
     handle_sync_google_gmail,
@@ -423,6 +425,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_SYNC_YANDEX_MAIL: handle_sync_yandex_mail,
     JOB_TYPE_SYNC_YANDEX_CALENDAR: handle_sync_yandex_calendar,
     JOB_TYPE_SYNC_MATTERMOST: handle_sync_mattermost,
+    JOB_TYPE_RUN_SCHEDULED_ACTIVITY: handle_run_scheduled_activity,
 }
 
 

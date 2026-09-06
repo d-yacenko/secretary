@@ -19,7 +19,7 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                 "kind": {
                     "type": "string",
                     "description": (
-                        "Optional exact Object.kind filter (e.g. file, email, event, task). "
+                        "Optional exact Object.kind filter (e.g. file, email, event, task, scheduled_activity). "
                         "Omit to search across all object kinds. "
                         '"all" is not an Object.kind.'
                     ),
@@ -42,7 +42,7 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "name": "query_objects",
         "description": (
             "Structured filter and deterministic ordering over the user's objects. "
-            "Use for open tasks, due dates, date ranges, and sorted lists. "
+            "Use for open tasks, due dates, scheduled activities, date ranges, and sorted lists. "
             "Do not use for semantic topic discovery — use retrieve instead."
         ),
         "parameters": {
@@ -289,6 +289,46 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "parameters": {
             "type": "object",
             "properties": {},
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "create_scheduled_activity": {
+        "type": "function",
+        "name": "create_scheduled_activity",
+        "description": (
+            "Schedule a one-shot internal reminder/activity. "
+            "Creates a scheduled_activity object and later emits exactly one internal "
+            "notification at run_at. Does not send email, change calendars, or run LLM. "
+            "Requires user approval. run_at must be in the future."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "body": {"type": ["string", "null"]},
+                "run_at": {"type": "string"},
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "normal", "high", "urgent"],
+                },
+            },
+            "required": ["title", "run_at"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "cancel_scheduled_activity": {
+        "type": "function",
+        "name": "cancel_scheduled_activity",
+        "description": (
+            "Cancel a scheduled_activity that has not yet fired. "
+            "Requires user approval. Does not undo an already delivered notification."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"activity_id": {"type": "string"}},
+            "required": ["activity_id"],
             "additionalProperties": False,
         },
         "strict": False,

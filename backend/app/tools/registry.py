@@ -10,8 +10,11 @@ from app.services.domain_tool_service import DomainToolService
 from app.tools.assistant_contracts import ASSISTANT_FUNCTION_SCHEMAS
 from app.tools.policy import ToolPermission
 from app.tools.schemas import (
+    CancelScheduledActivityInput,
     CreateCalendarEventCanonicalInput,
     CreateCalendarEventInput,
+    CreateScheduledActivityCanonicalInput,
+    CreateScheduledActivityInput,
     CreateTaskInput,
     DeleteTaskInput,
     GetContextInput,
@@ -182,6 +185,26 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         assistant_exposed=True,
         mcp_exposed=True,
         assistant_definition=_assistant_definition("get_today"),
+    ),
+    ToolSpec(
+        name="create_scheduled_activity",
+        permission=ToolPermission.INTERNAL_WRITE,
+        input_model=CreateScheduledActivityInput,
+        service_method="create_scheduled_activity",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("create_scheduled_activity"),
+        prepare_method="prepare_create_scheduled_activity",
+        execution_input_model=CreateScheduledActivityCanonicalInput,
+    ),
+    ToolSpec(
+        name="cancel_scheduled_activity",
+        permission=ToolPermission.INTERNAL_WRITE,
+        input_model=CancelScheduledActivityInput,
+        service_method="cancel_scheduled_activity",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("cancel_scheduled_activity"),
     ),
     ToolSpec(
         name="create_calendar_event",

@@ -216,7 +216,7 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             payload["truncated"] = True
         return payload
 
-    if tool_name in ("create_task", "update_task"):
+    if tool_name in ("create_task", "update_task", "create_scheduled_activity"):
         obj = raw_output.get("object")
         payload: dict[str, Any] = {"object": _bounded_object(obj) if obj else None}
         if tool_name == "update_task":
@@ -264,11 +264,12 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             "new_state": raw_output.get("new_state"),
         }
 
-    if tool_name in ("set_task_status", "delete_task"):
+    if tool_name in ("set_task_status", "delete_task", "cancel_scheduled_activity"):
         obj = raw_output.get("object")
         return {
             "object": _bounded_object(obj) if obj else None,
             "changed": raw_output.get("changed", False),
+            "status": raw_output.get("status"),
         }
 
     if tool_name == "get_today":

@@ -20,6 +20,7 @@ JOB_TYPE_SYNC_GOOGLE_CALENDAR = "sync_google_calendar"
 JOB_TYPE_SYNC_YANDEX_MAIL = "sync_yandex_mail"
 JOB_TYPE_SYNC_YANDEX_CALENDAR = "sync_yandex_calendar"
 JOB_TYPE_SYNC_MATTERMOST = "sync_mattermost"
+JOB_TYPE_RUN_SCHEDULED_ACTIVITY = "run_scheduled_activity"
 
 RECURRING_SOURCE_JOB_TYPES = frozenset(
     {

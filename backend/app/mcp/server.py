@@ -8,7 +8,9 @@ from pydantic import ValidationError as PydanticValidationError
 from app.mcp.gateway_runner import execute_mcp_tool
 from app.tools.registry import MCP_TOOL_NAMES  # noqa: F401 — re-exported for tests
 from app.tools.schemas import (
+    CancelScheduledActivityOutput,
     CreateCalendarEventOutput,
+    CreateScheduledActivityOutput,
     CreateTaskOutput,
     DeleteTaskOutput,
     GetContextOutput,
@@ -247,6 +249,28 @@ def create_mcp_server() -> MCPServer:
     def get_today() -> GetTodayOutput:
         """Return the current datetime in SECRETARY_TIMEZONE."""
         return _run_tool("get_today", "get_today", {})
+
+    @mcp.tool()
+    def create_scheduled_activity(
+        title: str,
+        run_at: datetime,
+        body: str | None = None,
+        priority: str = "normal",
+    ) -> CreateScheduledActivityOutput:
+        """Schedule a one-shot internal reminder (requires approval; MCP cannot execute)."""
+        arguments: dict = {"title": title, "run_at": run_at, "priority": priority}
+        if body is not None:
+            arguments["body"] = body
+        return _run_tool("create_scheduled_activity", "create_scheduled_activity", arguments)
+
+    @mcp.tool()
+    def cancel_scheduled_activity(activity_id: str) -> CancelScheduledActivityOutput:
+        """Cancel a one-shot scheduled activity before it fires (requires approval)."""
+        return _run_tool(
+            "cancel_scheduled_activity",
+            "cancel_scheduled_activity",
+            {"activity_id": activity_id},
+        )
 
     @mcp.tool()
     def create_calendar_event(

@@ -8,6 +8,8 @@ def classify_tool_execution_effect(tool_name: str, output: dict[str, Any] | None
         return "failed"
     if tool_name == "create_task":
         return "created"
+    if tool_name == "create_scheduled_activity":
+        return "created"
     if tool_name == "create_calendar_event":
         return "created" if output.get("changed") else "no_op"
     if tool_name == "send_email":
@@ -16,7 +18,7 @@ def classify_tool_execution_effect(tool_name: str, output: dict[str, Any] | None
         return "removed" if output.get("changed") else "no_op"
     if tool_name == "link_objects":
         return "created" if output.get("created") else "no_op"
-    if tool_name in ("update_task", "set_task_status", "delete_task"):
+    if tool_name in ("update_task", "set_task_status", "delete_task", "cancel_scheduled_activity"):
         return "changed" if output.get("changed") else "no_op"
     if output.get("changed"):
         return "changed"

@@ -36,6 +36,8 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "link_objects",
         "remove_relation",
         "get_today",
+        "create_scheduled_activity",
+        "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
     }
@@ -72,6 +74,8 @@ def test_registry_covers_executor_dispatch_tools():
         "link_objects",
         "remove_relation",
         "get_today",
+        "create_scheduled_activity",
+        "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
     }
@@ -116,7 +120,13 @@ def test_permission_classifications():
         "list_notifications",
         "get_today",
     }
-    internal_write = {"create_task", "update_task", "link_objects"}
+    internal_write = {
+        "create_task",
+        "update_task",
+        "link_objects",
+        "create_scheduled_activity",
+        "cancel_scheduled_activity",
+    }
     destructive = {"delete_task", "remove_relation"}
     for name in read_tools:
         assert TOOL_REGISTRY[name].permission == ToolPermission.READ

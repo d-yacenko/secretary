@@ -33,6 +33,7 @@ _EVIDENCE_WRITE_TOOLS = frozenset(
     {"create_task", "update_task", "set_task_status", "delete_task"}
 )
 _OBJECT_TARGET_TOOLS = frozenset({"update_task", "set_task_status", "delete_task"})
+_ACTIVITY_TARGET_TOOLS = frozenset({"cancel_scheduled_activity"})
 _MUTATION_TOOLS = frozenset(
     {
         "create_task",
@@ -41,6 +42,8 @@ _MUTATION_TOOLS = frozenset(
         "delete_task",
         "link_objects",
         "remove_relation",
+        "create_scheduled_activity",
+        "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
     }
@@ -144,6 +147,13 @@ class PerTurnToolBudget:
                     self._telemetry.tool_calls += 1
                 return target_error
 
+        if tool_name in _ACTIVITY_TARGET_TOOLS:
+            target_error = self._validate_activity_target_allowlist(tool_name, arguments)
+            if target_error is not None:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return target_error
+
         if tool_name == "remove_relation":
             edge_error = self._validate_edge_id_allowlist(tool_name, arguments)
             if edge_error is not None:
@@ -160,7 +170,10 @@ class PerTurnToolBudget:
 
         if result.success and result.output:
             model_output = serialize_tool_output_for_assistant(tool_name, result.output)
-            if tool_name in _READ_TOOLS or tool_name in _EVIDENCE_WRITE_TOOLS:
+            if tool_name in _READ_TOOLS or tool_name in _EVIDENCE_WRITE_TOOLS or tool_name in (
+                "create_scheduled_activity",
+                "cancel_scheduled_activity",
+            ):
                 for object_id in collect_seen_object_ids_from_bounded_tool(
                     tool_name, model_output.model_visible_payload
                 ):
@@ -265,6 +278,35 @@ class PerTurnToolBudget:
                 success=False,
                 tool_name=tool_name,
                 error="invalid object id",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        if parsed not in self._seen_object_ids:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="target object was not exposed in this Assistant turn",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        return None
+
+    def _validate_activity_target_allowlist(
+        self, tool_name: str, arguments: dict
+    ) -> ToolExecutionResult | None:
+        raw_id = arguments.get("activity_id")
+        if raw_id is None:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="activity_id is required",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        try:
+            parsed = UUID(str(raw_id))
+        except (ValueError, TypeError):
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="invalid activity id",
                 status=ToolExecutionStatus.TOOL_ERROR,
             )
         if parsed not in self._seen_object_ids:

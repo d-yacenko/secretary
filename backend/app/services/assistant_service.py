@@ -626,11 +626,15 @@ def _affected_object_ids_from_execution_result(result: dict) -> list[UUID]:
     for action_result in result.get("actions", []):
         tool_name = action_result.get("tool_name")
         output = action_result.get("output") or {}
-        if tool_name == "create_task":
+        if tool_name == "create_task" or tool_name == "create_scheduled_activity":
             obj = output.get("object")
             if obj:
                 _append_uuid(affected_ids, seen, obj.get("id"))
-        elif tool_name == "update_task" or tool_name in ("set_task_status", "delete_task"):
+        elif tool_name == "update_task" or tool_name in (
+            "set_task_status",
+            "delete_task",
+            "cancel_scheduled_activity",
+        ):
             if output.get("changed"):
                 obj = output.get("object")
                 if obj:

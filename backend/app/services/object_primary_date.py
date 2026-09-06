@@ -31,6 +31,8 @@ def object_primary_search_datetime(obj: Object) -> datetime | None:
     kind = obj.kind
     if kind == "task":
         candidate = obj.due_at or obj.updated_at
+    elif kind == "scheduled_activity":
+        candidate = obj.due_at or obj.occurred_at or obj.updated_at
     elif kind in {"event", "calendar_event"}:
         candidate = obj.start_at or obj.occurred_at or obj.updated_at
     elif kind in {"email", "message", "chat", "chat_message"}:
