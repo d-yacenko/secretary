@@ -107,6 +107,57 @@ void main() {
     expect(action.displayLabel, isNot(contains('rfc822')));
   });
 
+  test('yandex send_email preview shows provider and hides technical fields', () {
+    final action = PendingAction.fromJson({
+      'tool_name': 'send_email',
+      'arguments': {
+        'provider': 'yandex',
+        'account_email': 'user@yandex.ru',
+        'to': ['ivan@example.com'],
+        'subject': 'Статус',
+        'body': 'Полное тело письма.',
+        'operation_id': 'should-hide',
+        'rfc822_message_id': '<secret@id>',
+      },
+    });
+    expect(action.displayLabel, contains('Provider: Yandex'));
+    expect(action.displayLabel, contains('From: user@yandex.ru'));
+    expect(action.displayLabel, contains('To: ivan@example.com'));
+    expect(action.displayLabel, contains('Subject: Статус'));
+    expect(action.displayLabel, contains('Полное тело письма.'));
+    expect(action.displayLabel, isNot(contains('operation_id')));
+    expect(action.displayLabel, isNot(contains('rfc822')));
+    expect(action.displayLabel, isNot(contains('should-hide')));
+  });
+
+  test('yandex calendar preview shows default target and hides href', () {
+    final action = PendingAction.fromJson({
+      'tool_name': 'create_calendar_event',
+      'arguments': {
+        'provider': 'yandex',
+        'account_email': 'user@yandex.ru',
+        'calendar_id': 'primary',
+        'calendar_label': 'default',
+        'calendar_href': '/calendars/user@yandex.ru/events-default/',
+        'summary': 'Встреча',
+        'start_at': '2026-09-06T15:00:00+03:00',
+        'end_at': '2026-09-06T15:30:00+03:00',
+        'description': 'Описание',
+        'location': 'Офис',
+        'operation_id': 'hide-me',
+      },
+    });
+    expect(action.displayLabel, contains('Provider: Yandex'));
+    expect(action.displayLabel, contains('user@yandex.ru'));
+    expect(action.displayLabel, contains('calendar: default'));
+    expect(action.displayLabel, contains('Встреча'));
+    expect(action.displayLabel, contains('Описание'));
+    expect(action.displayLabel, contains('Офис'));
+    expect(action.displayLabel, isNot(contains('events-default')));
+    expect(action.displayLabel, isNot(contains('hide-me')));
+    expect(action.displayLabel, isNot(contains('operation_id')));
+  });
+
   test('normal response with no pending plan still parses', () {
     final response = AssistantMessageResponse.fromJson({
       'answer': 'Hello',

@@ -5,6 +5,11 @@ from typing import Protocol
 
 from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER
 from app.connectors.yandex.errors import YandexImapError
+from app.connectors.yandex.imap_mailboxes import (
+    ImapMailbox,
+    parse_imap_list_line,
+    sent_folder_from_mailboxes,
+)
 
 
 @dataclass(frozen=True)
@@ -130,6 +135,18 @@ class ImapTransport(Protocol):
     ) -> YandexMailHistoryUidPage:
         ...
 
+    def list_mailboxes(self) -> list[ImapMailbox]:
+        ...
+
+    def search_uids_since_before(
+        self,
+        folder: str,
+        since_date: datetime,
+        before_date: datetime,
+        max_results: int,
+    ) -> tuple[list[int], bool]:
+        ...
+
     def fetch_message(self, folder: str, uid: int) -> bytes:
         ...
 
@@ -244,6 +261,47 @@ class ImaplibTransport:
             return YandexMailHistoryUidPage(uids=[], next_before_uid=None, complete=True)
         return history_uids_page_from_search(data[0], before_uid, max_results)
 
+    def list_mailboxes(self) -> list[ImapMailbox]:
+        imap = self._connect()
+        try:
+            status, data = imap.list()
+        except imaplib.IMAP4.error as exc:
+            raise YandexImapError("failed to list imap mailboxes") from exc
+        if status != "OK" or data is None:
+            raise YandexImapError("failed to list imap mailboxes")
+        mailboxes: list[ImapMailbox] = []
+        for item in data:
+            parsed = parse_imap_list_line(item)
+            if parsed is not None:
+                mailboxes.append(parsed)
+        return mailboxes
+
+    def discover_sent_folder(self) -> str:
+        return sent_folder_from_mailboxes(self.list_mailboxes())
+
+    def search_uids_since_before(
+        self,
+        folder: str,
+        since_date: datetime,
+        before_date: datetime,
+        max_results: int,
+    ) -> tuple[list[int], bool]:
+        self.select_folder(folder)
+        imap = self._connect()
+        since_str = since_date.strftime("%d-%b-%Y")
+        before_str = before_date.strftime("%d-%b-%Y")
+        criteria = f"(SINCE {since_str}) (BEFORE {before_str})"
+        try:
+            status, data = imap.uid("search", None, criteria)
+        except imaplib.IMAP4.error as exc:
+            raise YandexImapError("failed to search imap messages") from exc
+        if status != "OK" or not data or not data[0]:
+            return [], False
+        uids = sorted(int(uid) for uid in data[0].split())
+        if len(uids) > max_results:
+            return uids[:max_results], True
+        return uids, False
+
     def fetch_message(self, folder: str, uid: int) -> bytes:
         self.select_folder(folder)
         imap = self._connect()
@@ -268,16 +326,25 @@ class FakeImapTransport:
         folder: str = DEFAULT_MAIL_FOLDER,
         tx_checker: object | None = None,
         history_matching_uids: list[int] | None = None,
+        mailboxes: list[ImapMailbox] | None = None,
+        folder_messages: dict[str, dict[int, bytes]] | None = None,
     ) -> None:
         self._uidvalidity = uidvalidity
         self._messages = messages or {}
         self._folder = folder
+        self._folder_messages = folder_messages or {folder: dict(self._messages)}
+        if folder not in self._folder_messages:
+            self._folder_messages[folder] = dict(self._messages)
+        self._mailboxes = mailboxes
         self.fetch_calls: list[int] = []
         self.history_search_calls: list[dict[str, object]] = []
         self.initial_search_calls: list[dict[str, object]] = []
         self.incremental_search_calls: list[dict[str, object]] = []
+        self.list_calls = 0
+        self.window_search_calls: list[dict[str, object]] = []
         self._tx_checker = tx_checker
         self._history_matching_uids = history_matching_uids
+        self._selected_folder = folder
 
     def _history_candidates(self, before_uid: int) -> list[int]:
         if self._history_matching_uids is not None:
@@ -292,9 +359,42 @@ class FakeImapTransport:
 
     def select_folder(self, folder: str) -> int:
         self._check_tx()
-        if folder != self._folder:
+        if folder not in self._folder_messages and folder != self._folder:
             raise YandexImapError(f"failed to select imap folder {folder}")
+        self._selected_folder = folder
         return self._uidvalidity
+
+    def list_mailboxes(self) -> list[ImapMailbox]:
+        self._check_tx()
+        self.list_calls += 1
+        if self._mailboxes is not None:
+            return list(self._mailboxes)
+        return [ImapMailbox(flags=frozenset(), name=self._folder)]
+
+    def discover_sent_folder(self) -> str:
+        return sent_folder_from_mailboxes(self.list_mailboxes())
+
+    def search_uids_since_before(
+        self,
+        folder: str,
+        since_date: datetime,
+        before_date: datetime,
+        max_results: int,
+    ) -> tuple[list[int], bool]:
+        self._check_tx()
+        self.select_folder(folder)
+        self.window_search_calls.append(
+            {
+                "folder": folder,
+                "since_date": since_date,
+                "before_date": before_date,
+                "max_results": max_results,
+            }
+        )
+        uids = sorted(self._folder_messages.get(folder, {}).keys())
+        if len(uids) > max_results:
+            return uids[:max_results], True
+        return uids, False
 
     def search_uids_initial(
         self,
@@ -353,6 +453,11 @@ class FakeImapTransport:
     def fetch_message(self, folder: str, uid: int) -> bytes:
         self._check_tx()
         self.fetch_calls.append(uid)
-        if uid not in self._messages:
+        folder = self._selected_folder
+        store = self._folder_messages.get(folder, self._messages)
+        if uid not in store:
             raise YandexImapError(f"failed to fetch imap message uid {uid}")
-        return self._messages[uid]
+        return store[uid]
+
+    def add_message(self, folder: str, uid: int, raw: bytes) -> None:
+        self._folder_messages.setdefault(folder, {})[uid] = raw

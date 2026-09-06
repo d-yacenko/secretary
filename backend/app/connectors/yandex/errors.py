@@ -13,6 +13,10 @@ class YandexImapError(YandexConnectorError):
     pass
 
 
+class YandexSmtpError(YandexConnectorError):
+    pass
+
+
 class YandexCalDavError(YandexConnectorError):
     def __init__(
         self,

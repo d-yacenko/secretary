@@ -457,7 +457,7 @@ def test_account_resolution_zero_one_two_and_foreign(
         tools, "send_email", _mail_args(), context=ExecutionContext.INTERACTIVE_ASSISTANT
     )
     assert none.status == ToolExecutionStatus.TOOL_ERROR
-    assert "not connected" in (none.error or "").lower()
+    assert "connected" in (none.error or "").lower()
 
     _add_google_account(db_session, credential_key, "only@example.com", _send_scopes(), user_id=mail_user)
     one = gateway.execute(

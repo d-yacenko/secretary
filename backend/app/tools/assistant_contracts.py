@@ -297,11 +297,13 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "create_calendar_event",
         "description": (
-            "Create an event on the user's own Google Calendar primary calendar. "
-            "Requires explicit user approval before Google is written. "
+            "Create an event on the user's own Google Calendar primary calendar or "
+            "own/default Yandex calendar. "
+            "Requires explicit user approval before the provider is written. "
             "Pass exact start_at and end_at instants (ISO 8601). "
-            "If multiple Google accounts are connected, pass account_email. "
-            "Do not include attendees, recurrence, or conference data."
+            "If the user names Google or Yandex, pass provider. "
+            "If multiple accounts are connected, pass provider and account_email. "
+            "Do not include attendees, recurrence, conference data, or calendar paths."
         ),
         "parameters": {
             "type": "object",
@@ -312,6 +314,7 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                 "description": {"type": ["string", "null"]},
                 "location": {"type": ["string", "null"]},
                 "account_email": {"type": ["string", "null"]},
+                "provider": {"type": ["string", "null"], "enum": ["google", "yandex"]},
             },
             "required": ["summary", "start_at", "end_at"],
             "additionalProperties": False,
@@ -322,17 +325,19 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "send_email",
         "description": (
-            "Send a plain-text email from the user's connected mail account. "
+            "Send a plain-text email from the user's connected Google or Yandex mail account. "
             "Requires explicit user approval before the provider sends. "
             "Compose the final exact To recipients, subject, and body first. "
             "Call this only when the user asked to send. Do not call it for a draft. "
-            "If multiple Google accounts are connected, pass account_email. "
+            "If the user names Google or Yandex, pass provider. "
+            "If multiple accounts are connected, pass provider and account_email. "
             "Do not include From, CC, BCC, attachments, or HTML."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "account_email": {"type": ["string", "null"]},
+                "provider": {"type": ["string", "null"], "enum": ["google", "yandex"]},
                 "to": {"type": "array", "items": {"type": "string"}},
                 "subject": {"type": "string"},
                 "body": {"type": "string"},

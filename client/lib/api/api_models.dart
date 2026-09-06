@@ -901,6 +901,10 @@ class PendingAction {
 
   static String _calendarEventLabel(Map<String, dynamic> arguments) {
     final parts = <String>['Create calendar event'];
+    final provider = arguments['provider'];
+    if (provider is String && provider.trim().isNotEmpty) {
+      parts.add('Provider: ${_externalProviderLabel(provider)}');
+    }
     final summary = arguments['summary'];
     if (summary is String && summary.trim().isNotEmpty) {
       parts.add(summary.trim());
@@ -909,7 +913,12 @@ class PendingAction {
     if (account is String && account.trim().isNotEmpty) {
       parts.add(account.trim());
     }
-    parts.add('calendar: primary');
+    final calendarLabel = arguments['calendar_label'];
+    if (calendarLabel is String && calendarLabel.trim().isNotEmpty) {
+      parts.add('calendar: ${calendarLabel.trim()}');
+    } else {
+      parts.add('calendar: primary');
+    }
     final start = arguments['start_at'];
     final end = arguments['end_at'];
     if (start != null && end != null) {
@@ -935,6 +944,10 @@ class PendingAction {
     final subject = arguments['subject'];
     final body = arguments['body'];
     final parts = <String>['Отправить письмо'];
+    final provider = arguments['provider'];
+    if (provider is String && provider.trim().isNotEmpty) {
+      parts.add('Provider: ${_externalProviderLabel(provider)}');
+    }
     if (from is String && from.trim().isNotEmpty) {
       parts.add('From: ${from.trim()}');
     }
@@ -948,6 +961,17 @@ class PendingAction {
       parts.add('Body: $body');
     }
     return parts.join('\n');
+  }
+
+  static String _externalProviderLabel(String provider) {
+    switch (provider.trim().toLowerCase()) {
+      case 'yandex':
+        return 'Yandex';
+      case 'google':
+        return 'Google';
+      default:
+        return provider;
+    }
   }
 }
 

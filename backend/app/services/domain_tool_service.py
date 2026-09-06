@@ -95,6 +95,9 @@ class DomainToolService:
         gmail_transport=None,
         gmail_token_session_factory=None,
         attempt_session_factory=None,
+        yandex_smtp_transport=None,
+        yandex_imap_transport=None,
+        yandex_caldav_transport=None,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -104,6 +107,9 @@ class DomainToolService:
         self._gmail_transport = gmail_transport
         self._gmail_token_session_factory = gmail_token_session_factory
         self._attempt_session_factory = attempt_session_factory
+        self._yandex_smtp_transport = yandex_smtp_transport
+        self._yandex_imap_transport = yandex_imap_transport
+        self._yandex_caldav_transport = yandex_caldav_transport
         from app.core.client_timezone import get_request_timezone
 
         self._client_timezone = client_timezone or get_request_timezone()
@@ -543,6 +549,8 @@ class DomainToolService:
             kwargs["transport"] = self._calendar_transport
         if self._calendar_token_session_factory is not None:
             kwargs["token_session_factory"] = self._calendar_token_session_factory
+        if self._yandex_caldav_transport is not None:
+            kwargs["yandex_caldav_transport"] = self._yandex_caldav_transport
         return CalendarExternalActionService(self._session, self._user_id, **kwargs)
 
     def _email_actions(self):
@@ -555,6 +563,10 @@ class DomainToolService:
             kwargs["token_session_factory"] = self._gmail_token_session_factory
         if self._attempt_session_factory is not None:
             kwargs["attempt_session_factory"] = self._attempt_session_factory
+        if self._yandex_smtp_transport is not None:
+            kwargs["yandex_smtp_transport"] = self._yandex_smtp_transport
+        if self._yandex_imap_transport is not None:
+            kwargs["yandex_imap_transport"] = self._yandex_imap_transport
         return EmailExternalActionService(self._session, self._user_id, **kwargs)
 
     def prepare_create_calendar_event(

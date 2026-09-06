@@ -231,6 +231,57 @@ class CalDavHttpTransport:
             )
         return response.text
 
+    def put_calendar_object(
+        self,
+        href: str,
+        calendar_data: str,
+        *,
+        if_none_match: str | None = "*",
+    ) -> int:
+        headers = {"Content-Type": "text/calendar; charset=utf-8"}
+        if if_none_match:
+            headers["If-None-Match"] = if_none_match
+        self.last_request_path = href
+        self.last_request_body = calendar_data
+        url = urljoin(self._base_url + "/", href.lstrip("/"))
+        try:
+            response = self._http.request(
+                "PUT",
+                url,
+                content=calendar_data.encode("utf-8"),
+                headers=headers,
+                auth=(self._email, self._password),
+            )
+        except httpx.TimeoutException as exc:
+            raise raise_for_caldav_request_error(exc, operation="PUT", path=href) from exc
+        except httpx.RequestError as exc:
+            raise raise_for_caldav_request_error(exc, operation="PUT", path=href) from exc
+        if response.status_code in {200, 201, 204}:
+            return response.status_code
+        raise_for_caldav_http_response(response, operation="PUT", path=href)
+        return response.status_code
+
+    def get_calendar_object(self, href: str) -> str | None:
+        headers = {"Accept": "text/calendar, text/plain, */*"}
+        self.last_request_path = href
+        url = urljoin(self._base_url + "/", href.lstrip("/"))
+        try:
+            response = self._http.request(
+                "GET",
+                url,
+                headers=headers,
+                auth=(self._email, self._password),
+            )
+        except httpx.TimeoutException as exc:
+            raise raise_for_caldav_request_error(exc, operation="GET", path=href) from exc
+        except httpx.RequestError as exc:
+            raise raise_for_caldav_request_error(exc, operation="GET", path=href) from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise_for_caldav_http_response(response, operation="GET", path=href)
+        return response.text
+
     def probe_principal(self) -> None:
         """Bounded read-only credential check via principal PROPFIND."""
         principal_path = self._principal_path()
@@ -546,6 +597,15 @@ class FakeCalDavTransport:
         self.multiget_calls: list[tuple[str, list[str]]] = []
         self.discover_calls = 0
         self._tx_checker = tx_checker
+        self.objects: dict[str, str] = {}
+        self.put_calls: list[dict[str, object]] = []
+        self.get_object_calls: list[str] = []
+        self.lose_put_response = False
+        self.persist_on_put = True
+        self.put_error: YandexCalDavError | None = None
+        self.stored_ics_override: str | None = None
+        self.force_new_href_on_put = False
+        self.put_hrefs: list[str] = []
 
     def _check_tx(self) -> None:
         if self._tx_checker is not None:
@@ -634,3 +694,49 @@ class FakeCalDavTransport:
         events: list[CalDavEvent] = []
         token = self._sync_tokens.get(calendar_href, sync_token)
         return CalDavFetchResult(events=events, sync_token=token)
+
+    def put_calendar_object(
+        self,
+        href: str,
+        calendar_data: str,
+        *,
+        if_none_match: str | None = "*",
+    ) -> int:
+        self._check_tx()
+        target = f"{href}-retry" if self.force_new_href_on_put else href
+        self.put_calls.append(
+            {
+                "href": href,
+                "target": target,
+                "calendar_data": calendar_data,
+                "if_none_match": if_none_match,
+            }
+        )
+        self.put_hrefs.append(target)
+        stored = self.stored_ics_override if self.stored_ics_override is not None else calendar_data
+        if if_none_match == "*" and href in self.objects:
+            raise YandexCalDavError(
+                "HTTP 412",
+                operation="PUT",
+                path=href,
+                status_code=412,
+                category="request",
+                retryable=False,
+            )
+        if self.persist_on_put:
+            self.objects[target] = stored
+        if self.lose_put_response:
+            self.lose_put_response = False
+            raise raise_for_caldav_request_error(
+                httpx.TimeoutException("lost put response"),
+                operation="PUT",
+                path=href,
+            )
+        if self.put_error is not None:
+            raise self.put_error
+        return 201
+
+    def get_calendar_object(self, href: str) -> str | None:
+        self._check_tx()
+        self.get_object_calls.append(href)
+        return self.objects.get(href)

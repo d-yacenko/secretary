@@ -34,8 +34,9 @@ def describe_execution_effect(tool_name: str, output: dict[str, Any] | None) -> 
             )
         if tool_name == "create_calendar_event":
             return (
-                f"create_calendar_event: created Google Calendar event "
-                f"{(output or {}).get('event_id')} on {(output or {}).get('account_email')}; "
+                f"create_calendar_event: created calendar event "
+                f"{(output or {}).get('event_id')} via {(output or {}).get('provider')} "
+                f"on {(output or {}).get('account_email')}; "
                 f"changed=true"
             )
         if tool_name == "send_email":

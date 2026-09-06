@@ -258,6 +258,18 @@ def _strip_optional_text(value: object) -> str | None:
     return stripped or None
 
 
+ExternalActionProvider = Literal["google", "yandex"]
+
+
+def _normalize_provider(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        return stripped or None
+    return value
+
+
 class CreateCalendarEventInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -267,6 +279,7 @@ class CreateCalendarEventInput(BaseModel):
     description: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_DESCRIPTION_CHARS)
     location: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_LOCATION_CHARS)
     account_email: str | None = None
+    provider: ExternalActionProvider | None = None
 
     @field_validator("summary", mode="before")
     @classmethod
@@ -279,6 +292,11 @@ class CreateCalendarEventInput(BaseModel):
     @classmethod
     def _strip_optional(cls, value: object) -> object:
         return _strip_optional_text(value)
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value: object) -> object:
+        return _normalize_provider(value)
 
     @model_validator(mode="after")
     def _end_after_start(self) -> Self:
@@ -298,6 +316,9 @@ class CreateCalendarEventCanonicalInput(BaseModel):
     account_email: str = Field(min_length=1)
     calendar_id: Literal["primary"] = "primary"
     operation_id: str = Field(min_length=5, max_length=1024)
+    provider: ExternalActionProvider | None = None
+    calendar_href: str | None = Field(default=None, max_length=2000)
+    calendar_label: str | None = Field(default=None, max_length=300)
 
     @field_validator("summary", "account_email", "operation_id", mode="before")
     @classmethod
@@ -306,10 +327,15 @@ class CreateCalendarEventCanonicalInput(BaseModel):
             return value.strip()
         return value
 
-    @field_validator("description", "location", mode="before")
+    @field_validator("description", "location", "calendar_href", "calendar_label", mode="before")
     @classmethod
     def _strip_optional(cls, value: object) -> object:
         return _strip_optional_text(value)
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value: object) -> object:
+        return _normalize_provider(value)
 
     @model_validator(mode="after")
     def _end_after_start(self) -> Self:
@@ -319,7 +345,7 @@ class CreateCalendarEventCanonicalInput(BaseModel):
 
 
 class CreateCalendarEventOutput(BaseModel):
-    provider: Literal["google_calendar"] = "google_calendar"
+    provider: Literal["google_calendar", "yandex_calendar"] = "google_calendar"
     account_email: str
     calendar_id: Literal["primary"] = "primary"
     event_id: str
@@ -357,6 +383,7 @@ class SendEmailInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     account_email: str | None = None
+    provider: ExternalActionProvider | None = None
     to: list[str] = Field(min_length=1, max_length=MAX_EMAIL_TO_RECIPIENTS)
     subject: str = Field(min_length=1, max_length=MAX_EMAIL_SUBJECT_CHARS)
     body: str = Field(min_length=1, max_length=MAX_EMAIL_BODY_CHARS)
@@ -365,6 +392,11 @@ class SendEmailInput(BaseModel):
     @classmethod
     def _strip_account(cls, value: object) -> object:
         return _strip_optional_text(value)
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value: object) -> object:
+        return _normalize_provider(value)
 
     @field_validator("subject", mode="before")
     @classmethod
@@ -401,6 +433,7 @@ class SendEmailCanonicalInput(BaseModel):
     body: str = Field(min_length=1, max_length=MAX_EMAIL_BODY_CHARS)
     operation_id: str = Field(min_length=5, max_length=1024)
     rfc822_message_id: str = Field(min_length=5, max_length=200)
+    provider: ExternalActionProvider | None = None
 
     @field_validator("account_email", "operation_id", "rfc822_message_id", mode="before")
     @classmethod
@@ -408,6 +441,11 @@ class SendEmailCanonicalInput(BaseModel):
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value: object) -> object:
+        return _normalize_provider(value)
 
     @field_validator("subject", mode="before")
     @classmethod
@@ -424,7 +462,7 @@ class SendEmailCanonicalInput(BaseModel):
 
 
 class SendEmailOutput(BaseModel):
-    provider: Literal["gmail"] = "gmail"
+    provider: Literal["gmail", "yandex"] = "gmail"
     account_email: str
     to: list[str]
     subject: str

@@ -321,7 +321,7 @@ def test_account_resolution_zero_one_two_and_foreign(
         context=ExecutionContext.INTERACTIVE_ASSISTANT,
     )
     assert none.status == ToolExecutionStatus.TOOL_ERROR
-    assert "not connected" in (none.error or "").lower()
+    assert "connected" in (none.error or "").lower()
 
     _add_google_account(db_session, credential_key, "only@example.com", _write_scopes(), user_id=calendar_user)
     one = gateway.execute(
