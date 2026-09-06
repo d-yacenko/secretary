@@ -469,3 +469,4 @@ class SendEmailOutput(BaseModel):
     provider_message_id: str | None = None
     delivery_status: Literal["sent", "already_sent", "uncertain", "failed"]
     changed: bool
+    sent_copy_status: Literal["stored", "already_present", "unconfirmed"] | None = None

@@ -296,6 +296,7 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             "provider_message_id": raw_output.get("provider_message_id"),
             "delivery_status": raw_output.get("delivery_status"),
             "changed": raw_output.get("changed", False),
+            "sent_copy_status": raw_output.get("sent_copy_status"),
         }
 
     return raw_output

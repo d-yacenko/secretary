@@ -2,6 +2,8 @@ import imaplib
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
 from email.utils import parsedate_to_datetime
 from typing import Protocol
 
@@ -362,6 +364,67 @@ class ImaplibTransport:
         except YandexImapError as exc:
             raise YandexImapError(f"failed to fetch imap INTERNALDATE uid {uid}") from exc
 
+    def search_uids_header(
+        self,
+        folder: str,
+        header_name: str,
+        header_value: str,
+        max_results: int,
+    ) -> tuple[list[int], bool]:
+        self.select_folder(folder)
+        imap = self._connect()
+        criteria = f'(HEADER "{header_name}" "{header_value}")'
+        try:
+            status, data = imap.uid("search", None, criteria)
+        except imaplib.IMAP4.error as exc:
+            raise YandexImapError("failed to search imap messages", retryable=True) from exc
+        if status != "OK":
+            raise YandexImapError("failed to search imap messages", retryable=True)
+        if not data or not data[0]:
+            return [], False
+        uids = sorted(int(uid) for uid in data[0].split())
+        if len(uids) > max_results:
+            return uids[:max_results], True
+        return uids, False
+
+    def ensure_mailbox(self, folder: str) -> None:
+        existing = {mailbox.name for mailbox in self.list_mailboxes()}
+        if folder in existing:
+            return
+        imap = self._connect()
+        try:
+            status, _ = imap.create(folder)
+        except imaplib.IMAP4.error as exc:
+            existing = {mailbox.name for mailbox in self.list_mailboxes()}
+            if folder in existing:
+                return
+            raise YandexImapError(f"failed to create imap mailbox {folder}") from exc
+        if status != "OK":
+            existing = {mailbox.name for mailbox in self.list_mailboxes()}
+            if folder in existing:
+                return
+            raise YandexImapError(f"failed to create imap mailbox {folder}")
+        self._selected_folder = None
+
+    def append_message(
+        self,
+        folder: str,
+        message_bytes: bytes,
+        flags: list[str] | None = None,
+    ) -> None:
+        imap = self._connect()
+        flag_tokens = flags or ["\\Seen"]
+        flag_str = "(" + " ".join(flag_tokens) + ")"
+        try:
+            status, _ = imap.append(folder, flag_str, None, message_bytes)
+        except (TimeoutError, OSError) as exc:
+            raise YandexImapError("failed to append imap message", retryable=True) from exc
+        except imaplib.IMAP4.error as exc:
+            raise YandexImapError("failed to append imap message") from exc
+        if status != "OK":
+            raise YandexImapError("failed to append imap message")
+        self._selected_folder = None
+
 
 class FakeImapTransport:
     def __init__(
@@ -388,6 +451,13 @@ class FakeImapTransport:
         self.list_calls = 0
         self.window_search_calls: list[dict[str, object]] = []
         self.internaldate_fetch_calls: list[int] = []
+        self.append_calls: list[dict[str, object]] = []
+        self.create_calls: list[str] = []
+        self.header_search_calls: list[dict[str, object]] = []
+        self.persist_on_append = True
+        self.lose_append_response = False
+        self.append_error: YandexImapError | None = None
+        self.create_error: YandexImapError | None = None
         self._internaldates: dict[tuple[str, int], datetime] = {}
         now = datetime.now(UTC)
         for folder_name, store in self._folder_messages.items():
@@ -519,6 +589,72 @@ class FakeImapTransport:
         if stored is None:
             raise YandexImapError(f"failed to fetch imap INTERNALDATE uid {uid}")
         return stored.astimezone(UTC)
+
+    def search_uids_header(
+        self,
+        folder: str,
+        header_name: str,
+        header_value: str,
+        max_results: int,
+    ) -> tuple[list[int], bool]:
+        self._check_tx()
+        self.select_folder(folder)
+        self.header_search_calls.append(
+            {
+                "folder": folder,
+                "header_name": header_name,
+                "header_value": header_value,
+                "max_results": max_results,
+            }
+        )
+        matches: list[int] = []
+        store = self._folder_messages.get(folder, {})
+        for uid, raw in sorted(store.items()):
+            parsed = BytesParser(policy=email_default_policy).parsebytes(raw)
+            actual = str(parsed.get(header_name) or "").strip()
+            if actual == header_value.strip():
+                matches.append(uid)
+        if len(matches) > max_results:
+            return matches[:max_results], True
+        return matches, False
+
+    def ensure_mailbox(self, folder: str) -> None:
+        self._check_tx()
+        names = {mailbox.name for mailbox in self.list_mailboxes()}
+        if folder in names:
+            return
+        if self.create_error is not None:
+            raise self.create_error
+        self.create_calls.append(folder)
+        self._folder_messages.setdefault(folder, {})
+        extra = ImapMailbox(flags=frozenset({"HASNOCHILDREN"}), name=folder)
+        if self._mailboxes is None:
+            self._mailboxes = [
+                ImapMailbox(flags=frozenset(), name=self._folder),
+                extra,
+            ]
+        else:
+            self._mailboxes = list(self._mailboxes) + [extra]
+
+    def append_message(
+        self,
+        folder: str,
+        message_bytes: bytes,
+        flags: list[str] | None = None,
+    ) -> None:
+        self._check_tx()
+        self.append_calls.append(
+            {"folder": folder, "message_bytes": message_bytes, "flags": list(flags or ["\\Seen"])}
+        )
+        if self.persist_on_append:
+            existing = self._folder_messages.setdefault(folder, {})
+            uid = (max(existing) + 1) if existing else 1
+            self.add_message(folder, uid, message_bytes)
+        if self.lose_append_response:
+            self.lose_append_response = False
+            raise YandexImapError("lost IMAP APPEND response", retryable=True)
+        if self.append_error is not None:
+            raise self.append_error
 
     def add_message(
         self,

@@ -1,8 +1,7 @@
 """Bounded Gmail send_email execution after approval."""
 
-from __future__ import annotations
-
 import base64
+import json
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -13,9 +12,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.connectors.google.constants import GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE
 from app.connectors.google.credentials import GoogleAccountStore
@@ -58,6 +58,14 @@ SENT_RECONCILE_LOOKAHEAD = timedelta(hours=2)
 SENT_LIST_PAGE_SIZE = 50
 MAX_SENT_LIST_PAGES = 5
 MAX_SENT_CANDIDATES = 200
+SECRETARY_UNCERTAIN_FOLDER = "Secretary-Uncertain"
+SENT_COPY_NOT_STARTED = "not_started"
+SENT_COPY_STARTED = "started"
+SENT_COPY_STORED = "stored"
+SENT_COPY_UNCERTAIN = "uncertain"
+SENT_COPY_FAILED_DEFINITE = "failed_definite"
+METADATA_SENT_COPY_STATE = "sent_copy_state"
+METADATA_UNCERTAIN_COPY_STATE = "uncertain_copy_state"
 
 
 def yandex_sent_evidence_window(started_at: datetime) -> tuple[datetime, datetime]:
@@ -405,18 +413,19 @@ class EmailExternalActionService:
         attempt, claimed = self._claim_started(payload.operation_id)
         imap = self._yandex_imap(account)
         if not claimed:
-            return self._resume_yandex_attempt(account, payload, attempt, imap)
+            return self._resume_yandex_attempt(payload, attempt, imap)
         smtp = self._yandex_smtp(account)
         message = build_email_message(payload)
+        message_bytes = message.as_bytes(policy=SMTP)
         try:
             smtp.send_rfc822(
                 from_addr=payload.account_email,
                 to_addrs=list(payload.to),
-                message_bytes=message.as_bytes(policy=SMTP),
+                message_bytes=message_bytes,
             )
         except YandexSmtpError as exc:
             if exc.retryable:
-                return self._after_ambiguous_yandex_send(payload, attempt, imap)
+                return self._after_ambiguous_yandex_send(payload, imap, message_bytes)
             self._persist_attempt_state(
                 payload.operation_id,
                 ATTEMPT_FAILED_DEFINITE,
@@ -427,126 +436,241 @@ class EmailExternalActionService:
             payload.operation_id,
             ATTEMPT_SUCCEEDED,
             delivery_status="sent",
+            extra_metadata={METADATA_SENT_COPY_STATE: SENT_COPY_NOT_STARTED},
         )
-        return self._output(payload, None, delivery_status="sent", changed=True)
+        copy_status = self._complete_yandex_sent_copy(payload, imap, message_bytes)
+        return self._output(
+            payload,
+            None,
+            delivery_status="sent",
+            changed=True,
+            sent_copy_status=copy_status,
+        )
 
     def _resume_yandex_attempt(
         self,
-        account: YandexMailAccount,
         payload: SendEmailCanonicalInput,
         attempt: ExternalActionAttempt,
         imap,
     ) -> SendEmailOutput:
+        message_bytes = build_email_message(payload).as_bytes(policy=SMTP)
+        if attempt.state == ATTEMPT_FAILED_DEFINITE:
+            raise ToolError(_FAILED_DEFINITE_MESSAGE)
         if attempt.state == ATTEMPT_SUCCEEDED:
+            copy_state = self._copy_state(attempt, METADATA_SENT_COPY_STATE)
+            if copy_state == SENT_COPY_STORED:
+                return self._output(
+                    payload,
+                    attempt.provider_external_id,
+                    delivery_status="already_sent",
+                    changed=False,
+                    sent_copy_status="already_present",
+                )
+            if copy_state == SENT_COPY_NOT_STARTED:
+                copy_status = self._complete_yandex_sent_copy(payload, imap, message_bytes)
+                return self._output(
+                    payload,
+                    attempt.provider_external_id,
+                    delivery_status="already_sent",
+                    changed=False,
+                    sent_copy_status=copy_status,
+                )
+            copy_status = self._reconcile_yandex_mailbox_copy(
+                payload,
+                imap,
+                self._sent_folder(imap),
+                METADATA_SENT_COPY_STATE,
+                allow_append=False,
+            )
             return self._output(
                 payload,
                 attempt.provider_external_id,
                 delivery_status="already_sent",
                 changed=False,
+                sent_copy_status=copy_status,
             )
-        if attempt.state == ATTEMPT_FAILED_DEFINITE:
-            raise ToolError(_FAILED_DEFINITE_MESSAGE)
-        return self._reconcile_yandex_sent(payload, imap, attempt)
+        return self._after_ambiguous_yandex_send(payload, imap, message_bytes)
 
     def _after_ambiguous_yandex_send(
         self,
         payload: SendEmailCanonicalInput,
-        attempt: ExternalActionAttempt,
         imap,
+        message_bytes: bytes,
     ) -> SendEmailOutput:
         self._persist_attempt_state(
             payload.operation_id,
             ATTEMPT_UNCERTAIN,
             error=_UNCERTAIN_DELIVERY_MESSAGE,
         )
-        return self._reconcile_yandex_sent(payload, imap, attempt)
+        self._store_yandex_uncertain_copy(payload, imap, message_bytes)
+        raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
 
-    def _reconcile_yandex_sent(
+    def _complete_yandex_sent_copy(
         self,
         payload: SendEmailCanonicalInput,
         imap,
-        attempt: ExternalActionAttempt,
-    ) -> SendEmailOutput:
-        started_at = self._attempt_started_at(payload.operation_id) or attempt.started_at or _utcnow()
-        window_start, window_end = yandex_sent_evidence_window(started_at)
+        message_bytes: bytes,
+    ) -> str:
+        claimed = self._claim_copy_state(payload.operation_id, METADATA_SENT_COPY_STATE)
+        if not claimed:
+            latest = self._load_attempt(payload.operation_id)
+            copy_state = self._copy_state(latest, METADATA_SENT_COPY_STATE) if latest else SENT_COPY_UNCERTAIN
+            if copy_state == SENT_COPY_STORED:
+                return "already_present"
+            return self._reconcile_yandex_mailbox_copy(
+                payload,
+                imap,
+                self._sent_folder_or_none(imap),
+                METADATA_SENT_COPY_STATE,
+                allow_append=False,
+            )
+        return self._append_yandex_mailbox_copy(
+            payload,
+            imap,
+            self._sent_folder_or_none(imap),
+            message_bytes,
+            METADATA_SENT_COPY_STATE,
+            create_folder=False,
+        )
+
+    def _store_yandex_uncertain_copy(
+        self,
+        payload: SendEmailCanonicalInput,
+        imap,
+        message_bytes: bytes,
+    ) -> None:
+        latest = self._load_attempt(payload.operation_id)
+        copy_state = self._copy_state(latest, METADATA_UNCERTAIN_COPY_STATE) if latest else SENT_COPY_NOT_STARTED
+        if copy_state == SENT_COPY_STORED:
+            return
         try:
-            sent_folder = imap.discover_sent_folder()
-            since, before = yandex_sent_coarse_imap_bounds(started_at)
-            uids, incomplete = imap.search_uids_since_before(
-                sent_folder,
-                since,
-                before,
-                MAX_SENT_CANDIDATES,
+            tagged = self._find_exact_mailbox_copies(imap, SECRETARY_UNCERTAIN_FOLDER, payload)
+        except YandexImapError:
+            tagged = []
+        if len(tagged) == 1:
+            self._set_copy_state(payload.operation_id, METADATA_UNCERTAIN_COPY_STATE, SENT_COPY_STORED)
+            return
+        if len(tagged) > 1:
+            self._set_copy_state(payload.operation_id, METADATA_UNCERTAIN_COPY_STATE, SENT_COPY_UNCERTAIN)
+            return
+        if copy_state in {SENT_COPY_STARTED, SENT_COPY_UNCERTAIN, SENT_COPY_FAILED_DEFINITE}:
+            self._reconcile_yandex_mailbox_copy(
+                payload,
+                imap,
+                SECRETARY_UNCERTAIN_FOLDER,
+                METADATA_UNCERTAIN_COPY_STATE,
+                allow_append=False,
             )
+            return
+        claimed = self._claim_copy_state(payload.operation_id, METADATA_UNCERTAIN_COPY_STATE)
+        if not claimed:
+            self._reconcile_yandex_mailbox_copy(
+                payload,
+                imap,
+                SECRETARY_UNCERTAIN_FOLDER,
+                METADATA_UNCERTAIN_COPY_STATE,
+                allow_append=False,
+            )
+            return
+        self._append_yandex_mailbox_copy(
+            payload,
+            imap,
+            SECRETARY_UNCERTAIN_FOLDER,
+            message_bytes,
+            METADATA_UNCERTAIN_COPY_STATE,
+            create_folder=True,
+        )
+
+    def _sent_folder(self, imap) -> str:
+        return imap.discover_sent_folder()
+
+    def _sent_folder_or_none(self, imap) -> str | None:
+        try:
+            return imap.discover_sent_folder()
+        except YandexImapError:
+            return None
+
+    def _append_yandex_mailbox_copy(
+        self,
+        payload: SendEmailCanonicalInput,
+        imap,
+        folder: str | None,
+        message_bytes: bytes,
+        metadata_key: str,
+        *,
+        create_folder: bool,
+    ) -> str:
+        if folder is None:
+            self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_FAILED_DEFINITE)
+            return "unconfirmed"
+        try:
+            if create_folder:
+                imap.ensure_mailbox(folder)
+            imap.append_message(folder, message_bytes, flags=["\\Seen"])
         except YandexImapError as exc:
-            self._persist_attempt_state(
-                payload.operation_id,
-                ATTEMPT_UNCERTAIN,
-                error=_UNCERTAIN_DELIVERY_MESSAGE,
-            )
-            raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
+            if exc.retryable:
+                return self._reconcile_yandex_mailbox_copy(
+                    payload,
+                    imap,
+                    folder,
+                    metadata_key,
+                    allow_append=False,
+                )
+            self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_FAILED_DEFINITE)
+            return "unconfirmed"
+        self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_STORED)
+        return "stored"
 
-        if incomplete or len(uids) > MAX_SENT_CANDIDATES:
-            self._persist_attempt_state(
-                payload.operation_id,
-                ATTEMPT_UNCERTAIN,
-                error=_UNCERTAIN_DELIVERY_MESSAGE,
-            )
-            raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
+    def _reconcile_yandex_mailbox_copy(
+        self,
+        payload: SendEmailCanonicalInput,
+        imap,
+        folder: str | None,
+        metadata_key: str,
+        *,
+        allow_append: bool,
+    ) -> str:
+        del allow_append
+        if folder is None:
+            self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_UNCERTAIN)
+            return "unconfirmed"
+        try:
+            tagged = self._find_exact_mailbox_copies(imap, folder, payload)
+        except YandexImapError:
+            self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_UNCERTAIN)
+            return "unconfirmed"
+        if len(tagged) > 1:
+            self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_UNCERTAIN)
+            return "unconfirmed"
+        if len(tagged) == 1:
+            self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_STORED)
+            return "stored"
+        current = self._copy_state(self._load_attempt(payload.operation_id), metadata_key)
+        if current == SENT_COPY_FAILED_DEFINITE:
+            return "unconfirmed"
+        self._set_copy_state(payload.operation_id, metadata_key, SENT_COPY_UNCERTAIN)
+        return "unconfirmed"
 
+    def _find_exact_mailbox_copies(self, imap, folder: str, payload: SendEmailCanonicalInput) -> list[Any]:
+        header_value = secretary_operation_header_value(payload.operation_id)
+        uids, incomplete = imap.search_uids_header(
+            folder,
+            SECRETARY_OPERATION_HEADER,
+            header_value,
+            MAX_SENT_CANDIDATES,
+        )
+        if incomplete:
+            raise YandexImapError("too many mailbox copy candidates", retryable=True)
         tagged: list[Any] = []
         for uid in uids:
-            try:
-                internaldate = imap.fetch_internaldate(sent_folder, uid)
-            except YandexImapError as exc:
-                self._persist_attempt_state(
-                    payload.operation_id,
-                    ATTEMPT_UNCERTAIN,
-                    error=_UNCERTAIN_DELIVERY_MESSAGE,
-                )
-                raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
-            if internaldate < window_start or internaldate > window_end:
+            raw = imap.fetch_message(folder, uid)
+            parsed = BytesParser(policy=email_default_policy).parsebytes(raw)
+            if not self._rfc822_operation_header_matches(payload, parsed):
                 continue
-            try:
-                raw = imap.fetch_message(sent_folder, uid)
-                parsed = BytesParser(policy=email_default_policy).parsebytes(raw)
-            except (YandexImapError, ValueError, TypeError) as exc:
-                self._persist_attempt_state(
-                    payload.operation_id,
-                    ATTEMPT_UNCERTAIN,
-                    error=_UNCERTAIN_DELIVERY_MESSAGE,
-                )
-                raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE) from exc
-            if self._rfc822_operation_header_matches(payload, parsed):
-                tagged.append(parsed)
-
-        if len(tagged) > 1:
-            self._persist_attempt_state(
-                payload.operation_id,
-                ATTEMPT_UNCERTAIN,
-                error=_DUPLICATE_OPERATION_MESSAGE,
-            )
-            raise ToolError(_DUPLICATE_OPERATION_MESSAGE)
-        if not tagged:
-            self._persist_attempt_state(
-                payload.operation_id,
-                ATTEMPT_UNCERTAIN,
-                error=_UNCERTAIN_DELIVERY_MESSAGE,
-            )
-            raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
-        if not self._rfc822_content_matches(payload, tagged[0]):
-            self._persist_attempt_state(
-                payload.operation_id,
-                ATTEMPT_FAILED_DEFINITE,
-                error=_MISMATCH_MESSAGE,
-            )
-            raise ToolError(_MISMATCH_MESSAGE)
-        self._persist_attempt_state(
-            payload.operation_id,
-            ATTEMPT_SUCCEEDED,
-            delivery_status="already_sent",
-        )
-        return self._output(payload, None, delivery_status="already_sent", changed=False)
+            if not self._rfc822_content_matches(payload, parsed):
+                continue
+            tagged.append(parsed)
+        return tagged
 
     def _rfc822_operation_header_matches(self, payload: SendEmailCanonicalInput, message: Any) -> bool:
         expected = secretary_operation_header_value(payload.operation_id)
@@ -564,12 +688,90 @@ class EmailExternalActionService:
             return False
         if str(message.get("Subject") or "") != payload.subject:
             return False
+        if str(message.get("Message-ID") or "").strip() != payload.rfc822_message_id:
+            return False
+        if not self._rfc822_operation_header_matches(payload, message):
+            return False
         body = message.get_content()
         if isinstance(body, bytes):
             body = body.decode("utf-8", errors="replace")
         if not isinstance(body, str):
             return False
         return _normalize_body(body) == _normalize_body(payload.body)
+
+    def _copy_state(self, attempt: ExternalActionAttempt | None, key: str) -> str:
+        if attempt is None:
+            return SENT_COPY_NOT_STARTED
+        metadata = dict(attempt.result_metadata or {})
+        value = str(metadata.get(key) or SENT_COPY_NOT_STARTED)
+        return value
+
+    def _load_attempt(self, operation_id: str) -> ExternalActionAttempt | None:
+        session = self._attempt_session_factory()
+        try:
+            attempt = session.scalar(
+                select(ExternalActionAttempt).where(
+                    ExternalActionAttempt.user_id == self._user_id,
+                    ExternalActionAttempt.operation_id == operation_id,
+                )
+            )
+            if attempt is None:
+                return None
+            session.expunge(attempt)
+            return attempt
+        finally:
+            session.close()
+
+    def _claim_copy_state(self, operation_id: str, key: str) -> bool:
+        session = self._attempt_session_factory()
+        try:
+            result = session.execute(
+                text(
+                    """
+                    UPDATE external_action_attempts
+                    SET result_metadata = coalesce(result_metadata, '{}'::jsonb)
+                        || CAST(:patch AS jsonb)
+                    WHERE user_id = CAST(:user_id AS uuid)
+                      AND operation_id = :operation_id
+                      AND coalesce(result_metadata->>:key, 'not_started') = 'not_started'
+                    """
+                ),
+                {
+                    "patch": json.dumps({key: SENT_COPY_STARTED}),
+                    "user_id": str(self._user_id),
+                    "operation_id": operation_id,
+                    "key": key,
+                },
+            )
+            session.commit()
+            return int(result.rowcount or 0) == 1
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def _set_copy_state(self, operation_id: str, key: str, value: str) -> None:
+        session = self._attempt_session_factory()
+        try:
+            attempt = session.scalar(
+                select(ExternalActionAttempt).where(
+                    ExternalActionAttempt.user_id == self._user_id,
+                    ExternalActionAttempt.operation_id == operation_id,
+                )
+            )
+            if attempt is None:
+                return
+            metadata = dict(attempt.result_metadata or {})
+            metadata[key] = value
+            attempt.result_metadata = metadata
+            flag_modified(attempt, "result_metadata")
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def _yandex_smtp(self, account: YandexMailAccount):
         if self._yandex_smtp_transport is not None:
@@ -636,6 +838,7 @@ class EmailExternalActionService:
         provider_external_id: str | None = None,
         delivery_status: str | None = None,
         error: str | None = None,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> None:
         session = self._attempt_session_factory()
         try:
@@ -647,8 +850,6 @@ class EmailExternalActionService:
             )
             if attempt is None:
                 return
-            if attempt.state == ATTEMPT_SUCCEEDED:
-                return
             if attempt.state == ATTEMPT_FAILED_DEFINITE and state != ATTEMPT_FAILED_DEFINITE:
                 return
             metadata = dict(attempt.result_metadata or {})
@@ -656,8 +857,16 @@ class EmailExternalActionService:
                 metadata["delivery_status"] = delivery_status
             if error:
                 metadata["error"] = error[:500]
+            if extra_metadata:
+                metadata.update(extra_metadata)
+            if attempt.state == ATTEMPT_SUCCEEDED and state != ATTEMPT_SUCCEEDED:
+                attempt.result_metadata = metadata
+                flag_modified(attempt, "result_metadata")
+                session.commit()
+                return
             attempt.state = state
             attempt.result_metadata = metadata
+            flag_modified(attempt, "result_metadata")
             if provider_external_id:
                 attempt.provider_external_id = provider_external_id[:200]
             if state != ATTEMPT_STARTED:
@@ -805,6 +1014,7 @@ class EmailExternalActionService:
         *,
         delivery_status: str,
         changed: bool,
+        sent_copy_status: str | None = None,
     ) -> SendEmailOutput:
         return SendEmailOutput(
             provider="gmail" if (payload.provider or "google") != "yandex" else "yandex",
@@ -814,6 +1024,7 @@ class EmailExternalActionService:
             provider_message_id=provider_message_id,
             delivery_status=delivery_status,  # type: ignore[arg-type]
             changed=changed,
+            sent_copy_status=sent_copy_status,  # type: ignore[arg-type]
         )
 
     def _bounded_provider_error(self, exc: GoogleApiError) -> str:

@@ -40,6 +40,15 @@ def describe_execution_effect(tool_name: str, output: dict[str, Any] | None) -> 
                 f"changed=true"
             )
         if tool_name == "send_email":
+            if (output or {}).get("provider") == "yandex":
+                copy_status = (output or {}).get("sent_copy_status")
+                if copy_status in ("stored", "already_present"):
+                    return "Письмо отправлено. Копия сохранена в Отправленных."
+                if copy_status == "unconfirmed":
+                    return (
+                        "Письмо отправлено, но не удалось подтвердить сохранение "
+                        "копии в Отправленных."
+                    )
             return (
                 f"send_email: sent via {(output or {}).get('provider')} "
                 f"from {(output or {}).get('account_email')}; changed=true"

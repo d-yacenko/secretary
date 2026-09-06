@@ -167,6 +167,57 @@ def test_imaplib_transport_incremental_search_oldest_batch_with_misbehaving_serv
     assert result == list(range(101, 201))
 
 
+def test_fake_imap_append_and_ensure_mailbox() -> None:
+    from app.connectors.yandex.imap_mailboxes import ImapMailbox
+
+    imap = FakeImapTransport(
+        folder="INBOX",
+        messages={},
+        mailboxes=[
+            ImapMailbox(flags=frozenset({"HASNOCHILDREN"}), name="INBOX"),
+            ImapMailbox(flags=frozenset({"HASNOCHILDREN", "SENT"}), name="Sent"),
+        ],
+        folder_messages={"INBOX": {}, "Sent": {}},
+    )
+    imap.ensure_mailbox("Secretary-Uncertain")
+    imap.ensure_mailbox("Secretary-Uncertain")
+    assert imap.create_calls == ["Secretary-Uncertain"]
+    raw = b"From: a@b.c\r\nSubject: x\r\n\r\nbody"
+    imap.append_message("Sent", raw, flags=["\\Seen"])
+    assert imap.append_calls == [{"folder": "Sent", "message_bytes": raw, "flags": ["\\Seen"]}]
+    uids, incomplete = imap.search_uids_header("Sent", "Subject", "x", 200)
+    assert uids == [1]
+    assert incomplete is False
+
+
+class _AppendImap:
+    def __init__(self) -> None:
+        self.created: list[str] = []
+        self.appended: list[tuple[str, str, bytes]] = []
+
+    def list(self):
+        return "OK", [b'(\\HasNoChildren) "/" INBOX']
+
+    def create(self, name):
+        self.created.append(name)
+        return "OK", [b""]
+
+    def append(self, mailbox, flags, date_time, message):
+        self.appended.append((mailbox, flags, message))
+        return "OK", [b""]
+
+
+def test_imaplib_transport_append_and_create() -> None:
+    transport = ImaplibTransport("imap.yandex.ru", 993, "user@yandex.ru", "pass")
+    stub = _AppendImap()
+    transport._imap = stub
+    transport.ensure_mailbox("Secretary-Uncertain")
+    assert stub.created == ["Secretary-Uncertain"]
+    transport.append_message("Sent", b"raw-bytes", flags=["\\Seen"])
+    assert stub.appended == [("Sent", "(\\Seen)", b"raw-bytes")]
+    assert transport._selected_folder is None
+
+
 def test_normalize_imap_message_matches_email_object_shape() -> None:
     raw = _build_raw_email()
     normalized = normalize_imap_message(raw, folder=DEFAULT_MAIL_FOLDER, uid=42, uidvalidity=7)

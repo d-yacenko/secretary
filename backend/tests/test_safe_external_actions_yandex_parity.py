@@ -28,7 +28,7 @@ from app.connectors.yandex.caldav_write import (
 )
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
-from app.connectors.yandex.errors import YandexCalDavError, YandexSmtpError
+from app.connectors.yandex.errors import YandexCalDavError, YandexImapError, YandexSmtpError
 from app.connectors.yandex.imap_mailboxes import (
     ImapMailbox,
     parse_imap_list_line,
@@ -43,11 +43,20 @@ from app.services.action_plan_service import ActionPlanService
 from app.services.calendar_external_action_service import CalendarExternalActionService
 from app.services.domain_tool_service import DomainToolService
 from app.services.email_external_action_service import (
-    ATTEMPT_STARTED,
+    ATTEMPT_FAILED_DEFINITE,
+    ATTEMPT_SUCCEEDED,
+    ATTEMPT_UNCERTAIN,
+    METADATA_SENT_COPY_STATE,
     SECRETARY_OPERATION_HEADER,
+    SECRETARY_UNCERTAIN_FOLDER,
+    SENT_COPY_NOT_STARTED,
+    SENT_COPY_STARTED,
+    SENT_COPY_STORED,
+    SENT_COPY_UNCERTAIN,
     EmailExternalActionService,
     build_email_message,
     rfc822_message_id_from_operation_id,
+    secretary_operation_header_value,
     yandex_sent_coarse_imap_bounds,
     yandex_sent_evidence_window,
 )
@@ -369,6 +378,9 @@ def test_yandex_mail_approval_gates(db_session, google_settings, credential_key,
     assert smtp.send_calls == []
     mcp = gateway.execute(tools, "send_email", _mail_args(provider="yandex"), context=ExecutionContext.MCP)
     assert mcp.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert smtp.send_calls == []
+    assert imap.append_calls == []
+    assert imap.create_calls == []
     service = ActionPlanService(db_session, owner)
     rejected = gateway.execute(
         tools, "send_email", _mail_args(provider="yandex"), context=ExecutionContext.INTERACTIVE_ASSISTANT
@@ -385,6 +397,8 @@ def test_yandex_mail_approval_gates(db_session, google_settings, credential_key,
     row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
     service.approve(expired_plan.id)
     assert smtp.send_calls == []
+    assert imap.append_calls == []
+    assert imap.create_calls == []
 
 
 def test_yandex_mail_approve_sends_once(google_settings, credential_key, monkeypatch):
@@ -405,13 +419,28 @@ def test_yandex_mail_approve_sends_once(google_settings, credential_key, monkeyp
         plan = ActionPlanService(session, user_id).create_plan([staged.staged_action])
         assert "operation_id" not in str(plan.actions)
         first = ActionPlanService(session, user_id).approve(plan.id)
-        assert first.result["actions"][0]["output"]["changed"] is True
-        assert first.result["actions"][0]["output"]["provider"] == "yandex"
+        output = first.result["actions"][0]["output"]
+        assert output["changed"] is True
+        assert output["provider"] == "yandex"
+        assert output["delivery_status"] == "sent"
+        assert output["sent_copy_status"] == "stored"
+        assert first.result["actions"][0]["effect_description"] == (
+            "Письмо отправлено. Копия сохранена в Отправленных."
+        )
         assert len(smtp.send_calls) == 1
-        assert SECRETARY_OPERATION_HEADER.encode() in smtp.send_calls[0]["message_bytes"]
-        assert b"yandex-app-password" not in smtp.send_calls[0]["message_bytes"]
+        assert len(imap.append_calls) == 1
+        assert imap.append_calls[0]["folder"] == SENT_FOLDER
+        assert imap.append_calls[0]["message_bytes"] == smtp.send_calls[0]["message_bytes"]
+        parsed = build_email_message(
+            SendEmailCanonicalInput.model_validate(staged.staged_action["arguments"])
+        )
+        raw = smtp.send_calls[0]["message_bytes"]
+        assert SECRETARY_OPERATION_HEADER.encode() in raw
+        assert parsed["Message-ID"].encode() in raw
+        assert b"yandex-app-password" not in raw
         ActionPlanService(session, user_id).approve(plan.id)
         assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
         repeated = ToolExecutionGateway().execute(
             tools,
             "send_email",
@@ -420,7 +449,9 @@ def test_yandex_mail_approve_sends_once(google_settings, credential_key, monkeyp
         )
         assert repeated.success is True
         assert repeated.output["changed"] is False
+        assert repeated.output["sent_copy_status"] == "already_present"
         assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
     finally:
         session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
         session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))
@@ -428,7 +459,7 @@ def test_yandex_mail_approve_sends_once(google_settings, credential_key, monkeyp
         session.close()
 
 
-def test_yandex_mail_concurrent_crash_reconcile(google_settings, credential_key, monkeypatch):
+def test_yandex_mail_concurrent_smtp_once(google_settings, credential_key, monkeypatch):
     smtp, imap = _mail_fakes()
     _patch_mail(monkeypatch, smtp, imap)
     session = SessionLocal()
@@ -463,41 +494,8 @@ def test_yandex_mail_concurrent_crash_reconcile(google_settings, credential_key,
         for thread in threads:
             thread.join()
         assert len(smtp.send_calls) == 1
-
-        smtp2, imap2 = _mail_fakes()
-        _patch_mail(monkeypatch, smtp2, imap2)
-        args2 = ToolExecutionGateway().execute(
-            _tools_mail(session, user_id, smtp2, imap2),
-            "send_email",
-            _mail_args(provider="yandex", subject="Crash"),
-            context=ExecutionContext.INTERACTIVE_ASSISTANT,
-        ).staged_action["arguments"]
-        imap2.add_message(
-            SENT_FOLDER,
-            7,
-            build_email_message(SendEmailCanonicalInput.model_validate(args2)).as_bytes(policy=SMTP),
-        )
-        crash = SessionLocal()
-        crash.add(
-            ExternalActionAttempt(
-                user_id=user_id,
-                operation_id=args2["operation_id"],
-                tool_name="send_email",
-                state=ATTEMPT_STARTED,
-                started_at=datetime.now(UTC),
-            )
-        )
-        crash.commit()
-        crash.close()
-        resumed = ToolExecutionGateway().execute(
-            _tools_mail(session, user_id, smtp2, imap2),
-            "send_email",
-            args2,
-            context=ExecutionContext.APPROVED_ACTION_PLAN,
-        )
-        assert resumed.success is True
-        assert resumed.output["changed"] is False
-        assert smtp2.send_calls == []
+        sent_appends = [call for call in imap.append_calls if call["folder"] == SENT_FOLDER]
+        assert len(sent_appends) == 1
     finally:
         session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
         session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))
@@ -505,78 +503,367 @@ def test_yandex_mail_concurrent_crash_reconcile(google_settings, credential_key,
         session.close()
 
 
-def _execute_yandex_send(db_session, owner, smtp, imap):
+def _isolated_mail(credential_key: str):
+    session = SessionLocal()
+    user_id = uuid4()
+    session.add(User(id=user_id, display_name="yandex-iso"))
+    session.commit()
+    _add_yandex_mail(session, credential_key, "user@yandex.ru", user_id=user_id)
+    session.commit()
+    return session, user_id
+
+
+def _cleanup_isolated(session, user_id) -> None:
+    session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
+    session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))
+    session.commit()
+    session.close()
+
+
+def _execute_yandex_send(db_session, owner, smtp, imap, **mail_overrides):
     tools = _tools_mail(db_session, owner, smtp, imap)
     gateway = ToolExecutionGateway()
     staged = gateway.execute(
-        tools, "send_email", _mail_args(provider="yandex"), context=ExecutionContext.INTERACTIVE_ASSISTANT
+        tools,
+        "send_email",
+        _mail_args(provider="yandex", **mail_overrides),
+        context=ExecutionContext.INTERACTIVE_ASSISTANT,
     )
     result = gateway.execute(
         tools, "send_email", staged.staged_action["arguments"], context=ExecutionContext.APPROVED_ACTION_PLAN
     )
-    return result, smtp, imap
+    return result, smtp, imap, staged.staged_action["arguments"]
 
 
-def test_yandex_mail_reconciliation_cases(db_session, google_settings, credential_key, owner, monkeypatch):
+def _attempt_for(db_session, owner, operation_id: str) -> ExternalActionAttempt:
+    return db_session.query(ExternalActionAttempt).filter_by(
+        user_id=owner, operation_id=operation_id
+    ).one()
+
+
+def test_yandex_mail_clear_success_appends_sent_once(
+    db_session, google_settings, credential_key, owner
+):
     _add_yandex_mail(db_session, credential_key, "user@yandex.ru", user_id=owner)
-
     smtp, imap = _mail_fakes()
-    smtp.lose_send_response = True
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
+    result, smtp, imap, args = _execute_yandex_send(db_session, owner, smtp, imap)
     assert result.success is True
-    assert result.output["changed"] is False
+    assert result.output["delivery_status"] == "sent"
+    assert result.output["changed"] is True
+    assert result.output["sent_copy_status"] == "stored"
     assert len(smtp.send_calls) == 1
+    assert len(imap.append_calls) == 1
+    assert imap.append_calls[0]["folder"] == SENT_FOLDER
+    assert imap.append_calls[0]["flags"] == ["\\Seen"]
+    raw = smtp.send_calls[0]["message_bytes"]
+    assert raw == imap.append_calls[0]["message_bytes"]
+    parsed = build_email_message(SendEmailCanonicalInput.model_validate(args))
+    assert parsed["From"] == "user@yandex.ru"
+    assert parsed["To"] == "ivan@example.com"
+    assert parsed["Subject"] == "Статус задачи"
+    assert parsed["Message-ID"] == args["rfc822_message_id"]
+    assert parsed[SECRETARY_OPERATION_HEADER] == secretary_operation_header_value(args["operation_id"])
+    assert parsed["From"].encode() in raw
+    assert parsed["Message-ID"].encode() in raw
+    attempt = _attempt_for(db_session, owner, args["operation_id"])
+    assert attempt.state == ATTEMPT_SUCCEEDED
+    assert attempt.result_metadata[METADATA_SENT_COPY_STATE] == SENT_COPY_STORED
 
+
+def test_yandex_mail_sent_copy_failure_keeps_smtp_success(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        imap.append_error = YandexImapError("quota exceeded")
+        result, smtp, imap, args = _execute_yandex_send(session, owner, smtp, imap)
+        assert result.success is True
+        assert result.output["delivery_status"] == "sent"
+        assert result.output["changed"] is True
+        assert result.output["sent_copy_status"] == "unconfirmed"
+        assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
+        attempt = _attempt_for(session, owner, args["operation_id"])
+        assert attempt.state == ATTEMPT_SUCCEEDED
+        resume = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            args,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert resume.success is True
+        assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_mail_append_lost_response_then_found(
+    db_session, google_settings, credential_key, owner
+):
+    _add_yandex_mail(db_session, credential_key, "user@yandex.ru", user_id=owner)
     smtp, imap = _mail_fakes()
-    smtp.send_error = YandexSmtpError("try later", retryable=True)
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
+    imap.lose_append_response = True
+    result, smtp, imap, args = _execute_yandex_send(db_session, owner, smtp, imap)
     assert result.success is True
-
-    smtp, imap = _mail_fakes()
-    smtp.persist_on_send = False
-    smtp.lose_send_response = True
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
-    assert result.success is False
-
-    smtp, imap = _mail_fakes()
-    smtp.strip_operation_header = True
-    smtp.lose_send_response = True
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
-    assert result.success is False
-
-    smtp, imap = _mail_fakes()
-    smtp.field_overrides = {"Subject": "other"}
-    smtp.lose_send_response = True
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
-    assert result.success is False
-    assert "does not match" in (result.error or "")
-
-    smtp, imap = _mail_fakes()
-    smtp.also_store_tagged_clone = True
-    smtp.lose_send_response = True
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
-    assert result.success is False
-    assert "multiple" in (result.error or "")
-
-    smtp, imap = _mail_fakes()
-    imap._folder_messages[SENT_FOLDER] = {
-        index: b"From: a@b.c\r\nSubject: x\r\n\r\nx" for index in range(1, 220)
-    }
-    smtp.persist_on_send = False
-    smtp.lose_send_response = True
-    result, smtp, imap = _execute_yandex_send(db_session, owner, smtp, imap)
-    assert result.success is False
-    assert imap.window_search_calls[0]["folder"] == SENT_FOLDER
-    assert imap.window_search_calls[0]["max_results"] == 200
-    assert imap.fetch_calls == []
-    assert imap.internaldate_fetch_calls == []
+    assert result.output["sent_copy_status"] == "stored"
     assert len(smtp.send_calls) == 1
+    assert len(imap.append_calls) == 1
+    attempt = _attempt_for(db_session, owner, args["operation_id"])
+    assert attempt.state == ATTEMPT_SUCCEEDED
+    assert attempt.result_metadata[METADATA_SENT_COPY_STATE] == SENT_COPY_STORED
 
-    smtp, imap = _mail_fakes()
-    smtp.send_error = YandexSmtpError("password=yandex-app-password leaked", retryable=False)
-    result, smtp, _imap = _execute_yandex_send(db_session, owner, smtp, imap)
-    assert "password" not in (result.error or "").lower()
-    assert "yandex-app-password" not in (result.error or "")
+
+def test_yandex_mail_append_ambiguous_without_copy(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        imap.persist_on_append = False
+        imap.lose_append_response = True
+        result, smtp, imap, args = _execute_yandex_send(session, owner, smtp, imap)
+        assert result.success is True
+        assert result.output["delivery_status"] == "sent"
+        assert result.output["sent_copy_status"] == "unconfirmed"
+        assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
+        attempt = _attempt_for(session, owner, args["operation_id"])
+        assert attempt.state == ATTEMPT_SUCCEEDED
+        assert attempt.result_metadata[METADATA_SENT_COPY_STATE] == SENT_COPY_UNCERTAIN
+        resume = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            args,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert resume.success is True
+        assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_mail_crash_windows(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        staged = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            _mail_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=args["operation_id"],
+                tool_name="send_email",
+                state=ATTEMPT_SUCCEEDED,
+                started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC),
+                result_metadata={
+                    "delivery_status": "sent",
+                    METADATA_SENT_COPY_STATE: SENT_COPY_NOT_STARTED,
+                },
+            )
+        )
+        session.commit()
+        resumed = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            args,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert resumed.success is True
+        assert smtp.send_calls == []
+        assert len(imap.append_calls) == 1
+        assert imap.append_calls[0]["folder"] == SENT_FOLDER
+
+        smtp2, imap2 = _mail_fakes()
+        staged2 = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp2, imap2),
+            "send_email",
+            _mail_args(provider="yandex", subject="Started copy"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args2 = staged2.staged_action["arguments"]
+        session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=args2["operation_id"],
+                tool_name="send_email",
+                state=ATTEMPT_SUCCEEDED,
+                started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC),
+                result_metadata={
+                    "delivery_status": "sent",
+                    METADATA_SENT_COPY_STATE: SENT_COPY_STARTED,
+                },
+            )
+        )
+        session.commit()
+        started_resume = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp2, imap2),
+            "send_email",
+            args2,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert started_resume.success is True
+        assert smtp2.send_calls == []
+        assert imap2.append_calls == []
+        assert started_resume.output["sent_copy_status"] == "unconfirmed"
+
+        smtp3, imap3 = _mail_fakes()
+        staged3 = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp3, imap3),
+            "send_email",
+            _mail_args(provider="yandex", subject="Already copied"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args3 = staged3.staged_action["arguments"]
+        imap3.add_message(
+            SENT_FOLDER,
+            9,
+            build_email_message(SendEmailCanonicalInput.model_validate(args3)).as_bytes(policy=SMTP),
+        )
+        session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=args3["operation_id"],
+                tool_name="send_email",
+                state=ATTEMPT_SUCCEEDED,
+                started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC),
+                result_metadata={
+                    "delivery_status": "sent",
+                    METADATA_SENT_COPY_STATE: SENT_COPY_STARTED,
+                },
+            )
+        )
+        session.commit()
+        present = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp3, imap3),
+            "send_email",
+            args3,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert present.success is True
+        assert present.output["sent_copy_status"] in {"stored", "already_present"}
+        assert smtp3.send_calls == []
+        assert imap3.append_calls == []
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_mail_ambiguous_smtp_uses_uncertain_folder(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        smtp.lose_send_response = True
+        result, smtp, imap, args = _execute_yandex_send(session, owner, smtp, imap)
+        assert result.success is False
+        assert len(smtp.send_calls) == 1
+        assert [call["folder"] for call in imap.append_calls] == [SECRETARY_UNCERTAIN_FOLDER]
+        assert imap.append_calls[0]["message_bytes"] == smtp.send_calls[0]["message_bytes"]
+        attempt = _attempt_for(session, owner, args["operation_id"])
+        assert attempt.state == ATTEMPT_UNCERTAIN
+        resume = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            args,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert resume.success is False
+        assert len(smtp.send_calls) == 1
+        assert len(imap.append_calls) == 1
+        session.expire_all()
+        assert _attempt_for(session, owner, args["operation_id"]).state == ATTEMPT_UNCERTAIN
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_mail_uncertain_artifact_not_delivery_proof(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        staged = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            _mail_args(provider="yandex"),
+            context=ExecutionContext.INTERACTIVE_ASSISTANT,
+        )
+        args = staged.staged_action["arguments"]
+        imap.ensure_mailbox(SECRETARY_UNCERTAIN_FOLDER)
+        imap.add_message(
+            SECRETARY_UNCERTAIN_FOLDER,
+            3,
+            build_email_message(SendEmailCanonicalInput.model_validate(args)).as_bytes(policy=SMTP),
+        )
+        session.add(
+            ExternalActionAttempt(
+                user_id=owner,
+                operation_id=args["operation_id"],
+                tool_name="send_email",
+                state=ATTEMPT_UNCERTAIN,
+                started_at=datetime.now(UTC),
+                result_metadata={"error": "could not confirm email delivery; not retrying send"},
+            )
+        )
+        session.commit()
+        resumed = ToolExecutionGateway().execute(
+            _tools_mail(session, owner, smtp, imap),
+            "send_email",
+            args,
+            context=ExecutionContext.APPROVED_ACTION_PLAN,
+        )
+        assert resumed.success is False
+        assert smtp.send_calls == []
+        assert imap.append_calls == []
+        session.expire_all()
+        assert _attempt_for(session, owner, args["operation_id"]).state == ATTEMPT_UNCERTAIN
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_mail_uncertain_create_error_does_not_resend(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        smtp.lose_send_response = True
+        imap.create_error = YandexImapError("cannot create mailbox")
+        result, smtp, imap, args = _execute_yandex_send(session, owner, smtp, imap)
+        assert result.success is False
+        assert len(smtp.send_calls) == 1
+        assert imap.append_calls == []
+        assert _attempt_for(session, owner, args["operation_id"]).state == ATTEMPT_UNCERTAIN
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_mail_definite_smtp_failure_no_mailbox_copy(google_settings, credential_key):
+    session, owner = _isolated_mail(credential_key)
+    try:
+        smtp, imap = _mail_fakes()
+        smtp.send_error = YandexSmtpError("password=yandex-app-password leaked", retryable=False)
+        result, smtp, imap, args = _execute_yandex_send(session, owner, smtp, imap)
+        assert result.success is False
+        assert "password" not in (result.error or "").lower()
+        assert "yandex-app-password" not in (result.error or "")
+        assert len(smtp.send_calls) == 1
+        assert imap.append_calls == []
+        assert imap.create_calls == []
+        assert _attempt_for(session, owner, args["operation_id"]).state == ATTEMPT_FAILED_DEFINITE
+    finally:
+        _cleanup_isolated(session, owner)
+
+
+def test_yandex_sent_internaldate_window_helpers() -> None:
+    started_at = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    window_start, window_end = yandex_sent_evidence_window(started_at)
+    assert window_start == datetime(2026, 9, 6, 10, 0, tzinfo=UTC)
+    assert window_end == datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
+    since, before = yandex_sent_coarse_imap_bounds(started_at)
+    assert since == datetime(2026, 9, 6, 0, 0, tzinfo=UTC)
+    assert before == datetime(2026, 9, 7, 0, 0, tzinfo=UTC)
 
 
 def test_cross_provider_mail_dispatch(db_session, google_settings, credential_key, owner, monkeypatch):
@@ -859,164 +1146,6 @@ def test_parse_imap_internaldate_uses_server_timestamp() -> None:
     parsed = parse_imap_internaldate(b'1 (UID 7 INTERNALDATE "06-Sep-2026 10:00:00 +0000")')
     assert parsed == datetime(2026, 9, 6, 10, 0, tzinfo=UTC)
 
-
-def _tagged_sent_bytes(args: dict, *, subject: str | None = None, date_header: str | None = None) -> bytes:
-    message = build_email_message(SendEmailCanonicalInput.model_validate(args))
-    if subject is not None:
-        message.replace_header("Subject", subject)
-    if date_header is not None:
-        if "Date" in message:
-            message.replace_header("Date", date_header)
-        else:
-            message["Date"] = date_header
-    return message.as_bytes(policy=SMTP)
-
-
-def test_yandex_sent_internaldate_window(google_settings, credential_key):
-    started_at = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
-    window_start, window_end = yandex_sent_evidence_window(started_at)
-    assert window_start == datetime(2026, 9, 6, 10, 0, tzinfo=UTC)
-    assert window_end == datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
-    since, before = yandex_sent_coarse_imap_bounds(started_at)
-    assert since == datetime(2026, 9, 6, 0, 0, tzinfo=UTC)
-    assert before == datetime(2026, 9, 7, 0, 0, tzinfo=UTC)
-
-    session = SessionLocal()
-    user_id = uuid4()
-    try:
-        session.add(User(id=user_id, display_name="yandex-window"))
-        session.commit()
-        _add_yandex_mail(session, credential_key, "user@yandex.ru", user_id=user_id)
-        session.commit()
-
-        def resume(subject: str):
-            imap = _sent_imap()
-            smtp = FakeSmtpTransport(imap=imap, sent_folder=SENT_FOLDER)
-            tools = _tools_mail(session, user_id, smtp, imap)
-            gateway = ToolExecutionGateway()
-            args = gateway.execute(
-                tools,
-                "send_email",
-                _mail_args(provider="yandex", subject=subject),
-                context=ExecutionContext.INTERACTIVE_ASSISTANT,
-            ).staged_action["arguments"]
-            claim = SessionLocal()
-            claim.add(
-                ExternalActionAttempt(
-                    user_id=user_id,
-                    operation_id=args["operation_id"],
-                    tool_name="send_email",
-                    state=ATTEMPT_STARTED,
-                    started_at=started_at,
-                )
-            )
-            claim.commit()
-            claim.close()
-            return gateway, tools, smtp, imap, args
-
-        gateway, tools, smtp, imap, args = resume("In window")
-        imap.add_message(
-            SENT_FOLDER,
-            11,
-            _tagged_sent_bytes(args, date_header="01 Jan 2000 00:00:00 +0000"),
-            internaldate=started_at,
-        )
-        in_window = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert in_window.success is True
-        assert in_window.output["changed"] is False
-        assert smtp.send_calls == []
-        assert imap.fetch_calls == [11]
-
-        gateway, tools, smtp, imap, args = resume("Below")
-        imap.add_message(
-            SENT_FOLDER,
-            12,
-            _tagged_sent_bytes(args),
-            internaldate=window_start - timedelta(seconds=1),
-        )
-        below = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert below.success is False
-        assert smtp.send_calls == []
-        assert imap.fetch_calls == []
-
-        gateway, tools, smtp, imap, args = resume("Above")
-        imap.add_message(
-            SENT_FOLDER,
-            13,
-            _tagged_sent_bytes(args),
-            internaldate=window_end + timedelta(seconds=1),
-        )
-        above = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert above.success is False
-        assert smtp.send_calls == []
-        assert imap.fetch_calls == []
-
-        gateway, tools, smtp, imap, args = resume("Low bound")
-        imap.add_message(SENT_FOLDER, 14, _tagged_sent_bytes(args), internaldate=window_start)
-        low = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert low.success is True
-        assert smtp.send_calls == []
-
-        gateway, tools, smtp, imap, args = resume("High bound")
-        imap.add_message(SENT_FOLDER, 15, _tagged_sent_bytes(args), internaldate=window_end)
-        high = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert high.success is True
-        assert smtp.send_calls == []
-
-        gateway, tools, smtp, imap, args = resume("Mixed")
-        tagged = _tagged_sent_bytes(args)
-        imap.add_message(
-            SENT_FOLDER, 16, tagged, internaldate=window_start - timedelta(hours=1)
-        )
-        imap.add_message(SENT_FOLDER, 17, tagged, internaldate=started_at)
-        mixed = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert mixed.success is True
-        assert mixed.output["changed"] is False
-        assert smtp.send_calls == []
-        assert imap.fetch_calls == [17]
-
-        gateway, tools, smtp, imap, args = resume("Overflow")
-        for index in range(1, 202):
-            imap.add_message(SENT_FOLDER, index, b"From: a@b.c\r\nSubject: x\r\n\r\nx")
-        overflow = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert overflow.success is False
-        assert smtp.send_calls == []
-        assert imap.fetch_calls == []
-        assert imap.internaldate_fetch_calls == []
-        assert imap.window_search_calls[0]["max_results"] == 200
-
-        gateway, tools, smtp, imap, args = resume("Mismatch")
-        imap.add_message(
-            SENT_FOLDER,
-            18,
-            _tagged_sent_bytes(args, subject="other"),
-            internaldate=started_at,
-        )
-        mismatch = gateway.execute(
-            tools, "send_email", args, context=ExecutionContext.APPROVED_ACTION_PLAN
-        )
-        assert mismatch.success is False
-        assert "does not match" in (mismatch.error or "")
-        assert smtp.send_calls == []
-    finally:
-        session.execute(delete(ExternalActionAttempt).where(ExternalActionAttempt.user_id == user_id))
-        session.execute(delete(PendingActionPlan).where(PendingActionPlan.user_id == user_id))
-        session.commit()
-        session.close()
 
 
 def test_send_email_input_rejects_unknown_provider():

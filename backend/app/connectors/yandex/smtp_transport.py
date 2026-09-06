@@ -87,23 +87,7 @@ class FakeSmtpTransport:
         self.send_calls.append(
             {"from_addr": from_addr, "to_addrs": list(to_addrs), "message_bytes": payload}
         )
-        if self.persist_on_send:
-            self.sent_messages.append(payload)
-            if self._imap is not None and self._sent_folder:
-                existing = self._imap._folder_messages.setdefault(self._sent_folder, {})
-                uid = (max(existing) + 1) if existing else 1
-                self._imap.add_message(self._sent_folder, uid, payload)
-                if self.also_store_tagged_clone:
-                    self._imap.add_message(self._sent_folder, uid + 1000, payload)
-        if self.force_incomplete_listing and self._imap is not None and self._sent_folder:
-            extras = self._imap._folder_messages.setdefault(self._sent_folder, {})
-            start = (max(extras) + 1) if extras else 1
-            for index in range(201):
-                self._imap.add_message(
-                    self._sent_folder,
-                    start + index,
-                    b"From: filler@example.com\r\nSubject: filler\r\n\r\nfiller",
-                )
+        self.sent_messages.append(payload)
         if self.lose_send_response:
             self.lose_send_response = False
             raise YandexSmtpError("lost SMTP response", retryable=True)
