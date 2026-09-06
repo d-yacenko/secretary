@@ -24,7 +24,6 @@ FORBIDDEN_MCP_TOOLS = frozenset(
         "send_notification",
         "search_calendar",
         "propose_calendar_event",
-        "send_email",
         "delete_object",
         "delete_edge",
     }
@@ -130,6 +129,21 @@ async def test_mcp_create_calendar_event_requires_approval(mcp_server) -> None:
                 "summary": "MCP calendar event",
                 "start_at": "2026-09-06T15:00:00+03:00",
                 "end_at": "2026-09-06T15:30:00+03:00",
+            },
+        )
+    assert result.is_error
+    assert "Traceback" not in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_mcp_send_email_requires_approval(mcp_server) -> None:
+    async with Client(mcp_server) as client:
+        result = await client.call_tool(
+            "send_email",
+            {
+                "to": ["ivan@example.com"],
+                "subject": "Status",
+                "body": "Short status.",
             },
         )
     assert result.is_error

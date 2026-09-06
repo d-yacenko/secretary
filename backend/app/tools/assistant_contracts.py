@@ -318,4 +318,28 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         },
         "strict": False,
     },
+    "send_email": {
+        "type": "function",
+        "name": "send_email",
+        "description": (
+            "Send a plain-text email from the user's connected mail account. "
+            "Requires explicit user approval before the provider sends. "
+            "Compose the final exact To recipients, subject, and body first. "
+            "Call this only when the user asked to send. Do not call it for a draft. "
+            "If multiple Google accounts are connected, pass account_email. "
+            "Do not include From, CC, BCC, attachments, or HTML."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "account_email": {"type": ["string", "null"]},
+                "to": {"type": "array", "items": {"type": "string"}},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+            },
+            "required": ["to", "subject", "body"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
 }

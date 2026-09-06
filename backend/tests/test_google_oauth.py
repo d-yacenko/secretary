@@ -16,6 +16,7 @@ from app.connectors.google.constants import (
     CALENDAR_READONLY_SCOPE,
     DRIVE_READONLY_SCOPE,
     GMAIL_READONLY_SCOPE,
+    GMAIL_SEND_SCOPE,
     GOOGLE_OAUTH_SCOPES,
 )
 from app.connectors.google.credentials import GoogleAccountStore
@@ -803,7 +804,6 @@ def test_no_db_transaction_held_during_fake_network_wait(
 
 def test_no_gmail_send_or_unapproved_calendar_mcp_tools() -> None:
     forbidden = {
-        "send_email",
         "sync_gmail",
         "gmail_sync",
         "search_calendar",
@@ -811,6 +811,7 @@ def test_no_gmail_send_or_unapproved_calendar_mcp_tools() -> None:
     }
     assert not MCP_TOOL_NAMES.intersection(forbidden)
     assert "create_calendar_event" in MCP_TOOL_NAMES
+    assert "send_email" in MCP_TOOL_NAMES
 
 
 def test_oauth_token_refresh_on_expired_access_token(
@@ -993,6 +994,7 @@ def test_authorization_url_returns_google_url_with_required_scopes(
     params = parse_qs(urlparse(location).query)
     scope = params["scope"][0]
     assert GMAIL_READONLY_SCOPE in scope
+    assert GMAIL_SEND_SCOPE in scope
     assert CALENDAR_READONLY_SCOPE in scope
     assert CALENDAR_EVENTS_SCOPE in scope
     assert DRIVE_READONLY_SCOPE in scope

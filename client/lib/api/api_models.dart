@@ -884,6 +884,8 @@ class PendingAction {
         return 'Link objects';
       case 'create_calendar_event':
         return _calendarEventLabel(arguments);
+      case 'send_email':
+        return _sendEmailLabel(arguments);
       default:
         return toolName.replaceAll('_', ' ');
     }
@@ -922,6 +924,30 @@ class PendingAction {
       parts.add(location.trim());
     }
     return parts.join(' | ');
+  }
+
+  static String _sendEmailLabel(Map<String, dynamic> arguments) {
+    final from = arguments['account_email'];
+    final toRaw = arguments['to'];
+    final to = toRaw is List
+        ? toRaw.map((e) => e.toString()).join(', ')
+        : (toRaw == null ? '' : toRaw.toString());
+    final subject = arguments['subject'];
+    final body = arguments['body'];
+    final parts = <String>['Отправить письмо'];
+    if (from is String && from.trim().isNotEmpty) {
+      parts.add('From: ${from.trim()}');
+    }
+    if (to.trim().isNotEmpty) {
+      parts.add('To: $to');
+    }
+    if (subject is String && subject.trim().isNotEmpty) {
+      parts.add('Subject: ${subject.trim()}');
+    }
+    if (body is String && body.isNotEmpty) {
+      parts.add('Body: $body');
+    }
+    return parts.join('\n');
   }
 }
 

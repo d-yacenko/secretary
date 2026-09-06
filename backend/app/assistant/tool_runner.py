@@ -42,6 +42,7 @@ _MUTATION_TOOLS = frozenset(
         "link_objects",
         "remove_relation",
         "create_calendar_event",
+        "send_email",
     }
 )
 

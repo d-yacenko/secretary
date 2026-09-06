@@ -20,6 +20,7 @@ from app.tools.schemas import (
     QueryObjectsOutput,
     RemoveRelationOutput,
     SearchObjectsOutput,
+    SendEmailOutput,
     SetTaskStatusOutput,
     ToolError,
     UpdateTaskOutput,
@@ -269,5 +270,22 @@ def create_mcp_server() -> MCPServer:
         if account_email is not None:
             arguments["account_email"] = account_email
         return _run_tool("create_calendar_event", "create_calendar_event", arguments)
+
+    @mcp.tool()
+    def send_email(
+        to: list[str],
+        subject: str,
+        body: str,
+        account_email: str | None = None,
+    ) -> SendEmailOutput:
+        """Send a plain-text email (requires approval; MCP cannot execute the send)."""
+        arguments: dict = {
+            "to": to,
+            "subject": subject,
+            "body": body,
+        }
+        if account_email is not None:
+            arguments["account_email"] = account_email
+        return _run_tool("send_email", "send_email", arguments)
 
     return mcp

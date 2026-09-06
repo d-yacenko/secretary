@@ -191,7 +191,7 @@ def _to_view(plan: PendingActionPlan) -> PendingActionPlanView:
     )
 
 
-_PUBLIC_ARGUMENT_HIDDEN_KEYS = frozenset({"operation_id"})
+_PUBLIC_ARGUMENT_HIDDEN_KEYS = frozenset({"operation_id", "rfc822_message_id"})
 _IRREVERSIBLE_PERMISSIONS = frozenset(
     {ToolPermission.EXTERNAL_WRITE, ToolPermission.COMMUNICATE}
 )

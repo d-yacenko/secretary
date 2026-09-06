@@ -70,6 +70,9 @@ from app.tools.schemas import (
     RetrieveOutput,
     SearchObjectsInput,
     SearchObjectsOutput,
+    SendEmailCanonicalInput,
+    SendEmailInput,
+    SendEmailOutput,
     SetTaskStatusInput,
     SetTaskStatusOutput,
     ToolError,
@@ -89,12 +92,18 @@ class DomainToolService:
         client_timezone: str | None = None,
         calendar_transport=None,
         calendar_token_session_factory=None,
+        gmail_transport=None,
+        gmail_token_session_factory=None,
+        attempt_session_factory=None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._write_mode = write_mode
         self._calendar_transport = calendar_transport
         self._calendar_token_session_factory = calendar_token_session_factory
+        self._gmail_transport = gmail_transport
+        self._gmail_token_session_factory = gmail_token_session_factory
+        self._attempt_session_factory = attempt_session_factory
         from app.core.client_timezone import get_request_timezone
 
         self._client_timezone = client_timezone or get_request_timezone()
@@ -536,6 +545,18 @@ class DomainToolService:
             kwargs["token_session_factory"] = self._calendar_token_session_factory
         return CalendarExternalActionService(self._session, self._user_id, **kwargs)
 
+    def _email_actions(self):
+        from app.services.email_external_action_service import EmailExternalActionService
+
+        kwargs = {}
+        if self._gmail_transport is not None:
+            kwargs["transport"] = self._gmail_transport
+        if self._gmail_token_session_factory is not None:
+            kwargs["token_session_factory"] = self._gmail_token_session_factory
+        if self._attempt_session_factory is not None:
+            kwargs["attempt_session_factory"] = self._attempt_session_factory
+        return EmailExternalActionService(self._session, self._user_id, **kwargs)
+
     def prepare_create_calendar_event(
         self, payload: CreateCalendarEventInput
     ) -> CreateCalendarEventCanonicalInput:
@@ -545,3 +566,9 @@ class DomainToolService:
         self, payload: CreateCalendarEventCanonicalInput
     ) -> CreateCalendarEventOutput:
         return self._calendar_actions().create_event(payload)
+
+    def prepare_send_email(self, payload: SendEmailInput) -> SendEmailCanonicalInput:
+        return self._email_actions().prepare_send_email(payload)
+
+    def send_email(self, payload: SendEmailCanonicalInput) -> SendEmailOutput:
+        return self._email_actions().send_email(payload)

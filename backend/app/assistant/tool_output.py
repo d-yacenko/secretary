@@ -287,6 +287,17 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             "changed": raw_output.get("changed", False),
         }
 
+    if tool_name == "send_email":
+        return {
+            "provider": raw_output.get("provider"),
+            "account_email": raw_output.get("account_email"),
+            "to": raw_output.get("to"),
+            "subject": raw_output.get("subject"),
+            "provider_message_id": raw_output.get("provider_message_id"),
+            "delivery_status": raw_output.get("delivery_status"),
+            "changed": raw_output.get("changed", False),
+        }
+
     return raw_output
 
 

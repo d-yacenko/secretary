@@ -824,3 +824,33 @@ class UserIdentityProfile(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class ExternalActionAttempt(Base):
+    __tablename__ = "external_action_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    operation_id: Mapped[str] = mapped_column(nullable=False)
+    tool_name: Mapped[str] = mapped_column(nullable=False)
+    state: Mapped[str] = mapped_column(nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_external_id: Mapped[str | None] = mapped_column(nullable=True)
+    result_metadata: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "user_id",
+            "operation_id",
+            name="uq_external_action_attempts_user_id_operation_id",
+        ),
+        Index("ix_external_action_attempts_user_id", "user_id"),
+    )

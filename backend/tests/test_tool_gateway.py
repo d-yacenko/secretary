@@ -37,6 +37,7 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "remove_relation",
         "get_today",
         "create_calendar_event",
+        "send_email",
     }
 )
 
@@ -72,6 +73,7 @@ def test_registry_covers_executor_dispatch_tools():
         "remove_relation",
         "get_today",
         "create_calendar_event",
+        "send_email",
     }
     assert registered_tool_names() == expected
 
@@ -126,6 +128,10 @@ def test_permission_classifications():
     assert TOOL_REGISTRY["create_calendar_event"].assistant_exposed is True
     assert TOOL_REGISTRY["create_calendar_event"].mcp_exposed is True
     assert TOOL_REGISTRY["create_calendar_event"].prepare_method == "prepare_create_calendar_event"
+    assert TOOL_REGISTRY["send_email"].permission == ToolPermission.COMMUNICATE
+    assert TOOL_REGISTRY["send_email"].assistant_exposed is True
+    assert TOOL_REGISTRY["send_email"].mcp_exposed is True
+    assert TOOL_REGISTRY["send_email"].prepare_method == "prepare_send_email"
 
 
 def test_baseline_policy_allows_read_and_internal_write():

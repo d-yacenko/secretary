@@ -527,10 +527,12 @@ class _ActionPlanCard extends StatelessWidget {
               ...actionPlan.plan.actions.map(
                 (action) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    action.displayLabel,
-                    softWrap: true,
-                  ),
+                  child: action.toolName == 'send_email'
+                      ? _SendEmailPreview(action: action)
+                      : Text(
+                          action.displayLabel,
+                          softWrap: true,
+                        ),
                 ),
               ),
               if (cardState == ActionPlanCardState.pending &&
@@ -587,6 +589,43 @@ class _ActionPlanCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SendEmailPreview extends StatelessWidget {
+  const _SendEmailPreview({required this.action});
+
+  final PendingAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final arguments = action.arguments;
+    final from = arguments['account_email']?.toString() ?? '';
+    final toRaw = arguments['to'];
+    final to = toRaw is List
+        ? toRaw.map((e) => e.toString()).join(', ')
+        : (toRaw?.toString() ?? '');
+    final subject = arguments['subject']?.toString() ?? '';
+    final body = arguments['body']?.toString() ?? '';
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Отправить письмо', style: textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text('From: $from', softWrap: true),
+        Text('To: $to', softWrap: true),
+        Text('Subject: $subject', softWrap: true),
+        const SizedBox(height: 4),
+        Text('Body:', style: textTheme.labelMedium),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: SingleChildScrollView(
+            child: SelectableText(body),
+          ),
+        ),
+      ],
     );
   }
 }

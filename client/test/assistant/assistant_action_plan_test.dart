@@ -87,6 +87,26 @@ void main() {
     expect(action.displayLabel, isNot(contains('operation_id')));
   });
 
+  test('send_email displayLabel shows complete inspectable email', () {
+    final action = PendingAction.fromJson({
+      'tool_name': 'send_email',
+      'arguments': {
+        'account_email': 'user@example.com',
+        'to': ['ivan@example.com'],
+        'subject': 'Статус задачи',
+        'body': 'Краткий статус по задаче X.\nГотово к отправке.',
+      },
+    });
+    expect(action.displayLabel, contains('Отправить письмо'));
+    expect(action.displayLabel, contains('From: user@example.com'));
+    expect(action.displayLabel, contains('To: ivan@example.com'));
+    expect(action.displayLabel, contains('Subject: Статус задачи'));
+    expect(action.displayLabel, contains('Краткий статус по задаче X.'));
+    expect(action.displayLabel, contains('Готово к отправке.'));
+    expect(action.displayLabel, isNot(contains('operation_id')));
+    expect(action.displayLabel, isNot(contains('rfc822')));
+  });
+
   test('normal response with no pending plan still parses', () {
     final response = AssistantMessageResponse.fromJson({
       'answer': 'Hello',

@@ -7,6 +7,7 @@ from uuid import UUID
 import httpx
 from sqlalchemy.orm import Session
 
+from app.connectors.google.api_errors import raise_for_google_response
 from app.connectors.google.constants import GMAIL_API_BASE
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError, GoogleOAuthError
@@ -82,6 +83,24 @@ class GmailTransport:
             raise GoogleApiError(f"failed to fetch gmail message {message_id}")
         return response.json()
 
+    def send_message(self, access_token: str, user_id: str, raw: str) -> dict[str, Any]:
+        response = self._http.post(
+            f"{GMAIL_API_BASE}/users/{user_id}/messages/send",
+            json={"raw": raw},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        raise_for_google_response(response, "send_message")
+        payload = _json_object_payload(response, "send_message")
+        message_id = payload.get("id")
+        if not isinstance(message_id, str) or not message_id.strip():
+            raise GoogleApiError(
+                "send_message returned a malformed response",
+                operation="send_message",
+                status_code=response.status_code,
+                retryable=True,
+            )
+        return payload
+
     def get_attachment(
         self,
         access_token: str,
@@ -114,6 +133,21 @@ class GmailTransport:
         if not email:
             raise GoogleApiError("gmail profile missing email address")
         return str(email)
+
+
+def _json_object_payload(response: httpx.Response, operation: str) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        payload = None
+    if not isinstance(payload, dict):
+        raise GoogleApiError(
+            f"{operation} returned a malformed response",
+            operation=operation,
+            status_code=response.status_code,
+            retryable=True,
+        )
+    return payload
 
 
 class GoogleTokenManager:

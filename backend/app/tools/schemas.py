@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
@@ -326,4 +327,107 @@ class CreateCalendarEventOutput(BaseModel):
     start_at: datetime
     end_at: datetime
     canonical_uri: str | None = None
+    changed: bool
+
+
+MAX_EMAIL_TO_RECIPIENTS = 10
+MAX_EMAIL_SUBJECT_CHARS = 300
+MAX_EMAIL_BODY_CHARS = 20_000
+_EMAIL_ADDRESS_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+
+def _reject_crlf(value: object, field_name: str) -> object:
+    if isinstance(value, str) and ("\r" in value or "\n" in value):
+        raise ValueError(f"{field_name} must not contain CR/LF")
+    return value
+
+
+def _normalize_email_address(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("invalid email address")  # noqa: TRY004
+    if "\r" in value or "\n" in value:
+        raise ValueError("invalid email address")
+    stripped = value.strip()
+    if not stripped or not _EMAIL_ADDRESS_RE.match(stripped):
+        raise ValueError("invalid email address")
+    return stripped
+
+
+class SendEmailInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_email: str | None = None
+    to: list[str] = Field(min_length=1, max_length=MAX_EMAIL_TO_RECIPIENTS)
+    subject: str = Field(min_length=1, max_length=MAX_EMAIL_SUBJECT_CHARS)
+    body: str = Field(min_length=1, max_length=MAX_EMAIL_BODY_CHARS)
+
+    @field_validator("account_email", mode="before")
+    @classmethod
+    def _strip_account(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @field_validator("subject", mode="before")
+    @classmethod
+    def _subject_no_crlf(cls, value: object) -> object:
+        value = _reject_crlf(value, "subject")
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _body_required(cls, value: object) -> object:
+        if isinstance(value, str) and ("\r" in value or "\x00" in value):
+            return value.replace("\r\n", "\n").replace("\r", "\n")
+        return value
+
+    @field_validator("to")
+    @classmethod
+    def _validate_to(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in value:
+            normalized.append(_normalize_email_address(value=item))
+        if not normalized:
+            raise ValueError("at least one recipient is required")
+        return normalized
+
+
+class SendEmailCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_email: str = Field(min_length=1)
+    to: list[str] = Field(min_length=1, max_length=MAX_EMAIL_TO_RECIPIENTS)
+    subject: str = Field(min_length=1, max_length=MAX_EMAIL_SUBJECT_CHARS)
+    body: str = Field(min_length=1, max_length=MAX_EMAIL_BODY_CHARS)
+    operation_id: str = Field(min_length=5, max_length=1024)
+    rfc822_message_id: str = Field(min_length=5, max_length=200)
+
+    @field_validator("account_email", "operation_id", "rfc822_message_id", mode="before")
+    @classmethod
+    def _strip_required(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("subject", mode="before")
+    @classmethod
+    def _subject_no_crlf(cls, value: object) -> object:
+        value = _reject_crlf(value, "subject")
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("to")
+    @classmethod
+    def _validate_to(cls, value: list[str]) -> list[str]:
+        return [_normalize_email_address(item) for item in value]
+
+
+class SendEmailOutput(BaseModel):
+    provider: Literal["gmail"] = "gmail"
+    account_email: str
+    to: list[str]
+    subject: str
+    provider_message_id: str | None = None
+    delivery_status: Literal["sent", "already_sent", "uncertain", "failed"]
     changed: bool

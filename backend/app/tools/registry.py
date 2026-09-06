@@ -23,6 +23,8 @@ from app.tools.schemas import (
     RemoveRelationInput,
     RetrieveInput,
     SearchObjectsInput,
+    SendEmailCanonicalInput,
+    SendEmailInput,
     SetTaskStatusInput,
     ToolError,
     UpdateTaskInput,
@@ -191,6 +193,17 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         assistant_definition=_assistant_definition("create_calendar_event"),
         prepare_method="prepare_create_calendar_event",
         execution_input_model=CreateCalendarEventCanonicalInput,
+    ),
+    ToolSpec(
+        name="send_email",
+        permission=ToolPermission.COMMUNICATE,
+        input_model=SendEmailInput,
+        service_method="send_email",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("send_email"),
+        prepare_method="prepare_send_email",
+        execution_input_model=SendEmailCanonicalInput,
     ),
 )
 
