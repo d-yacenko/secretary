@@ -6,6 +6,7 @@ import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/domain_labels.dart';
+import 'account_labels_section.dart';
 import 'account_layout.dart';
 import 'identity_profile_template.dart';
 import 'source_preferences_list.dart';
@@ -827,6 +828,12 @@ class _AccountScreenState extends State<AccountScreen>
                     ),
                   ],
                 ],
+              ),
+              const SizedBox(height: 16),
+              AccountLabelsSection(
+                key: const Key('account_labels_section'),
+                apiClient: widget.apiClient,
+                authController: widget.authController,
               ),
               const SizedBox(height: 32),
               OutlinedButton(

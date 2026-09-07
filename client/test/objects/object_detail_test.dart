@@ -122,6 +122,9 @@ void main() {
             200,
           );
         }
+        if (request.url.path == '/objects/email-1/labels') {
+          return http.Response(jsonEncode({'labels': []}), 200);
+        }
         return http.Response('{}', 404);
       })),
     );
@@ -155,6 +158,9 @@ void main() {
             }),
             200,
           );
+        }
+        if (request.url.path == '/objects/email-1/labels') {
+          return http.Response(jsonEncode({'labels': []}), 200);
         }
         return http.Response('{}', 404);
       })),
@@ -195,6 +201,9 @@ void main() {
             }),
             200,
           );
+        }
+        if (request.url.path == '/objects/email-1/labels') {
+          return http.Response(jsonEncode({'labels': []}), 200);
         }
         return http.Response('{}', 404);
       })),

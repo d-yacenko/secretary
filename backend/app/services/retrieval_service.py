@@ -75,12 +75,33 @@ def _build_filter_suffix(
     date_from: datetime | None,
     date_to: datetime | None,
     apply_horizon: bool,
+    label_id: UUID | None = None,
 ) -> str:
     filters: list[str] = []
     if kind is not None:
         filters.append("AND o.kind = :kind")
     if provider is not None:
         filters.append("AND o.provider = :provider")
+    if label_id is not None:
+        filters.append(
+            """
+            AND EXISTS (
+                SELECT 1
+                FROM edges le
+                INNER JOIN objects lo ON lo.id = le.target_id
+                WHERE le.user_id = :user_id
+                  AND le.source_id = o.id
+                  AND le.target_id = :label_id
+                  AND le.type = 'labeled_with'
+                  AND le.state != 'rejected'
+                  AND lo.user_id = :user_id
+                  AND lo.kind = 'label'
+                  AND lo.state != 'rejected'
+                  AND lo.deleted_at IS NULL
+                  AND (lo.status IS NULL OR lo.status != 'deleted')
+            )
+            """
+        )
     if project_id is not None:
         filters.append(
             """
@@ -517,6 +538,7 @@ class RetrievalService:
         date_to: datetime | None = None,
         limit: int = DEFAULT_FINAL_HITS,
         hits_cap: int | None = None,
+        label_id: UUID | None = None,
     ) -> RetrievalResult:
         normalized_query = query.strip()
         if not normalized_query:
@@ -576,6 +598,7 @@ class RetrievalService:
                 date_to=date_to,
                 apply_horizon=not explicit_dates,
                 recency_cutoff=recency_cutoff,
+                label_id=label_id,
             )
             last_horizon = horizon_days
 
@@ -606,6 +629,7 @@ class RetrievalService:
         date_from: datetime | None,
         date_to: datetime | None,
         apply_horizon: bool,
+        label_id: UUID | None = None,
     ) -> list[UUID]:
         return self._collect_strict_candidate_ids(
             query=query,
@@ -616,6 +640,7 @@ class RetrievalService:
             date_from=date_from,
             date_to=date_to,
             apply_horizon=apply_horizon,
+            label_id=label_id,
         )
 
     def _collect_strict_candidate_ids(
@@ -628,6 +653,7 @@ class RetrievalService:
         date_from: datetime | None,
         date_to: datetime | None,
         apply_horizon: bool,
+        label_id: UUID | None = None,
     ) -> list[UUID]:
         filter_suffix = _build_filter_suffix(
             kind=kind,
@@ -637,6 +663,7 @@ class RetrievalService:
             date_from=date_from,
             date_to=date_to,
             apply_horizon=apply_horizon,
+            label_id=label_id,
         )
         params = {
             "query": query,
@@ -648,6 +675,7 @@ class RetrievalService:
             "date_from": date_from,
             "date_to": date_to,
             "include_labels": kind == "label",
+            "label_id": label_id,
         }
 
         fts_ids = self._session.execute(
@@ -689,6 +717,7 @@ class RetrievalService:
         apply_horizon: bool,
         existing_ids: set[UUID],
         max_new_candidates: int = RELAXED_FALLBACK_QUOTA,
+        label_id: UUID | None = None,
     ) -> list[UUID]:
         if not atoms:
             return []
@@ -701,6 +730,7 @@ class RetrievalService:
             date_from=date_from,
             date_to=date_to,
             apply_horizon=apply_horizon,
+            label_id=label_id,
         )
         base_params = {
             "user_id": self._user_id,
@@ -711,6 +741,7 @@ class RetrievalService:
             "date_from": date_from,
             "date_to": date_to,
             "include_labels": kind == "label",
+            "label_id": label_id,
         }
 
         seen = set(existing_ids)
@@ -806,6 +837,7 @@ class RetrievalService:
         date_to: datetime | None,
         apply_horizon: bool,
         recency_cutoff: datetime,
+        label_id: UUID | None = None,
     ) -> tuple[list[RetrievalHit], int, str, int, int]:
         query_atoms = extract_query_atoms(query)
         filter_suffix = _build_filter_suffix(
@@ -816,6 +848,7 @@ class RetrievalService:
             date_from=date_from,
             date_to=date_to,
             apply_horizon=apply_horizon,
+            label_id=label_id,
         )
         filter_params = {
             "user_id": self._user_id,
@@ -826,6 +859,7 @@ class RetrievalService:
             "date_from": date_from,
             "date_to": date_to,
             "include_labels": kind == "label",
+            "label_id": label_id,
         }
 
         strict_ids = self._collect_strict_candidate_ids(
@@ -837,6 +871,7 @@ class RetrievalService:
             date_from=date_from,
             date_to=date_to,
             apply_horizon=apply_horizon,
+            label_id=label_id,
         )
 
         retrieval_mode = RETRIEVAL_MODE_STRICT
@@ -879,6 +914,7 @@ class RetrievalService:
             apply_horizon=apply_horizon,
             existing_ids=seen_ids,
             max_new_candidates=RELAXED_FALLBACK_QUOTA,
+            label_id=label_id,
         )
         for object_id in relaxed_ids:
             if object_id in seen_ids:

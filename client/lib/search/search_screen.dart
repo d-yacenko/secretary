@@ -45,11 +45,14 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _selectedProvider;
   String _selectedSort = 'relevance';
   SearchFacetsOut? _facets;
+  List<LabelItem> _labels = [];
+  String? _selectedLabelId;
 
   @override
   void initState() {
     super.initState();
     _loadFacets();
+    _loadLabels();
   }
 
   Future<void> _loadFacets() async {
@@ -59,6 +62,21 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() => _facets = facets);
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadLabels() async {
+    try {
+      final result = await widget.apiClient.listLabels();
+      if (mounted) {
+        setState(() => _labels = result.labels);
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException {
+      if (mounted) {
+        setState(() => _labels = []);
+      }
+    }
   }
 
   @override
@@ -86,6 +104,7 @@ class _SearchScreenState extends State<SearchScreen> {
         kind: _selectedKind,
         provider: _selectedProvider,
         sort: _selectedSort,
+        labelId: _selectedLabelId,
       );
       if (!mounted) {
         return;
@@ -159,6 +178,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     selectedProvider: _selectedProvider,
                     selectedSort: _selectedSort,
                     showSort: true,
+                    labels: _labels,
+                    selectedLabelId: _selectedLabelId,
+                    onLabelChanged: (value) {
+                      setState(() => _selectedLabelId = value);
+                      if (_queryController.text.trim().isNotEmpty) {
+                        _search();
+                      }
+                    },
                     onKindChanged: (value) {
                       setState(() => _selectedKind = value);
                       if (_queryController.text.trim().isNotEmpty) {

@@ -556,6 +556,7 @@ class SecretaryApiClient {
     required String query,
     String? kind,
     String? provider,
+    String? labelId,
     String sort = 'relevance',
     int limit = 20,
   }) async {
@@ -570,6 +571,9 @@ class SecretaryApiClient {
     if (provider != null && provider.isNotEmpty) {
       queryParameters['provider'] = provider;
     }
+    if (labelId != null && labelId.isNotEmpty) {
+      queryParameters['label_id'] = labelId;
+    }
     final decoded = await _requestJson(
       'GET',
       '/search',
@@ -581,6 +585,89 @@ class SecretaryApiClient {
     return decoded
         .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<LabelList> listLabels({int limit = 100}) async {
+    final decoded = await _requestJson(
+      'GET',
+      '/labels',
+      queryParameters: {'limit': '$limit'},
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected labels response format');
+    }
+    return LabelList.fromJson(decoded);
+  }
+
+  Future<LabelWriteResult> createLabel(String name) async {
+    final decoded = await _requestJson(
+      'POST',
+      '/labels',
+      jsonBody: {'name': name},
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected label create response format');
+    }
+    return LabelWriteResult.fromJson(decoded);
+  }
+
+  Future<LabelWriteResult> renameLabel({
+    required String labelId,
+    required String name,
+  }) async {
+    final decoded = await _requestJson(
+      'PATCH',
+      '/labels/$labelId',
+      jsonBody: {'name': name},
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected label rename response format');
+    }
+    return LabelWriteResult.fromJson(decoded);
+  }
+
+  Future<LabelWriteResult> deleteLabel(String labelId) async {
+    final decoded = await _requestJson('DELETE', '/labels/$labelId');
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected label delete response format');
+    }
+    return LabelWriteResult.fromJson(decoded);
+  }
+
+  Future<ObjectLabels> getObjectLabels(String objectId) async {
+    final decoded = await _requestJson('GET', '/objects/$objectId/labels');
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected object labels response format');
+    }
+    return ObjectLabels.fromJson(decoded);
+  }
+
+  Future<AssignLabelResult> assignLabel({
+    required String objectId,
+    required String labelId,
+  }) async {
+    final decoded = await _requestJson(
+      'POST',
+      '/objects/$objectId/labels/$labelId',
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected assign label response format');
+    }
+    return AssignLabelResult.fromJson(decoded);
+  }
+
+  Future<RemoveLabelResult> removeObjectLabel({
+    required String objectId,
+    required String labelId,
+  }) async {
+    final decoded = await _requestJson(
+      'DELETE',
+      '/objects/$objectId/labels/$labelId',
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected remove label response format');
+    }
+    return RemoveLabelResult.fromJson(decoded);
   }
 
   Future<SearchFacetsOut> getSearchFacets() async {

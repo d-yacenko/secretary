@@ -198,18 +198,25 @@ def search_objects(
     project_id: UUID | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     sort: str = Query(default="relevance"),
+    label_id: UUID | None = Query(default=None),
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> list[ObjectOut]:
     service = SearchService(session, current_user.user_id)
-    return service.search(
-        query=q,
-        kind=kind,
-        provider=provider,
-        project_id=project_id,
-        limit=limit,
-        sort=sort,
-    )
+    try:
+        return service.search(
+            query=q,
+            kind=kind,
+            provider=provider,
+            project_id=project_id,
+            limit=limit,
+            sort=sort,
+            label_id=label_id,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message
+        ) from exc
 
 
 @router.get("/search/facets", response_model=SearchFacetsOut)

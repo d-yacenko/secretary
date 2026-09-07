@@ -158,16 +158,14 @@ void main() {
       final apiClient = buildAccountApiClient();
       apiClient.configure(baseUrl: _baseUrl, token: _token);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: buildAccountScreen(
-            apiClient: apiClient,
-            authController: _buildAuth(apiClient),
-            connectionsJson: _connectionsJson(driveAvailable: true),
-          ),
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: apiClient,
+          authController: _buildAuth(apiClient),
+          connectionsJson: _connectionsJson(driveAvailable: true),
         ),
       );
-      await tester.pump();
 
       expect(find.text('Google Drive доступен: подключено'), findsOneWidget);
       expect(find.text('Gmail доступен: подключено'), findsOneWidget);

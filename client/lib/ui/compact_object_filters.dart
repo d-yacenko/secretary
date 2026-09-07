@@ -20,6 +20,9 @@ class CompactObjectFilters extends StatelessWidget {
     required this.onKindChanged,
     required this.onProviderChanged,
     required this.onSortChanged,
+    this.labels = const [],
+    this.selectedLabelId,
+    this.onLabelChanged,
   });
 
   final SearchFacetsOut? facets;
@@ -30,6 +33,9 @@ class CompactObjectFilters extends StatelessWidget {
   final ValueChanged<String?> onKindChanged;
   final ValueChanged<String?> onProviderChanged;
   final ValueChanged<String> onSortChanged;
+  final List<LabelItem> labels;
+  final String? selectedLabelId;
+  final ValueChanged<String?>? onLabelChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +56,12 @@ class CompactObjectFilters extends StatelessWidget {
           _SortFilterButton(
             selectedSort: selectedSort,
             onChanged: onSortChanged,
+          ),
+        if (onLabelChanged != null && labels.isNotEmpty)
+          _LabelFilterButton(
+            labels: labels,
+            selectedLabelId: selectedLabelId,
+            onChanged: onLabelChanged!,
           ),
       ],
     );
@@ -435,6 +447,124 @@ class _SortFilterButton extends StatelessWidget {
                 Navigator.pop(context);
               },
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LabelFilterButton extends StatelessWidget {
+  const _LabelFilterButton({
+    required this.labels,
+    required this.selectedLabelId,
+    required this.onChanged,
+  });
+
+  final List<LabelItem> labels;
+  final String? selectedLabelId;
+  final ValueChanged<String?> onChanged;
+
+  String get _selectedTitle {
+    if (selectedLabelId == null) {
+      return 'Все';
+    }
+    for (final label in labels) {
+      if (label.id == selectedLabelId) {
+        return label.title;
+      }
+    }
+    return 'Все';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final display = 'Метка: $_selectedTitle';
+    if (!_isDesktopFilterContext(context)) {
+      return Semantics(
+        label: display,
+        button: true,
+        child: Tooltip(
+          message: display,
+          child: IconButton(
+            key: const Key('search_label_filter'),
+            icon: const Icon(Icons.label_outline),
+            style: IconButton.styleFrom(
+              backgroundColor: selectedLabelId != null
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : null,
+            ),
+            onPressed: () => _showSheet(context),
+          ),
+        ),
+      );
+    }
+
+    return MenuAnchor(
+      builder: (context, controller, child) {
+        return Semantics(
+          label: display,
+          button: true,
+          child: Tooltip(
+            message: display,
+            child: IconButton(
+              key: const Key('search_label_filter'),
+              icon: const Icon(Icons.label_outline),
+              style: IconButton.styleFrom(
+                backgroundColor: selectedLabelId != null
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : null,
+              ),
+              onPressed: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+            ),
+          ),
+        );
+      },
+      menuChildren: [
+        MenuItemButton(
+          onPressed: () => onChanged(null),
+          child: const Text('Метка: Все'),
+        ),
+        for (final label in labels)
+          MenuItemButton(
+            onPressed: () => onChanged(label.id),
+            child: Text(label.title),
+          ),
+      ],
+    );
+  }
+
+  void _showSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('Метка: Все'),
+              selected: selectedLabelId == null,
+              onTap: () {
+                onChanged(null);
+                Navigator.pop(context);
+              },
+            ),
+            for (final label in labels)
+              ListTile(
+                title: Text(label.title),
+                selected: selectedLabelId == label.id,
+                onTap: () {
+                  onChanged(label.id);
+                  Navigator.pop(context);
+                },
+              ),
           ],
         ),
       ),

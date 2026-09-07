@@ -26,6 +26,7 @@ const Map<String, String> _relationTypeLabels = {
   'references': 'Ссылается на',
   'depends_on': 'Зависит от',
   'contains': 'Содержит',
+  'labeled_with': 'Метка',
 };
 
 const Map<String, String> _originLabels = {

@@ -187,6 +187,11 @@ class StubSecretaryApiClient extends SecretaryApiClient {
       preferredName: _identity.preferredName,
     );
   }
+
+  @override
+  Future<LabelList> listLabels({int limit = 100}) async {
+    return LabelList(labels: const []);
+  }
 }
 
 SecretaryApiClient buildAccountApiClient({

@@ -1515,3 +1515,117 @@ class SourcePreferenceList {
     );
   }
 }
+
+class LabelItem {
+  LabelItem({
+    required this.id,
+    required this.title,
+    this.objectCount = 0,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final int objectCount;
+  final String? createdAt;
+  final String? updatedAt;
+
+  factory LabelItem.fromJson(Map<String, dynamic> json) {
+    return LabelItem(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      objectCount: (json['object_count'] as num?)?.toInt() ?? 0,
+      createdAt: json['created_at'] as String?,
+      updatedAt: json['updated_at'] as String?,
+    );
+  }
+}
+
+class LabelList {
+  LabelList({required this.labels});
+
+  final List<LabelItem> labels;
+
+  factory LabelList.fromJson(Map<String, dynamic> json) {
+    return LabelList(
+      labels: (json['labels'] as List<dynamic>)
+          .map((e) => LabelItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class LabelWriteResult {
+  LabelWriteResult({
+    required this.label,
+    this.created,
+    this.changed,
+  });
+
+  final LabelItem label;
+  final bool? created;
+  final bool? changed;
+
+  factory LabelWriteResult.fromJson(Map<String, dynamic> json) {
+    return LabelWriteResult(
+      label: LabelItem.fromJson(json['label'] as Map<String, dynamic>),
+      created: json['created'] as bool?,
+      changed: json['changed'] as bool?,
+    );
+  }
+}
+
+class ObjectLabels {
+  ObjectLabels({required this.labels});
+
+  final List<LabelItem> labels;
+
+  factory ObjectLabels.fromJson(Map<String, dynamic> json) {
+    return ObjectLabels(
+      labels: (json['labels'] as List<dynamic>)
+          .map((e) => LabelItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class AssignLabelResult {
+  AssignLabelResult({
+    required this.objectId,
+    required this.labelId,
+    required this.created,
+  });
+
+  final String objectId;
+  final String labelId;
+  final bool created;
+
+  factory AssignLabelResult.fromJson(Map<String, dynamic> json) {
+    return AssignLabelResult(
+      objectId: json['object_id'] as String,
+      labelId: json['label_id'] as String,
+      created: json['created'] as bool,
+    );
+  }
+}
+
+class RemoveLabelResult {
+  RemoveLabelResult({
+    required this.objectId,
+    required this.labelId,
+    required this.changed,
+  });
+
+  final String objectId;
+  final String labelId;
+  final bool changed;
+
+  factory RemoveLabelResult.fromJson(Map<String, dynamic> json) {
+    return RemoveLabelResult(
+      objectId: json['object_id'] as String,
+      labelId: json['label_id'] as String,
+      changed: json['changed'] as bool,
+    );
+  }
+}

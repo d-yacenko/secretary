@@ -17,6 +17,8 @@ const Map<String, String> objectKindLabels = {
   'chat': 'Чат',
   'message': 'Сообщение',
   'chat_message': 'Сообщение',
+  'label': 'Метка',
+  'scheduled_activity': 'Активность',
 };
 
 const Map<String, String> providerLabels = {
@@ -96,6 +98,8 @@ IconData iconForObjectKind(String kind) {
       return Icons.chat_bubble_outline;
     case 'project':
       return Icons.work_outline;
+    case 'label':
+      return Icons.label_outline;
     default:
       return Icons.category_outlined;
   }

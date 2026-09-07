@@ -12,6 +12,7 @@ import '../navigation/secretary_navigation.dart';
 import '../navigation/source_navigation_presenter.dart';
 import '../navigation/source_navigation_service.dart';
 import '../objects/object_delete_actions.dart';
+import '../objects/object_labels_section.dart';
 import '../tasks/task_management_actions.dart';
 import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
@@ -196,7 +197,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
 
   bool get _showDeleteAction {
     final object = _object;
-    return object != null && !object.isTombstoned;
+    return object != null && !object.isTombstoned && object.kind != 'label';
   }
 
   Future<void> _openNeighborDetail(String objectId) async {
@@ -306,8 +307,10 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         final object = _object!;
         final primaryDateValue = objectPrimaryDateDisplayValue(object);
         return SelectionArea(
-          child: ListView(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
+            child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (_sourcePresentation != null) ...[
                 if (_sourcePresentation!.canOpen)
@@ -356,6 +359,19 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                 value: formatUserDateTime(object.updatedAt),
               ),
               if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
+              const SizedBox(height: 16),
+              if (object.kind == 'label')
+                Text(
+                  'Управлять метками можно в разделе Аккаунт.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                )
+              else
+                ObjectLabelsSection(
+                  key: const Key('object_labels_section'),
+                  objectId: object.id,
+                  apiClient: widget.apiClient,
+                  authController: widget.authController,
+                ),
               if (_attachmentNeighbors.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Text('Вложения', style: Theme.of(context).textTheme.titleMedium),
@@ -420,6 +436,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   ),
                 ),
             ],
+            ),
           ),
         );
     }
