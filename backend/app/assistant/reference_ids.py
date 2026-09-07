@@ -88,6 +88,9 @@ def collect_seen_object_ids_from_bounded_tool(
         for row in bounded.get("notifications", []):
             _append_uuid(seen_ids, row.get("source_object_id"))
             _append_uuid(seen_ids, row.get("related_object_id"))
+    elif tool_name == "list_labels":
+        for row in bounded.get("labels", []):
+            _append_uuid(seen_ids, row.get("id"))
     elif tool_name in (
         "create_task",
         "update_task",

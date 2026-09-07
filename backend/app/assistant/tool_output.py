@@ -194,6 +194,23 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             payload["truncated"] = True
         return payload
 
+    if tool_name == "list_labels":
+        labels = raw_output.get("labels", [])[:MAX_ASSISTANT_LIST_RESULTS]
+        truncated = len(raw_output.get("labels", [])) > len(labels)
+        payload = {
+            "labels": [
+                {
+                    "id": row.get("id"),
+                    "title": row.get("title"),
+                    "object_count": row.get("object_count", 0),
+                }
+                for row in labels
+            ],
+        }
+        if truncated:
+            payload["truncated"] = True
+        return payload
+
     if tool_name == "list_notifications":
         notifications = raw_output.get("notifications", [])[:MAX_ASSISTANT_LIST_RESULTS]
         truncated = len(raw_output.get("notifications", [])) > len(notifications)
@@ -344,6 +361,24 @@ def serialize_tool_output_for_assistant(
                 return AssistantToolModelOutput(text, candidate)
             objects.pop()
         fallback = {"objects": [], "truncated": True}
+        return AssistantToolModelOutput(
+            json.dumps(fallback, ensure_ascii=False),
+            fallback,
+        )
+
+    if tool_name == "list_labels":
+        labels = list(bounded.get("labels", []))
+        truncated_by_count = bounded.get("truncated", False)
+        while labels:
+            candidate = dict(bounded)
+            candidate["labels"] = labels
+            if truncated_by_count or len(labels) < len(raw_output.get("labels", [])):
+                candidate["truncated"] = True
+            text = json.dumps(candidate, ensure_ascii=False)
+            if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
+                return AssistantToolModelOutput(text, candidate)
+            labels.pop()
+        fallback = {"labels": [], "truncated": True}
         return AssistantToolModelOutput(
             json.dumps(fallback, ensure_ascii=False),
             fallback,

@@ -12,7 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_embedding_service
-from app.api.schemas import EdgeCreate, ObjectCreate
+from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
 from app.assistant.session import run_assistant_tool
 from app.db.engine import engine
 from app.db.models import Edge, ExternalActionAttempt, Job, Object, User
@@ -199,6 +199,91 @@ def test_generic_paths_fail_closed(db_session) -> None:
     assigned = _svc(db_session).assign_label(note.id, label.id)
     with pytest.raises(ToolError, match="remove_label"):
         tools.remove_relation(RemoveRelationInput(edge_id=assigned.edge.id))
+    with pytest.raises(ValidationError, match="remove_label"):
+        graph.set_edge_state(assigned.edge.id, REJECTED_STATE)
+    removed = _svc(db_session).remove_label(note.id, label.id)
+    assert removed.changed is True
+    repeated = _svc(db_session).remove_label(note.id, label.id)
+    assert repeated.changed is False
+
+
+def test_generic_object_patch_cannot_bypass_label_service(labels_client, db_session) -> None:
+    from unittest.mock import MagicMock
+
+    note = labels_client.post("/objects", json={"kind": "note", "title": "Keep", "origin": "user"})
+    assert note.status_code == 201
+    note_id = note.json()["id"]
+    patched = labels_client.patch(f"/objects/{note_id}", json={"kind": "label"})
+    assert patched.status_code == 422
+    remaining = labels_client.get(f"/objects/{note_id}")
+    assert remaining.status_code == 200
+    assert remaining.json()["kind"] == "note"
+    created = labels_client.post("/labels", json={"name": "Course"})
+    label_id = created.json()["label"]["id"]
+    exact = labels_client.get(f"/objects/{label_id}")
+    assert exact.status_code == 200
+    assert exact.json()["kind"] == "label"
+    title_patch = labels_client.patch(f"/objects/{label_id}", json={"title": "Hacked"})
+    assert title_patch.status_code == 422
+    metadata_patch = labels_client.patch(
+        f"/objects/{label_id}", json={"metadata": {"label_key": "hacked"}, "kind": "note"}
+    )
+    assert metadata_patch.status_code == 422
+    still = labels_client.get(f"/objects/{label_id}")
+    assert still.json()["title"] == "Course"
+    assert still.json()["metadata"]["label_key"] == "course"
+    renamed = labels_client.patch(f"/labels/{label_id}", json={"name": "Courses"})
+    assert renamed.status_code == 200
+    assert renamed.json()["changed"] is True
+    assert renamed.json()["label"]["title"] == "Courses"
+    embed = MagicMock()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, embed)
+    with pytest.raises(ValidationError, match="LabelService"):
+        graph.update_object(uuid.UUID(label_id), ObjectUpdate(title="Nope"))
+    with pytest.raises(ValidationError, match="LabelService"):
+        graph.update_object(uuid.UUID(note_id), ObjectUpdate(kind="label"))
+    embed.embed.assert_not_called()
+
+
+def test_list_labels_sql_limit_is_deterministic(db_session) -> None:
+    service = _svc(db_session)
+    names = ["Zeta", "Alpha", "Mu", "Beta", "Gamma"]
+    created = {name: service.create_label(name).label for name in names}
+    listed = service.list_labels(limit=3)
+    assert [item.title for item in listed] == ["Alpha", "Beta", "Gamma"]
+    assert len(listed) == 3
+    assert [item.id for item in listed] == [created["Alpha"].id, created["Beta"].id, created["Gamma"].id]
+
+
+def test_assistant_list_labels_is_bounded_and_collects_seen_ids(db_session) -> None:
+    from app.assistant.constants import MAX_ASSISTANT_LIST_RESULTS, MAX_ASSISTANT_TOOL_OUTPUT_CHARS
+    from app.assistant.reference_ids import collect_seen_object_ids_from_bounded_tool
+    from app.assistant.tool_output import serialize_tool_output_for_assistant
+    from app.services.domain_tool_service import DomainToolService
+    from app.tools.schemas import ListLabelsInput
+
+    service = _svc(db_session)
+    created = []
+    for index in range(MAX_ASSISTANT_LIST_RESULTS + 8):
+        created.append(service.create_label(f"Label {index:02d}").label)
+    raw = DomainToolService(db_session, BOOTSTRAP_USER_ID, None).list_labels(
+        ListLabelsInput(limit=100)
+    ).model_dump(mode="json")
+    assert len(raw["labels"]) > MAX_ASSISTANT_LIST_RESULTS
+    model_out = serialize_tool_output_for_assistant("list_labels", raw)
+    payload = model_out.model_visible_payload
+    assert "preview_chars" not in payload
+    assert payload.get("truncated") is True
+    visible = payload["labels"]
+    assert 0 < len(visible) <= MAX_ASSISTANT_LIST_RESULTS
+    assert [row["title"] for row in visible] == [item.title for item in created[: len(visible)]]
+    assert "created_at" not in visible[0]
+    assert "updated_at" not in visible[0]
+    assert len(model_out.model_output_json) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS
+    seen = collect_seen_object_ids_from_bounded_tool("list_labels", payload)
+    assert seen == [uuid.UUID(str(row["id"])) for row in visible]
+    assert created[0].id in seen
+    assert created[-1].id not in seen
 
 
 def test_query_objects_label_filters(db_session) -> None:

@@ -55,6 +55,12 @@ def reserved_labeled_with_reason(edge_type: str) -> str | None:
     return None
 
 
+def reserved_label_update_reason(kind: str) -> str | None:
+    if kind == KIND_LABEL:
+        return "labels must be updated through LabelService"
+    return None
+
+
 @dataclass(frozen=True)
 class LabelRecord:
     id: UUID
@@ -111,10 +117,13 @@ class LabelService:
     def list_labels(self, *, limit: int = 100) -> list[LabelRecord]:
         row_limit = max(1, min(int(limit), LIST_LABELS_MAX))
         labels = list(
-            self._session.scalars(select(Object).where(*self._active_label_filters()))
+            self._session.scalars(
+                select(Object)
+                .where(*self._active_label_filters())
+                .order_by(Object.metadata_["label_key"].as_string().asc(), Object.id.asc())
+                .limit(row_limit)
+            )
         )
-        labels.sort(key=lambda item: (item.title.casefold(), item.id))
-        labels = labels[:row_limit]
         counts = self._object_counts([item.id for item in labels])
         return [
             LabelRecord(

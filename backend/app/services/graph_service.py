@@ -11,7 +11,11 @@ from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
 from app.services.embedding_index import refresh_object_embedding
 from app.services.errors import ConflictError, NotFoundError, ValidationError
-from app.services.label_service import reserved_label_create_reason, reserved_labeled_with_reason
+from app.services.label_service import (
+    reserved_label_create_reason,
+    reserved_label_update_reason,
+    reserved_labeled_with_reason,
+)
 from app.services.provenance import (
     default_object_state,
     validate_agent_proposal,
@@ -90,6 +94,14 @@ class GraphService:
     def update_object(self, object_id: UUID, data: ObjectUpdate) -> Object:
         obj = self.get_object(object_id)
         updates = data.model_dump(exclude_unset=True)
+        reserved = reserved_label_update_reason(obj.kind)
+        if reserved is not None:
+            raise ValidationError(reserved)
+        requested_kind = updates.get("kind")
+        if requested_kind is not None:
+            create_reserved = reserved_label_create_reason(requested_kind)
+            if create_reserved is not None:
+                raise ValidationError(create_reserved)
         metadata_updated = "metadata" in data.model_fields_set
         if "metadata" in updates:
             obj.metadata_ = updates.pop("metadata")
@@ -179,6 +191,9 @@ class GraphService:
         )
         if edge is None:
             raise NotFoundError("edge", edge_id)
+        reserved = reserved_labeled_with_reason(edge.type)
+        if reserved is not None:
+            raise ValidationError(reserved)
         try:
             validate_edge_state_transition(edge.state, state)
         except ValueError as exc:

@@ -27,6 +27,7 @@ _READ_TOOLS = frozenset(
         "get_context",
         "list_neighbors",
         "list_notifications",
+        "list_labels",
     }
 )
 _EVIDENCE_WRITE_TOOLS = frozenset(
