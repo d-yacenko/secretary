@@ -370,10 +370,10 @@ def test_interactive_mutations_require_approval(db_session, fake_embedding_servi
         select(func.count()).select_from(Object).where(Object.user_id == user_id, Object.kind == KIND_LABEL)
     )
     assert after == before
+    # Taxonomy mutations stay approval-controlled. assign_label/remove_label are
+    # ANNOTATE since Workflow Intelligence Pass C (see test_workflow_intelligence_relevance_c).
     for name, arguments in (
         ("rename_label", {"label_id": str(uuid.uuid4()), "name": "X"}),
-        ("assign_label", {"object_id": str(uuid.uuid4()), "label_id": str(uuid.uuid4())}),
-        ("remove_label", {"object_id": str(uuid.uuid4()), "label_id": str(uuid.uuid4())}),
         ("delete_label", {"label_id": str(uuid.uuid4())}),
     ):
         staged = run_assistant_tool(user_id, name, arguments)

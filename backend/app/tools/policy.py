@@ -7,6 +7,10 @@ from app.tools.execution_context import ExecutionContext
 
 class ToolPermission(str, Enum):
     READ = "READ"
+    # Low-risk, local, reversible semantic annotation of existing Secretary data
+    # (e.g. assigning/removing an existing label). Still a mutation: audited,
+    # counted, ownership-validated; never a provider write, never READ.
+    ANNOTATE = "ANNOTATE"
     INTERNAL_WRITE = "INTERNAL_WRITE"
     DESTRUCTIVE_INTERNAL_WRITE = "DESTRUCTIVE_INTERNAL_WRITE"
     EXTERNAL_PROPOSE = "EXTERNAL_PROPOSE"
@@ -27,6 +31,7 @@ def evaluate_policy(
     if context == ExecutionContext.APPROVED_ACTION_PLAN:
         if permission in (
             ToolPermission.READ,
+            ToolPermission.ANNOTATE,
             ToolPermission.INTERNAL_WRITE,
             ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
             ToolPermission.EXTERNAL_PROPOSE,
@@ -37,7 +42,7 @@ def evaluate_policy(
         return PolicyDecision.DENY
 
     if context == ExecutionContext.INTERACTIVE_ASSISTANT:
-        if permission == ToolPermission.READ:
+        if permission in (ToolPermission.READ, ToolPermission.ANNOTATE):
             return PolicyDecision.ALLOW
         if permission in (
             ToolPermission.INTERNAL_WRITE,
@@ -58,7 +63,9 @@ def evaluate_policy(
             return PolicyDecision.ALLOW
         if permission == ToolPermission.EXTERNAL_PROPOSE:
             return PolicyDecision.ALLOW
+        # MCP has no trusted approval transport: ANNOTATE fails closed here.
         if permission in (
+            ToolPermission.ANNOTATE,
             ToolPermission.INTERNAL_WRITE,
             ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
             ToolPermission.EXTERNAL_WRITE,
@@ -70,6 +77,7 @@ def evaluate_policy(
     # BASELINE / SYSTEM
     if permission in (
         ToolPermission.READ,
+        ToolPermission.ANNOTATE,
         ToolPermission.INTERNAL_WRITE,
         ToolPermission.EXTERNAL_PROPOSE,
     ):

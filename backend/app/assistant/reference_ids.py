@@ -39,6 +39,12 @@ def collect_object_ids_from_bounded_tool(
         if edge and bounded.get("created"):
             _append_uuid(affected_ids, edge.get("source_id"))
             _append_uuid(affected_ids, edge.get("target_id"))
+    elif tool_name == "assign_label":
+        if bounded.get("created"):
+            _append_uuid(affected_ids, bounded.get("object_id"))
+    elif tool_name == "remove_label":
+        if bounded.get("changed"):
+            _append_uuid(affected_ids, bounded.get("object_id"))
     elif tool_name in (
         "create_task",
         "update_task",

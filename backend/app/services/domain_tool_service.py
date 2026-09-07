@@ -172,6 +172,20 @@ class DomainToolService:
             state=self._new_artifact_state(),
         )
 
+    def _label_annotation_service(self) -> LabelService:
+        """ANNOTATE assignments are canonical confirmed labeled_with edges.
+
+        assign_label/remove_label execute directly on user request (no approval
+        plan), so a proposed-state edge would surface as an undecidable
+        "proposed relation". Provenance stays visible via origin=agent.
+        """
+        return LabelService(
+            self._session,
+            self._user_id,
+            origin=AGENT_ORIGIN,
+            state=CONFIRMED_STATE,
+        )
+
     def _label_item(self, record: LabelRecord) -> LabelItemOut:
         return LabelItemOut(
             id=record.id,
@@ -265,7 +279,9 @@ class DomainToolService:
 
     def assign_label(self, input: AssignLabelInput) -> AssignLabelOutput:
         try:
-            result = self._label_service().assign_label(input.object_id, input.label_id)
+            result = self._label_annotation_service().assign_label(
+                input.object_id, input.label_id
+            )
         except (NotFoundError, ValidationError, ConflictError) as exc:
             raise self._tool_error_from_mutation(exc) from exc
         return AssignLabelOutput(
@@ -276,7 +292,9 @@ class DomainToolService:
 
     def remove_label(self, input: RemoveLabelInput) -> RemoveLabelOutput:
         try:
-            result = self._label_service().remove_label(input.object_id, input.label_id)
+            result = self._label_annotation_service().remove_label(
+                input.object_id, input.label_id
+            )
         except (NotFoundError, ValidationError, ConflictError) as exc:
             raise self._tool_error_from_mutation(exc) from exc
         return RemoveLabelOutput(

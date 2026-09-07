@@ -35,6 +35,9 @@ _EVIDENCE_WRITE_TOOLS = frozenset(
 )
 _OBJECT_TARGET_TOOLS = frozenset({"update_task", "set_task_status", "delete_task"})
 _ACTIVITY_TARGET_TOOLS = frozenset({"cancel_scheduled_activity"})
+# ANNOTATE tools execute without approval in the interactive turn, so both the
+# target object and the label must have been exposed to the model this turn.
+_ANNOTATION_TARGET_TOOLS = frozenset({"assign_label", "remove_label"})
 _MUTATION_TOOLS = frozenset(
     {
         "create_task",
@@ -167,6 +170,13 @@ class PerTurnToolBudget:
                 if self._telemetry is not None:
                     self._telemetry.tool_calls += 1
                 return edge_error
+
+        if tool_name in _ANNOTATION_TARGET_TOOLS:
+            annotation_error = self._validate_annotation_target_allowlist(tool_name, arguments)
+            if annotation_error is not None:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return annotation_error
 
         result = assistant_session.run_assistant_tool(user_id, tool_name, arguments)
         if result.status == ToolExecutionStatus.APPROVAL_REQUIRED and result.staged_action:
@@ -324,6 +334,37 @@ class PerTurnToolBudget:
                 error="target object was not exposed in this Assistant turn",
                 status=ToolExecutionStatus.TOOL_ERROR,
             )
+        return None
+
+    def _validate_annotation_target_allowlist(
+        self, tool_name: str, arguments: dict
+    ) -> ToolExecutionResult | None:
+        for key, label in (("object_id", "object"), ("label_id", "label")):
+            raw_id = arguments.get(key)
+            if raw_id is None:
+                return ToolExecutionResult(
+                    success=False,
+                    tool_name=tool_name,
+                    error=f"{key} is required",
+                    status=ToolExecutionStatus.TOOL_ERROR,
+                )
+            try:
+                parsed = UUID(str(raw_id))
+            except (ValueError, TypeError):
+                return ToolExecutionResult(
+                    success=False,
+                    tool_name=tool_name,
+                    error=f"invalid {label} id",
+                    status=ToolExecutionStatus.TOOL_ERROR,
+                )
+            if parsed not in self._seen_object_ids:
+                hint = " (use list_labels first)" if key == "label_id" else ""
+                return ToolExecutionResult(
+                    success=False,
+                    tool_name=tool_name,
+                    error=f"target {label} was not exposed in this Assistant turn{hint}",
+                    status=ToolExecutionStatus.TOOL_ERROR,
+                )
         return None
 
     def _validate_edge_id_allowlist(

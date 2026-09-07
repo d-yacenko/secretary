@@ -144,15 +144,17 @@ def test_permission_classifications():
         "cancel_scheduled_activity",
         "create_label",
         "rename_label",
-        "assign_label",
     }
-    destructive = {"delete_task", "remove_relation", "remove_label", "delete_label"}
+    destructive = {"delete_task", "remove_relation", "delete_label"}
+    annotate = {"assign_label", "remove_label"}
     for name in read_tools:
         assert TOOL_REGISTRY[name].permission == ToolPermission.READ
     for name in internal_write:
         assert TOOL_REGISTRY[name].permission == ToolPermission.INTERNAL_WRITE
     for name in destructive:
         assert TOOL_REGISTRY[name].permission == ToolPermission.DESTRUCTIVE_INTERNAL_WRITE
+    for name in annotate:
+        assert TOOL_REGISTRY[name].permission == ToolPermission.ANNOTATE
     assert TOOL_REGISTRY["create_calendar_event"].permission == ToolPermission.EXTERNAL_WRITE
     assert TOOL_REGISTRY["create_calendar_event"].assistant_exposed is True
     assert TOOL_REGISTRY["create_calendar_event"].mcp_exposed is True

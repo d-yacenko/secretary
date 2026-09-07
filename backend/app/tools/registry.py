@@ -167,7 +167,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="assign_label",
-        permission=ToolPermission.INTERNAL_WRITE,
+        permission=ToolPermission.ANNOTATE,
         input_model=AssignLabelInput,
         service_method="assign_label",
         assistant_exposed=True,
@@ -176,7 +176,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="remove_label",
-        permission=ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
+        permission=ToolPermission.ANNOTATE,
         input_model=RemoveLabelInput,
         service_method="remove_label",
         assistant_exposed=True,

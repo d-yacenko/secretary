@@ -336,8 +336,11 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "assign_label",
         "description": (
-            "Assign an active label to an object (labeled_with). Requires approval. "
-            "Do not use link_objects for labels."
+            "Assign an EXISTING active label to an object (labeled_with). Executes "
+            "immediately without approval when the current user request asks to label, "
+            "tag, classify, or organize the object. Requires exact ids from this turn "
+            "(list_labels for label_id). Never creates labels. Do not use link_objects "
+            "for labels."
         ),
         "parameters": {
             "type": "object",
@@ -354,8 +357,10 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "remove_label",
         "description": (
-            "Remove an active labeled_with assignment. Requires approval. "
-            "Does not delete the object or the label."
+            "Remove an active labeled_with assignment from an object. Executes "
+            "immediately without approval when the current user request asks to remove "
+            "or change labels. Does not delete the object or the label (delete_label "
+            "requires approval). Do not use remove_relation for labels."
         ),
         "parameters": {
             "type": "object",
