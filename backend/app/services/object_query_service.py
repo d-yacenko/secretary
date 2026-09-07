@@ -3,10 +3,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import nulls_last, or_, select
+from sqlalchemy import exists, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Object
+from app.db.models import Edge, Object
+from app.domain.labels import (
+    EDGE_TYPE_LABELED_WITH,
+    KIND_LABEL,
+    LABEL_MATCH_ALL,
+    LABEL_MATCH_ANY,
+    QUERY_LABEL_IDS_MAX,
+)
 from app.domain.object_visibility import object_is_active
 from app.domain.task_lifecycle import (
     LEGACY_TASK_STATUS_COMPLETED,
@@ -67,6 +74,8 @@ class ObjectQueryService:
         start_to: datetime | None = None,
         occurred_from: datetime | None = None,
         occurred_to: datetime | None = None,
+        label_ids: list[UUID] | None = None,
+        label_match: str = LABEL_MATCH_ALL,
         sort_by: str = "created_at",
         sort_order: str = "desc",
         limit: int = DEFAULT_QUERY_OBJECTS_LIMIT,
@@ -86,6 +95,8 @@ class ObjectQueryService:
 
         if kinds:
             stmt = stmt.where(Object.kind.in_(kinds))
+        else:
+            stmt = stmt.where(Object.kind != KIND_LABEL)
         if providers:
             stmt = stmt.where(Object.provider.in_(providers))
         if statuses:
@@ -111,6 +122,43 @@ class ObjectQueryService:
             stmt = stmt.where(
                 Object.occurred_at <= normalize_tool_datetime(occurred_to)
             )
+
+        requested_label_ids = list(label_ids or [])
+        if len(requested_label_ids) > QUERY_LABEL_IDS_MAX:
+            raise ValidationError(f"label_ids must contain at most {QUERY_LABEL_IDS_MAX} ids")
+        if requested_label_ids:
+            if label_match not in {LABEL_MATCH_ALL, LABEL_MATCH_ANY}:
+                raise ValidationError("label_match must be all or any")
+            from app.services.errors import NotFoundError
+            from app.services.label_service import LabelService
+
+            try:
+                LabelService(self._session, self._user_id).require_active_labels(requested_label_ids)
+            except NotFoundError as exc:
+                raise ValidationError("label is not active") from exc
+            unique_ids: list[UUID] = []
+            seen: set[UUID] = set()
+            for label_id in requested_label_ids:
+                if label_id in seen:
+                    continue
+                seen.add(label_id)
+                unique_ids.append(label_id)
+            clauses = [
+                exists(
+                    select(Edge.id).where(
+                        Edge.user_id == self._user_id,
+                        Edge.source_id == Object.id,
+                        Edge.target_id == label_id,
+                        Edge.type == EDGE_TYPE_LABELED_WITH,
+                        Edge.state != REJECTED_STATE,
+                    )
+                )
+                for label_id in unique_ids
+            ]
+            combined = clauses[0]
+            for clause in clauses[1:]:
+                combined = combined | clause if label_match == LABEL_MATCH_ANY else combined & clause
+            stmt = stmt.where(combined)
 
         sort_column = {
             "due_at": Object.due_at,

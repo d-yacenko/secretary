@@ -5,11 +5,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
+from app.services.errors import ValidationError
 from app.services.evidence_snippet import (
     build_query_centered_snippet,
     representation_evidence_rank_key,
 )
-from app.services.errors import ValidationError
 from app.services.retrieval_constants import (
     ANCHOR_KIND_BOOST,
     ANCHOR_KINDS,
@@ -63,6 +63,7 @@ _BASE_WHERE = """
     AND o.deleted_at IS NULL
     AND (o.status IS NULL OR o.status != 'deleted')
     AND o.state != 'rejected'
+    AND (o.kind != 'label' OR :include_labels)
 """
 
 
@@ -646,6 +647,7 @@ class RetrievalService:
             "horizon_cutoff": horizon_cutoff,
             "date_from": date_from,
             "date_to": date_to,
+            "include_labels": kind == "label",
         }
 
         fts_ids = self._session.execute(
@@ -708,6 +710,7 @@ class RetrievalService:
             "horizon_cutoff": horizon_cutoff,
             "date_from": date_from,
             "date_to": date_to,
+            "include_labels": kind == "label",
         }
 
         seen = set(existing_ids)
@@ -822,6 +825,7 @@ class RetrievalService:
             "horizon_cutoff": horizon_cutoff,
             "date_from": date_from,
             "date_to": date_to,
+            "include_labels": kind == "label",
         }
 
         strict_ids = self._collect_strict_candidate_ids(

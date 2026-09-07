@@ -29,6 +29,12 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "get_context",
         "list_neighbors",
         "list_notifications",
+        "list_labels",
+        "create_label",
+        "rename_label",
+        "assign_label",
+        "remove_label",
+        "delete_label",
         "create_task",
         "update_task",
         "set_task_status",
@@ -68,6 +74,12 @@ def test_registry_covers_executor_dispatch_tools():
         "get_context",
         "list_neighbors",
         "list_notifications",
+        "list_labels",
+        "create_label",
+        "rename_label",
+        "assign_label",
+        "remove_label",
+        "delete_label",
         "create_task",
         "update_task",
         "set_task_status",
@@ -120,6 +132,7 @@ def test_permission_classifications():
         "get_context",
         "list_neighbors",
         "list_notifications",
+        "list_labels",
         "get_today",
     }
     internal_write = {
@@ -129,8 +142,11 @@ def test_permission_classifications():
         "create_scheduled_activity",
         "create_recurring_scheduled_activity",
         "cancel_scheduled_activity",
+        "create_label",
+        "rename_label",
+        "assign_label",
     }
-    destructive = {"delete_task", "remove_relation"}
+    destructive = {"delete_task", "remove_relation", "remove_label", "delete_label"}
     for name in read_tools:
         assert TOOL_REGISTRY[name].permission == ToolPermission.READ
     for name in internal_write:

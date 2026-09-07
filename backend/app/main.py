@@ -12,6 +12,7 @@ from app.api.connections import router as connections_router
 from app.api.google import router as google_router
 from app.api.inbox import router as inbox_router
 from app.api.intake import router as intake_router
+from app.api.labels import router as labels_router
 from app.api.local import router as local_router
 from app.api.mattermost import router as mattermost_router
 from app.api.me import router as me_router
@@ -80,6 +81,7 @@ app.include_router(connections_router)
 app.include_router(capture_router)
 app.include_router(assistant_router)
 app.include_router(graph_router)
+app.include_router(labels_router)
 app.include_router(graph_workspace_router)
 app.include_router(tasks_router)
 app.include_router(relations_router)

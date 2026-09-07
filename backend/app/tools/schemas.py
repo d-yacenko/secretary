@@ -46,6 +46,8 @@ class QueryObjectsInput(BaseModel):
     start_to: datetime | None = None
     occurred_from: datetime | None = None
     occurred_to: datetime | None = None
+    label_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    label_match: Literal["all", "any"] = "all"
     sort_by: QuerySortBy = "created_at"
     sort_order: QuerySortOrder = "desc"
     limit: int = Field(default=20, ge=1, le=50)
@@ -242,6 +244,97 @@ class ListNotificationsInput(BaseModel):
 
 class ListNotificationsOutput(BaseModel):
     notifications: list[NotificationOut]
+
+
+class ListLabelsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=100, ge=1, le=200)
+
+
+class LabelItemOut(BaseModel):
+    id: UUID
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    object_count: int = 0
+
+
+class ListLabelsOutput(BaseModel):
+    labels: list[LabelItemOut]
+
+
+class CreateLabelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+
+class CreateLabelCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+
+
+class CreateLabelOutput(BaseModel):
+    label: LabelItemOut
+    created: bool
+
+
+class RenameLabelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label_id: UUID
+    name: str
+
+
+class RenameLabelCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label_id: UUID
+    name: str = Field(min_length=1, max_length=80)
+
+
+class RenameLabelOutput(BaseModel):
+    label: LabelItemOut
+    changed: bool
+
+
+class DeleteLabelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label_id: UUID
+
+
+class DeleteLabelOutput(BaseModel):
+    label: LabelItemOut
+    changed: bool
+
+
+class AssignLabelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_id: UUID
+    label_id: UUID
+
+
+class AssignLabelOutput(BaseModel):
+    object_id: UUID
+    label_id: UUID
+    created: bool
+
+
+class RemoveLabelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_id: UUID
+    label_id: UUID
+
+
+class RemoveLabelOutput(BaseModel):
+    object_id: UUID
+    label_id: UUID
+    changed: bool
 
 
 MAX_CALENDAR_EVENT_SUMMARY_CHARS = 300

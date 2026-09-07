@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
+from app.domain.labels import KIND_LABEL
 from app.domain.object_visibility import object_is_active
 from app.services.provenance import REJECTED_STATE
 
@@ -20,6 +21,7 @@ class SearchFacetService:
             Object.user_id == self._user_id,
             Object.state != REJECTED_STATE,
             object_is_active(),
+            Object.kind != KIND_LABEL,
         )
 
     def facets(self) -> dict[str, list[dict[str, object]]]:

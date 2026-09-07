@@ -13,6 +13,7 @@ from app.api.schemas import (
     ObjectOut,
 )
 from app.db.models import Edge, Object
+from app.domain.labels import EDGE_TYPE_LABELED_WITH
 from app.domain.object_visibility import is_object_tombstoned
 from app.domain.task_lifecycle import (
     TASK_STATUS_DELETED,
@@ -26,6 +27,7 @@ from app.services.domain_write_mode import DomainWriteMode
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
+from app.services.label_service import LabelRecord, LabelService
 from app.services.notification_service import NotificationService
 from app.services.object_query_service import ObjectQueryService
 from app.services.provenance import (
@@ -41,11 +43,16 @@ from app.services.task_mutation_service import TaskMutationService
 from app.tools.datetime_utils import normalize_tool_datetime
 from app.tools.schemas import (
     MAX_TASK_EVIDENCE_IDS,
+    AssignLabelInput,
+    AssignLabelOutput,
     CancelScheduledActivityInput,
     CancelScheduledActivityOutput,
     CreateCalendarEventCanonicalInput,
     CreateCalendarEventInput,
     CreateCalendarEventOutput,
+    CreateLabelCanonicalInput,
+    CreateLabelInput,
+    CreateLabelOutput,
     CreateRecurringScheduledActivityCanonicalInput,
     CreateRecurringScheduledActivityInput,
     CreateScheduledActivityCanonicalInput,
@@ -53,6 +60,8 @@ from app.tools.schemas import (
     CreateScheduledActivityOutput,
     CreateTaskInput,
     CreateTaskOutput,
+    DeleteLabelInput,
+    DeleteLabelOutput,
     DeleteTaskInput,
     DeleteTaskOutput,
     GetContextInput,
@@ -60,8 +69,11 @@ from app.tools.schemas import (
     GetObjectInput,
     GetObjectOutput,
     GetTodayOutput,
+    LabelItemOut,
     LinkObjectsInput,
     LinkObjectsOutput,
+    ListLabelsInput,
+    ListLabelsOutput,
     ListNeighborsInput,
     ListNeighborsOutput,
     ListNotificationsInput,
@@ -70,8 +82,13 @@ from app.tools.schemas import (
     QueryObjectItemOut,
     QueryObjectsInput,
     QueryObjectsOutput,
+    RemoveLabelInput,
+    RemoveLabelOutput,
     RemoveRelationInput,
     RemoveRelationOutput,
+    RenameLabelCanonicalInput,
+    RenameLabelInput,
+    RenameLabelOutput,
     RetrievalHitOut,
     RetrieveInput,
     RetrieveOutput,
@@ -143,7 +160,35 @@ class DomainToolService:
             return ToolError(f"object not found: {exc.entity_id}")
         if isinstance(exc, ValidationError):
             return ToolError(exc.message)
+        if isinstance(exc, ConflictError):
+            return ToolError(exc.message)
         raise exc
+
+    def _label_service(self) -> LabelService:
+        return LabelService(
+            self._session,
+            self._user_id,
+            origin=AGENT_ORIGIN,
+            state=self._new_artifact_state(),
+        )
+
+    def _label_item(self, record: LabelRecord) -> LabelItemOut:
+        return LabelItemOut(
+            id=record.id,
+            title=record.title,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            object_count=record.object_count,
+        )
+
+    def _label_item_from_object(self, label, *, object_count: int = 0) -> LabelItemOut:
+        return LabelItemOut(
+            id=label.id,
+            title=label.title,
+            created_at=label.created_at,
+            updated_at=label.updated_at,
+            object_count=object_count,
+        )
 
     def _enqueue_object_embedding(self, object_id: UUID) -> None:
         if self._job_queue is None:
@@ -164,6 +209,80 @@ class DomainToolService:
             raise ToolError(exc.message) from exc
         return ListNotificationsOutput(
             notifications=[NotificationOut.from_model(row) for row in rows]
+        )
+
+    def list_labels(self, input: ListLabelsInput) -> ListLabelsOutput:
+        records = self._label_service().list_labels(limit=input.limit)
+        return ListLabelsOutput(labels=[self._label_item(item) for item in records])
+
+    def prepare_create_label(self, input: CreateLabelInput) -> CreateLabelCanonicalInput:
+        from app.services.label_service import normalize_label_name
+
+        try:
+            display, _key = normalize_label_name(input.name)
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        return CreateLabelCanonicalInput(name=display)
+
+    def create_label(self, input: CreateLabelCanonicalInput) -> CreateLabelOutput:
+        try:
+            result = self._label_service().create_label(input.name)
+        except (NotFoundError, ValidationError, ConflictError) as exc:
+            raise self._tool_error_from_mutation(exc) from exc
+        return CreateLabelOutput(
+            label=self._label_item_from_object(result.label),
+            created=result.created,
+        )
+
+    def prepare_rename_label(self, input: RenameLabelInput) -> RenameLabelCanonicalInput:
+        from app.services.label_service import normalize_label_name
+
+        try:
+            display, _key = normalize_label_name(input.name)
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
+        return RenameLabelCanonicalInput(label_id=input.label_id, name=display)
+
+    def rename_label(self, input: RenameLabelCanonicalInput) -> RenameLabelOutput:
+        try:
+            result = self._label_service().rename_label(input.label_id, input.name)
+        except (NotFoundError, ValidationError, ConflictError) as exc:
+            raise self._tool_error_from_mutation(exc) from exc
+        return RenameLabelOutput(
+            label=self._label_item_from_object(result.label),
+            changed=result.changed,
+        )
+
+    def delete_label(self, input: DeleteLabelInput) -> DeleteLabelOutput:
+        try:
+            result = self._label_service().delete_label(input.label_id)
+        except (NotFoundError, ValidationError, ConflictError) as exc:
+            raise self._tool_error_from_mutation(exc) from exc
+        return DeleteLabelOutput(
+            label=self._label_item_from_object(result.label),
+            changed=result.changed,
+        )
+
+    def assign_label(self, input: AssignLabelInput) -> AssignLabelOutput:
+        try:
+            result = self._label_service().assign_label(input.object_id, input.label_id)
+        except (NotFoundError, ValidationError, ConflictError) as exc:
+            raise self._tool_error_from_mutation(exc) from exc
+        return AssignLabelOutput(
+            object_id=input.object_id,
+            label_id=input.label_id,
+            created=result.created,
+        )
+
+    def remove_label(self, input: RemoveLabelInput) -> RemoveLabelOutput:
+        try:
+            result = self._label_service().remove_label(input.object_id, input.label_id)
+        except (NotFoundError, ValidationError, ConflictError) as exc:
+            raise self._tool_error_from_mutation(exc) from exc
+        return RemoveLabelOutput(
+            object_id=input.object_id,
+            label_id=input.label_id,
+            changed=result.changed,
         )
 
     def search_objects(self, input: SearchObjectsInput) -> SearchObjectsOutput:
@@ -187,6 +306,8 @@ class DomainToolService:
                 start_to=input.start_to,
                 occurred_from=input.occurred_from,
                 occurred_to=input.occurred_to,
+                label_ids=input.label_ids if input.label_ids else None,
+                label_match=input.label_match,
                 sort_by=input.sort_by,
                 sort_order=input.sort_order,
                 limit=input.limit,
@@ -596,6 +717,8 @@ class DomainToolService:
         )
 
     def link_objects(self, input: LinkObjectsInput) -> LinkObjectsOutput:
+        if input.relation_type == EDGE_TYPE_LABELED_WITH:
+            raise ToolError("labeled_with assignments must use assign_label")
         if input.source_id == input.target_id:
             raise ToolError("source and target must differ")
         existing = self._session.scalar(

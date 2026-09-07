@@ -74,6 +74,15 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                 "start_to": {"type": "string"},
                 "occurred_from": {"type": "string"},
                 "occurred_to": {"type": "string"},
+                "label_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 8,
+                },
+                "label_match": {
+                    "type": "string",
+                    "enum": ["all", "any"],
+                },
                 "sort_by": {
                     "type": "string",
                     "enum": [
@@ -278,6 +287,97 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
             "type": "object",
             "properties": {"edge_id": {"type": "string"}},
             "required": ["edge_id"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "list_labels": {
+        "type": "function",
+        "name": "list_labels",
+        "description": "List the user's active organizational labels.",
+        "parameters": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "create_label": {
+        "type": "function",
+        "name": "create_label",
+        "description": (
+            "Create an organizational label by display name. Names are normalized; "
+            "creating an existing name returns the existing label. Requires approval."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "rename_label": {
+        "type": "function",
+        "name": "rename_label",
+        "description": "Rename an existing label by id. Requires approval.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "label_id": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["label_id", "name"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "assign_label": {
+        "type": "function",
+        "name": "assign_label",
+        "description": (
+            "Assign an active label to an object (labeled_with). Requires approval. "
+            "Do not use link_objects for labels."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "object_id": {"type": "string"},
+                "label_id": {"type": "string"},
+            },
+            "required": ["object_id", "label_id"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "remove_label": {
+        "type": "function",
+        "name": "remove_label",
+        "description": (
+            "Remove an active labeled_with assignment. Requires approval. "
+            "Does not delete the object or the label."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "object_id": {"type": "string"},
+                "label_id": {"type": "string"},
+            },
+            "required": ["object_id", "label_id"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "delete_label": {
+        "type": "function",
+        "name": "delete_label",
+        "description": (
+            "Tombstone a label. Does not delete labeled source objects. Requires approval."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"label_id": {"type": "string"}},
+            "required": ["label_id"],
             "additionalProperties": False,
         },
         "strict": False,

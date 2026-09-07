@@ -8,19 +8,25 @@ from pydantic import ValidationError as PydanticValidationError
 from app.mcp.gateway_runner import execute_mcp_tool
 from app.tools.registry import MCP_TOOL_NAMES  # noqa: F401 — re-exported for tests
 from app.tools.schemas import (
+    AssignLabelOutput,
     CancelScheduledActivityOutput,
     CreateCalendarEventOutput,
+    CreateLabelOutput,
     CreateScheduledActivityOutput,
     CreateTaskOutput,
+    DeleteLabelOutput,
     DeleteTaskOutput,
     GetContextOutput,
     GetObjectOutput,
     GetTodayOutput,
     LinkObjectsOutput,
+    ListLabelsOutput,
     ListNeighborsOutput,
     ListNotificationsOutput,
     QueryObjectsOutput,
+    RemoveLabelOutput,
     RemoveRelationOutput,
+    RenameLabelOutput,
     SearchObjectsOutput,
     SendEmailOutput,
     SetTaskStatusOutput,
@@ -66,6 +72,8 @@ def create_mcp_server() -> MCPServer:
         start_to: datetime | None = None,
         occurred_from: datetime | None = None,
         occurred_to: datetime | None = None,
+        label_ids: list[str] | None = None,
+        label_match: str = "all",
         sort_by: str = "created_at",
         sort_order: str = "desc",
         limit: int = 20,
@@ -96,6 +104,10 @@ def create_mcp_server() -> MCPServer:
             arguments["occurred_from"] = occurred_from
         if occurred_to is not None:
             arguments["occurred_to"] = occurred_to
+        if label_ids is not None:
+            arguments["label_ids"] = label_ids
+        if label_match is not None:
+            arguments["label_match"] = label_match
         return _run_tool("query_objects", "query_objects", arguments)
 
     @mcp.tool()
@@ -244,6 +256,48 @@ def create_mcp_server() -> MCPServer:
             "list_notifications",
             {"status": status, "limit": limit},
         )
+
+    @mcp.tool()
+    def list_labels(limit: int = 100) -> ListLabelsOutput:
+        """List active organizational labels."""
+        return _run_tool("list_labels", "list_labels", {"limit": limit})
+
+    @mcp.tool()
+    def create_label(name: str) -> CreateLabelOutput:
+        """Create an organizational label (requires approval)."""
+        return _run_tool("create_label", "create_label", {"name": name})
+
+    @mcp.tool()
+    def rename_label(label_id: str, name: str) -> RenameLabelOutput:
+        """Rename an organizational label (requires approval)."""
+        return _run_tool(
+            "rename_label",
+            "rename_label",
+            {"label_id": label_id, "name": name},
+        )
+
+    @mcp.tool()
+    def assign_label(object_id: str, label_id: str) -> AssignLabelOutput:
+        """Assign a label to an object (requires approval)."""
+        return _run_tool(
+            "assign_label",
+            "assign_label",
+            {"object_id": object_id, "label_id": label_id},
+        )
+
+    @mcp.tool()
+    def remove_label(object_id: str, label_id: str) -> RemoveLabelOutput:
+        """Remove a labeled_with assignment (requires approval)."""
+        return _run_tool(
+            "remove_label",
+            "remove_label",
+            {"object_id": object_id, "label_id": label_id},
+        )
+
+    @mcp.tool()
+    def delete_label(label_id: str) -> DeleteLabelOutput:
+        """Tombstone a label (requires approval)."""
+        return _run_tool("delete_label", "delete_label", {"label_id": label_id})
 
     @mcp.tool()
     def get_today() -> GetTodayOutput:

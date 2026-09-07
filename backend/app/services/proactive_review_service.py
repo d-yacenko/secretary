@@ -13,6 +13,7 @@ from app.ai_audit.constants import WORKLOAD_BACKGROUND_PROACTIVE_REVIEW
 from app.ai_audit.context import ai_trace_session, get_current_job_id
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.db.models import Edge, Notification, Object
+from app.domain.labels import KIND_LABEL
 from app.domain.object_visibility import is_object_hidden_from_active_reads, object_is_active
 from app.domain.scheduled_activity import KIND_SCHEDULED_ACTIVITY
 from app.domain.task_lifecycle import TASK_STATUS_IN_PROGRESS, TASK_STATUS_OPEN
@@ -241,6 +242,7 @@ class ProactiveReviewService:
                 *self._visible_owned(),
                 Object.origin.in_(tuple(PROACTIVE_GATE_ORIGINS)),
                 Object.kind != KIND_SCHEDULED_ACTIVITY,
+                Object.kind != KIND_LABEL,
                 Object.updated_at > window_start,
                 Object.updated_at <= window_end,
                 ~child_email_attachment,
