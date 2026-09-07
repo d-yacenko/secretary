@@ -807,7 +807,7 @@ def test_today_excludes_deleted_proposed_task(db_session) -> None:
     assert all(obj.id != task.id for obj in snapshot["tasks"])
 
 
-def test_inbox_recent_orders_source_events_by_start_at_not_created_at(db_session) -> None:
+def test_inbox_recent_future_events_are_capped_by_created_at(db_session) -> None:
     from zoneinfo import ZoneInfo
 
     moscow = ZoneInfo("Europe/Moscow")
@@ -870,8 +870,8 @@ def test_inbox_recent_orders_source_events_by_start_at_not_created_at(db_session
 
     rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()
     titles = [row.title for row in rows]
-    assert titles.index("Future event B") < titles.index("Fresh email C")
-    assert titles.index("Fresh email C") < titles.index("Future event A")
+    assert titles.index("Fresh email C") < titles.index("Future event B")
+    assert titles.index("Future event B") < titles.index("Future event A")
 
 
 def test_inbox_recent_materially_updated_event_does_not_promote_above_newer_created(

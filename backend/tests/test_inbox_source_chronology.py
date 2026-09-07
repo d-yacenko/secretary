@@ -1,7 +1,7 @@
 """Inbox feed uses source chronology and hides child email attachments."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from app.services.recent_source_service import (
     RECENT_SOURCE_RESERVED_PER_PROVIDER,
     RecentSourceService,
     inbox_feed_at,
+    inbox_feed_at_sql,
 )
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 
@@ -657,3 +658,294 @@ def test_explicit_file_with_parent_email_id_metadata_still_visible(
     _stamp(obj, created_at=now, occurred_at=now - timedelta(days=9))
     db_session.commit()
     assert "Explicit with similar metadata" in _titles(db_session)
+
+
+def _assert_feed_sql_matches_python(db_session: Session, obj: Object) -> None:
+    sql_value = db_session.scalar(select(inbox_feed_at_sql()).where(Object.id == obj.id))
+    python_value = inbox_feed_at(obj)
+    assert sql_value is not None
+
+    def _utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    assert _utc(sql_value) == _utc(python_value)
+
+
+def test_future_november_events_do_not_outrank_september_email(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    sep = datetime(2026, 9, 6, 12, 0, tzinfo=utcnow().tzinfo)
+    _create_source(
+        graph,
+        db_session,
+        title="Event Nov 27",
+        provider="google_calendar",
+        kind="event",
+        created_at=datetime(2026, 8, 20, 9, 0, tzinfo=sep.tzinfo),
+        occurred_at=datetime(2026, 11, 27, 6, 0, tzinfo=sep.tzinfo),
+        start_at=datetime(2026, 11, 27, 6, 0, tzinfo=sep.tzinfo),
+    )
+    _create_source(
+        graph,
+        db_session,
+        title="Event Nov 25",
+        provider="google_calendar",
+        kind="event",
+        created_at=datetime(2026, 8, 19, 9, 0, tzinfo=sep.tzinfo),
+        occurred_at=datetime(2026, 11, 25, 6, 0, tzinfo=sep.tzinfo),
+        start_at=datetime(2026, 11, 25, 6, 0, tzinfo=sep.tzinfo),
+    )
+    _create_source(
+        graph,
+        db_session,
+        title="Recent Sep email",
+        provider="gmail",
+        created_at=sep,
+        occurred_at=sep,
+    )
+    db_session.commit()
+
+    titles = _titles(db_session, limit=5)
+    assert titles[0] == "Recent Sep email"
+    assert titles.index("Recent Sep email") < titles.index("Event Nov 27")
+    assert titles.index("Recent Sep email") < titles.index("Event Nov 25")
+
+
+def test_future_events_rank_by_discovery_not_future_start(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    event_a = _create_source(
+        graph,
+        db_session,
+        title="Event A Nov 30",
+        provider="google_calendar",
+        kind="event",
+        created_at=datetime(2026, 9, 1, 12, 0, tzinfo=tz),
+        occurred_at=datetime(2026, 11, 30, 6, 0, tzinfo=tz),
+        start_at=datetime(2026, 11, 30, 6, 0, tzinfo=tz),
+    )
+    event_b = _create_source(
+        graph,
+        db_session,
+        title="Event B Oct 10",
+        provider="google_calendar",
+        kind="event",
+        created_at=datetime(2026, 9, 5, 12, 0, tzinfo=tz),
+        occurred_at=datetime(2026, 10, 10, 6, 0, tzinfo=tz),
+        start_at=datetime(2026, 10, 10, 6, 0, tzinfo=tz),
+    )
+    db_session.commit()
+    db_session.refresh(event_a)
+    db_session.refresh(event_b)
+    assert inbox_feed_at(event_a) == event_a.created_at
+    assert inbox_feed_at(event_b) == event_b.created_at
+    _assert_feed_sql_matches_python(db_session, event_a)
+    _assert_feed_sql_matches_python(db_session, event_b)
+    assert _titles(db_session, limit=5)[:2] == ["Event B Oct 10", "Event A Nov 30"]
+
+
+def test_historical_calendar_backfill_uses_event_time(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    start = datetime(2026, 7, 10, 10, 0, tzinfo=tz)
+    created = datetime(2026, 9, 6, 12, 0, tzinfo=tz)
+    obj = _create_source(
+        graph,
+        db_session,
+        title="July event imported Sep",
+        provider="yandex_calendar",
+        kind="event",
+        created_at=created,
+        occurred_at=start,
+        start_at=start,
+    )
+    db_session.commit()
+    db_session.refresh(obj)
+    assert inbox_feed_at(obj) == start
+    _assert_feed_sql_matches_python(db_session, obj)
+
+
+def test_newly_discovered_future_event_is_capped_at_created_at(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    start = datetime(2026, 11, 27, 6, 0, tzinfo=tz)
+    created = datetime(2026, 9, 6, 12, 0, tzinfo=tz)
+    obj = _create_source(
+        graph,
+        db_session,
+        title="Future discovered today",
+        provider="google_calendar",
+        kind="event",
+        created_at=created,
+        occurred_at=start,
+        start_at=start,
+    )
+    db_session.commit()
+    db_session.refresh(obj)
+    assert inbox_feed_at(obj) == created
+    _assert_feed_sql_matches_python(db_session, obj)
+
+
+def test_calendar_occurred_at_fallback_and_created_at_only(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    created = datetime(2026, 9, 6, 12, 0, tzinfo=tz)
+    occurred = datetime(2026, 8, 15, 8, 0, tzinfo=tz)
+    with_occurred = _create_source(
+        graph,
+        db_session,
+        title="No start uses occurred",
+        provider="google_calendar",
+        kind="event",
+        created_at=created,
+        occurred_at=occurred,
+    )
+    with_occurred.start_at = None
+    created_only = _create_source(
+        graph,
+        db_session,
+        title="No start no occurred",
+        provider="google_calendar",
+        kind="calendar_event",
+        created_at=created,
+    )
+    created_only.start_at = None
+    created_only.occurred_at = None
+    db_session.commit()
+    db_session.refresh(with_occurred)
+    db_session.refresh(created_only)
+    assert inbox_feed_at(with_occurred) == occurred
+    assert inbox_feed_at(created_only) == created
+    _assert_feed_sql_matches_python(db_session, with_occurred)
+    _assert_feed_sql_matches_python(db_session, created_only)
+
+
+def test_calendar_updated_at_does_not_promote_old_event(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    start = datetime(2026, 8, 1, 10, 0, tzinfo=tz)
+    obj = _create_source(
+        graph,
+        db_session,
+        title="Old calendar occurrence",
+        provider="google_calendar",
+        kind="event",
+        created_at=start,
+        occurred_at=start,
+        start_at=start,
+        updated_at=start,
+    )
+    obj.updated_at = datetime(2026, 9, 7, 8, 0, tzinfo=tz)
+    db_session.commit()
+    db_session.refresh(obj)
+    assert inbox_feed_at(obj) == start
+    _assert_feed_sql_matches_python(db_session, obj)
+
+
+def test_inbox_primary_at_stays_start_at_while_feed_uses_created_at(
+    auth_client,
+    db_session: Session,
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    start = datetime(2026, 11, 27, 6, 0, tzinfo=tz)
+    created = datetime(2026, 9, 1, 12, 0, tzinfo=tz)
+    email_at = datetime(2026, 9, 6, 12, 0, tzinfo=tz)
+    event = _create_source(
+        graph,
+        db_session,
+        title="November meeting",
+        provider="google_calendar",
+        kind="event",
+        created_at=created,
+        occurred_at=start,
+        start_at=start,
+    )
+    _create_source(
+        graph,
+        db_session,
+        title="September mail",
+        provider="gmail",
+        created_at=email_at,
+        occurred_at=email_at,
+    )
+    db_session.commit()
+    db_session.refresh(event)
+    expected_primary = object_primary_search_datetime(event)
+    assert expected_primary == start
+    assert inbox_feed_at(event) == created
+
+    response = auth_client.get("/inbox")
+    assert response.status_code == 200
+    recent = response.json()["recent_source_objects"]
+    titles = [item["title"] for item in recent]
+    assert titles.index("September mail") < titles.index("November meeting")
+    row = next(item for item in recent if item["title"] == "November meeting")
+    assert row["primary_at"].startswith(expected_primary.isoformat()[:19])
+
+
+def test_future_calendar_provider_does_not_outrank_recent_gmail(db_session: Session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    imported = datetime(2026, 8, 10, 12, 0, tzinfo=tz)
+    for index in range(5):
+        start = datetime(2026, 11, 16 + index, 6, 0, tzinfo=tz)
+        _create_source(
+            graph,
+            db_session,
+            title=f"Future GC {index}",
+            provider="google_calendar",
+            kind="event",
+            created_at=imported - timedelta(days=index),
+            occurred_at=start,
+            start_at=start,
+        )
+    _create_source(
+        graph,
+        db_session,
+        title="Gmail today",
+        provider="gmail",
+        created_at=datetime(2026, 9, 6, 12, 0, tzinfo=tz),
+        occurred_at=datetime(2026, 9, 6, 12, 0, tzinfo=tz),
+    )
+    db_session.commit()
+
+    rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=10)
+    assert rows[0].title == "Gmail today"
+    assert rows[0].provider == "gmail"
+
+
+def test_future_events_do_not_displace_recent_mail_before_limit(
+    db_session: Session,
+) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    tz = utcnow().tzinfo
+    imported = datetime(2026, 8, 1, 12, 0, tzinfo=tz)
+    for index in range(12):
+        start = datetime(2026, 11, 10, 6, 0, tzinfo=tz) + timedelta(days=index)
+        _create_source(
+            graph,
+            db_session,
+            title=f"Future far {index}",
+            provider="google_calendar",
+            kind="event",
+            created_at=imported - timedelta(minutes=index),
+            occurred_at=start,
+            start_at=start,
+        )
+    for index in range(8):
+        when = datetime(2026, 9, 6, 12, 0, tzinfo=tz) - timedelta(minutes=index)
+        _create_source(
+            graph,
+            db_session,
+            title=f"Recent mail {index}",
+            provider="gmail",
+            created_at=when,
+            occurred_at=when,
+        )
+    db_session.commit()
+
+    titles = _titles(db_session, limit=30)
+    assert titles[:8] == [f"Recent mail {index}" for index in range(8)]
+    assert all(not title.startswith("Future far") for title in titles[:8])

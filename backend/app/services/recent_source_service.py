@@ -52,18 +52,19 @@ _SOURCE_EVENT_KINDS = ("event", "calendar_event")
 def inbox_feed_at(obj: Object) -> datetime:
     if obj.origin == "source":
         if obj.kind in _SOURCE_EVENT_KINDS:
-            return obj.start_at or obj.occurred_at or obj.updated_at or obj.created_at
+            anchor = obj.start_at or obj.occurred_at or obj.created_at
+            return min(anchor, obj.created_at)
         return obj.occurred_at or obj.updated_at or obj.created_at
     return obj.created_at
 
 
 def inbox_feed_at_sql() -> ColumnElement[datetime]:
-    source_event_at = func.coalesce(
+    calendar_anchor = func.coalesce(
         Object.start_at,
         Object.occurred_at,
-        Object.updated_at,
         Object.created_at,
     )
+    source_event_at = func.least(calendar_anchor, Object.created_at)
     source_object_at = func.coalesce(
         Object.occurred_at,
         Object.updated_at,
