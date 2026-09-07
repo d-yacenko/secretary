@@ -225,4 +225,83 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(auth.status, AuthStatus.needsAuth);
   });
+
+  testWidgets(
+    'narrow Android viewport label sheet scrolls to a late label',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const lateId = 'label-24';
+      const lateTitle = 'Label 24';
+      final catalog = [
+        for (var index = 1; index <= 24; index++)
+          {
+            'id': 'label-$index',
+            'title': 'Label $index',
+            'object_count': 1,
+          },
+      ];
+      final labelQueries = <String?>[];
+
+      await tester.pumpWidget(
+        buildSearch(MockClient((request) async {
+          if (request.url.path == '/search/facets') {
+            return facetsResponse();
+          }
+          if (request.url.path == '/labels') {
+            return labelsResponse(catalog);
+          }
+          if (request.url.path == '/search') {
+            labelQueries.add(request.url.queryParameters['label_id']);
+            return http.Response(jsonEncode([searchHit()]), 200);
+          }
+          return http.Response('{}', 404);
+        })),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.enterText(find.byType(TextField).first, 'adh');
+      await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+      await tester.pumpAndSettle();
+      expect(labelQueries.last, isNull);
+
+      await tester.tap(find.byKey(const Key('search_label_filter')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('search_label_filter_sheet')), findsOneWidget);
+      expect(find.text('Метка: Все'), findsOneWidget);
+      expect(find.text('Label 1'), findsOneWidget);
+      expect(find.text(lateTitle), findsNothing);
+
+      await tester.scrollUntilVisible(
+        find.text(lateTitle),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const Key('search_label_filter_sheet')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(lateTitle), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text(lateTitle));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('search_label_filter_sheet')), findsNothing);
+      expect(labelQueries.last, lateId);
+
+      await tester.tap(find.byKey(const Key('search_label_filter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Метка: Все'));
+      await tester.pumpAndSettle();
+      expect(labelQueries.last, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

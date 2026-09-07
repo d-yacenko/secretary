@@ -544,30 +544,37 @@ class _LabelFilterButton extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('Метка: Все'),
-              selected: selectedLabelId == null,
-              onTap: () {
-                onChanged(null);
-                Navigator.pop(context);
-              },
+      builder: (context) {
+        final maxHeight = MediaQuery.sizeOf(context).height * 0.7;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: ListView(
+              key: const Key('search_label_filter_sheet'),
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  title: const Text('Метка: Все'),
+                  selected: selectedLabelId == null,
+                  onTap: () {
+                    onChanged(null);
+                    Navigator.pop(context);
+                  },
+                ),
+                for (final label in labels)
+                  ListTile(
+                    title: Text(label.title),
+                    selected: selectedLabelId == label.id,
+                    onTap: () {
+                      onChanged(label.id);
+                      Navigator.pop(context);
+                    },
+                  ),
+              ],
             ),
-            for (final label in labels)
-              ListTile(
-                title: Text(label.title),
-                selected: selectedLabelId == label.id,
-                onTap: () {
-                  onChanged(label.id);
-                  Navigator.pop(context);
-                },
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
