@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.jobs.constants import JOB_TYPE_RUN_SCHEDULED_ACTIVITY, WORKER_IDLE_SLEEP_SECONDS
 from app.jobs.worker import process_one_job
+from app.services.proactive_scheduler import ProactiveScheduler
 from app.services.source_sync_scheduler import SourceSyncScheduler
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ def _run_scheduler_maintenance() -> None:
     session = SessionLocal()
     try:
         SourceSyncScheduler(session).run_maintenance()
+        ProactiveScheduler(session).run_maintenance()
         from app.ai_audit.trace_service import AITraceService
 
         AITraceService(session).cleanup_expired()

@@ -537,6 +537,16 @@ class UserSettings(Base):
     assistant_reasoning_effort: Mapped[str | None] = mapped_column(nullable=True)
     assistant_verbosity: Mapped[str | None] = mapped_column(nullable=True)
     assistant_max_rounds: Mapped[int | None] = mapped_column(nullable=True)
+    proactive_enabled: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    proactive_interval_minutes: Mapped[int] = mapped_column(
+        nullable=False,
+        default=60,
+        server_default=text("60"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

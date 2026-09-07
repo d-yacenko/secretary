@@ -23,6 +23,12 @@ from app.core.assistant_openai_config import (
 )
 from app.core.config import settings
 from app.db.models import UserSettings
+from app.proactive.constants import (
+    PROACTIVE_ENABLED_DEFAULT,
+    PROACTIVE_INTERVAL_MINUTES_DEFAULT,
+    PROACTIVE_INTERVAL_MINUTES_MAX,
+    PROACTIVE_INTERVAL_MINUTES_MIN,
+)
 from app.services.errors import ValidationError
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 
@@ -42,6 +48,8 @@ class EffectiveUserSettings:
     openai_key_configured: bool
     allowed_assistant_models: list[str]
     openai_api_key: str | None = field(default=None, repr=False)
+    proactive_enabled: bool = PROACTIVE_ENABLED_DEFAULT
+    proactive_interval_minutes: int = PROACTIVE_INTERVAL_MINUTES_DEFAULT
 
 
 class EffectiveUserSettingsService:
@@ -76,6 +84,8 @@ class EffectiveUserSettingsService:
             openai_key_configured=openai_key_configured,
             allowed_assistant_models=allowed_models,
             openai_api_key=resolved_key,
+            proactive_enabled=self._resolve_proactive_enabled(row),
+            proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
         )
 
     def get_settings_view(self, user_id: UUID) -> EffectiveUserSettings:
@@ -96,6 +106,8 @@ class EffectiveUserSettingsService:
             openai_key_configured=openai_key_configured,
             allowed_assistant_models=allowed_models,
             openai_api_key=None,
+            proactive_enabled=self._resolve_proactive_enabled(row),
+            proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
         )
 
     def get_or_create_settings_row(self, user_id: UUID) -> UserSettings:
@@ -115,6 +127,8 @@ class EffectiveUserSettingsService:
         assistant_verbosity: str | None = None,
         assistant_max_rounds: int | None = None,
         assistant_max_rounds_set: bool = False,
+        proactive_enabled: bool | None = None,
+        proactive_interval_minutes: int | None = None,
     ) -> EffectiveUserSettings:
         row = self.get_or_create_settings_row(user_id)
         allowed_models = settings.allowed_assistant_models
@@ -147,6 +161,12 @@ class EffectiveUserSettingsService:
                 row.assistant_max_rounds = self._validate_assistant_max_rounds(
                     assistant_max_rounds
                 )
+        if proactive_enabled is not None:
+            row.proactive_enabled = bool(proactive_enabled)
+        if proactive_interval_minutes is not None:
+            row.proactive_interval_minutes = self._validate_proactive_interval_minutes(
+                proactive_interval_minutes
+            )
         row.updated_at = utcnow()
         self._session.flush()
         return self.get_settings_view(user_id)
@@ -229,6 +249,27 @@ class EffectiveUserSettingsService:
             return row.timezone.strip()
         server_tz = settings.secretary_timezone.strip()
         return server_tz if server_tz else "Europe/Amsterdam"
+
+    def _resolve_proactive_enabled(self, row: UserSettings | None) -> bool:
+        if row is None:
+            return PROACTIVE_ENABLED_DEFAULT
+        return bool(row.proactive_enabled)
+
+    def _resolve_proactive_interval_minutes(self, row: UserSettings | None) -> int:
+        if row is None:
+            return PROACTIVE_INTERVAL_MINUTES_DEFAULT
+        stored = row.proactive_interval_minutes
+        if PROACTIVE_INTERVAL_MINUTES_MIN <= stored <= PROACTIVE_INTERVAL_MINUTES_MAX:
+            return stored
+        return PROACTIVE_INTERVAL_MINUTES_DEFAULT
+
+    def _validate_proactive_interval_minutes(self, value: int) -> int:
+        if value < PROACTIVE_INTERVAL_MINUTES_MIN or value > PROACTIVE_INTERVAL_MINUTES_MAX:
+            raise ValidationError(
+                "proactive_interval_minutes must be between "
+                f"{PROACTIVE_INTERVAL_MINUTES_MIN} and {PROACTIVE_INTERVAL_MINUTES_MAX}"
+            )
+        return value
 
     def _validate_timezone(self, timezone: str) -> str:
         text = timezone.strip()

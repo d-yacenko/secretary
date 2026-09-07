@@ -161,6 +161,7 @@ class OpenAIAssistantProvider:
         self._max_rounds = max_rounds
         self._last_store_false = False
         self._last_instructions: str = ""
+        self.last_tool_definitions: list[dict] | None = None
 
     @property
     def max_rounds(self) -> int:
@@ -183,11 +184,19 @@ class OpenAIAssistantProvider:
         timezone: str,
         tool_runner: Callable[[str, dict], ToolExecutionResult],
         identity_facts: UserIdentityRuntimeFacts | None = None,
+        *,
+        system_instructions: str | None = None,
+        tool_definitions: list[dict] | None = None,
     ) -> AssistantProviderResult:
+        resolved_tools = (
+            ASSISTANT_TOOL_DEFINITIONS if tool_definitions is None else tool_definitions
+        )
+        self.last_tool_definitions = resolved_tools
         instructions = _build_runtime_instructions(
             reference_datetime=reference_datetime,
             timezone=timezone,
             identity_facts=identity_facts,
+            system_instructions=system_instructions,
         )
         self._last_instructions = instructions
 
@@ -218,7 +227,7 @@ class OpenAIAssistantProvider:
                     model=self._model,
                     instructions=instructions,
                     input=input_items,
-                    tools=ASSISTANT_TOOL_DEFINITIONS,
+                    tools=resolved_tools,
                     store=False,
                     reasoning={"effort": self._reasoning_effort},
                     text={"verbosity": self._verbosity},
@@ -236,7 +245,7 @@ class OpenAIAssistantProvider:
                     max_output_tokens=self._max_output_tokens,
                     instructions=instructions,
                     input_items=input_items,
-                    tool_definitions=ASSISTANT_TOOL_DEFINITIONS,
+                    tool_definitions=resolved_tools,
                     elapsed_ms=elapsed_ms,
                     user_message=message,
                     failed=True,
@@ -261,7 +270,7 @@ class OpenAIAssistantProvider:
                 max_output_tokens=self._max_output_tokens,
                 instructions=instructions,
                 input_items=input_items,
-                tool_definitions=ASSISTANT_TOOL_DEFINITIONS,
+                tool_definitions=resolved_tools,
                 elapsed_ms=elapsed_ms,
                 user_message=message,
                 effective_max_rounds=self._max_rounds,
@@ -547,9 +556,10 @@ def _build_runtime_instructions(
     reference_datetime: datetime,
     timezone: str,
     identity_facts: UserIdentityRuntimeFacts | None,
+    system_instructions: str | None = None,
 ) -> str:
     parts = [
-        SYSTEM_INSTRUCTIONS,
+        SYSTEM_INSTRUCTIONS if system_instructions is None else system_instructions,
         f"Reference datetime: {reference_datetime.isoformat()}",
         f"Timezone: {timezone}",
         build_identity_instructions_block(identity_facts),

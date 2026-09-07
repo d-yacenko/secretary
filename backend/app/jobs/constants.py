@@ -21,6 +21,7 @@ JOB_TYPE_SYNC_YANDEX_MAIL = "sync_yandex_mail"
 JOB_TYPE_SYNC_YANDEX_CALENDAR = "sync_yandex_calendar"
 JOB_TYPE_SYNC_MATTERMOST = "sync_mattermost"
 JOB_TYPE_RUN_SCHEDULED_ACTIVITY = "run_scheduled_activity"
+JOB_TYPE_PROACTIVE_REVIEW = "proactive_review"
 
 RECURRING_SOURCE_JOB_TYPES = frozenset(
     {

@@ -21,8 +21,10 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_INGEST_LOCAL_FILE,
+    JOB_TYPE_PROACTIVE_REVIEW,
     MAX_JOB_ATTEMPTS,
     MAX_LAST_ERROR_LENGTH,
+    RECURRING_FAILED_REARM_SECONDS,
     RECURRING_SOURCE_JOB_TYPES,
     RETRY_BACKOFF_SECONDS,
     STALE_LOCK_MINUTES,
@@ -363,14 +365,19 @@ class JobQueueService:
     def is_recurring_source_job(self, job_type: str) -> bool:
         return job_type in RECURRING_SOURCE_JOB_TYPES
 
+    def _uses_failed_rearm(self, job_type: str) -> bool:
+        return job_type in RECURRING_SOURCE_JOB_TYPES or job_type == JOB_TYPE_PROACTIVE_REVIEW
+
     def _apply_recurring_failure_cooldown(self, job: Job) -> None:
-        if job.type not in RECURRING_SOURCE_JOB_TYPES:
+        if not self._uses_failed_rearm(job.type):
             return
         from app.core.config import settings
 
-        job.run_after = utcnow() + timedelta(
-            seconds=settings.source_sync_failed_rearm_seconds
-        )
+        if job.type == JOB_TYPE_PROACTIVE_REVIEW:
+            seconds = RECURRING_FAILED_REARM_SECONDS
+        else:
+            seconds = settings.source_sync_failed_rearm_seconds
+        job.run_after = utcnow() + timedelta(seconds=seconds)
 
     def get_job(self, job_id: UUID) -> Job | None:
         return self._session.get(Job, job_id)

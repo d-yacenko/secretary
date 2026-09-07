@@ -9,6 +9,7 @@ WORKLOAD_BACKGROUND_SUMMARY = "background_summary"
 WORKLOAD_BACKGROUND_CORRELATION = "background_correlation"
 WORKLOAD_EMBEDDING = "embedding"
 WORKLOAD_TRANSCRIPTION = "transcription"
+WORKLOAD_BACKGROUND_PROACTIVE_REVIEW = "background_proactive_review"
 
 WORKLOADS = frozenset(
     {
@@ -18,6 +19,7 @@ WORKLOADS = frozenset(
         WORKLOAD_BACKGROUND_CORRELATION,
         WORKLOAD_EMBEDDING,
         WORKLOAD_TRANSCRIPTION,
+        WORKLOAD_BACKGROUND_PROACTIVE_REVIEW,
     }
 )
 

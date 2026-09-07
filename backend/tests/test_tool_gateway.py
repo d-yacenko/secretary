@@ -100,7 +100,7 @@ def test_openai_provider_uses_registry_assistant_definitions():
 
     source = inspect.getsource(OpenAIAssistantProvider.run)
     assert "ASSISTANT_TOOL_DEFINITIONS" in source
-    assert "tools=ASSISTANT_TOOL_DEFINITIONS" in source
+    assert "tool_definitions is None" in source
 
 
 def test_mcp_exposed_tools_match_registry():

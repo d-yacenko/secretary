@@ -50,6 +50,8 @@ class UserSettingsOut(BaseModel):
     max_assistant_max_rounds: int
     openai_key_configured: bool
     allowed_assistant_models: list[str]
+    proactive_enabled: bool
+    proactive_interval_minutes: int
 
 
 class UserSettingsPatch(BaseModel):
@@ -60,6 +62,8 @@ class UserSettingsPatch(BaseModel):
     assistant_reasoning_effort: str | None = None
     assistant_verbosity: str | None = None
     assistant_max_rounds: int | None = None
+    proactive_enabled: bool | None = None
+    proactive_interval_minutes: int | None = None
 
 
 class OpenAICredentialPut(BaseModel):
@@ -134,6 +138,8 @@ def _serialize_settings(effective: EffectiveUserSettings) -> UserSettingsOut:
         max_assistant_max_rounds=MAX_ASSISTANT_MAX_ROUNDS,
         openai_key_configured=effective.openai_key_configured,
         allowed_assistant_models=effective.allowed_assistant_models,
+        proactive_enabled=effective.proactive_enabled,
+        proactive_interval_minutes=effective.proactive_interval_minutes,
     )
 
 
@@ -218,12 +224,27 @@ def patch_my_settings(
                 else None
             ),
             assistant_max_rounds_set="assistant_max_rounds" in payload.model_fields_set,
+            proactive_enabled=(
+                payload.proactive_enabled if "proactive_enabled" in payload.model_fields_set else None
+            ),
+            proactive_interval_minutes=(
+                payload.proactive_interval_minutes
+                if "proactive_interval_minutes" in payload.model_fields_set
+                else None
+            ),
         )
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=exc.message,
         ) from exc
+    if (
+        "proactive_enabled" in payload.model_fields_set
+        or "proactive_interval_minutes" in payload.model_fields_set
+    ):
+        from app.services.proactive_scheduler import ProactiveScheduler
+
+        ProactiveScheduler(session).sync_user(current_user.user_id)
     return _serialize_settings(effective)
 
 

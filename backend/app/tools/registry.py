@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.proactive.constants import PROACTIVE_READ_TOOL_NAMES
 from app.services.domain_tool_service import DomainToolService
 from app.tools.assistant_contracts import ASSISTANT_FUNCTION_SCHEMAS
 from app.tools.policy import ToolPermission
@@ -253,6 +254,15 @@ ASSISTANT_TOOL_DEFINITIONS: list[dict] = [
     for spec in TOOL_SPECS
     if spec.assistant_exposed and spec.assistant_definition is not None
 ]
+
+_PROACTIVE_READ_NAME_SET = frozenset(PROACTIVE_READ_TOOL_NAMES)
+PROACTIVE_TOOL_DEFINITIONS: list[dict] = [
+    TOOL_REGISTRY[name].assistant_definition
+    for name in PROACTIVE_READ_TOOL_NAMES
+    if TOOL_REGISTRY[name].assistant_definition is not None
+]
+if {item["name"] for item in PROACTIVE_TOOL_DEFINITIONS} != _PROACTIVE_READ_NAME_SET:
+    raise RuntimeError("proactive tool definitions must match the read-only allowlist")
 
 MCP_TOOL_NAMES: frozenset[str] = frozenset(
     spec.name for spec in TOOL_SPECS if spec.mcp_exposed

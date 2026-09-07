@@ -21,6 +21,7 @@ from app.jobs.constants import (
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
     JOB_TYPE_INGEST_LOCAL_FILE,
+    JOB_TYPE_PROACTIVE_REVIEW,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
@@ -60,6 +61,7 @@ from app.services.pipeline_enqueue import (
     enqueue_embed_object,
     enqueue_summarize_resource,
 )
+from app.services.proactive_review_service import ProactiveReviewService
 from app.services.representation_embedding_worker import (
     load_unembedded_chunk_targets,
     store_representation_embeddings,
@@ -414,6 +416,15 @@ def handle_extract_explicit_resource_content(
         work_session.close()
 
 
+def handle_proactive_review(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    ProactiveReviewService(session, user_id).run(payload)
+
+
 HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_EMBED_OBJECT: handle_embed_object,
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
@@ -426,6 +437,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_SYNC_YANDEX_CALENDAR: handle_sync_yandex_calendar,
     JOB_TYPE_SYNC_MATTERMOST: handle_sync_mattermost,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY: handle_run_scheduled_activity,
+    JOB_TYPE_PROACTIVE_REVIEW: handle_proactive_review,
 }
 
 
