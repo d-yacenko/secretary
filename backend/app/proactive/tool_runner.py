@@ -37,6 +37,14 @@ class ProactiveToolRunner:
         return self._calls
 
     @property
+    def security_violation(self) -> bool:
+        return bool(self.rejected_tool_names)
+
+    @property
+    def has_rejected_tool_attempt(self) -> bool:
+        return self.security_violation
+
+    @property
     def seen_object_ids(self) -> set[UUID]:
         return set(self._seen_object_ids) | set(self._pending_seen_object_ids)
 
@@ -48,15 +56,9 @@ class ProactiveToolRunner:
         self._pending_seen_object_ids.clear()
 
     def __call__(self, tool_name: str, arguments: dict) -> ToolExecutionResult:
-        if tool_name not in _ALLOWED_TOOLS:
-            self.rejected_tool_names.append(tool_name)
-            return ToolExecutionResult(
-                success=False,
-                tool_name=tool_name,
-                error=_REJECTED_TOOL_ERROR,
-                status=ToolExecutionStatus.TOOL_ERROR,
-            )
         if self._calls >= self._max_calls:
+            if tool_name not in _ALLOWED_TOOLS:
+                self.rejected_tool_names.append(tool_name)
             return ToolExecutionResult(
                 success=False,
                 tool_name=tool_name,
@@ -65,6 +67,14 @@ class ProactiveToolRunner:
                 status=ToolExecutionStatus.LIMIT_REACHED,
             )
         self._calls += 1
+        if tool_name not in _ALLOWED_TOOLS:
+            self.rejected_tool_names.append(tool_name)
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error=_REJECTED_TOOL_ERROR,
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
         result = self._gateway.execute(
             self._tools,
             tool_name,

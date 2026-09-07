@@ -34,6 +34,7 @@ from app.jobs.constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
+    JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_PROACTIVE_REVIEW,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
     RECURRING_SOURCE_JOB_TYPES,
@@ -47,13 +48,14 @@ from app.proactive.constants import (
     PROACTIVE_MAX_ROUNDS,
     PROACTIVE_MAX_TOOL_CALLS,
     PROACTIVE_READ_TOOL_NAMES,
+    PROACTIVE_SEED_OBJECT_LIMIT,
 )
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
 from app.services.proactive_review_service import ProactiveReviewService
 from app.services.proactive_scheduler import ProactiveScheduler
-from app.services.provenance import REJECTED_STATE
+from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
 from app.services.scheduled_activity_service import ScheduledActivityService
 from app.tools.registry import ASSISTANT_TOOL_DEFINITIONS, PROACTIVE_TOOL_DEFINITIONS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -61,13 +63,22 @@ from tests.conftest import AuthTestClient, apply_embedding_service_overrides
 
 
 class ScriptedProactiveProvider:
-    def __init__(self, answer: str, tool_calls: list[tuple[str, dict]] | None = None) -> None:
+    def __init__(
+        self,
+        answer: str,
+        tool_calls: list[tuple[str, dict]] | None = None,
+        *,
+        started: threading.Event | None = None,
+        release: threading.Event | None = None,
+    ) -> None:
         self.answer = answer
         self.tool_calls = list(tool_calls or [])
         self.calls = 0
         self.last_tool_definitions = None
         self.last_instructions = ""
         self.rejected = []
+        self._started = started
+        self._release = release
 
     def run(
         self,
@@ -85,6 +96,10 @@ class ScriptedProactiveProvider:
         self.calls += 1
         self.last_tool_definitions = tool_definitions
         self.last_instructions = system_instructions or ""
+        if self._started is not None:
+            self._started.set()
+        if self._release is not None and not self._release.wait(timeout=15):
+            raise TimeoutError("proactive provider was not released")
         for name, arguments in self.tool_calls:
             result = tool_runner(name, arguments)
             if not result.success:
@@ -434,31 +449,28 @@ def test_gate_rejected_tombstoned_attachment_not_eligible(
     assert rejected.id is not None
 
 
-def test_read_only_runner_rejects_mutations(db_session, monkeypatch, silent_trace) -> None:
+@pytest.mark.parametrize("tool_name", ["send_email", "create_task", "create_calendar_event"])
+def test_forbidden_tool_then_valid_insight_is_not_persisted(
+    db_session, monkeypatch, silent_trace, tool_name
+) -> None:
     _enable(db_session)
     source = _source_email(db_session)
-    send_provider = _install_provider(
+    provider = _install_provider(
         monkeypatch,
-        ScriptedProactiveProvider(_none_answer(), tool_calls=[("send_email", {"to": "a@b.c"})]),
+        ScriptedProactiveProvider(
+            _insight_answer(source.id),
+            tool_calls=[(tool_name, {"title": "x", "to": "a@b.c"})],
+        ),
     )
     before_plans = db_session.scalar(select(func.count()).select_from(PendingActionPlan))
     before_attempts = db_session.scalar(select(func.count()).select_from(ExternalActionAttempt))
-    before_notes = len(_notifications(db_session))
     ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(_proactive_payload())
-    assert send_provider.calls == 1
-    assert send_provider.rejected == ["send_email"]
+    assert provider.calls == 1
+    assert provider.rejected == [tool_name]
+    assert _notifications(db_session) == []
     assert db_session.scalar(select(func.count()).select_from(PendingActionPlan)) == before_plans
     assert db_session.scalar(select(func.count()).select_from(ExternalActionAttempt)) == before_attempts
-    assert len(_notifications(db_session)) == before_notes
-
-    for tool_name in ("create_task", "create_calendar_event"):
-        provider = _install_provider(
-            monkeypatch,
-            ScriptedProactiveProvider(_none_answer(), tool_calls=[(tool_name, {"title": "x"})]),
-        )
-        ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(_proactive_payload())
-        assert provider.rejected == [tool_name]
-    assert source.id is not None
+    assert _count_jobs(db_session, status=JOB_STATUS_PENDING) == 1
 
 
 def test_proactive_tool_definitions_are_read_only() -> None:
@@ -1003,3 +1015,474 @@ def test_failed_proactive_job_is_rearmed_not_duplicated(db_session) -> None:
     assert len(held) == 1
     assert held[0].id == job.id
     assert held[0].status == JOB_STATUS_PENDING
+
+
+def test_forbidden_calls_consume_tool_budget() -> None:
+    from app.proactive.tool_runner import ProactiveToolRunner
+
+    runner = ProactiveToolRunner(MagicMock(), max_calls=PROACTIVE_MAX_TOOL_CALLS)
+    for _ in range(PROACTIVE_MAX_TOOL_CALLS):
+        result = runner("send_email", {"to": "a@b.c"})
+        assert not result.success
+        assert not result.limit_reached
+    overflow = runner("retrieve", {"query": "x"})
+    assert overflow.limit_reached
+    assert runner.calls_made == PROACTIVE_MAX_TOOL_CALLS
+    assert runner.security_violation
+    assert runner.has_rejected_tool_attempt
+
+
+def test_upcoming_calendar_event_kind_is_eligible(db_session, monkeypatch, silent_trace) -> None:
+    _enable(db_session)
+    GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(
+            kind="calendar_event",
+            title="Legacy calendar",
+            origin="source",
+            start_at=_utcnow() + timedelta(hours=2),
+        )
+    )
+    provider = _install_provider(monkeypatch, ScriptedProactiveProvider(_none_answer()))
+    ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(
+        {"window_start": (_utcnow() - timedelta(minutes=5)).isoformat()}
+    )
+    assert provider.calls == 1
+
+
+def test_explicit_file_with_parent_email_id_is_eligible(
+    db_session, monkeypatch, silent_trace
+) -> None:
+    _enable(db_session)
+    db_session.add(
+        Object(
+            user_id=BOOTSTRAP_USER_ID,
+            kind="file",
+            title="Explicit file",
+            origin="explicit",
+            state=CONFIRMED_STATE,
+            metadata_={"parent_email_id": str(uuid.uuid4())},
+        )
+    )
+    db_session.flush()
+    provider = _install_provider(monkeypatch, ScriptedProactiveProvider(_none_answer()))
+    ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(_proactive_payload())
+    assert provider.calls == 1
+
+
+def test_proposed_references_edge_does_not_suppress_task_proposal(
+    db_session, monkeypatch, silent_trace
+) -> None:
+    _enable(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    source = _source_email(db_session)
+    task = graph.create_object(
+        ObjectCreate(
+            kind="task",
+            title="Proposed link only",
+            origin="agent",
+            state="proposed",
+            status="open",
+            confidence=0.8,
+        )
+    )
+    graph.create_edge(
+        EdgeCreate(
+            source_id=task.id,
+            target_id=source.id,
+            type="references",
+            origin="agent",
+            state="proposed",
+            confidence=0.8,
+        )
+    )
+    _install_provider(monkeypatch, ScriptedProactiveProvider(_task_answer(source.id)))
+    ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(_proactive_payload())
+    notes = _notifications(db_session)
+    assert len(notes) == 1
+    assert notes[0].proposal_["type"] == "task"
+
+
+def test_sql_bounded_gate_queries(db_session, monkeypatch, silent_trace) -> None:
+    _enable(db_session)
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    now = _utcnow()
+    extras = PROACTIVE_SEED_OBJECT_LIMIT + 8
+    window_start = now - timedelta(hours=1)
+    window_end = now + timedelta(seconds=1)
+    service = ProactiveReviewService(db_session, BOOTSTRAP_USER_ID)
+
+    emails: list[Object] = []
+    for index in range(extras):
+        emails.append(
+            graph.create_object(
+                ObjectCreate(kind="email", title=f"Mail {index:02d}", origin="source")
+            )
+        )
+    for index, obj in enumerate(emails):
+        db_session.execute(
+            Object.__table__.update()
+            .where(Object.id == obj.id)
+            .values(updated_at=now - timedelta(seconds=index))
+        )
+    db_session.flush()
+    for obj in emails:
+        db_session.refresh(obj)
+    recent = service._recent_activity(window_start, window_end)
+    expected_recent = sorted(emails, key=lambda item: (item.updated_at, item.id), reverse=True)
+    assert len(recent) == PROACTIVE_SEED_OBJECT_LIMIT
+    assert [obj.id for obj in recent] == [obj.id for obj in expected_recent[:PROACTIVE_SEED_OBJECT_LIMIT]]
+    assert [obj.id for obj in recent] != [obj.id for obj in expected_recent]
+
+    tasks: list[Object] = []
+    for index in range(extras):
+        tasks.append(
+            graph.create_object(
+                ObjectCreate(
+                    kind="task",
+                    title=f"Task {index:02d}",
+                    origin="user",
+                    status="open",
+                    due_at=now + timedelta(minutes=index + 1),
+                )
+            )
+        )
+    due = service._attention_tasks(now)
+    assert len(due) == PROACTIVE_SEED_OBJECT_LIMIT
+    assert [obj.id for obj in due] == [
+        obj.id for obj in sorted(tasks, key=lambda item: (item.due_at, item.id))[:PROACTIVE_SEED_OBJECT_LIMIT]
+    ]
+
+    events: list[Object] = []
+    for index in range(extras):
+        events.append(
+            graph.create_object(
+                ObjectCreate(
+                    kind="event",
+                    title=f"Event {index:02d}",
+                    origin="source",
+                    start_at=now + timedelta(minutes=index + 1),
+                )
+            )
+        )
+    upcoming = service._upcoming_events(now)
+    assert len(upcoming) == PROACTIVE_SEED_OBJECT_LIMIT
+    assert [obj.id for obj in upcoming] == [
+        obj.id
+        for obj in sorted(events, key=lambda item: (item.start_at, item.id))[:PROACTIVE_SEED_OBJECT_LIMIT]
+    ]
+
+    seeds = service._gate_seed_objects(window_start, window_end, now)
+    assert len(seeds) <= PROACTIVE_SEED_OBJECT_LIMIT
+    provider = _install_provider(monkeypatch, ScriptedProactiveProvider(_none_answer()))
+    ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(_proactive_payload())
+    assert provider.calls == 1
+
+
+def test_concurrent_sync_user_creates_exactly_one_job() -> None:
+    user_id = _persist_user()
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            with Session(engine) as session:
+                barrier.wait(timeout=10)
+                ProactiveScheduler(session).sync_user(user_id)
+                session.commit()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    try:
+        with Session(engine) as session:
+            _enable(session, user_id)
+            session.commit()
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+        assert errors == []
+        with Session(engine) as session:
+            held = [
+                job
+                for job in session.scalars(
+                    select(Job).where(
+                        Job.user_id == user_id,
+                        Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                        Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING)),
+                    )
+                )
+            ]
+            assert len(held) == 1
+    finally:
+        _cleanup_committed(user_id)
+
+
+def test_disable_before_llm_uses_fresh_db_read(monkeypatch) -> None:
+    user_id = _persist_user()
+    try:
+        with Session(engine) as session:
+            _enable(session, user_id)
+            source = _source_email(session, user_id)
+            source_id = source.id
+            session.commit()
+        provider = _install_provider(
+            monkeypatch, ScriptedProactiveProvider(_insight_answer(source_id))
+        )
+        monkeypatch.setattr(
+            "app.services.proactive_review_service.ai_trace_session",
+            _noop_trace,
+        )
+        real = ProactiveReviewService._run_llm
+
+        def wrapped(self, *args, **kwargs):
+            cached = self._session.get(UserSettings, user_id)
+            assert cached is not None
+            assert cached.proactive_enabled is True
+            with Session(engine) as other:
+                row = other.get(UserSettings, user_id)
+                assert row is not None
+                row.proactive_enabled = False
+                other.commit()
+            assert cached.proactive_enabled is True
+            assert self._session.get(UserSettings, user_id).proactive_enabled is True
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(ProactiveReviewService, "_run_llm", wrapped)
+        with Session(engine) as session:
+            ProactiveReviewService(session, user_id).run(_proactive_payload())
+            session.commit()
+            assert provider.calls == 0
+            assert list(session.scalars(select(Notification).where(Notification.user_id == user_id))) == []
+            pending = session.scalar(
+                select(func.count())
+                .select_from(Job)
+                .where(
+                    Job.user_id == user_id,
+                    Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                    Job.status == JOB_STATUS_PENDING,
+                )
+            )
+            assert pending == 0
+    finally:
+        _cleanup_committed(user_id)
+
+
+def test_disable_during_llm_suppresses_persist(monkeypatch) -> None:
+    user_id = _persist_user()
+    started = threading.Event()
+    release = threading.Event()
+    try:
+        with Session(engine) as session:
+            _enable(session, user_id)
+            source = _source_email(session, user_id)
+            JobQueueService(session).enqueue(
+                JOB_TYPE_PROACTIVE_REVIEW,
+                _proactive_payload(),
+                user_id,
+                run_after=_utcnow() - timedelta(seconds=1),
+            )
+            source_id = source.id
+            session.commit()
+        _install_provider(
+            monkeypatch,
+            ScriptedProactiveProvider(
+                _insight_answer(source_id),
+                started=started,
+                release=release,
+            ),
+        )
+        worker = threading.Thread(
+            target=lambda: process_one_job(include_types={JOB_TYPE_PROACTIVE_REVIEW}),
+            daemon=True,
+        )
+        worker.start()
+        assert started.wait(timeout=5)
+        with Session(engine) as other:
+            row = other.get(UserSettings, user_id)
+            assert row is not None
+            row.proactive_enabled = False
+            other.commit()
+        release.set()
+        worker.join(timeout=15)
+        with Session(engine) as session:
+            notes = list(session.scalars(select(Notification).where(Notification.user_id == user_id)))
+            pending = list(
+                session.scalars(
+                    select(Job).where(
+                        Job.user_id == user_id,
+                        Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                        Job.status == JOB_STATUS_PENDING,
+                    )
+                )
+            )
+            done = list(
+                session.scalars(
+                    select(Job).where(
+                        Job.user_id == user_id,
+                        Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                        Job.status == JOB_STATUS_DONE,
+                    )
+                )
+            )
+            assert notes == []
+            assert pending == []
+            assert len(done) == 1
+    finally:
+        release.set()
+        _cleanup_committed(user_id)
+
+
+def test_interval_change_during_llm_used_for_successor(monkeypatch) -> None:
+    user_id = _persist_user()
+    started = threading.Event()
+    release = threading.Event()
+    try:
+        with Session(engine) as session:
+            _enable(session, user_id, interval=60)
+            source = _source_email(session, user_id)
+            JobQueueService(session).enqueue(
+                JOB_TYPE_PROACTIVE_REVIEW,
+                _proactive_payload(),
+                user_id,
+                run_after=_utcnow() - timedelta(seconds=1),
+            )
+            source_id = source.id
+            session.commit()
+        _install_provider(
+            monkeypatch,
+            ScriptedProactiveProvider(
+                _insight_answer(source_id),
+                started=started,
+                release=release,
+            ),
+        )
+        worker = threading.Thread(
+            target=lambda: process_one_job(include_types={JOB_TYPE_PROACTIVE_REVIEW}),
+            daemon=True,
+        )
+        worker.start()
+        assert started.wait(timeout=5)
+        with Session(engine) as other:
+            row = other.get(UserSettings, user_id)
+            assert row is not None
+            row.proactive_interval_minutes = 15
+            other.commit()
+        release.set()
+        worker.join(timeout=15)
+        with Session(engine) as session:
+            pending = session.scalar(
+                select(Job).where(
+                    Job.user_id == user_id,
+                    Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                    Job.status == JOB_STATUS_PENDING,
+                )
+            )
+            assert pending is not None
+            delta = pending.run_after - datetime.fromisoformat(pending.payload["window_start"])
+            assert timedelta(minutes=14) <= delta <= timedelta(minutes=16)
+    finally:
+        release.set()
+        _cleanup_committed(user_id)
+
+
+def test_failed_rearm_respects_fresh_opt_out() -> None:
+    user_id = _persist_user()
+    try:
+        with Session(engine) as session:
+            _enable(session, user_id)
+            job = JobQueueService(session).enqueue(
+                JOB_TYPE_PROACTIVE_REVIEW,
+                _proactive_payload(),
+                user_id,
+            )
+            job.status = JOB_STATUS_FAILED
+            job.run_after = _utcnow() - timedelta(seconds=1)
+            session.commit()
+        with Session(engine) as session:
+            row = session.get(UserSettings, user_id)
+            assert row is not None
+            row.proactive_enabled = False
+            session.commit()
+        with Session(engine) as session:
+            ProactiveScheduler(session).run_maintenance()
+            session.commit()
+            held = list(
+                session.scalars(
+                    select(Job).where(
+                        Job.user_id == user_id,
+                        Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                        Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_FAILED)),
+                    )
+                )
+            )
+            assert held == []
+    finally:
+        _cleanup_committed(user_id)
+
+
+def test_source_scheduler_failure_does_not_block_proactive(monkeypatch) -> None:
+    from app.services.source_sync_scheduler import SourceSyncScheduler
+    from app.worker.run import run_scheduler_maintenance
+
+    user_id = _persist_user()
+    try:
+        with Session(engine) as session:
+            _enable(session, user_id)
+            session.commit()
+
+        def boom(self) -> None:
+            raise RuntimeError("source sync scheduler exploded")
+
+        monkeypatch.setattr(SourceSyncScheduler, "run_maintenance", boom)
+        run_scheduler_maintenance()
+        with Session(engine) as session:
+            pending = list(
+                session.scalars(
+                    select(Job).where(
+                        Job.user_id == user_id,
+                        Job.type == JOB_TYPE_PROACTIVE_REVIEW,
+                        Job.status == JOB_STATUS_PENDING,
+                    )
+                )
+            )
+            assert len(pending) == 1
+    finally:
+        _cleanup_committed(user_id)
+
+
+def test_proactive_scheduler_failure_does_not_rollback_source(monkeypatch) -> None:
+    from app.services.source_sync_scheduler import SourceSyncScheduler
+    from app.worker.run import run_scheduler_maintenance
+
+    user_id = _persist_user()
+    try:
+        with Session(engine) as session:
+            session.add(UserSettings(user_id=user_id, proactive_enabled=False))
+            session.commit()
+
+        def source_work(self) -> None:
+            JobQueueService(self._session).enqueue(
+                JOB_TYPE_EMBED_OBJECT,
+                {"marker": "source-maintenance"},
+                user_id,
+            )
+
+        def boom(self) -> None:
+            raise RuntimeError("proactive scheduler exploded")
+
+        monkeypatch.setattr(SourceSyncScheduler, "run_maintenance", source_work)
+        monkeypatch.setattr(ProactiveScheduler, "run_maintenance", boom)
+        run_scheduler_maintenance()
+        with Session(engine) as session:
+            marker = session.scalar(
+                select(Job).where(
+                    Job.user_id == user_id,
+                    Job.type == JOB_TYPE_EMBED_OBJECT,
+                )
+            )
+            assert marker is not None
+            assert marker.payload["marker"] == "source-maintenance"
+    finally:
+        _cleanup_committed(user_id)
+

@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai_audit.constants import WORKLOAD_BACKGROUND_PROACTIVE_REVIEW
@@ -26,10 +26,8 @@ from app.proactive.constants import (
     NOTIFICATION_KIND_INSIGHT,
     NOTIFICATION_KIND_TASK_PROPOSAL,
     PROACTIVE_EVENT_HORIZON,
+    PROACTIVE_EVENT_KINDS,
     PROACTIVE_GATE_ORIGINS,
-    PROACTIVE_INTERVAL_MINUTES_DEFAULT,
-    PROACTIVE_INTERVAL_MINUTES_MAX,
-    PROACTIVE_INTERVAL_MINUTES_MIN,
     PROACTIVE_MAX_OUTPUT_TOKENS,
     PROACTIVE_MAX_ROUNDS,
     PROACTIVE_MAX_UNRESOLVED,
@@ -42,6 +40,7 @@ from app.proactive.constants import (
     PROPOSAL_TYPE_PROACTIVE_INSIGHT,
     PROPOSAL_TYPE_TASK,
 )
+from app.proactive.control import read_proactive_control
 from app.proactive.decision import ProactiveDecision, ProactiveNotificationPayload
 from app.proactive.instructions import PROACTIVE_SYSTEM_INSTRUCTIONS
 from app.proactive.tool_runner import ProactiveToolRunner
@@ -53,12 +52,13 @@ from app.services.effective_user_settings_service import (
 )
 from app.services.job_queue_service import JobQueueService, utcnow
 from app.services.notification_service import NotificationService
-from app.services.provenance import REJECTED_STATE
+from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
 _UNRESOLVED_STATUSES = (NOTIFICATION_STATUS_NEW, NOTIFICATION_STATUS_READ)
+_REFERENCES_EDGE = "references"
 
 
 def create_proactive_provider(effective: EffectiveUserSettings) -> OpenAIAssistantProvider:
@@ -122,6 +122,16 @@ def compute_proactive_signature(
     return digest
 
 
+def _proactive_proposal_sql():
+    proposal = Notification.proposal_
+    signature = proposal["proactive_signature"].as_string()
+    return or_(
+        proposal["proactive"].as_boolean().is_(True),
+        proposal["type"].as_string() == PROPOSAL_TYPE_PROACTIVE_INSIGHT,
+        and_(signature.is_not(None), signature != ""),
+    )
+
+
 class ProactiveReviewService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
@@ -131,36 +141,45 @@ class ProactiveReviewService:
         self._settings_service = EffectiveUserSettingsService.build(session)
 
     def run(self, payload: dict) -> None:
-        effective = self._load_effective()
-        if not effective.proactive_enabled:
+        control = read_proactive_control(self._session, self._user_id, for_update=False)
+        if not control.enabled:
             return
         now = utcnow()
         window_start = parse_aware_datetime(payload.get("window_start"))
-        interval = self._bounded_interval(effective.proactive_interval_minutes)
         if window_start is None:
-            window_start = now - timedelta(minutes=interval)
+            window_start = now - timedelta(minutes=control.interval_minutes)
         window_end = now
         if self._unresolved_proactive_count() >= PROACTIVE_MAX_UNRESOLVED:
-            self._enqueue_successor(window_end, interval)
+            self._commit_quiet_successor(window_end)
             return
         seed_objects = self._gate_seed_objects(window_start, window_end, now)
         if not seed_objects:
-            self._enqueue_successor(window_end, interval)
+            self._commit_quiet_successor(window_end)
             return
-        decision = self._run_llm(effective, seed_objects, window_start, window_end)
-        self._maybe_notify(decision)
-        self._enqueue_successor(window_end, interval)
+        if not read_proactive_control(self._session, self._user_id, for_update=False).enabled:
+            return
+        effective = self._load_effective()
+        decision, runner = self._run_llm(effective, seed_objects, window_start, window_end)
+        locked = read_proactive_control(self._session, self._user_id, for_update=True)
+        if not locked.enabled:
+            return
+        if runner is not None and runner.has_rejected_tool_attempt:
+            decision = None
+        else:
+            self._maybe_notify(decision)
+        self._enqueue_successor(window_end, locked.interval_minutes)
+
+    def _commit_quiet_successor(self, window_end: datetime) -> None:
+        locked = read_proactive_control(self._session, self._user_id, for_update=True)
+        if not locked.enabled:
+            return
+        self._enqueue_successor(window_end, locked.interval_minutes)
 
     def _load_effective(self) -> EffectiveUserSettings:
         try:
             return self._settings_service.get_effective_settings(self._user_id)
         except AssistantOpenAIConfigError as exc:
             raise BackgroundAIConfigurationError(str(exc)) from exc
-
-    def _bounded_interval(self, value: int) -> int:
-        if value < PROACTIVE_INTERVAL_MINUTES_MIN or value > PROACTIVE_INTERVAL_MINUTES_MAX:
-            return PROACTIVE_INTERVAL_MINUTES_DEFAULT
-        return value
 
     def _enqueue_successor(self, window_end: datetime, interval_minutes: int) -> None:
         self._queue.enqueue(
@@ -171,15 +190,18 @@ class ProactiveReviewService:
         )
 
     def _unresolved_proactive_count(self) -> int:
-        rows = list(
-            self._session.scalars(
-                select(Notification).where(
+        return int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(Notification)
+                .where(
                     Notification.user_id == self._user_id,
                     Notification.status.in_(_UNRESOLVED_STATUSES),
+                    _proactive_proposal_sql(),
                 )
             )
+            or 0
         )
-        return sum(1 for row in rows if is_proactive_proposal(row.proposal_))
 
     def _gate_seed_objects(
         self,
@@ -195,7 +217,7 @@ class ProactiveReviewService:
         for obj in self._upcoming_events(now):
             found[obj.id] = obj
         objects = list(found.values())
-        objects.sort(key=lambda item: item.updated_at, reverse=True)
+        objects.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
         return objects[:PROACTIVE_SEED_OBJECT_LIMIT]
 
     def _visible_owned(self) -> list:
@@ -207,41 +229,58 @@ class ProactiveReviewService:
 
     def _recent_activity(self, window_start: datetime, window_end: datetime) -> list[Object]:
         parent_email_id = Object.metadata_["parent_email_id"].as_string()
-        attachment_noise = and_(
+        child_email_attachment = and_(
+            Object.origin == "source",
+            Object.kind == "file",
             parent_email_id.is_not(None),
             parent_email_id != "",
         )
-        stmt = select(Object).where(
-            *self._visible_owned(),
-            Object.origin.in_(tuple(PROACTIVE_GATE_ORIGINS)),
-            Object.kind != KIND_SCHEDULED_ACTIVITY,
-            Object.updated_at > window_start,
-            Object.updated_at <= window_end,
-            ~attachment_noise,
+        stmt = (
+            select(Object)
+            .where(
+                *self._visible_owned(),
+                Object.origin.in_(tuple(PROACTIVE_GATE_ORIGINS)),
+                Object.kind != KIND_SCHEDULED_ACTIVITY,
+                Object.updated_at > window_start,
+                Object.updated_at <= window_end,
+                ~child_email_attachment,
+            )
+            .order_by(Object.updated_at.desc(), Object.id.desc())
+            .limit(PROACTIVE_SEED_OBJECT_LIMIT)
         )
         return list(self._session.scalars(stmt))
 
     def _attention_tasks(self, now: datetime) -> list[Object]:
         start = now - PROACTIVE_TASK_LOOKBACK
         end = now + PROACTIVE_TASK_HORIZON
-        stmt = select(Object).where(
-            *self._visible_owned(),
-            Object.kind == "task",
-            Object.status.in_((TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS)),
-            Object.due_at.is_not(None),
-            Object.due_at >= start,
-            Object.due_at <= end,
+        stmt = (
+            select(Object)
+            .where(
+                *self._visible_owned(),
+                Object.kind == "task",
+                Object.status.in_((TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS)),
+                Object.due_at.is_not(None),
+                Object.due_at >= start,
+                Object.due_at <= end,
+            )
+            .order_by(Object.due_at.asc(), Object.id.asc())
+            .limit(PROACTIVE_SEED_OBJECT_LIMIT)
         )
         return list(self._session.scalars(stmt))
 
     def _upcoming_events(self, now: datetime) -> list[Object]:
         end = now + PROACTIVE_EVENT_HORIZON
-        stmt = select(Object).where(
-            *self._visible_owned(),
-            Object.kind == "event",
-            Object.start_at.is_not(None),
-            Object.start_at > now,
-            Object.start_at <= end,
+        stmt = (
+            select(Object)
+            .where(
+                *self._visible_owned(),
+                Object.kind.in_(PROACTIVE_EVENT_KINDS),
+                Object.start_at.is_not(None),
+                Object.start_at > now,
+                Object.start_at <= end,
+            )
+            .order_by(Object.start_at.asc(), Object.id.asc())
+            .limit(PROACTIVE_SEED_OBJECT_LIMIT)
         )
         return list(self._session.scalars(stmt))
 
@@ -251,8 +290,7 @@ class ProactiveReviewService:
         seed_objects: list[Object],
         window_start: datetime,
         window_end: datetime,
-    ) -> ProactiveDecision | None:
-        provider = create_proactive_provider(effective)
+    ) -> tuple[ProactiveDecision | None, ProactiveToolRunner]:
         tools = DomainToolService(
             self._session,
             self._user_id,
@@ -264,6 +302,9 @@ class ProactiveReviewService:
             tools,
             initial_seen_object_ids=[obj.id for obj in seed_objects],
         )
+        if not read_proactive_control(self._session, self._user_id, for_update=False).enabled:
+            return None, runner
+        provider = create_proactive_provider(effective)
         seed_payload = [
             {
                 "id": str(obj.id),
@@ -309,9 +350,11 @@ class ProactiveReviewService:
         runner.commit_model_visible_outputs()
         parsed = self._parse_decision(result.answer)
         if parsed is None:
-            return None
-        parsed = self._bind_seen_ids(parsed, runner.seen_object_ids | {obj.id for obj in seed_objects})
-        return parsed
+            return None, runner
+        parsed = self._bind_seen_ids(
+            parsed, runner.seen_object_ids | {obj.id for obj in seed_objects}
+        )
+        return parsed, runner
 
     def _parse_decision(self, raw: str | None) -> ProactiveDecision | None:
         if not raw or not raw.strip():
@@ -359,26 +402,24 @@ class ProactiveReviewService:
         return obj
 
     def _active_task_references(self, source_object_id: UUID) -> bool:
-        stmt = (
-            select(Object.id)
-            .join(
-                Edge,
-                or_(
-                    and_(Edge.source_id == Object.id, Edge.target_id == source_object_id),
-                    and_(Edge.target_id == Object.id, Edge.source_id == source_object_id),
-                ),
+        stmt = select(
+            exists(
+                select(Object.id)
+                .join(Edge, Edge.source_id == Object.id)
+                .where(
+                    Object.user_id == self._user_id,
+                    Object.kind == "task",
+                    object_is_active(),
+                    Object.state == CONFIRMED_STATE,
+                    Object.status.in_((TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS)),
+                    Edge.user_id == self._user_id,
+                    Edge.type == _REFERENCES_EDGE,
+                    Edge.state == CONFIRMED_STATE,
+                    Edge.target_id == source_object_id,
+                )
             )
-            .where(
-                Object.user_id == self._user_id,
-                Object.kind == "task",
-                object_is_active(),
-                Object.state != REJECTED_STATE,
-                Object.status.in_((TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS)),
-                Edge.user_id == self._user_id,
-            )
-            .limit(1)
         )
-        return self._session.scalar(stmt) is not None
+        return bool(self._session.scalar(stmt))
 
     def _maybe_notify(self, decision: ProactiveDecision | None) -> None:
         if decision is None or decision.decision != "notify" or decision.notification is None:
@@ -416,31 +457,30 @@ class ProactiveReviewService:
         )
 
     def _has_unresolved_same_source(self, source_object_id: UUID) -> bool:
-        rows = list(
-            self._session.scalars(
-                select(Notification).where(
+        stmt = select(
+            exists(
+                select(Notification.id).where(
                     Notification.user_id == self._user_id,
                     Notification.source_object_id == source_object_id,
                     Notification.status.in_(_UNRESOLVED_STATUSES),
+                    _proactive_proposal_sql(),
                 )
             )
         )
-        return any(is_proactive_proposal(row.proposal_) for row in rows)
+        return bool(self._session.scalar(stmt))
 
     def _has_recent_signature(self, signature: str) -> bool:
         cutoff = utcnow() - PROACTIVE_SIGNATURE_COOLDOWN
-        rows = list(
-            self._session.scalars(
-                select(Notification).where(
+        stmt = select(
+            exists(
+                select(Notification.id).where(
                     Notification.user_id == self._user_id,
                     Notification.created_at >= cutoff,
+                    Notification.proposal_["proactive_signature"].as_string() == signature,
                 )
             )
         )
-        for row in rows:
-            if (row.proposal_ or {}).get("proactive_signature") == signature:
-                return True
-        return False
+        return bool(self._session.scalar(stmt))
 
     def _build_proposal(
         self,

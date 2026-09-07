@@ -2,7 +2,9 @@ import logging
 import signal
 import threading
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection
+
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -14,20 +16,38 @@ from app.services.source_sync_scheduler import SourceSyncScheduler
 logger = logging.getLogger(__name__)
 
 
-def _run_scheduler_maintenance() -> None:
+def _run_isolated_maintenance(label: str, runner: Callable[[Session], None]) -> None:
     session = SessionLocal()
     try:
-        SourceSyncScheduler(session).run_maintenance()
-        ProactiveScheduler(session).run_maintenance()
-        from app.ai_audit.trace_service import AITraceService
-
-        AITraceService(session).cleanup_expired()
+        runner(session)
         session.commit()
     except Exception:
         session.rollback()
-        logger.exception("source sync scheduler maintenance failed")
+        logger.exception("%s maintenance failed", label)
     finally:
         session.close()
+
+
+def run_scheduler_maintenance() -> None:
+    _run_isolated_maintenance(
+        "source sync scheduler",
+        lambda session: SourceSyncScheduler(session).run_maintenance(),
+    )
+    _run_isolated_maintenance(
+        "proactive scheduler",
+        lambda session: ProactiveScheduler(session).run_maintenance(),
+    )
+
+    def _cleanup_traces(session: Session) -> None:
+        from app.ai_audit.trace_service import AITraceService
+
+        AITraceService(session).cleanup_expired()
+
+    _run_isolated_maintenance("ai trace cleanup", _cleanup_traces)
+
+
+def _run_scheduler_maintenance() -> None:
+    run_scheduler_maintenance()
 
 
 def _run_job_lane(
@@ -43,7 +63,7 @@ def _run_job_lane(
             if run_scheduler:
                 now = time.monotonic()
                 if now - last_scheduler_at >= settings.source_sync_scheduler_interval_seconds:
-                    _run_scheduler_maintenance()
+                    run_scheduler_maintenance()
                     last_scheduler_at = now
             processed = process_one_job(
                 include_types=include_types,
