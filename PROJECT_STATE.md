@@ -2,11 +2,13 @@
 
 ## Current phase
 
-Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
+Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`. **This is the production baseline.**
 
-Workflow Intelligence Pass D — bounded background auto-labeling: application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566` (not production-deployed).
+Workflow Intelligence Pass D — bounded background auto-labeling: application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566` (**not production-deployed**).
 
-Workflow Intelligence Pass D-R1 — auto-label post-model fencing & boundedness: **awaiting Architect review** on `review/workflow-intelligence-auto-label-d`.
+Workflow Intelligence Pass D-R1 — post-model fencing & boundedness: `bac9ca4d6741493f098a37cce29d246b24b3dfca` (review branch only).
+
+Workflow Intelligence Pass D-R2 — transactional fence through edge writes, identity removed from Pass D classifier, enqueue gate: **awaiting Architect review** on `review/workflow-intelligence-auto-label-d`.
 
 PHASE 22.5A — Local Retrieval Foundation: **accepted / closed**
 
@@ -346,11 +348,13 @@ Semantic file summaries; folders as retrieval/graph source; local-file and email
 
 ### PHASE 29 — Personal Workflow Intelligence
 
-Pass C (label relevance / ANNOTATE): **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
+Pass C (label relevance / ANNOTATE): **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`. **Production baseline.**
 
-Pass D (bounded opt-in background auto-labeling, existing vocabulary only): application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566`. **Not deployed.** Default `auto_label_enabled=false`. Alembic `0032` is in the review branch only.
+Pass D (bounded opt-in background auto-labeling, existing vocabulary only): application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566`. **Not deployed.** Default `auto_label_enabled=false`. Alembic `0032` is review-only.
 
-Pass D-R1 (post-model fence, disable linearizability, identity in classification signature, hard vocabulary bound, bounded signature dedupe): **awaiting Architect review**.
+Pass D-R1: `bac9ca4d6741493f098a37cce29d246b24b3dfca`.
+
+Pass D-R2 (transactional post-model fence through edge writes; identity facts out of Pass D classifier; serialized enqueue dedupe/cap): **awaiting Architect review**.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -362,22 +366,17 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- SHA: `4fef52424397235d65ee8a7f0aceb25549527e6f`
-- Branch: `review/format-parity-a`
-- Deployed: 2026-09-04 (Format Parity Pass A + Yandex storage-host corrective)
-- Checkout: `4fef52424397235d65ee8a7f0aceb25549527e6f`, clean working tree
-- Alembic current/head: `0029`
-- `/health`: PASS (`{"status":"ok"}`)
-- Worker: healthy
-- `EXTRACTION_VERSION`: `format-parity-a-v1`
+- Production application SHA: `b3f7d92566601b9535fc502261799b6ed69a6b2c`
+- Production phase: Workflow Intelligence **Pass C** (not Pass D)
+- Alembic on production: **`0031`** (head on production). Review migration `0032` is **not** applied.
+- Auto-labeling on production: **OFF** (`auto_label_enabled` default false; column exists only after `0032`)
+- Pass D / D-R1 / D-R2 remain on `review/workflow-intelligence-auto-label-d` until Architect acceptance
 - Android minSdk: `23`
-- Encrypted architect context Git blob SHA: `e26256c4cb82e376e6c6217db0bfeb3ff82f2ada`
-- Iteration A final concurrency closure: atomic final persist authority + no-validator generation supersession deployed
-- PHASE 29A closure SHA: `1562db7a7764e387ce4c9518a7032b801fcf0cdf`
+- Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
 - API internal: `http://127.0.0.1:18080` on VDS host (localhost only)
 - API public HTTPS: `https://web-itx.duckdns.org/secretary`
-- Update: `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
+- Update (only when Architect authorizes a deploy): `cd /opt/secretary && git pull && cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`
 
 ### PHASE 28D-B-R1-R1 Luna relation-removal E2E (sanitized)
 

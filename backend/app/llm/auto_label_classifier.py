@@ -18,7 +18,6 @@ from app.services.auto_label_models import (
 )
 from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.effective_user_settings_service import EffectiveUserSettings
-from app.services.user_identity_context_service import UserIdentityRuntimeFacts
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,6 @@ class AutoLabelClassifier(Protocol):
         *,
         obj: AutoLabelObjectInput,
         candidates: list[AutoLabelCandidate],
-        identity_facts: UserIdentityRuntimeFacts | None = None,
     ) -> AutoLabelClassifierResult: ...
 
 
@@ -44,19 +42,16 @@ class FakeAutoLabelClassifier:
         self.calls = 0
         self.last_obj: AutoLabelObjectInput | None = None
         self.last_candidates: list[AutoLabelCandidate] | None = None
-        self.last_identity: UserIdentityRuntimeFacts | None = None
 
     def classify(
         self,
         *,
         obj: AutoLabelObjectInput,
         candidates: list[AutoLabelCandidate],
-        identity_facts: UserIdentityRuntimeFacts | None = None,
     ) -> AutoLabelClassifierResult:
         self.calls += 1
         self.last_obj = obj
         self.last_candidates = list(candidates)
-        self.last_identity = identity_facts
         record_simple_model_call(
             model="fake-auto-label",
             input_chars=len(obj.content) + len(obj.title),
@@ -108,7 +103,6 @@ class OpenAIAutoLabelClassifier:
         *,
         obj: AutoLabelObjectInput,
         candidates: list[AutoLabelCandidate],
-        identity_facts: UserIdentityRuntimeFacts | None = None,
     ) -> AutoLabelClassifierResult:
         if not candidates:
             return AutoLabelClassifierResult()
@@ -126,8 +120,6 @@ class OpenAIAutoLabelClassifier:
             },
             "labels": candidate_payload,
         }
-        if identity_facts is not None and not identity_facts.is_empty():
-            request_payload["identity_facts"] = identity_facts.to_runtime_dict()
         instructions = (
             "You assign existing user labels to one object. "
             "Return JSON only: {\"assignments\":[{\"label_id\":\"<uuid>\","

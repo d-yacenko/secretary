@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.ai_audit.constants import WORKLOAD_BACKGROUND_AUTO_LABEL
 from app.ai_audit.context import ai_trace_session, get_active_trace
-from app.db.models import Job, Object, UserSettings
+from app.db.models import Job, Object, User, UserSettings
 from app.domain.labels import KIND_LABEL
 from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.domain.scheduled_activity import KIND_SCHEDULED_ACTIVITY
@@ -49,11 +50,6 @@ from app.services.effective_user_settings_service import EffectiveUserSettingsSe
 from app.services.job_queue_service import JobQueueService
 from app.services.label_service import LabelService
 from app.services.provenance import AGENT_ORIGIN, CONFIRMED_STATE, REJECTED_STATE
-from app.services.user_identity_context_service import (
-    UserIdentityContextService,
-    UserIdentityRuntimeFacts,
-    bound_runtime_identity_facts,
-)
 
 
 @dataclass(frozen=True)
@@ -61,10 +57,8 @@ class AutoLabelFreshState:
     obj: Object
     obj_input: AutoLabelObjectInput
     candidates: tuple[AutoLabelCandidate, ...]
-    identity: UserIdentityRuntimeFacts
     object_sig: str
     vocabulary_sig: str
-    identity_sig: str
     classification_sig: str
 
 
@@ -75,16 +69,21 @@ def is_auto_label_enabled(session: Session, user_id: UUID) -> bool:
     return bool(row.auto_label_enabled)
 
 
-def lock_auto_label_enabled(session: Session, user_id: UUID) -> bool:
-    row = session.scalar(
+def acquire_auto_label_user_gate(session: Session, user_id: UUID) -> UserSettings | None:
+    user = session.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if user is None:
+        return None
+    return session.scalar(
         select(UserSettings)
         .where(UserSettings.user_id == user_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if row is None:
-        return AUTO_LABEL_ENABLED_DEFAULT
-    return bool(row.auto_label_enabled)
 
 
 def object_is_auto_label_eligible(obj: Object) -> bool:
@@ -152,70 +151,60 @@ def vocabulary_signature(candidates: list[AutoLabelCandidate] | tuple[AutoLabelC
     )
 
 
-def identity_signature(identity: UserIdentityRuntimeFacts) -> str:
-    return _sha256_text(_canonical_json(identity.to_runtime_dict()))
+def classification_signature(object_sig: str, vocabulary_sig: str) -> str:
+    return _sha256_text(f"{AUTO_LABEL_VERSION}\n{object_sig}\n{vocabulary_sig}")
 
 
-def classification_signature(
-    object_sig: str,
-    vocabulary_sig: str,
-    identity_sig: str,
-) -> str:
-    return _sha256_text(
-        f"{AUTO_LABEL_VERSION}\n{object_sig}\n{vocabulary_sig}\n{identity_sig}"
+def _label_query(session: Session, user_id: UUID, *, lock_rows: bool):
+    stmt = (
+        select(Object)
+        .where(*LabelService(session, user_id)._active_label_filters())
+        .order_by(Object.id.asc())
+        .limit(AUTO_LABEL_MAX_VOCABULARY + 1)
     )
+    if lock_rows:
+        stmt = stmt.with_for_update()
+    return stmt.execution_options(populate_existing=True)
 
 
-def load_active_label_candidates(session: Session, user_id: UUID) -> list[AutoLabelCandidate] | None:
-    labels = list(
-        session.scalars(
-            select(Object)
-            .where(*LabelService(session, user_id)._active_label_filters())
-            .order_by(Object.id.asc())
-            .limit(AUTO_LABEL_MAX_VOCABULARY + 1)
-            .execution_options(populate_existing=True)
-        )
-    )
+def load_active_label_candidates(
+    session: Session,
+    user_id: UUID,
+    *,
+    lock_rows: bool = False,
+) -> list[AutoLabelCandidate] | None:
+    labels = list(session.scalars(_label_query(session, user_id, lock_rows=lock_rows)))
     if len(labels) > AUTO_LABEL_MAX_VOCABULARY:
         return None
     return [AutoLabelCandidate(label_id=item.id, title=item.title) for item in labels]
-
-
-def load_current_identity(session: Session, user_id: UUID) -> UserIdentityRuntimeFacts:
-    return bound_runtime_identity_facts(
-        UserIdentityContextService.build(session).get_runtime_facts(user_id)
-    )
 
 
 def load_auto_label_state(
     session: Session,
     user_id: UUID,
     object_id: UUID,
+    *,
+    lock_rows: bool = False,
 ) -> AutoLabelFreshState | None:
-    obj = session.scalar(
-        select(Object)
-        .where(Object.id == object_id, Object.user_id == user_id)
-        .execution_options(populate_existing=True)
-    )
+    obj_stmt = select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    if lock_rows:
+        obj_stmt = obj_stmt.with_for_update()
+    obj = session.scalar(obj_stmt.execution_options(populate_existing=True))
     if obj is None or not object_is_auto_label_eligible(obj):
         return None
-    candidates = load_active_label_candidates(session, user_id)
+    candidates = load_active_label_candidates(session, user_id, lock_rows=lock_rows)
     if candidates is None or len(candidates) == 0:
         return None
     obj_input = bounded_object_input(obj)
-    identity = load_current_identity(session, user_id)
     object_sig = object_signature(obj_input)
     vocab_sig = vocabulary_signature(candidates)
-    ident_sig = identity_signature(identity)
     return AutoLabelFreshState(
         obj=obj,
         obj_input=obj_input,
         candidates=tuple(candidates),
-        identity=identity,
         object_sig=object_sig,
         vocabulary_sig=vocab_sig,
-        identity_sig=ident_sig,
-        classification_sig=classification_signature(object_sig, vocab_sig, ident_sig),
+        classification_sig=classification_signature(object_sig, vocab_sig),
     )
 
 
@@ -225,9 +214,29 @@ def enqueue_auto_label_object(
     user_id: UUID,
     *,
     parent_trace_id: UUID | str | None = None,
+    already_gated: bool = False,
 ) -> None:
-    if not is_auto_label_enabled(session, user_id):
+    if not already_gated:
+        settings = acquire_auto_label_user_gate(session, user_id)
+        if settings is None or not bool(settings.auto_label_enabled):
+            return
+    elif not is_auto_label_enabled(session, user_id):
         return
+    _enqueue_auto_label_object_locked(
+        session,
+        object_id,
+        user_id,
+        parent_trace_id=parent_trace_id,
+    )
+
+
+def _enqueue_auto_label_object_locked(
+    session: Session,
+    object_id: UUID,
+    user_id: UUID,
+    *,
+    parent_trace_id: UUID | str | None = None,
+) -> None:
     state = load_auto_label_state(session, user_id, object_id)
     if state is None:
         return
@@ -240,7 +249,6 @@ def enqueue_auto_label_object(
         "classification_signature": state.classification_sig,
         "object_signature": state.object_sig,
         "vocabulary_signature": state.vocabulary_sig,
-        "identity_signature": state.identity_sig,
     }
     trace_id = parent_trace_id
     if trace_id is None:
@@ -294,10 +302,14 @@ class AutoLabelService:
         user_id: UUID,
         *,
         classifier: AutoLabelClassifier | None = None,
+        after_classify: Callable[[], None] | None = None,
+        after_authority: Callable[[], None] | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._classifier = classifier
+        self._after_classify = after_classify
+        self._after_authority = after_authority
 
     def run_job(self, payload: dict) -> BackgroundAssignOutcome:
         object_id = UUID(str(payload["object_id"]))
@@ -323,12 +335,12 @@ class AutoLabelService:
                     self._user_id
                 )
             )
-            identity = state.identity if not state.identity.is_empty() else None
             result = classifier.classify(
                 obj=state.obj_input,
                 candidates=list(state.candidates),
-                identity_facts=identity,
             )
+            if self._after_classify is not None:
+                self._after_classify()
             fenced = self._post_model_fence(object_id, payload_sig)
             outcome = BackgroundAssignOutcome()
             created = already = suppressed = 0
@@ -383,12 +395,25 @@ class AutoLabelService:
         payload_sig: str,
     ) -> AutoLabelFreshState | None:
         self._session.expire_all()
-        if not lock_auto_label_enabled(self._session, self._user_id):
+        settings = acquire_auto_label_user_gate(self._session, self._user_id)
+        if settings is None or not bool(settings.auto_label_enabled):
             return None
-        state = load_auto_label_state(self._session, self._user_id, object_id)
+        state = load_auto_label_state(
+            self._session,
+            self._user_id,
+            object_id,
+            lock_rows=True,
+        )
         if state is None:
             return None
         if state.classification_sig != payload_sig:
-            enqueue_auto_label_object(self._session, object_id, self._user_id)
+            enqueue_auto_label_object(
+                self._session,
+                object_id,
+                self._user_id,
+                already_gated=True,
+            )
             return None
+        if self._after_authority is not None:
+            self._after_authority()
         return state

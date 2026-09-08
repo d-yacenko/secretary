@@ -301,7 +301,10 @@ class LabelService:
 
     def _lock_user(self) -> None:
         row = self._session.scalar(
-            select(User).where(User.id == self._user_id).with_for_update()
+            select(User)
+            .where(User.id == self._user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if row is None:
             raise NotFoundError("user", self._user_id)
@@ -312,6 +315,7 @@ class LabelService:
                 select(Object)
                 .where(Object.id == object_id, Object.user_id == self._user_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
             if row is None:
                 raise NotFoundError("object", object_id)
