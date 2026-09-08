@@ -10,6 +10,7 @@ from app.connectors.mattermost.constants import (
     MAX_MENTIONED_USER_IDS_IN_METADATA,
     MAX_MESSAGE_BODY_CHARS,
     MAX_TITLE_CHARS,
+    MENTION_ID_INSPECT_LIMIT,
 )
 from app.connectors.mattermost.errors import MattermostSecurityError
 
@@ -132,56 +133,82 @@ def _bounded_file_ids(file_ids: list[Any] | None) -> list[str]:
 
 
 def _bounded_mention_ids(post: dict[str, Any]) -> tuple[list[str], bool]:
-    raw_values: list[Any] = []
-    props = post.get("props")
-    if isinstance(props, dict):
-        raw_values.append(props.get("mentions"))
-        raw_values.append(props.get("mentioned_users"))
-    metadata = post.get("metadata")
-    if isinstance(metadata, dict):
-        raw_values.append(metadata.get("mentions"))
-    raw_values.append(post.get("mention_ids"))
-
     bounded: list[str] = []
     seen: set[str] = set()
     truncated = False
-    for raw in raw_values:
-        for item in _flatten_mention_values(raw):
-            if item in seen:
-                continue
-            seen.add(item)
-            if len(bounded) >= MAX_MENTIONED_USER_IDS_IN_METADATA:
-                truncated = True
-                continue
-            bounded.append(item)
+    for raw_seen, item in enumerate(_iter_mention_items(post), start=1):
+        if len(bounded) >= MAX_MENTIONED_USER_IDS_IN_METADATA:
+            truncated = True
+            break
+        token = _mention_token(item)
+        if token is not None and token not in seen:
+            seen.add(token)
+            bounded.append(token)
+        if raw_seen >= MENTION_ID_INSPECT_LIMIT:
+            truncated = True
+            break
     return bounded, truncated
 
 
-def _flatten_mention_values(value: Any) -> list[str]:
-    if value is None:
-        return []
+def _iter_mention_items(post: dict[str, Any]):
+    for raw in _mention_source_values(post):
+        yield from _iter_mention_source(raw)
+
+
+def _mention_source_values(post: dict[str, Any]) -> list[Any]:
+    values: list[Any] = []
+    props = post.get("props")
+    if isinstance(props, dict):
+        values.append(props.get("mentions"))
+        values.append(props.get("mentioned_users"))
+    metadata = post.get("metadata")
+    if isinstance(metadata, dict):
+        values.append(metadata.get("mentions"))
+    values.append(post.get("mention_ids"))
+    return values
+
+
+def _iter_mention_source(value: Any, depth: int = 0):
+    if value is None or depth > 2:
+        return
     if isinstance(value, str):
         stripped = value.strip()
         if not stripped:
-            return []
+            return
         if stripped.startswith("["):
             try:
                 parsed = json.loads(stripped)
             except (TypeError, ValueError):
-                return [stripped]
-            return _flatten_mention_values(parsed)
-        return [stripped]
-    if isinstance(value, list):
-        items: list[str] = []
-        for item in value:
-            if isinstance(item, str) and item.strip():
-                items.append(item.strip())
-            elif isinstance(item, dict):
-                user_id = item.get("user_id") or item.get("id")
-                if isinstance(user_id, str) and user_id.strip():
-                    items.append(user_id.strip())
-        return items
-    return []
+                yield stripped
+                return
+            yield from _iter_mention_source(parsed, depth + 1)
+            return
+        yield stripped
+        return
+    if isinstance(value, dict):
+        yield value
+        return
+    iterator = None
+    if not isinstance(value, (bytes, bytearray)):
+        try:
+            iterator = iter(value)
+        except TypeError:
+            return
+    if iterator is None:
+        return
+    for item in iterator:
+        yield from _iter_mention_source(item, depth + 1)
+
+
+def _mention_token(item: Any) -> str | None:
+    if isinstance(item, str):
+        stripped = item.strip()
+        return stripped or None
+    if isinstance(item, dict):
+        user_id = item.get("user_id") or item.get("id")
+        if isinstance(user_id, str) and user_id.strip():
+            return user_id.strip()
+    return None
 
 
 def create_at_to_datetime(create_at_ms: int) -> datetime:

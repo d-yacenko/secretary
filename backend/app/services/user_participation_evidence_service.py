@@ -74,7 +74,7 @@ def current_user_participation(
         sender = extract_email_address(metadata.get("sender"))
         if sender is not None and sender in identity.emails:
             roles.add("sender")
-        recipients, recipients_truncated = _bounded_string_items(
+        recipients, recipients_truncated = bounded_string_items(
             metadata.get("recipients"), PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES
         )
         truncated = truncated or recipients_truncated
@@ -83,7 +83,7 @@ def current_user_participation(
             if email is not None and email in identity.emails:
                 roles.add("direct_recipient")
                 break
-        copied, cc_truncated = _bounded_string_items(
+        copied, cc_truncated = bounded_string_items(
             metadata.get("cc"), PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES
         )
         truncated = truncated or cc_truncated
@@ -101,7 +101,7 @@ def current_user_participation(
             provider, identity
         ):
             roles.add("organizer")
-        attendees, attendees_truncated = _bounded_attendee_entries(
+        attendees, attendees_truncated = bounded_attendee_entries(
             metadata.get("attendees"), PERSONAL_RELEVANCE_MAX_ATTENDEES
         )
         truncated = truncated or attendees_truncated or _truthy_flag(
@@ -126,7 +126,7 @@ def current_user_participation(
         author_username = _scalar_str(metadata.get("author_username"))
         if author_username and author_username.casefold() in identity.mattermost_usernames:
             roles.add("author")
-        mentions, mentions_truncated = _bounded_string_items(
+        mentions, mentions_truncated = bounded_string_items(
             metadata.get("mentioned_user_ids"), PERSONAL_RELEVANCE_MAX_MENTIONS
         )
         truncated = truncated or mentions_truncated or _truthy_flag(
@@ -136,7 +136,7 @@ def current_user_participation(
             if mention in identity.mattermost_user_ids:
                 roles.add("mentioned")
                 break
-        mention_names, names_truncated = _bounded_string_items(
+        mention_names, names_truncated = bounded_string_items(
             metadata.get("mentioned_usernames"), PERSONAL_RELEVANCE_MAX_MENTIONS
         )
         truncated = truncated or names_truncated
@@ -160,38 +160,72 @@ def _calendar_self_trusted(provider: str | None, identity: ParticipationIdentity
     return False
 
 
-def _bounded_string_items(value: object, limit: int) -> tuple[list[str], bool]:
-    items = _string_items(value)
-    if len(items) > limit:
-        return items[:limit], True
-    return items, False
-
-
-def _bounded_attendee_entries(value: object, limit: int) -> tuple[list[dict[str, Any]], bool]:
-    entries = _attendee_entries(value)
-    if len(entries) > limit:
-        return entries[:limit], True
-    return entries, False
-
-
-def _string_items(value: object) -> list[str]:
+def bounded_string_items(value: object, keep_limit: int) -> tuple[list[str], bool]:
     if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, str)]
-    return []
+        return [value], False
+    return _collect_bounded_prefix(
+        value,
+        keep_limit=keep_limit,
+        inspect_limit=keep_limit + 1,
+        parse=_string_entry,
+    )
 
 
-def _attendee_entries(value: object) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    entries: list[dict[str, Any]] = []
-    for item in value:
-        if isinstance(item, dict):
-            entries.append(item)
-        elif isinstance(item, str):
-            entries.append({"email": item})
-    return entries
+def bounded_attendee_entries(
+    value: object, keep_limit: int
+) -> tuple[list[dict[str, Any]], bool]:
+    return _collect_bounded_prefix(
+        value,
+        keep_limit=keep_limit,
+        inspect_limit=keep_limit + 1,
+        parse=_attendee_entry,
+    )
+
+
+def _string_entry(item: object) -> str | None:
+    return item if isinstance(item, str) else None
+
+
+def _attendee_entry(item: object) -> dict[str, Any] | None:
+    if isinstance(item, dict):
+        return item
+    if isinstance(item, str):
+        return {"email": item}
+    return None
+
+
+def _collect_bounded_prefix(
+    value: object,
+    *,
+    keep_limit: int,
+    inspect_limit: int,
+    parse,
+) -> tuple[list, bool]:
+    iterator = _collection_iter(value)
+    if iterator is None:
+        return [], False
+    kept: list = []
+    truncated = False
+    for raw_seen, item in enumerate(iterator, start=1):
+        if len(kept) >= keep_limit:
+            truncated = True
+            break
+        parsed = parse(item)
+        if parsed is not None:
+            kept.append(parsed)
+        if raw_seen >= inspect_limit:
+            truncated = True
+            break
+    return kept, truncated
+
+
+def _collection_iter(value: object):
+    if value is None or isinstance(value, (str, bytes, bytearray, dict)):
+        return None
+    try:
+        return iter(value)
+    except TypeError:
+        return None
 
 
 def _scalar_str(value: object) -> str | None:

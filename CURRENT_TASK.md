@@ -1,8 +1,8 @@
-# Current task — Workflow Intelligence Pass E-B-R1
+# Current task — Workflow Intelligence Pass E-B-R2
 
 ## Status
 
-Workflow Intelligence Pass E-B-R1 — exact evidence signatures & hard boundedness corrective: **awaiting Architect review**.
+Workflow Intelligence Pass E-B-R2 — streaming bounded participation corrective: **awaiting Architect review**.
 
 Pass E-A is **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED**.
 
@@ -20,12 +20,13 @@ Do **not** start Pass E-C. Do **not** change Proactive. Do **not** deploy produc
 - Proactive unchanged / **OFF** at the accepted production checkpoint
 - Pass E-A: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`
 - Pass E-B application: `de573253b3cf5372e250b7669e3ad10cba47827a`
-- Pass E-B-R1: **awaiting Architect review**
+- Pass E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`
+- Pass E-B-R2: **awaiting Architect review**
 - Pass E-C: **not started**
 
 ## Parent / base
 
-`de573253b3cf5372e250b7669e3ad10cba47827a`
+`2d21424af44fc488b14ac4f844257b4afe4d2363`
 
 ## Non-goals
 

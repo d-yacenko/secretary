@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Workflow Intelligence Pass E-B-R1 — exact evidence signatures & hard boundedness corrective: **awaiting Architect review** on `review/workflow-intelligence-personal-relevance-e-b` after E-B `de573253b3cf5372e250b7669e3ad10cba47827a`. Pass E-C has **not started**. Proactive behavior is unchanged / **OFF** at the accepted production checkpoint.
+Workflow Intelligence Pass E-B-R2 — streaming bounded participation corrective: **awaiting Architect review** on `review/workflow-intelligence-personal-relevance-e-b` after E-B-R1 `2d21424af44fc488b14ac4f844257b4afe4d2363`. Pass E-C has **not started**. Proactive behavior is unchanged / **OFF** at the accepted production checkpoint.
 
 Workflow Intelligence Pass E-A — Personal Semantic Context & Label Semantics: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`. Production application SHA = `fac292e7bb82fa95549f96ef83206fa2e55a5084`. Alembic on production: **`0033`**. Production `auto_label_enabled=false`.
 
@@ -368,7 +368,7 @@ Pass D-R3 (user serialization gate `FOR NO KEY UPDATE` so AI-audit FK `KEY SHARE
 
 Pass E-A (personal semantic context + label descriptions as auto-label evidence): **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`. Production Alembic **`0033`**. Production `auto_label_enabled=false`. Proactive **OFF** at this checkpoint.
 
-Pass E-B (personal relevance / responsibility evidence foundation): **implemented** at `de573253b3cf5372e250b7669e3ad10cba47827a`. E-B-R1 signature/bound corrective: **awaiting Architect review**. No inferred-role persistence. Pass E-C / Proactive personalization **not started**.
+Pass E-B (personal relevance / responsibility evidence foundation): **implemented** at `de573253b3cf5372e250b7669e3ad10cba47827a`. E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`. E-B-R2 streaming participation bounds: **awaiting Architect review**. No inferred-role persistence. Pass E-C / Proactive personalization **not started**.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -386,7 +386,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Auto-labeling on production: **OFF** (`auto_label_enabled=false`)
 - Proactive: unchanged / **OFF** at the accepted production checkpoint
 - Pass E-B application: `de573253b3cf5372e250b7669e3ad10cba47827a`
-- Pass E-B-R1: awaiting Architect review (do not deploy)
+- Pass E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`
+- Pass E-B-R2: awaiting Architect review (do not deploy)
 - Pass E-C / Proactive personalization: not started
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative

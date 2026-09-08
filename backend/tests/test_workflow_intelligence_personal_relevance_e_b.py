@@ -6,6 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
@@ -14,8 +15,15 @@ from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ObjectCreate
-from app.connectors.mattermost.constants import MAX_MENTIONED_USER_IDS_IN_METADATA
-from app.connectors.mattermost.normalize import MattermostChannelContext, normalize_mattermost_post
+from app.connectors.mattermost.constants import (
+    MAX_MENTIONED_USER_IDS_IN_METADATA,
+    MENTION_ID_INSPECT_LIMIT,
+)
+from app.connectors.mattermost.normalize import (
+    MattermostChannelContext,
+    _bounded_mention_ids,
+    normalize_mattermost_post,
+)
 from app.db.models import (
     Edge,
     ExternalActionAttempt,
@@ -30,10 +38,15 @@ from app.db.models import (
 )
 from app.personal_relevance.models import (
     LABEL_EVIDENCE_FETCH_LIMIT,
+    PERSONAL_RELEVANCE_ATTENDEE_INSPECT_LIMIT,
+    PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT,
     PERSONAL_RELEVANCE_EVIDENCE_VERSION,
+    PERSONAL_RELEVANCE_MAX_ATTENDEES,
+    PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES,
     PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS,
     PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT,
     PERSONAL_RELEVANCE_MAX_OBJECTS,
+    PERSONAL_RELEVANCE_MENTION_INSPECT_LIMIT,
     PersonalDependency,
     PersonalRelationship,
 )
@@ -53,8 +66,37 @@ from app.services.user_identity_constants import (
 )
 from app.services.user_identity_context_service import UserIdentityProfileService
 from app.services.user_identity_profile_parser import parse_profile_text
+from app.services.user_participation_evidence_service import (
+    ParticipationIdentity,
+    bounded_attendee_entries,
+    bounded_string_items,
+    current_user_participation,
+)
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
 from tests.test_workflow_intelligence_auto_label_d import test_proactive_allowlist_unchanged
+
+_HUGE_COLLECTION = 10_000
+
+
+class _VisitCounter:
+    def __init__(self, items: list) -> None:
+        self._items = items
+        self.visits = 0
+
+    def __iter__(self):
+        for item in self._items:
+            self.visits += 1
+            yield item
+
+
+def _email_identity(email: str = "alice@example.com") -> ParticipationIdentity:
+    return ParticipationIdentity(
+        emails=frozenset({email}),
+        mattermost_user_ids=frozenset(),
+        mattermost_usernames=frozenset(),
+        has_google_account=False,
+        has_yandex_calendar_account=False,
+    )
 
 
 def _user(session: Session) -> UUID:
@@ -863,6 +905,203 @@ def test_email_recipient_inspection_is_bounded_and_truncated(db_session) -> None
     snapshot = _service(db_session).build_snapshot(user_id, [obj.id])
     assert snapshot.objects[0].user_participation_roles == ()
     assert snapshot.objects[0].participation_truncated is True
+
+
+def test_email_recipient_prefix_is_inspected_not_the_full_collection() -> None:
+    recipients = _VisitCounter(
+        [f"other{index:05d}@example.com" for index in range(_HUGE_COLLECTION)]
+    )
+    kept, truncated = bounded_string_items(
+        recipients, PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES
+    )
+    assert truncated is True
+    assert kept == [f"other{index:05d}@example.com" for index in range(PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES)]
+    assert recipients.visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+    obj = SimpleNamespace(
+        origin="source",
+        kind="email",
+        provider="gmail",
+        metadata_={
+            "sender": "boss@example.com",
+            "recipients": _VisitCounter(
+                [f"other{index:05d}@example.com" for index in range(_HUGE_COLLECTION)]
+            ),
+            "cc": [],
+        },
+    )
+    evidence = current_user_participation(obj, _email_identity())
+    assert evidence.roles == ()
+    assert evidence.truncated is True
+    assert obj.metadata_["recipients"].visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+
+
+def test_email_cc_prefix_is_inspected_not_the_full_collection() -> None:
+    copied = _VisitCounter([f"cc{index:05d}@example.com" for index in range(_HUGE_COLLECTION)])
+    kept, truncated = bounded_string_items(copied, PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES)
+    assert truncated is True
+    assert len(kept) == PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES
+    assert copied.visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+    obj = SimpleNamespace(
+        origin="source",
+        kind="email",
+        provider="yandex_mail",
+        metadata_={
+            "sender": "boss@example.com",
+            "recipients": [],
+            "cc": _VisitCounter([f"cc{index:05d}@example.com" for index in range(_HUGE_COLLECTION)]),
+        },
+    )
+    evidence = current_user_participation(obj, _email_identity())
+    assert evidence.roles == ()
+    assert evidence.truncated is True
+    assert obj.metadata_["cc"].visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+
+
+def test_attendee_prefix_is_inspected_not_the_full_collection() -> None:
+    attendees = _VisitCounter(
+        [{"email": f"other{index:05d}@example.com"} for index in range(_HUGE_COLLECTION)]
+    )
+    kept, truncated = bounded_attendee_entries(attendees, PERSONAL_RELEVANCE_MAX_ATTENDEES)
+    assert truncated is True
+    assert len(kept) == PERSONAL_RELEVANCE_MAX_ATTENDEES
+    assert attendees.visits == PERSONAL_RELEVANCE_ATTENDEE_INSPECT_LIMIT
+    obj = SimpleNamespace(
+        origin="source",
+        kind="event",
+        provider="google_calendar",
+        metadata_={
+            "organizer": "boss@example.com",
+            "attendees": _VisitCounter(
+                [{"email": f"other{index:05d}@example.com"} for index in range(_HUGE_COLLECTION)]
+            ),
+        },
+    )
+    evidence = current_user_participation(
+        obj,
+        ParticipationIdentity(
+            emails=frozenset({"alice@example.com"}),
+            mattermost_user_ids=frozenset(),
+            mattermost_usernames=frozenset(),
+            has_google_account=True,
+            has_yandex_calendar_account=False,
+        ),
+    )
+    assert evidence.roles == ()
+    assert evidence.truncated is True
+    assert obj.metadata_["attendees"].visits == PERSONAL_RELEVANCE_ATTENDEE_INSPECT_LIMIT
+
+
+def test_identity_beyond_inspection_boundary_is_not_a_role() -> None:
+    user_email = "alice@example.com"
+    recipients = _VisitCounter(
+        [f"other{index:05d}@example.com" for index in range(PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES)]
+        + [user_email]
+        + [f"tail{index:05d}@example.com" for index in range(_HUGE_COLLECTION)]
+    )
+    obj = SimpleNamespace(
+        origin="source",
+        kind="email",
+        provider="gmail",
+        metadata_={"sender": "boss@example.com", "recipients": recipients, "cc": []},
+    )
+    evidence = current_user_participation(obj, _email_identity(user_email))
+    assert evidence.roles == ()
+    assert evidence.truncated is True
+    assert recipients.visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+
+
+def test_identity_within_inspection_boundary_keeps_factual_role() -> None:
+    user_email = "alice@example.com"
+    prefix = [f"other{index:05d}@example.com" for index in range(PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES - 1)]
+    recipients = _VisitCounter(
+        prefix + [user_email] + [f"tail{index:05d}@example.com" for index in range(_HUGE_COLLECTION)]
+    )
+    obj = SimpleNamespace(
+        origin="source",
+        kind="email",
+        provider="gmail",
+        metadata_={"sender": "boss@example.com", "recipients": recipients, "cc": []},
+    )
+    evidence = current_user_participation(obj, _email_identity(user_email))
+    assert evidence.roles == ("direct_recipient",)
+    assert evidence.truncated is True
+    assert recipients.visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+
+
+def test_malformed_entries_do_not_force_unbounded_scan() -> None:
+    junk = _VisitCounter([None, 1, {}, object()] * (_HUGE_COLLECTION // 4))
+    kept, truncated = bounded_string_items(junk, PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES)
+    assert kept == []
+    assert truncated is True
+    assert junk.visits == PERSONAL_RELEVANCE_EMAIL_INSPECT_LIMIT
+
+
+def test_mattermost_mention_normalization_is_prefix_bounded() -> None:
+    mentions = _VisitCounter([f"user-{index}" for index in range(_HUGE_COLLECTION)])
+    ids, truncated = _bounded_mention_ids(
+        {
+            "props": {"mentions": mentions},
+        }
+    )
+    assert truncated is True
+    assert ids == [f"user-{index}" for index in range(MAX_MENTIONED_USER_IDS_IN_METADATA)]
+    assert mentions.visits == MENTION_ID_INSPECT_LIMIT
+    assert mentions.visits == PERSONAL_RELEVANCE_MENTION_INSPECT_LIMIT
+    normalize_visits = _VisitCounter([f"user-{index}" for index in range(_HUGE_COLLECTION)])
+    normalized = normalize_mattermost_post(
+        {
+            "id": "p-huge-norm",
+            "user_id": "author-1",
+            "message": "hello @alice",
+            "create_at": 1,
+            "update_at": 1,
+            "props": {"mentions": normalize_visits},
+        },
+        "https://mm.example.com",
+        uuid.uuid4(),
+        MattermostChannelContext(
+            channel_id="ch",
+            channel_name="general",
+            channel_type="O",
+            channel_display_name="General",
+            team_id=None,
+            team_name=None,
+            team_display_name=None,
+        ),
+        {"username": "bob", "display_name": "Bob"},
+    )
+    assert normalized is not None
+    assert len(normalized["metadata"]["mentioned_user_ids"]) == MAX_MENTIONED_USER_IDS_IN_METADATA
+    assert normalized["metadata"]["mentioned_user_ids_truncated"] is True
+    assert normalize_visits.visits == MENTION_ID_INSPECT_LIMIT
+
+
+def test_mattermost_mention_beyond_bound_is_not_a_role() -> None:
+    user_id = "mm-alice"
+    mentions = _VisitCounter(
+        [f"user-{index}" for index in range(MAX_MENTIONED_USER_IDS_IN_METADATA)]
+        + [user_id]
+        + [f"tail-{index}" for index in range(_HUGE_COLLECTION)]
+    )
+    obj = SimpleNamespace(
+        origin="source",
+        kind="message",
+        provider="mattermost",
+        metadata_={"author_user_id": "other", "mentioned_user_ids": mentions},
+    )
+    evidence = current_user_participation(
+        obj,
+        ParticipationIdentity(
+            emails=frozenset(),
+            mattermost_user_ids=frozenset({user_id}),
+            mattermost_usernames=frozenset(),
+            has_google_account=False,
+            has_yandex_calendar_account=False,
+        ),
+    )
+    assert evidence.roles == ()
+    assert evidence.truncated is True
+    assert mentions.visits == PERSONAL_RELEVANCE_MENTION_INSPECT_LIMIT
 
 
 def test_calendar_attendees_truncated_propagates_to_participation(db_session) -> None:
