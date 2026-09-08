@@ -85,8 +85,22 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   Future<void> _loadLabels() async {
     try {
       final result = await widget.apiClient.listLabels();
-      if (mounted) {
-        setState(() => _labels = result.labels);
+      if (!mounted) {
+        return;
+      }
+      final selectedId = _selectedLabelId;
+      final selectedStillExists = selectedId == null ||
+          result.labels.any((label) => label.id == selectedId);
+      final rerunSearch =
+          !selectedStillExists && _queryController.text.trim().isNotEmpty;
+      setState(() {
+        _labels = result.labels;
+        if (!selectedStillExists) {
+          _selectedLabelId = null;
+        }
+      });
+      if (rerunSearch) {
+        await _search();
       }
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();

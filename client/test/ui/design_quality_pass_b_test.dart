@@ -33,6 +33,79 @@ http.Response jsonRes(Object body, [int status = 200]) {
   );
 }
 
+Widget _catalogSearchApp({
+  required List<String?> labelQueries,
+  required List<Map<String, dynamic>> Function() nextCatalog,
+}) {
+  final apiClient = SecretaryApiClient(
+    httpClient: MockClient((request) async {
+      if (request.url.path == '/search/facets') {
+        return jsonRes({'kinds': [], 'providers': []});
+      }
+      if (request.url.path == '/labels') {
+        return jsonRes({'labels': nextCatalog()});
+      }
+      if (request.url.path == '/search') {
+        labelQueries.add(request.url.queryParameters['label_id']);
+        return jsonRes([
+          {
+            'id': 'email-1',
+            'kind': 'email',
+            'title': 'Письмо',
+            'body': 'body',
+            'provider': 'gmail',
+            'external_id': null,
+            'canonical_uri': null,
+            'status': null,
+            'start_at': null,
+            'due_at': null,
+            'metadata': {},
+            'origin': 'source',
+            'state': 'observed',
+            'confidence': null,
+            'created_at': '2026-08-30T08:00:00Z',
+            'updated_at': '2026-08-30T08:00:00Z',
+          },
+        ]);
+      }
+      if (request.url.path == '/labels/by-objects') {
+        return jsonRes({'objects': {}});
+      }
+      return jsonRes({}, 404);
+    }),
+  );
+  apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+  final auth = AuthController(
+    apiClient: apiClient,
+    tokenStore: FakeTokenStore(),
+    serverUrlStore: FakeServerUrlStore(),
+  );
+  auth.status = AuthStatus.authenticated;
+  return MaterialApp(
+    navigatorObservers: [appRouteObserver],
+    home: Scaffold(
+      body: SearchScreen(
+        apiClient: apiClient,
+        authController: auth,
+        captureController:
+            CaptureController(apiClient: apiClient, authController: auth),
+      ),
+    ),
+  );
+}
+
+Future<void> _returnFromOverlay(WidgetTester tester) async {
+  final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+  navigator.push(
+    MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('overlay')),
+    ),
+  );
+  await tester.pumpAndSettle();
+  navigator.pop();
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -446,6 +519,145 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('NewName'), findsWidgets);
     expect(find.text('OldName'), findsNothing);
+  });
+
+  testWidgets('search keeps selected label ID after rename in catalog',
+      (tester) async {
+    final labelQueries = <String?>[];
+    var labelsVersion = 0;
+    await tester.pumpWidget(
+      _catalogSearchApp(
+        labelQueries: labelQueries,
+        nextCatalog: () {
+          labelsVersion++;
+          if (labelsVersion == 1) {
+            return [
+              {'id': 'label-1', 'title': 'OldName', 'object_count': 1},
+              {'id': 'label-2', 'title': 'Other', 'object_count': 1},
+            ];
+          }
+          return [
+            {'id': 'label-1', 'title': 'NewName', 'object_count': 1},
+            {'id': 'label-2', 'title': 'Other', 'object_count': 1},
+          ];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'письмо');
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, 'OldName'));
+    await tester.pumpAndSettle();
+    expect(labelQueries.last, 'label-1');
+
+    await _returnFromOverlay(tester);
+    expect(find.byTooltip('Метка: NewName'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    expect(labelQueries.last, 'label-1');
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MenuItemButton, 'NewName'), findsOneWidget);
+    expect(find.widgetWithText(MenuItemButton, 'OldName'), findsNothing);
+  });
+
+  testWidgets('search clears deleted selected label and reruns as Все',
+      (tester) async {
+    final labelQueries = <String?>[];
+    var labelsVersion = 0;
+    await tester.pumpWidget(
+      _catalogSearchApp(
+        labelQueries: labelQueries,
+        nextCatalog: () {
+          labelsVersion++;
+          if (labelsVersion == 1) {
+            return [
+              {'id': 'label-1', 'title': 'Work', 'object_count': 1},
+              {'id': 'label-2', 'title': 'Home', 'object_count': 1},
+            ];
+          }
+          return [
+            {'id': 'label-2', 'title': 'Home', 'object_count': 1},
+          ];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'письмо');
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, 'Work'));
+    await tester.pumpAndSettle();
+    expect(labelQueries.last, 'label-1');
+    final searchesBeforeReturn = labelQueries.length;
+
+    await _returnFromOverlay(tester);
+    expect(labelQueries.length, searchesBeforeReturn + 1);
+    expect(labelQueries.last, isNull);
+    expect(find.byTooltip('Метка: Все'), findsOneWidget);
+    final filter = tester.widget<IconButton>(
+      find.byKey(const Key('search_label_filter')),
+    );
+    expect(filter.style?.backgroundColor?.resolve(const <WidgetState>{}), isNull);
+
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MenuItemButton, 'Work'), findsNothing);
+    expect(find.widgetWithText(MenuItemButton, 'Home'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    expect(labelQueries.last, isNull);
+  });
+
+  testWidgets('search keeps selection when a non-selected label is deleted',
+      (tester) async {
+    final labelQueries = <String?>[];
+    var labelsVersion = 0;
+    await tester.pumpWidget(
+      _catalogSearchApp(
+        labelQueries: labelQueries,
+        nextCatalog: () {
+          labelsVersion++;
+          if (labelsVersion == 1) {
+            return [
+              {'id': 'label-1', 'title': 'Work', 'object_count': 1},
+              {'id': 'label-2', 'title': 'Home', 'object_count': 1},
+            ];
+          }
+          return [
+            {'id': 'label-1', 'title': 'Work', 'object_count': 1},
+          ];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'письмо');
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, 'Work'));
+    await tester.pumpAndSettle();
+    expect(labelQueries.last, 'label-1');
+    final searchesBeforeReturn = labelQueries.length;
+
+    await _returnFromOverlay(tester);
+    expect(labelQueries.length, searchesBeforeReturn);
+    expect(find.byTooltip('Метка: Work'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    expect(labelQueries.last, 'label-1');
+    await tester.tap(find.byKey(const Key('search_label_filter')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MenuItemButton, 'Work'), findsOneWidget);
+    expect(find.widgetWithText(MenuItemButton, 'Home'), findsNothing);
   });
 
   testWidgets('LCD hierarchy uses numeric date and heavier time',

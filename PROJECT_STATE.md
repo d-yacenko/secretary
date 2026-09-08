@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Design Quality Pass B — Label Visibility & Screen-by-Screen Polish: **implemented, awaiting Architect review** on `review/design-quality-b-label-visibility`. Exact parent / accepted Pass A/A-R1 client baseline: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69`. Server production remains `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. No production deploy. Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
+Design Quality Pass B — Label Visibility & Screen-by-Screen Polish: application `bff6cfb2174f2d3fb39bac6db1bf71cee72e4c4a` (not deployed). Design Quality Pass B-R1 — stale selected label cleanup: **implemented, awaiting Architect review** on `review/design-quality-b-label-visibility`. Exact parent: `bff6cfb2174f2d3fb39bac6db1bf71cee72e4c4a`. Pass A/A-R1 client baseline: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69`. Server production remains `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. No production deploy. Design Quality Pass C / Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
 
 Workflow Intelligence Pass E-C / E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. Proactive **OFF**. Real-user `auto_label_enabled=true` (pre-existing). Android `minSdk` 23.
 
@@ -402,14 +402,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Android “OK Google” / custom voice assistant / App Actions
 - Camera/gallery image capture and image understanding
 - Final app icon pending user artwork
-- Label catalog stale after returning from label management (Flutter-only refresh candidate; addressed in Pass B for Search filter catalog)
+- Label catalog stale after returning from label management (Flutter-only; Search catalog refresh in Pass B; B-R1 clears a deleted selected filter ID)
 
 ## VDS production
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - Production application SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c`
-- Production phase: Workflow Intelligence **Pass E-C CLOSED**; Design Quality Pass A/A-R1 accepted at `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**); Pass B **not deployed**
+- Production phase: Workflow Intelligence **Pass E-C CLOSED**; Design Quality Pass A/A-R1 accepted at `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**); Pass B `bff6cfb2…` **not deployed**; B-R1 **not deployed**
 - Alembic on production: **`0033 / 0033`** (current/head); no `0034`
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -419,7 +419,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Pass E-B-R2 / accepted production SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
 - Pass E-C / E-C-R1 production SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c` (**CLOSED**)
 - Design Quality Pass A/A-R1: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**)
-- Design Quality Pass B: `review/design-quality-b-label-visibility` (**not deployed**)
+- Design Quality Pass B / B-R1: `review/design-quality-b-label-visibility` (**not deployed**)
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -503,4 +503,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Design Quality Pass B. Do not deploy. Do not start Graph Advanced UX.
+Await Architect review of Design Quality Pass B-R1. Do not deploy. Do not start Design Quality Pass C / Graph Advanced UX.
