@@ -29,6 +29,7 @@ from app.db.models import (
     UserSettings,
 )
 from app.domain.labels import EDGE_TYPE_LABELED_WITH
+from app.domain.object_visibility import tombstone_object
 from app.domain.scheduled_activity import KIND_SCHEDULED_ACTIVITY
 from app.jobs.constants import (
     JOB_STATUS_DONE,
@@ -61,6 +62,7 @@ from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.label_service import LabelService
 from app.services.provenance import AGENT_ORIGIN, CONFIRMED_STATE, REJECTED_STATE
+from app.services.user_identity_context_service import UserIdentityProfileService
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 from tests.conftest import AuthTestClient
@@ -106,6 +108,33 @@ def _enable_auto_label(session: Session, enabled: bool = True) -> None:
     else:
         row.auto_label_enabled = enabled
     session.flush()
+
+
+class _HookClassifier:
+    def __init__(self, assignments: list[AutoLabelAssignment], hook) -> None:
+        self._assignments = assignments
+        self._hook = hook
+        self.calls = 0
+
+    def classify(self, *, obj, candidates, identity_facts=None):
+        self.calls += 1
+        self._hook()
+        return FakeAutoLabelClassifier(assignments=self._assignments).classify(
+            obj=obj,
+            candidates=candidates,
+            identity_facts=identity_facts,
+        )
+
+
+def _active_labeled_edges(session: Session) -> list[Edge]:
+    return list(
+        session.scalars(
+            select(Edge).where(
+                Edge.type == EDGE_TYPE_LABELED_WITH,
+                Edge.state != REJECTED_STATE,
+            )
+        )
+    )
 
 
 def _auto_label_jobs(session: Session) -> list[Job]:
@@ -567,6 +596,184 @@ def test_stale_signature_enqueues_current_without_model(db_session) -> None:
     assert len(current_sigs) == 2
     AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(stale.payload)
     assert len(_auto_label_jobs(db_session)) == 2
+
+
+def test_disable_during_classifier_discards_model_output(db_session) -> None:
+    _enable_auto_label(db_session)
+    label = _labels(db_session).create_label("Work").label
+    note = _note(db_session, body="work")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    fake = _HookClassifier(
+        [AutoLabelAssignment(label_id=label.id, confidence=0.99, rationale="work")],
+        hook=lambda: _enable_auto_label(db_session, False),
+    )
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(
+        _auto_label_jobs(db_session)[0].payload
+    )
+    assert fake.calls == 1
+    assert _active_labeled_edges(db_session) == []
+
+
+def test_object_semantic_change_during_classifier_enqueues_current(db_session) -> None:
+    _enable_auto_label(db_session)
+    label = _labels(db_session).create_label("Work").label
+    note = _note(db_session, body="one")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    stale = _auto_label_jobs(db_session)[0]
+
+    def mutate() -> None:
+        note.body = "two"
+        db_session.flush()
+
+    fake = _HookClassifier(
+        [AutoLabelAssignment(label_id=label.id, confidence=0.99, rationale="stale")],
+        hook=mutate,
+    )
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(stale.payload)
+    assert fake.calls == 1
+    assert _active_labeled_edges(db_session) == []
+    jobs = _auto_label_jobs(db_session)
+    assert len(jobs) == 2
+    assert len({job.payload["classification_signature"] for job in jobs}) == 2
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(stale.payload)
+    assert len(_auto_label_jobs(db_session)) == 2
+
+
+def test_object_tombstone_during_classifier_discards(db_session) -> None:
+    _enable_auto_label(db_session)
+    label = _labels(db_session).create_label("Work").label
+    note = _note(db_session, body="work")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+
+    def mutate() -> None:
+        tombstone_object(note)
+        db_session.flush()
+
+    fake = _HookClassifier(
+        [AutoLabelAssignment(label_id=label.id, confidence=0.99, rationale="gone")],
+        hook=mutate,
+    )
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(
+        _auto_label_jobs(db_session)[0].payload
+    )
+    assert fake.calls == 1
+    assert _active_labeled_edges(db_session) == []
+    assert len(_auto_label_jobs(db_session)) == 1
+
+
+def test_object_reject_during_classifier_discards(db_session) -> None:
+    _enable_auto_label(db_session)
+    label = _labels(db_session).create_label("Work").label
+    note = _note(db_session, body="work")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+
+    def mutate() -> None:
+        note.state = REJECTED_STATE
+        db_session.flush()
+
+    fake = _HookClassifier(
+        [AutoLabelAssignment(label_id=label.id, confidence=0.99, rationale="rejected")],
+        hook=mutate,
+    )
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(
+        _auto_label_jobs(db_session)[0].payload
+    )
+    assert fake.calls == 1
+    assert _active_labeled_edges(db_session) == []
+
+
+def test_vocabulary_mutate_during_classifier_discards_obsolete(db_session) -> None:
+    _enable_auto_label(db_session)
+    label_a = _labels(db_session).create_label("A").label
+    label_b = _labels(db_session).create_label("B").label
+    note = _note(db_session, body="work")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    first_sig = _auto_label_jobs(db_session)[0].payload["classification_signature"]
+
+    def mutate() -> None:
+        _labels(db_session).rename_label(label_a.id, "A-renamed")
+        _labels(db_session).create_label("C")
+        _labels(db_session).delete_label(label_b.id)
+
+    fake = _HookClassifier(
+        [AutoLabelAssignment(label_id=label_a.id, confidence=0.99, rationale="obsolete")],
+        hook=mutate,
+    )
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(
+        _auto_label_jobs(db_session)[0].payload
+    )
+    assert fake.calls == 1
+    assert _active_labeled_edges(db_session) == []
+    jobs = _auto_label_jobs(db_session)
+    current_sigs = {job.payload["classification_signature"] for job in jobs}
+    assert first_sig in current_sigs
+    assert len(current_sigs) == 2
+
+
+def test_identity_change_during_classifier_discards(db_session) -> None:
+    _enable_auto_label(db_session)
+    label = _labels(db_session).create_label("Work").label
+    note = _note(db_session, body="work")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+
+    def mutate() -> None:
+        UserIdentityProfileService.build(db_session).upsert_profile(
+            BOOTSTRAP_USER_ID,
+            "Имя: Тестовый Пользователь\n",
+        )
+
+    fake = _HookClassifier(
+        [AutoLabelAssignment(label_id=label.id, confidence=0.99, rationale="id")],
+        hook=mutate,
+    )
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(
+        _auto_label_jobs(db_session)[0].payload
+    )
+    assert fake.calls == 1
+    assert _active_labeled_edges(db_session) == []
+    assert len(_auto_label_jobs(db_session)) == 2
+
+
+def test_loaded_vocabulary_over_bound_skips_model_on_existing_job(db_session) -> None:
+    _enable_auto_label(db_session)
+    for index in range(AUTO_LABEL_MAX_VOCABULARY):
+        _labels(db_session).create_label(f"L{index}")
+    note = _note(db_session, body="work")
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    assert len(_auto_label_jobs(db_session)) == 1
+    _labels(db_session).create_label("overflow")
+    fake = FakeAutoLabelClassifier()
+    AutoLabelService(db_session, BOOTSTRAP_USER_ID, classifier=fake).run_job(
+        _auto_label_jobs(db_session)[0].payload
+    )
+    assert fake.calls == 0
+    assert _active_labeled_edges(db_session) == []
+
+
+def test_signature_dedupe_with_many_unrelated_done_jobs(db_session) -> None:
+    _enable_auto_label(db_session)
+    _labels(db_session).create_label("Work")
+    note = _note(db_session, body="stable")
+    for index in range(40):
+        JobQueueService(db_session).enqueue(
+            JOB_TYPE_AUTO_LABEL_OBJECT,
+            {
+                "object_id": str(uuid.uuid4()),
+                "classification_signature": f"unrelated-{index}",
+            },
+            user_id=BOOTSTRAP_USER_ID,
+        )
+    for job in _auto_label_jobs(db_session):
+        job.status = JOB_STATUS_DONE
+    db_session.flush()
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    enqueue_auto_label_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    matching = [
+        job
+        for job in _auto_label_jobs(db_session)
+        if job.payload.get("object_id") == str(note.id)
+    ]
+    assert len(matching) == 1
 
 
 def test_audit_workload_and_parent_trace(db_session, monkeypatch) -> None:

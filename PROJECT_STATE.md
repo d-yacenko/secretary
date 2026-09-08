@@ -2,6 +2,12 @@
 
 ## Current phase
 
+Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
+
+Workflow Intelligence Pass D — bounded background auto-labeling: application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566` (not production-deployed).
+
+Workflow Intelligence Pass D-R1 — auto-label post-model fencing & boundedness: **awaiting Architect review** on `review/workflow-intelligence-auto-label-d`.
+
 PHASE 22.5A — Local Retrieval Foundation: **accepted / closed**
 
 PHASE 22.5B — Assistant Retrieval Integration: **accepted / closed**
@@ -340,7 +346,13 @@ Semantic file summaries; folders as retrieval/graph source; local-file and email
 
 ### PHASE 29 — Personal Workflow Intelligence
 
-Unified colored labels/tags (Работа, Учёба, Наука, Личное, Дом, Финансы, Здоровье, Отдых, Идеи) — one canonical label system.
+Pass C (label relevance / ANNOTATE): **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
+
+Pass D (bounded opt-in background auto-labeling, existing vocabulary only): application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566`. **Not deployed.** Default `auto_label_enabled=false`. Alembic `0032` is in the review branch only.
+
+Pass D-R1 (post-model fence, disable linearizability, identity in classification signature, hard vocabulary bound, bounded signature dedupe): **awaiting Architect review**.
+
+Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
 ### PHASE 30 — Release / advanced UX
 
