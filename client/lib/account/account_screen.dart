@@ -9,6 +9,7 @@ import '../ui/domain_labels.dart';
 import 'account_labels_section.dart';
 import 'account_layout.dart';
 import 'identity_profile_template.dart';
+import 'semantic_context_template.dart';
 import 'source_preferences_list.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class AccountScreen extends StatefulWidget {
     this.initialSettings,
     this.initialSourcePreferences,
     this.initialIdentity,
+    this.initialSemanticContext,
   });
 
   final SecretaryApiClient apiClient;
@@ -28,6 +30,7 @@ class AccountScreen extends StatefulWidget {
   final UserSettings? initialSettings;
   final List<SourcePreference>? initialSourcePreferences;
   final UserIdentity? initialIdentity;
+  final UserSemanticContext? initialSemanticContext;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -48,11 +51,15 @@ class _AccountScreenState extends State<AccountScreen>
   bool _identityLoading = false;
   bool _identitySaving = false;
   String? _identityError;
+  bool _semanticLoading = false;
+  bool _semanticSaving = false;
+  String? _semanticError;
   final Set<String> _savingSources = {};
   final Map<String, String> _sourcePreferenceRowErrors = {};
   late final TextEditingController _displayNameController;
   late final TextEditingController _timezoneController;
   late final TextEditingController _identityController;
+  late final TextEditingController _semanticController;
 
   @override
   void initState() {
@@ -67,16 +74,21 @@ class _AccountScreenState extends State<AccountScreen>
     _identityController = TextEditingController(
       text: widget.initialIdentity?.profileText ?? '',
     );
+    _semanticController = TextEditingController(
+      text: widget.initialSemanticContext?.contextText ?? '',
+    );
     if (widget.initialConnections != null &&
         widget.initialSettings != null &&
         widget.initialSourcePreferences != null &&
-        widget.initialIdentity != null) {
+        widget.initialIdentity != null &&
+        widget.initialSemanticContext != null) {
       _connections = widget.initialConnections;
       _settings = widget.initialSettings;
       _sourcePreferences = widget.initialSourcePreferences;
       _loading = false;
       _sourcePreferencesLoading = false;
       _identityLoading = false;
+      _semanticLoading = false;
     } else if (widget.initialConnections != null &&
         widget.initialSettings != null &&
         widget.initialSourcePreferences != null) {
@@ -88,6 +100,7 @@ class _AccountScreenState extends State<AccountScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _loadIdentity();
+          _loadSemanticContext();
         }
       });
     } else {
@@ -105,6 +118,7 @@ class _AccountScreenState extends State<AccountScreen>
     _displayNameController.dispose();
     _timezoneController.dispose();
     _identityController.dispose();
+    _semanticController.dispose();
     super.dispose();
   }
 
@@ -153,9 +167,11 @@ class _AccountScreenState extends State<AccountScreen>
       _loading = true;
       _sourcePreferencesLoading = true;
       _identityLoading = true;
+      _semanticLoading = true;
       _error = null;
       _sourcePreferencesError = null;
       _identityError = null;
+      _semanticError = null;
     });
     Connections? connections;
     UserSettings? settings;
@@ -163,6 +179,7 @@ class _AccountScreenState extends State<AccountScreen>
     String? error;
     String? sourcePreferencesError;
     String? identityError;
+    String? semanticError;
     try {
       connections = await widget.apiClient.getConnections();
     } on AuthenticationException {
@@ -196,6 +213,15 @@ class _AccountScreenState extends State<AccountScreen>
     } on ApiException catch (e) {
       identityError = e.message;
     }
+    try {
+      final semantic = await widget.apiClient.getSemanticContext();
+      _semanticController.text = semantic.contextText;
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+      return;
+    } on ApiException catch (e) {
+      semanticError = e.message;
+    }
     if (mounted) {
       setState(() {
         _connections = connections;
@@ -207,9 +233,11 @@ class _AccountScreenState extends State<AccountScreen>
         _error = error;
         _sourcePreferencesError = sourcePreferencesError;
         _identityError = identityError;
+        _semanticError = semanticError;
         _loading = false;
         _sourcePreferencesLoading = false;
         _identityLoading = false;
+        _semanticLoading = false;
       });
     }
   }
@@ -328,6 +356,63 @@ class _AccountScreenState extends State<AccountScreen>
     } finally {
       if (mounted) {
         setState(() => _identitySaving = false);
+      }
+    }
+  }
+
+  Future<void> _loadSemanticContext() async {
+    setState(() {
+      _semanticLoading = true;
+      _semanticError = null;
+    });
+    try {
+      final semantic = await widget.apiClient.getSemanticContext();
+      if (mounted) {
+        setState(() {
+          _semanticController.text = semantic.contextText;
+          _semanticError = null;
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _semanticError = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _semanticLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveSemanticContext() async {
+    if (_semanticSaving) {
+      return;
+    }
+    setState(() {
+      _semanticSaving = true;
+      _semanticError = null;
+    });
+    try {
+      final updated = await widget.apiClient.putSemanticContext(
+        contextText: _semanticController.text,
+      );
+      if (mounted) {
+        setState(() {
+          _semanticController.text = updated.contextText;
+          _semanticError = null;
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _semanticError = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _semanticSaving = false);
       }
     }
   }
@@ -611,6 +696,56 @@ class _AccountScreenState extends State<AccountScreen>
                       _identitySaving
                           ? 'Сохранение…'
                           : 'Сохранить идентичность',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              AccountSectionCard(
+                key: const Key('account_semantic_context_section'),
+                title: 'Контекст для Секретаря',
+                children: [
+                  Text(
+                    semanticContextExplanation,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  if (_semanticLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else
+                    TextField(
+                      key: const Key('semantic_context_text'),
+                      controller: _semanticController,
+                      decoration: const InputDecoration(
+                        labelText: 'Контекст',
+                        hintText: semanticContextPlaceholder,
+                        alignLabelWithHint: true,
+                      ),
+                      minLines: 8,
+                      maxLines: 18,
+                      enabled: !_semanticSaving,
+                    ),
+                  if (_semanticError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _semanticError!,
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    key: const Key('semantic_context_save'),
+                    onPressed: _semanticSaving || _semanticLoading
+                        ? null
+                        : _saveSemanticContext,
+                    child: Text(
+                      _semanticSaving
+                          ? 'Сохранение…'
+                          : 'Сохранить контекст',
                     ),
                   ),
                 ],

@@ -8,10 +8,11 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
-from app.db.models import Edge, Object, User
+from app.db.models import Edge, Object
 from app.domain.labels import (
     EDGE_TYPE_LABELED_WITH,
     KIND_LABEL,
+    LABEL_DESCRIPTION_MAX_CHARS,
     LABEL_NAME_MAX_CHARS,
     LABEL_SCHEMA_VERSION,
     LIST_LABELS_MAX,
@@ -27,19 +28,35 @@ from app.services.provenance import (
     REJECTED_STATE,
     USER_ORIGIN,
 )
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 _RESERVED_LABEL_CREATE = "labels must be created through LabelService"
 _RESERVED_LABELED_WITH = "labeled_with assignments must use assign_label/remove_label"
 
 
-def lock_user_serialization_row(session: Session, user_id: UUID) -> User | None:
-    """Per-user taxonomy/auto-label sentinel: PostgreSQL FOR NO KEY UPDATE."""
-    return session.scalar(
-        select(User)
-        .where(User.id == user_id)
-        .with_for_update(key_share=True)
-        .execution_options(populate_existing=True)
-    )
+def normalize_label_description(description: str | None) -> str | None:
+    if description is None:
+        return None
+    if not isinstance(description, str):
+        raise ValidationError("label description must be a string")
+    normalized = description.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return None
+    if len(normalized) > LABEL_DESCRIPTION_MAX_CHARS:
+        raise ValidationError(
+            f"label description must be at most {LABEL_DESCRIPTION_MAX_CHARS} characters"
+        )
+    return normalized
+
+
+def label_description(label: Object) -> str | None:
+    raw = label.body
+    if not isinstance(raw, str):
+        return None
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return None
+    return normalized[:LABEL_DESCRIPTION_MAX_CHARS]
 
 
 def normalize_label_name(name: str) -> tuple[str, str]:
@@ -77,6 +94,7 @@ class LabelRecord:
     title: str
     created_at: datetime
     updated_at: datetime
+    description: str | None = None
     object_count: int = 0
 
 
@@ -90,6 +108,9 @@ class CreateLabelResult:
 class RenameLabelResult:
     label: Object
     changed: bool
+
+
+UpdateLabelResult = RenameLabelResult
 
 
 @dataclass(frozen=True)
@@ -149,13 +170,15 @@ class LabelService:
                 title=item.title,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
+                description=label_description(item),
                 object_count=counts.get(item.id, 0),
             )
             for item in labels
         ]
 
-    def create_label(self, name: str) -> CreateLabelResult:
+    def create_label(self, name: str, description: str | None = None) -> CreateLabelResult:
         display, key = normalize_label_name(name)
+        body = normalize_label_description(description)
         self._lock_user()
         existing = self._active_by_key(key)
         if existing is not None:
@@ -166,7 +189,7 @@ class LabelService:
             title=display,
             origin=self._origin,
             state=self._state,
-            body=None,
+            body=body,
             provider=None,
             external_id=None,
             canonical_uri=None,
@@ -181,27 +204,55 @@ class LabelService:
         return CreateLabelResult(label=label, created=True)
 
     def rename_label(self, label_id: UUID, name: str) -> RenameLabelResult:
-        display, key = normalize_label_name(name)
+        return self.update_label(label_id, name=name)
+
+    def update_label(
+        self,
+        label_id: UUID,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        name_set: bool = False,
+        description_set: bool = False,
+    ) -> UpdateLabelResult:
+        if not name_set and not description_set:
+            if name is not None:
+                name_set = True
+            else:
+                raise ValidationError("no fields to update")
+        display = key = None
+        if name_set:
+            if name is None:
+                raise ValidationError("label name is required")
+            display, key = normalize_label_name(name)
+        body = None
+        if description_set:
+            body = normalize_label_description(description)
         self._lock_user()
         label = self._require_active_label(label_id)
-        other = self._active_by_key(key)
-        if other is not None and other.id != label.id:
-            raise ConflictError("an active label with this name already exists")
         changed = False
-        if label.title != display:
-            label.title = display
-            changed = True
-        metadata = dict(label.metadata_ or {})
-        if metadata.get("label_key") != key:
-            metadata["label_key"] = key
-            metadata["label_schema_version"] = LABEL_SCHEMA_VERSION
-            label.metadata_ = metadata
+        if name_set:
+            other = self._active_by_key(key or "")
+            if other is not None and other.id != label.id:
+                raise ConflictError("an active label with this name already exists")
+            if label.title != display:
+                label.title = display
+                changed = True
+            metadata = dict(label.metadata_ or {})
+            if metadata.get("label_key") != key:
+                metadata["label_key"] = key
+                metadata["label_schema_version"] = LABEL_SCHEMA_VERSION
+                label.metadata_ = metadata
+                changed = True
+        if description_set and label.body != body:
+            label.body = body
             changed = True
         if changed:
             self._session.flush()
-        return RenameLabelResult(label=label, changed=changed)
+        return UpdateLabelResult(label=label, changed=changed)
 
     def delete_label(self, label_id: UUID) -> DeleteLabelResult:
+        self._lock_user()
         label = self._owned_label(label_id)
         if is_object_hidden_from_active_reads(label):
             return DeleteLabelResult(label=label, changed=False)
@@ -229,6 +280,7 @@ class LabelService:
                 title=item.title,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
+                description=label_description(item),
             )
             for item in labels
         ]

@@ -841,6 +841,27 @@ class UserIdentityProfile(Base):
     )
 
 
+class UserSemanticContext(Base):
+    __tablename__ = "user_semantic_contexts"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    context_text: Mapped[str] = mapped_column(nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class ExternalActionAttempt(Base):
     __tablename__ = "external_action_attempts"
 

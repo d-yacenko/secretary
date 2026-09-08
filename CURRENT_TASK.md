@@ -1,37 +1,34 @@
-# Current task — Workflow Intelligence Pass D-R3
+# Current task — Workflow Intelligence Pass E-A
 
 ## Status
 
-Workflow Intelligence Pass D-R3: **implementation complete**; **awaiting Architect review**.
+Workflow Intelligence Pass E-A — Personal Semantic Context & Label Semantics: **in review**.
 
-Do **not** deploy this corrective before Architect acceptance.
-Do **not** start Pass E.
+Do **not** deploy production.
+Do **not** start Pass E-B / relevance / Proactive personalization.
 
 ## Branch
 
-`review/workflow-intelligence-auto-label-d`
+`review/workflow-intelligence-semantic-context-e-a`
 
 ## Production truth
 
-- Production application SHA: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (Pass D-R2, Architect-accepted application)
-- Alembic on production: **`0032`** (deployed)
+- Production application SHA: `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`
+- Alembic on production: **`0032`**
 - `auto_label_enabled=false` in production (must remain OFF)
-- Pass D application accepted; production E2E/closure **BLOCKED** by D-R3 (post-model audit / `users FOR UPDATE` hang)
-- Production no-backfill / default / opt-out checks: **PASS**
-- Production assignment happy path: **NOT PASS**
-- Pass E: not started
+- Workflow Intelligence Pass D: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`
+- D-R3 production happy path: **PASS**
+- Pass E-A: active review phase
+- Pass E-B: **not started**
+- Proactive personalization: **not started**
 
 ## Parent / base
 
-`e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`
+`f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`
 
 ## Scope
 
-Keep the Pass D product contract. No new autonomy, no Proactive changes, no taxonomy automation, no AI-audit schema/FK redesign.
-
-- User serialization sentinel: PostgreSQL `FOR NO KEY UPDATE` (`with_for_update(key_share=True)`, `populate_existing=True`) in `acquire_auto_label_user_gate` and `LabelService._lock_user`
-- Keep `UserSettings FOR UPDATE` and source Object / vocabulary `FOR UPDATE` for the R2 mutation fence
-- Real separate-session AI-audit regression (do not patch `ai_trace_session` to `nullcontext`; do not redirect audit `SessionLocal` to the worker session)
+Bounded personal semantic context and optional label descriptions as classifier evidence (not rules). Shared User serialization gate. No historical backfill. No taxonomy autonomy. No Proactive / PAP / EAA / provider side effects.
 
 ## Non-goals
 

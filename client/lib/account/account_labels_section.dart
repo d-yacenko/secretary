@@ -79,12 +79,15 @@ class _AccountLabelsSectionState extends State<AccountLabelsSection> {
   }
 
   Future<void> _create() async {
-    final name = await showLabelNameDialog(context, title: 'Создать метку');
-    if (name == null || !mounted) {
+    final edited = await showLabelEditorDialog(context, title: 'Создать метку');
+    if (edited == null || !mounted) {
       return;
     }
     try {
-      final result = await widget.apiClient.createLabel(name);
+      final result = await widget.apiClient.createLabel(
+        edited.name,
+        description: edited.description,
+      );
       if (!mounted) {
         return;
       }
@@ -102,19 +105,22 @@ class _AccountLabelsSectionState extends State<AccountLabelsSection> {
   }
 
   Future<void> _rename(LabelItem label) async {
-    final name = await showLabelNameDialog(
+    final edited = await showLabelEditorDialog(
       context,
-      title: 'Переименовать метку',
-      initial: label.title,
+      title: 'Изменить метку',
+      initialName: label.title,
+      initialDescription: label.description ?? '',
       submitLabel: 'Сохранить',
     );
-    if (name == null || !mounted) {
+    if (edited == null || !mounted) {
       return;
     }
     try {
-      final result = await widget.apiClient.renameLabel(
+      final result = await widget.apiClient.updateLabel(
         labelId: label.id,
-        name: name,
+        name: edited.name,
+        description: edited.description,
+        descriptionSet: true,
       );
       if (!mounted) {
         return;
@@ -209,7 +215,16 @@ class _AccountLabelsSectionState extends State<AccountLabelsSection> {
               contentPadding: EdgeInsets.zero,
               dense: true,
               title: Text(label.title),
-              subtitle: Text('объектов: ${label.objectCount}'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (label.description != null && label.description!.isNotEmpty)
+                    Text(label.description!),
+                  Text('объектов: ${label.objectCount}'),
+                ],
+              ),
+              isThreeLine:
+                  label.description != null && label.description!.isNotEmpty,
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -241,62 +256,119 @@ class _AccountLabelsSectionState extends State<AccountLabelsSection> {
   }
 }
 
+class LabelEditorResult {
+  const LabelEditorResult({required this.name, this.description});
+
+  final String name;
+  final String? description;
+}
+
 Future<String?> showLabelNameDialog(
   BuildContext context, {
   required String title,
   String initial = '',
   String submitLabel = 'Создать',
+}) async {
+  final result = await showLabelEditorDialog(
+    context,
+    title: title,
+    initialName: initial,
+    submitLabel: submitLabel,
+    includeDescription: false,
+  );
+  return result?.name;
+}
+
+Future<LabelEditorResult?> showLabelEditorDialog(
+  BuildContext context, {
+  required String title,
+  String initialName = '',
+  String initialDescription = '',
+  String submitLabel = 'Создать',
+  bool includeDescription = true,
 }) {
-  return showDialog<String>(
+  return showDialog<LabelEditorResult>(
     context: context,
-    builder: (context) => _LabelNameDialog(
+    builder: (context) => _LabelEditorDialog(
       title: title,
-      initial: initial,
+      initialName: initialName,
+      initialDescription: initialDescription,
       submitLabel: submitLabel,
+      includeDescription: includeDescription,
     ),
   );
 }
 
-class _LabelNameDialog extends StatefulWidget {
-  const _LabelNameDialog({
+class _LabelEditorDialog extends StatefulWidget {
+  const _LabelEditorDialog({
     required this.title,
-    required this.initial,
+    required this.initialName,
+    required this.initialDescription,
     required this.submitLabel,
+    required this.includeDescription,
   });
 
   final String title;
-  final String initial;
+  final String initialName;
+  final String initialDescription;
   final String submitLabel;
+  final bool includeDescription;
 
   @override
-  State<_LabelNameDialog> createState() => _LabelNameDialogState();
+  State<_LabelEditorDialog> createState() => _LabelEditorDialogState();
 }
 
-class _LabelNameDialogState extends State<_LabelNameDialog> {
-  late final TextEditingController _controller;
+class _LabelEditorDialogState extends State<_LabelEditorDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initial);
+    _nameController = TextEditingController(text: widget.initialName);
+    _descriptionController = TextEditingController(text: widget.initialDescription);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _nameController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final trimmed = _controller.text.trim();
+    final trimmed = _nameController.text.trim();
     return AlertDialog(
       title: Text(widget.title),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Название'),
-        onChanged: (_) => setState(() {}),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const Key('label_dialog_name'),
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Название'),
+              onChanged: (_) => setState(() {}),
+            ),
+            if (widget.includeDescription) ...[
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('label_dialog_description'),
+                controller: _descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Описание для Секретаря',
+                  helperText: 'Коротко опишите, когда эту метку стоит использовать.',
+                  alignLabelWithHint: true,
+                ),
+                minLines: 2,
+                maxLines: 4,
+              ),
+            ],
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -304,7 +376,22 @@ class _LabelNameDialogState extends State<_LabelNameDialog> {
           child: const Text('Отмена'),
         ),
         FilledButton(
-          onPressed: trimmed.isEmpty ? null : () => Navigator.pop(context, trimmed),
+          onPressed: trimmed.isEmpty
+              ? null
+              : () {
+                  final description = widget.includeDescription
+                      ? _descriptionController.text.trim()
+                      : null;
+                  Navigator.pop(
+                    context,
+                    LabelEditorResult(
+                      name: trimmed,
+                      description: (description == null || description.isEmpty)
+                          ? null
+                          : description,
+                    ),
+                  );
+                },
           child: Text(widget.submitLabel),
         ),
       ],

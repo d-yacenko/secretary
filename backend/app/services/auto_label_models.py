@@ -15,6 +15,7 @@ from app.services.auto_label_constants import (
 class AutoLabelCandidate:
     label_id: UUID
     title: str
+    description: str | None = None
 
 
 @dataclass(frozen=True)

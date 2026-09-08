@@ -1050,5 +1050,6 @@ def test_pass_c_did_not_add_label_migration() -> None:
     versions = sorted(
         path.name for path in (BACKEND_APP.parent / "alembic" / "versions").glob("*.py") if path.name[0].isdigit()
     )
-    assert any(name.startswith("0031") for name in versions)
-    assert versions[-1].startswith("0032")
+    assert any(name.startswith("0032") for name in versions)
+    assert any(name.startswith("0033") for name in versions)
+    assert versions[-1].startswith("0033")

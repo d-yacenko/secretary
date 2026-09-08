@@ -257,6 +257,7 @@ class LabelItemOut(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    description: str | None = None
     object_count: int = 0
 
 

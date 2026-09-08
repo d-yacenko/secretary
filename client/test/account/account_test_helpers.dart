@@ -85,6 +85,13 @@ Map<String, dynamic> accountIdentityJson({
 
 bool isAccountIdentityRequest(Uri url) => url.path.endsWith('/me/identity');
 
+Map<String, dynamic> accountSemanticContextJson({String contextText = ''}) {
+  return {'context_text': contextText};
+}
+
+bool isAccountSemanticContextRequest(Uri url) =>
+    url.path.endsWith('/me/semantic-context');
+
 Map<String, dynamic> accountSourcePreferenceEntryJson({
   String source = 'gmail',
   bool enabled = true,
@@ -159,6 +166,9 @@ class StubSecretaryApiClient extends SecretaryApiClient {
             SourcePreferenceList.fromJson(accountSourcePreferencesJson())
                 .preferences,
         _identity = identity ?? UserIdentity.fromJson(accountIdentityJson()),
+        _semanticContext = UserSemanticContext.fromJson(
+          accountSemanticContextJson(),
+        ),
         super(
             httpClient: httpClient ??
                 MockClient((_) async => http.Response('{}', 404)));
@@ -167,6 +177,7 @@ class StubSecretaryApiClient extends SecretaryApiClient {
   final UserSettings _settings;
   final List<SourcePreference> _sourcePreferences;
   final UserIdentity _identity;
+  UserSemanticContext _semanticContext;
 
   @override
   Future<Connections> getConnections() async => _connections;
@@ -188,6 +199,17 @@ class StubSecretaryApiClient extends SecretaryApiClient {
       fullName: _identity.fullName,
       preferredName: _identity.preferredName,
     );
+  }
+
+  @override
+  Future<UserSemanticContext> getSemanticContext() async => _semanticContext;
+
+  @override
+  Future<UserSemanticContext> putSemanticContext({
+    required String contextText,
+  }) async {
+    _semanticContext = UserSemanticContext(contextText: contextText);
+    return _semanticContext;
   }
 
   @override
@@ -220,6 +242,7 @@ AccountScreen buildAccountScreen({
   Map<String, dynamic>? settingsJson,
   Map<String, dynamic>? sourcePreferencesJson,
   Map<String, dynamic>? identityJson,
+  Map<String, dynamic>? semanticContextJson,
 }) {
   final connections =
       Connections.fromJson(connectionsJson ?? accountConnectionsJson());
@@ -230,6 +253,9 @@ AccountScreen buildAccountScreen({
       : SourcePreferenceList.fromJson(sourcePreferencesJson).preferences;
   final identity =
       UserIdentity.fromJson(identityJson ?? accountIdentityJson());
+  final semanticContext = UserSemanticContext.fromJson(
+    semanticContextJson ?? accountSemanticContextJson(),
+  );
   return AccountScreen(
     apiClient: apiClient,
     authController: authController,
@@ -237,6 +263,7 @@ AccountScreen buildAccountScreen({
     initialSettings: settings,
     initialSourcePreferences: sourcePreferences,
     initialIdentity: identity,
+    initialSemanticContext: semanticContext,
   );
 }
 

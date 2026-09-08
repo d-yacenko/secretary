@@ -2,7 +2,9 @@
 
 ## Current phase
 
-Workflow Intelligence Pass D — bounded background auto-labeling: application **accepted** at `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (D-R2). **Production E2E/closure BLOCKED by D-R3.**
+Workflow Intelligence Pass E-A — Personal Semantic Context & Label Semantics: **in review** on `review/workflow-intelligence-semantic-context-e-a`. **Do not deploy. Pass E-B and Proactive personalization have not started.**
+
+Workflow Intelligence Pass D — bounded background auto-labeling: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`. D-R3 production happy path **PASS**. Alembic on production remains **`0032`**. Production `auto_label_enabled=false`.
 
 Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
 
@@ -10,9 +12,9 @@ Workflow Intelligence Pass D application: `b3819ae5d0cf3a0c6c01e96d411c0cafe67df
 
 Workflow Intelligence Pass D-R1: `bac9ca4d6741493f098a37cce29d246b24b3dfca`.
 
-Workflow Intelligence Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (deployed application SHA; Alembic `0032`).
+Workflow Intelligence Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`.
 
-Workflow Intelligence Pass D-R3 — user-gate lock compatibility with AI-audit FK `KEY SHARE`: **awaiting Architect review** on `review/workflow-intelligence-auto-label-d`. **Do not deploy before review. Pass E not started.**
+Workflow Intelligence Pass D-R3: `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb` (production application SHA).
 
 PHASE 22.5A — Local Retrieval Foundation: **accepted / closed**
 
@@ -354,13 +356,15 @@ Semantic file summaries; folders as retrieval/graph source; local-file and email
 
 Pass C (label relevance / ANNOTATE): **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
 
-Pass D (bounded opt-in background auto-labeling, existing vocabulary only): application accepted at `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`. Default `auto_label_enabled=false`. Migration `0032` is **deployed**. Production assignment happy path **NOT PASS** (post-model audit / `users FOR UPDATE` hang). Production no-backfill / default / opt-out: **PASS**. Closure **BLOCKED by D-R3**.
+Pass D (bounded opt-in background auto-labeling, existing vocabulary only): **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`. Default `auto_label_enabled=false`. Migration `0032` is **deployed**. D-R3 production happy path **PASS**.
 
 Pass D-R1: `bac9ca4d6741493f098a37cce29d246b24b3dfca`.
 
-Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (production application SHA).
+Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`.
 
-Pass D-R3 (user serialization gate `FOR NO KEY UPDATE` so AI-audit FK `KEY SHARE` can commit): **awaiting Architect review**. Do not deploy. Pass E not started.
+Pass D-R3 (user serialization gate `FOR NO KEY UPDATE` so AI-audit FK `KEY SHARE` can commit): **accepted** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`.
+
+Pass E-A (personal semantic context + label descriptions as auto-label evidence): **in review**. Pass E-B and Proactive personalization **not started**.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -372,12 +376,12 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`
-- Production phase: Workflow Intelligence **Pass D-R2 application deployed**; E2E/closure **BLOCKED by D-R3**
+- Production application SHA: `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`
+- Production phase: Workflow Intelligence **Pass D ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED**
 - Alembic on production: **`0032`** (head on production)
 - Auto-labeling on production: **OFF** (`auto_label_enabled=false`)
-- Pass D-R3 remains on `review/workflow-intelligence-auto-label-d` until Architect acceptance; **do not deploy R3 yet**
-- Pass E: not started
+- Pass E-A is on `review/workflow-intelligence-semantic-context-e-a`; **do not deploy**
+- Pass E-B / Proactive personalization: not started
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`

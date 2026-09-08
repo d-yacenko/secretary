@@ -17,8 +17,9 @@ const _token = 'opaque-test-token';
 
 Map<String, dynamic> _label({
   String id = 'label-1',
-    String title = 'Work',
+  String title = 'Work',
   int count = 3,
+  String? description,
 }) {
   return {
     'id': id,
@@ -26,6 +27,7 @@ Map<String, dynamic> _label({
     'object_count': count,
     'created_at': '2026-09-07T00:00:00Z',
     'updated_at': '2026-09-07T00:00:00Z',
+    'description': description,
   };
 }
 
@@ -141,7 +143,7 @@ void main() {
     await tester.tap(find.byKey(const Key('account_create_label')));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(FilledButton, 'Создать'), findsOneWidget);
-    await tester.enterText(find.byType(TextField).last, '  Work  ');
+    await tester.enterText(find.byKey(const Key('label_dialog_name')), '  Work  ');
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Создать'));
     await tester.pumpAndSettle();
@@ -163,7 +165,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('account_create_label')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'work');
+    await tester.enterText(find.byKey(const Key('label_dialog_name')), 'work');
     await tester.tap(find.widgetWithText(FilledButton, 'Создать'));
     await tester.pumpAndSettle();
     expect(find.text('Work'), findsOneWidget);
@@ -188,7 +190,7 @@ void main() {
     );
     await tester.tap(find.byTooltip('Переименовать'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'Office');
+    await tester.enterText(find.byKey(const Key('label_dialog_name')), 'Office');
     await tester.tap(find.widgetWithText(FilledButton, 'Сохранить'));
     await tester.pumpAndSettle();
     expect(find.text('Office'), findsOneWidget);
@@ -217,7 +219,7 @@ void main() {
     );
     await tester.tap(find.byTooltip('Переименовать').first);
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'Office');
+    await tester.enterText(find.byKey(const Key('label_dialog_name')), 'Office');
     await tester.tap(find.widgetWithText(FilledButton, 'Сохранить'));
     await tester.pumpAndSettle();
     expect(find.text('Метка с таким именем уже существует.'), findsOneWidget);
@@ -254,5 +256,52 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
     await tester.pumpAndSettle();
     expect(find.text('Work'), findsNothing);
+  });
+
+  testWidgets('shows description under title', (tester) async {
+    await _pumpSection(
+      tester,
+      MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'labels': [_label(description: 'commercial work')],
+          }),
+          200,
+        );
+      }),
+    );
+    expect(find.text('commercial work'), findsOneWidget);
+  });
+
+  testWidgets('create label with description', (tester) async {
+    Map<String, dynamic>? createdBody;
+    await _pumpSection(
+      tester,
+      MockClient((request) async {
+        if (request.method == 'GET') {
+          return http.Response(jsonEncode({'labels': []}), 200);
+        }
+        createdBody = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode({
+            'label': _label(description: 'when to use'),
+            'created': true,
+          }),
+          200,
+        );
+      }),
+    );
+    await tester.tap(find.byKey(const Key('account_create_label')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('label_dialog_name')), 'Work');
+    await tester.enterText(
+      find.byKey(const Key('label_dialog_description')),
+      'when to use',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Создать'));
+    await tester.pumpAndSettle();
+    expect(createdBody?['name'], 'Work');
+    expect(createdBody?['description'], 'when to use');
+    expect(find.text('when to use'), findsOneWidget);
   });
 }

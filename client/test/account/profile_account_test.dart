@@ -679,6 +679,9 @@ void main() {
           if (isAccountIdentityRequest(request.url) && request.method == 'GET') {
             return http.Response(jsonEncode(accountIdentityJson()), 200);
           }
+          if (isAccountSemanticContextRequest(request.url)) {
+            return http.Response(jsonEncode(accountSemanticContextJson()), 200);
+          }
           if (isAccountIdentityRequest(request.url) && request.method == 'PUT') {
             final body = jsonDecode(request.body) as Map<String, dynamic>;
             savedProfileText = body['profile_text'] as String;
@@ -727,6 +730,9 @@ Email:
           }
           if (isAccountIdentityRequest(request.url) && request.method == 'GET') {
             return http.Response(jsonEncode(accountIdentityJson()), 200);
+          }
+          if (isAccountSemanticContextRequest(request.url)) {
+            return http.Response(jsonEncode(accountSemanticContextJson()), 200);
           }
           if (isAccountIdentityRequest(request.url) && request.method == 'PUT') {
             return http.Response(

@@ -48,8 +48,13 @@ from app.services.auto_label_models import (
 from app.services.correlation_constants import SEMANTIC_SUMMARY_METADATA_KEY
 from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.job_queue_service import JobQueueService
-from app.services.label_service import LabelService, lock_user_serialization_row
+from app.services.label_service import LabelService, label_description
+from app.services.personal_semantic_context_service import (
+    PersonalSemanticContext,
+    load_personal_semantic_context,
+)
 from app.services.provenance import AGENT_ORIGIN, CONFIRMED_STATE, REJECTED_STATE
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 
 @dataclass(frozen=True)
@@ -57,8 +62,10 @@ class AutoLabelFreshState:
     obj: Object
     obj_input: AutoLabelObjectInput
     candidates: tuple[AutoLabelCandidate, ...]
+    personal: PersonalSemanticContext
     object_sig: str
     vocabulary_sig: str
+    semantic_context_sig: str
     classification_sig: str
 
 
@@ -141,13 +148,30 @@ def vocabulary_signature(candidates: list[AutoLabelCandidate] | tuple[AutoLabelC
     ordered = sorted(candidates, key=lambda item: item.label_id.bytes)
     return _sha256_text(
         _canonical_json(
-            [{"label_id": str(item.label_id), "title": item.title} for item in ordered]
+            [
+                {
+                    "label_id": str(item.label_id),
+                    "title": item.title,
+                    "description": item.description,
+                }
+                for item in ordered
+            ]
         )
     )
 
 
-def classification_signature(object_sig: str, vocabulary_sig: str) -> str:
-    return _sha256_text(f"{AUTO_LABEL_VERSION}\n{object_sig}\n{vocabulary_sig}")
+def semantic_context_signature(personal: PersonalSemanticContext) -> str:
+    return _sha256_text(_canonical_json(personal.to_classifier_dict()))
+
+
+def classification_signature(
+    object_sig: str,
+    vocabulary_sig: str,
+    semantic_sig: str,
+) -> str:
+    return _sha256_text(
+        f"{AUTO_LABEL_VERSION}\n{object_sig}\n{vocabulary_sig}\n{semantic_sig}"
+    )
 
 
 def _label_query(session: Session, user_id: UUID, *, lock_rows: bool):
@@ -171,7 +195,14 @@ def load_active_label_candidates(
     labels = list(session.scalars(_label_query(session, user_id, lock_rows=lock_rows)))
     if len(labels) > AUTO_LABEL_MAX_VOCABULARY:
         return None
-    return [AutoLabelCandidate(label_id=item.id, title=item.title) for item in labels]
+    return [
+        AutoLabelCandidate(
+            label_id=item.id,
+            title=item.title,
+            description=label_description(item),
+        )
+        for item in labels
+    ]
 
 
 def load_auto_label_state(
@@ -180,7 +211,9 @@ def load_auto_label_state(
     object_id: UUID,
     *,
     lock_rows: bool = False,
+    lock_semantic: bool = False,
 ) -> AutoLabelFreshState | None:
+    personal = load_personal_semantic_context(session, user_id, lock_rows=lock_semantic)
     obj_stmt = select(Object).where(Object.id == object_id, Object.user_id == user_id)
     if lock_rows:
         obj_stmt = obj_stmt.with_for_update()
@@ -193,13 +226,16 @@ def load_auto_label_state(
     obj_input = bounded_object_input(obj)
     object_sig = object_signature(obj_input)
     vocab_sig = vocabulary_signature(candidates)
+    semantic_sig = semantic_context_signature(personal)
     return AutoLabelFreshState(
         obj=obj,
         obj_input=obj_input,
         candidates=tuple(candidates),
+        personal=personal,
         object_sig=object_sig,
         vocabulary_sig=vocab_sig,
-        classification_sig=classification_signature(object_sig, vocab_sig),
+        semantic_context_sig=semantic_sig,
+        classification_sig=classification_signature(object_sig, vocab_sig, semantic_sig),
     )
 
 
@@ -244,6 +280,7 @@ def _enqueue_auto_label_object_locked(
         "classification_signature": state.classification_sig,
         "object_signature": state.object_sig,
         "vocabulary_signature": state.vocabulary_sig,
+        "semantic_context_signature": state.semantic_context_sig,
     }
     trace_id = parent_trace_id
     if trace_id is None:
@@ -333,6 +370,7 @@ class AutoLabelService:
             result = classifier.classify(
                 obj=state.obj_input,
                 candidates=list(state.candidates),
+                personal=state.personal,
             )
             if self._after_classify is not None:
                 self._after_classify()
@@ -375,6 +413,16 @@ class AutoLabelService:
                     "auto_label_result",
                     {
                         "candidate_label_count": len(state.candidates),
+                        "label_description_count": sum(
+                            1 for item in state.candidates if item.description
+                        ),
+                        "semantic_context_char_count": len(state.personal.context_text),
+                        "role_count": len(state.personal.roles),
+                        "organization_count": len(state.personal.organizations),
+                        "object_signature": state.object_sig,
+                        "vocabulary_signature": state.vocabulary_sig,
+                        "semantic_context_signature": state.semantic_context_sig,
+                        "classification_signature": state.classification_sig,
                         "raw_assignment_count": result.raw_assignment_count,
                         "accepted_assignment_count": len(result.assignments),
                         "created_assignment_count": created,
@@ -398,6 +446,7 @@ class AutoLabelService:
             self._user_id,
             object_id,
             lock_rows=True,
+            lock_semantic=True,
         )
         if state is None:
             return None

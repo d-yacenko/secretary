@@ -85,6 +85,18 @@ class UserIdentity {
   }
 }
 
+class UserSemanticContext {
+  UserSemanticContext({required this.contextText});
+
+  final String contextText;
+
+  factory UserSemanticContext.fromJson(Map<String, dynamic> json) {
+    return UserSemanticContext(
+      contextText: json['context_text'] as String? ?? '',
+    );
+  }
+}
+
 class GoogleConnection {
   GoogleConnection({
     required this.connected,
@@ -1523,6 +1535,7 @@ class LabelItem {
   LabelItem({
     required this.id,
     required this.title,
+    this.description,
     this.objectCount = 0,
     this.createdAt,
     this.updatedAt,
@@ -1530,6 +1543,7 @@ class LabelItem {
 
   final String id;
   final String title;
+  final String? description;
   final int objectCount;
   final String? createdAt;
   final String? updatedAt;
@@ -1538,6 +1552,7 @@ class LabelItem {
     return LabelItem(
       id: json['id'] as String,
       title: json['title'] as String,
+      description: json['description'] as String?,
       objectCount: (json['object_count'] as num?)?.toInt() ?? 0,
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,

@@ -128,12 +128,13 @@ class _HookClassifier:
         self._hook = hook
         self.calls = 0
 
-    def classify(self, *, obj, candidates):
+    def classify(self, *, obj, candidates, personal=None):
         self.calls += 1
         self._hook()
         return FakeAutoLabelClassifier(assignments=self._assignments).classify(
             obj=obj,
             candidates=candidates,
+            personal=personal,
         )
 
 

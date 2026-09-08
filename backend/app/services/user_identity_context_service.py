@@ -14,7 +14,7 @@ from app.db.models import (
     YandexCalendarAccount,
     YandexMailAccount,
 )
-from app.services.errors import ValidationError
+from app.services.errors import NotFoundError, ValidationError
 from app.services.user_identity_constants import (
     MAX_ALIAS_ITEMS,
     MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS,
@@ -27,6 +27,7 @@ from app.services.user_identity_constants import (
     MAX_RUNTIME_IDENTITY_JSON_CHARS,
 )
 from app.services.user_identity_profile_parser import ParsedIdentityProfile, parse_profile_text
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 
 @dataclass(frozen=True)
@@ -222,6 +223,9 @@ class UserIdentityProfileService:
         )
 
     def upsert_profile(self, user_id: UUID, profile_text: str) -> UserIdentityProfileView:
+        user = lock_user_serialization_row(self._session, user_id)
+        if user is None:
+            raise NotFoundError("user", user_id)
         normalized = profile_text.replace("\r\n", "\n").replace("\r", "\n")
         if len(normalized) > MAX_PROFILE_TEXT_CHARS:
             raise ValidationError("profile_text exceeds maximum length")

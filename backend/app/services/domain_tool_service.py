@@ -192,15 +192,19 @@ class DomainToolService:
             title=record.title,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            description=record.description,
             object_count=record.object_count,
         )
 
     def _label_item_from_object(self, label, *, object_count: int = 0) -> LabelItemOut:
+        from app.services.label_service import label_description
+
         return LabelItemOut(
             id=label.id,
             title=label.title,
             created_at=label.created_at,
             updated_at=label.updated_at,
+            description=label_description(label),
             object_count=object_count,
         )
 

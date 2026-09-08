@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.core.current_user import CurrentUserContext
 from app.services.errors import ConflictError, NotFoundError, ValidationError
-from app.services.label_service import LabelRecord, LabelService
+from app.services.label_service import LabelRecord, LabelService, label_description
 from app.tools.schemas import LabelItemOut
 
 router = APIRouter()
@@ -18,12 +18,14 @@ class LabelCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    description: str | None = None
 
 
 class LabelPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    name: str | None = None
+    description: str | None = None
 
 
 class LabelWriteOut(BaseModel):
@@ -69,6 +71,7 @@ def _item(record: LabelRecord) -> LabelItemOut:
         title=record.title,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        description=record.description,
         object_count=record.object_count,
     )
 
@@ -79,6 +82,7 @@ def _item_from_object(label, *, object_count: int = 0) -> LabelItemOut:
         title=label.title,
         created_at=label.created_at,
         updated_at=label.updated_at,
+        description=label_description(label),
         object_count=object_count,
     )
 
@@ -109,20 +113,31 @@ def create_label(
     service: LabelService = Depends(_service),
 ) -> LabelWriteOut:
     try:
-        result = service.create_label(payload.name)
+        result = service.create_label(payload.name, description=payload.description)
     except (NotFoundError, ConflictError, ValidationError) as exc:
         _raise_domain(exc)
     return LabelWriteOut(label=_item_from_object(result.label), created=result.created)
 
 
 @router.patch("/labels/{label_id}", response_model=LabelWriteOut)
-def rename_label(
+def update_label(
     label_id: UUID,
     payload: LabelPatchRequest,
     service: LabelService = Depends(_service),
 ) -> LabelWriteOut:
+    if not payload.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="no fields to update",
+        )
     try:
-        result = service.rename_label(label_id, payload.name)
+        result = service.update_label(
+            label_id,
+            name=payload.name,
+            description=payload.description,
+            name_set="name" in payload.model_fields_set,
+            description_set="description" in payload.model_fields_set,
+        )
     except (NotFoundError, ConflictError, ValidationError) as exc:
         _raise_domain(exc)
     return LabelWriteOut(label=_item_from_object(result.label), changed=result.changed)

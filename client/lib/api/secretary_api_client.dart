@@ -109,6 +109,20 @@ class SecretaryApiClient {
     return UserIdentity.fromJson(body);
   }
 
+  Future<UserSemanticContext> getSemanticContext() async {
+    final body = await _request('GET', '/me/semantic-context');
+    return UserSemanticContext.fromJson(body);
+  }
+
+  Future<UserSemanticContext> putSemanticContext({required String contextText}) async {
+    final body = await _request(
+      'PUT',
+      '/me/semantic-context',
+      jsonBody: {'context_text': contextText},
+    );
+    return UserSemanticContext.fromJson(body);
+  }
+
   Future<void> putOpenaiCredential(String apiKey) async {
     await _request('PUT', '/me/credentials/openai',
         jsonBody: {'api_key': apiKey});
@@ -603,11 +617,18 @@ class SecretaryApiClient {
     return LabelList.fromJson(decoded);
   }
 
-  Future<LabelWriteResult> createLabel(String name) async {
+  Future<LabelWriteResult> createLabel(
+    String name, {
+    String? description,
+  }) async {
+    final jsonBody = <String, dynamic>{'name': name};
+    if (description != null) {
+      jsonBody['description'] = description;
+    }
     final decoded = await _requestJson(
       'POST',
       '/labels',
-      jsonBody: {'name': name},
+      jsonBody: jsonBody,
     );
     if (decoded is! Map<String, dynamic>) {
       throw ServerException('Unexpected label create response format');
@@ -619,10 +640,26 @@ class SecretaryApiClient {
     required String labelId,
     required String name,
   }) async {
+    return updateLabel(labelId: labelId, name: name);
+  }
+
+  Future<LabelWriteResult> updateLabel({
+    required String labelId,
+    String? name,
+    String? description,
+    bool descriptionSet = false,
+  }) async {
+    final jsonBody = <String, dynamic>{};
+    if (name != null) {
+      jsonBody['name'] = name;
+    }
+    if (descriptionSet) {
+      jsonBody['description'] = description;
+    }
     final decoded = await _requestJson(
       'PATCH',
       '/labels/$labelId',
-      jsonBody: {'name': name},
+      jsonBody: jsonBody,
     );
     if (decoded is! Map<String, dynamic>) {
       throw ServerException('Unexpected label rename response format');

@@ -202,6 +202,7 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
                 {
                     "id": row.get("id"),
                     "title": row.get("title"),
+                    "description": row.get("description"),
                     "object_count": row.get("object_count", 0),
                 }
                 for row in labels

@@ -17,7 +17,8 @@ from app.services.effective_user_settings_service import (
     EffectiveUserSettings,
     EffectiveUserSettingsService,
 )
-from app.services.errors import ValidationError
+from app.services.errors import NotFoundError, ValidationError
+from app.services.personal_semantic_context_service import PersonalSemanticContextService
 from app.services.user_identity_context_service import UserIdentityProfileService
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
@@ -101,6 +102,16 @@ class UserIdentityPut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile_text: str
+
+
+class SemanticContextOut(BaseModel):
+    context_text: str
+
+
+class SemanticContextPut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context_text: str
 
 
 def _serialize_identity(view) -> UserIdentityOut:
@@ -306,9 +317,39 @@ def put_my_identity(
     service = UserIdentityProfileService.build(session)
     try:
         view = service.upsert_profile(current_user.user_id, payload.profile_text)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=exc.message,
         ) from exc
     return _serialize_identity(view)
+
+
+@router.get("/me/semantic-context", response_model=SemanticContextOut)
+def get_my_semantic_context(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> SemanticContextOut:
+    service = PersonalSemanticContextService.build(session)
+    return SemanticContextOut(context_text=service.get_context_text(current_user.user_id))
+
+
+@router.put("/me/semantic-context", response_model=SemanticContextOut)
+def put_my_semantic_context(
+    payload: SemanticContextPut,
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> SemanticContextOut:
+    service = PersonalSemanticContextService.build(session)
+    try:
+        text = service.upsert_context(current_user.user_id, payload.context_text)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        ) from exc
+    return SemanticContextOut(context_text=text)

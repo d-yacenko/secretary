@@ -63,8 +63,9 @@ void main() {
     client.configure(baseUrl: baseUrl, token: token);
 
     final listed = await client.listLabels();
-    expect(listed.labels.single.title, 'Work');
+      expect(listed.labels.single.title, 'Work');
     expect(listed.labels.single.objectCount, 2);
+    expect(listed.labels.single.description, isNull);
 
     final created = await client.createLabel('Work');
     expect(created.created, isTrue);
@@ -81,6 +82,69 @@ void main() {
     );
     expect(deleted.changed, isTrue);
     expect(seen.length, 4);
+  });
+
+  test('parses optional description and sends description on create/update', () async {
+    final seen = <http.Request>[];
+    final client = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        seen.add(request);
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'labels': [
+                {
+                  'id': '11111111-1111-1111-1111-111111111111',
+                  'title': 'Work',
+                  'description': 'office work',
+                  'object_count': 1,
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST') {
+          expect(jsonDecode(request.body)['description'], 'commercial');
+          return http.Response(
+            jsonEncode({
+              'label': {
+                'id': '11111111-1111-1111-1111-111111111111',
+                'title': 'Work',
+                'description': 'commercial',
+                'object_count': 0,
+              },
+              'created': true,
+            }),
+            200,
+          );
+        }
+        expect(jsonDecode(request.body)['description'], isNull);
+        return http.Response(
+          jsonEncode({
+            'label': {
+              'id': '11111111-1111-1111-1111-111111111111',
+              'title': 'Work',
+              'description': null,
+              'object_count': 0,
+            },
+            'changed': true,
+          }),
+          200,
+        );
+      }),
+    );
+    client.configure(baseUrl: baseUrl, token: token);
+    final listed = await client.listLabels();
+    expect(listed.labels.single.description, 'office work');
+    final created = await client.createLabel('Work', description: 'commercial');
+    expect(created.label.description, 'commercial');
+    final updated = await client.updateLabel(
+      labelId: '11111111-1111-1111-1111-111111111111',
+      descriptionSet: true,
+    );
+    expect(updated.label.description, isNull);
+    expect(seen.length, 3);
   });
 
   test('get/assign/remove object labels', () async {
