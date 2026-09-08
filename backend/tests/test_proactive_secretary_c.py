@@ -70,15 +70,18 @@ class ScriptedProactiveProvider:
         *,
         started: threading.Event | None = None,
         release: threading.Event | None = None,
+        after_tools=None,
     ) -> None:
         self.answer = answer
         self.tool_calls = list(tool_calls or [])
         self.calls = 0
         self.last_tool_definitions = None
         self.last_instructions = ""
+        self.last_ui_context = ""
         self.rejected = []
         self._started = started
         self._release = release
+        self._after_tools = after_tools
 
     def run(
         self,
@@ -96,6 +99,7 @@ class ScriptedProactiveProvider:
         self.calls += 1
         self.last_tool_definitions = tool_definitions
         self.last_instructions = system_instructions or ""
+        self.last_ui_context = ui_context
         if self._started is not None:
             self._started.set()
         if self._release is not None and not self._release.wait(timeout=15):
@@ -104,6 +108,8 @@ class ScriptedProactiveProvider:
             result = tool_runner(name, arguments)
             if not result.success:
                 self.rejected.append(name)
+        if self._after_tools is not None:
+            self._after_tools()
         if hasattr(tool_runner, "commit_model_visible_outputs"):
             tool_runner.commit_model_visible_outputs()
         return AssistantProviderResult(
@@ -119,31 +125,49 @@ def _utcnow() -> datetime:
 
 
 def _none_answer() -> str:
-    return json.dumps({"decision": "none", "notification": None})
+    return json.dumps({"decision": "none", "notification": None, "personal_relevance": None})
 
 
-def _insight_answer(source_id, *, confidence: float = 0.91, title: str = "Attention item") -> str:
-    return json.dumps(
-        {
-            "decision": "notify",
-            "notification": {
-                "kind": "insight",
-                "title": title,
-                "body": "A bounded useful insight.",
-                "priority": "normal",
-                "source_object_id": str(source_id),
-                "related_object_id": None,
-                "confidence": confidence,
-                "task": None,
-            },
-        }
-    )
+def _personal_relevance(
+    relationship: str = "responsible",
+    dependency: str = "waiting_on_user",
+) -> dict:
+    return {"relationship": relationship, "dependency": dependency}
+
+
+def _insight_answer(
+    source_id,
+    *,
+    confidence: float = 0.91,
+    title: str = "Attention item",
+    related_id=None,
+    personal_relevance: dict | None = None,
+    extra: dict | None = None,
+) -> str:
+    payload = {
+        "decision": "notify",
+        "personal_relevance": personal_relevance or _personal_relevance(),
+        "notification": {
+            "kind": "insight",
+            "title": title,
+            "body": "A bounded useful insight.",
+            "priority": "normal",
+            "source_object_id": str(source_id),
+            "related_object_id": None if related_id is None else str(related_id),
+            "confidence": confidence,
+            "task": None,
+        },
+    }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload)
 
 
 def _task_answer(source_id, *, confidence: float = 0.91) -> str:
     return json.dumps(
         {
             "decision": "notify",
+            "personal_relevance": _personal_relevance(),
             "notification": {
                 "kind": "task_proposal",
                 "title": "Proposed follow-up",

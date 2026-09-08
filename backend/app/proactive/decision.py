@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.personal_relevance.models import PersonalDependency, PersonalRelationship
 from app.proactive.constants import (
     NOTIFICATION_KIND_INSIGHT,
     NOTIFICATION_KIND_TASK_PROPOSAL,
@@ -53,11 +54,19 @@ class ProactiveNotificationPayload(BaseModel):
         return self
 
 
+class PersonalRelevanceJudgment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    relationship: PersonalRelationship
+    dependency: PersonalDependency
+
+
 class ProactiveDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decision: Literal["none", "notify"]
     notification: ProactiveNotificationPayload | None = None
+    personal_relevance: PersonalRelevanceJudgment | None = None
 
     @model_validator(mode="after")
     def _notification_matches_decision(self) -> Self:
@@ -65,4 +74,6 @@ class ProactiveDecision(BaseModel):
             raise ValueError("decision=none requires notification=null")
         if self.decision == "notify" and self.notification is None:
             raise ValueError("decision=notify requires notification")
+        if self.decision == "notify" and self.personal_relevance is None:
+            raise ValueError("decision=notify requires personal_relevance")
         return self

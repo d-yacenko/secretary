@@ -10,7 +10,7 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai_audit.constants import WORKLOAD_BACKGROUND_PROACTIVE_REVIEW
-from app.ai_audit.context import ai_trace_session, get_current_job_id
+from app.ai_audit.context import ai_trace_session, get_current_job_id, record_if_active
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.db.models import Edge, Notification, Object
 from app.domain.labels import KIND_LABEL
@@ -23,6 +23,10 @@ from app.notifications.constants import (
     NOTIFICATION_STATUS_NEW,
     NOTIFICATION_STATUS_READ,
 )
+from app.personal_relevance.models import (
+    PERSONAL_RELEVANCE_EVIDENCE_VERSION,
+    PersonalRelevanceEvidenceSnapshot,
+)
 from app.proactive.constants import (
     NOTIFICATION_KIND_INSIGHT,
     NOTIFICATION_KIND_TASK_PROPOSAL,
@@ -33,6 +37,7 @@ from app.proactive.constants import (
     PROACTIVE_MAX_ROUNDS,
     PROACTIVE_MAX_UNRESOLVED,
     PROACTIVE_MIN_CONFIDENCE,
+    PROACTIVE_PERSONAL_RELEVANCE_EVENT,
     PROACTIVE_SEED_OBJECT_LIMIT,
     PROACTIVE_SIGNATURE_COOLDOWN,
     PROACTIVE_SIGNATURE_VERSION,
@@ -40,6 +45,9 @@ from app.proactive.constants import (
     PROACTIVE_TASK_LOOKBACK,
     PROPOSAL_TYPE_PROACTIVE_INSIGHT,
     PROPOSAL_TYPE_TASK,
+    STALE_FENCE_NOT_APPLICABLE,
+    STALE_FENCE_STALE,
+    STALE_FENCE_UNCHANGED,
 )
 from app.proactive.control import read_proactive_control
 from app.proactive.decision import ProactiveDecision, ProactiveNotificationPayload
@@ -53,6 +61,7 @@ from app.services.effective_user_settings_service import (
 )
 from app.services.job_queue_service import JobQueueService, utcnow
 from app.services.notification_service import NotificationService
+from app.services.personal_relevance_evidence_service import PersonalRelevanceEvidenceService
 from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
 
@@ -60,6 +69,69 @@ logger = logging.getLogger(__name__)
 
 _UNRESOLVED_STATUSES = (NOTIFICATION_STATUS_NEW, NOTIFICATION_STATUS_READ)
 _REFERENCES_EDGE = "references"
+
+
+def personal_relevance_evidence_is_stale(
+    initial: PersonalRelevanceEvidenceSnapshot,
+    fresh: PersonalRelevanceEvidenceSnapshot,
+) -> bool:
+    if initial.user_context_signature != fresh.user_context_signature:
+        return True
+    for object_id, signature in initial.object_evidence_signatures.items():
+        if fresh.object_evidence_signatures.get(object_id) != signature:
+            return True
+    return False
+
+
+def seed_context_from_evidence(
+    seed_objects: list[Object],
+    snapshot: PersonalRelevanceEvidenceSnapshot,
+) -> dict:
+    evidence_by_id = {item.object_id: item for item in snapshot.objects}
+    seed_payload = []
+    for obj in seed_objects:
+        entry = {
+            "id": str(obj.id),
+            "kind": obj.kind,
+            "title": obj.title,
+            "status": obj.status,
+            "origin": obj.origin,
+            "updated_at": parse_aware_datetime(obj.updated_at).isoformat()
+            if parse_aware_datetime(obj.updated_at)
+            else None,
+            "due_at": parse_aware_datetime(obj.due_at).isoformat()
+            if parse_aware_datetime(obj.due_at)
+            else None,
+            "start_at": parse_aware_datetime(obj.start_at).isoformat()
+            if parse_aware_datetime(obj.start_at)
+            else None,
+        }
+        evidence = evidence_by_id.get(obj.id)
+        if evidence is not None:
+            payload = evidence.to_payload()
+            entry.update(
+                {
+                    "object_id": payload["object_id"],
+                    "provider": payload["provider"],
+                    "state": payload["state"],
+                    "occurred_at": payload["occurred_at"],
+                    "user_participation_roles": payload["user_participation_roles"],
+                    "participation_truncated": payload["participation_truncated"],
+                    "assigned_labels": payload["assigned_labels"],
+                    "labels_truncated": payload["labels_truncated"],
+                    "object_evidence_signature": snapshot.object_evidence_signatures[
+                        str(obj.id)
+                    ],
+                }
+            )
+        seed_payload.append(entry)
+    return {
+        "user_context": snapshot.user_context.to_payload(),
+        "user_context_signature": snapshot.user_context_signature,
+        "evidence_version": snapshot.version,
+        "truncated_objects": snapshot.truncated_objects,
+        "seed_objects": seed_payload,
+    }
 
 
 def create_proactive_provider(effective: EffectiveUserSettings) -> OpenAIAssistantProvider:
@@ -300,39 +372,27 @@ class ProactiveReviewService:
             defer_write_embeddings=True,
             client_timezone=effective.timezone,
         )
+        seed_ids = [obj.id for obj in seed_objects]
+        seed_id_set = set(seed_ids)
         runner = ProactiveToolRunner(
             tools,
-            initial_seen_object_ids=[obj.id for obj in seed_objects],
+            initial_seen_object_ids=seed_ids,
         )
         if not read_proactive_control(self._session, self._user_id, for_update=False).enabled:
             return None, runner
+        evidence_service = PersonalRelevanceEvidenceService.build(self._session)
+        snapshot = evidence_service.build_snapshot(self._user_id, seed_ids)
         provider = create_proactive_provider(effective)
-        seed_payload = [
-            {
-                "id": str(obj.id),
-                "kind": obj.kind,
-                "title": obj.title,
-                "status": obj.status,
-                "origin": obj.origin,
-                "updated_at": parse_aware_datetime(obj.updated_at).isoformat()
-                if parse_aware_datetime(obj.updated_at)
-                else None,
-                "due_at": parse_aware_datetime(obj.due_at).isoformat()
-                if parse_aware_datetime(obj.due_at)
-                else None,
-                "start_at": parse_aware_datetime(obj.start_at).isoformat()
-                if parse_aware_datetime(obj.start_at)
-                else None,
-            }
-            for obj in seed_objects
-        ]
         message = (
             "Perform a bounded proactive attention review. "
             f"window_start={window_start.isoformat()} "
             f"window_end={window_end.isoformat()}. "
             "Return exact JSON for ProactiveDecision."
         )
-        seed_context = json.dumps({"seed_objects": seed_payload}, ensure_ascii=False)
+        seed_context = json.dumps(
+            seed_context_from_evidence(seed_objects, snapshot),
+            ensure_ascii=False,
+        )
         job_id = get_current_job_id()
         with ai_trace_session(
             self._user_id,
@@ -349,14 +409,101 @@ class ProactiveReviewService:
                 system_instructions=PROACTIVE_SYSTEM_INSTRUCTIONS,
                 tool_definitions=PROACTIVE_TOOL_DEFINITIONS,
             )
-        runner.commit_model_visible_outputs()
-        parsed = self._parse_decision(result.answer)
-        if parsed is None:
-            return None, runner
-        parsed = self._bind_seen_ids(
-            parsed, runner.seen_object_ids | {obj.id for obj in seed_objects}
-        )
+            runner.commit_model_visible_outputs()
+            parsed = None
+            pre_fence = None
+            fence_result = STALE_FENCE_NOT_APPLICABLE
+            if not runner.has_rejected_tool_attempt:
+                parsed = self._parse_decision(result.answer)
+                if parsed is not None:
+                    parsed = self._bind_seen_ids(
+                        parsed,
+                        seed_ids=seed_id_set,
+                        seen_ids=runner.seen_object_ids | seed_id_set,
+                    )
+                pre_fence = parsed
+                parsed, fence_result = self._apply_stale_evidence_fence(
+                    parsed,
+                    evidence_service,
+                    snapshot,
+                    seed_ids,
+                )
+            record_if_active(
+                PROACTIVE_PERSONAL_RELEVANCE_EVENT,
+                self._personal_relevance_audit_metadata(
+                    snapshot=snapshot,
+                    seed_count=len(seed_objects),
+                    pre_fence=pre_fence,
+                    decision=parsed,
+                    fence_result=fence_result,
+                ),
+            )
         return parsed, runner
+
+    def _apply_stale_evidence_fence(
+        self,
+        decision: ProactiveDecision | None,
+        evidence_service: PersonalRelevanceEvidenceService,
+        initial: PersonalRelevanceEvidenceSnapshot,
+        seed_ids: list[UUID],
+    ) -> tuple[ProactiveDecision | None, str]:
+        if decision is None or decision.decision != "notify" or decision.notification is None:
+            return decision, STALE_FENCE_NOT_APPLICABLE
+        self._session.expire_all()
+        fresh = evidence_service.build_snapshot(self._user_id, seed_ids)
+        if personal_relevance_evidence_is_stale(initial, fresh):
+            return None, STALE_FENCE_STALE
+        return decision, STALE_FENCE_UNCHANGED
+
+    def _personal_relevance_audit_metadata(
+        self,
+        *,
+        snapshot: PersonalRelevanceEvidenceSnapshot,
+        seed_count: int,
+        pre_fence: ProactiveDecision | None,
+        decision: ProactiveDecision | None,
+        fence_result: str,
+    ) -> dict:
+        source_signature = None
+        source_participation_truncated = None
+        source_labels_truncated = None
+        kind = None
+        relationship = None
+        dependency = None
+        outcome = "none" if decision is None else decision.decision
+        judgment_source = decision if decision is not None else pre_fence
+        if judgment_source is not None and judgment_source.personal_relevance is not None:
+            relationship = judgment_source.personal_relevance.relationship.value
+            dependency = judgment_source.personal_relevance.dependency.value
+        notification = None
+        if decision is not None and decision.notification is not None:
+            notification = decision.notification
+        elif pre_fence is not None and pre_fence.notification is not None:
+            notification = pre_fence.notification
+        if notification is not None:
+            source_id = str(notification.source_object_id)
+            source_signature = snapshot.object_evidence_signatures.get(source_id)
+            evidence_by_id = {str(item.object_id): item for item in snapshot.objects}
+            source_evidence = evidence_by_id.get(source_id)
+            if source_evidence is not None:
+                source_participation_truncated = source_evidence.participation_truncated
+                source_labels_truncated = source_evidence.labels_truncated
+            if outcome == "notify":
+                kind = notification.kind
+        return {
+            "evidence_version": PERSONAL_RELEVANCE_EVIDENCE_VERSION,
+            "seed_count": seed_count,
+            "user_context_signature": snapshot.user_context_signature,
+            "source_object_evidence_signature": source_signature,
+            "relationship": relationship,
+            "dependency": dependency,
+            "user_context_truncated": snapshot.user_context.truncated,
+            "source_participation_truncated": source_participation_truncated,
+            "source_labels_truncated": source_labels_truncated,
+            "stale_fence": fence_result,
+            "decision": outcome,
+            "notification_kind": kind,
+        }
 
     def _parse_decision(self, raw: str | None) -> ProactiveDecision | None:
         if not raw or not raw.strip():
@@ -371,6 +518,8 @@ class ProactiveReviewService:
     def _bind_seen_ids(
         self,
         decision: ProactiveDecision,
+        *,
+        seed_ids: set[UUID],
         seen_ids: set[UUID],
     ) -> ProactiveDecision | None:
         if decision.decision == "none" or decision.notification is None:
@@ -379,9 +528,8 @@ class ProactiveReviewService:
         if notification.confidence < PROACTIVE_MIN_CONFIDENCE:
             return None
         source = self._load_visible_object(notification.source_object_id)
-        if source is None or source.id not in seen_ids:
+        if source is None or source.id not in seed_ids:
             return None
-        related = None
         if notification.related_object_id is not None:
             related = self._load_visible_object(notification.related_object_id)
             if related is None or related.id not in seen_ids:
