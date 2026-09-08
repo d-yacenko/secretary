@@ -140,6 +140,18 @@ def enqueue_embed_object(session: Session, object_id: UUID, user_id: UUID) -> No
     )
 
 
+def enqueue_auto_label_object(
+    session: Session,
+    object_id: UUID,
+    user_id: UUID,
+    *,
+    parent_trace_id=None,
+) -> None:
+    from app.services.auto_label_service import enqueue_auto_label_object as enqueue
+
+    enqueue(session, object_id, user_id, parent_trace_id=parent_trace_id)
+
+
 def _has_pending_job(
     session: Session,
     user_id: UUID,

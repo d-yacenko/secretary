@@ -70,6 +70,7 @@ class SecretaryApiClient {
     String? assistantVerbosity,
     int? assistantMaxRounds,
     bool patchAssistantMaxRounds = false,
+    bool? autoLabelEnabled,
   }) async {
     final jsonBody = <String, dynamic>{};
     if (timezone != null) {
@@ -86,6 +87,9 @@ class SecretaryApiClient {
     }
     if (patchAssistantMaxRounds) {
       jsonBody['assistant_max_rounds'] = assistantMaxRounds;
+    }
+    if (autoLabelEnabled != null) {
+      jsonBody['auto_label_enabled'] = autoLabelEnabled;
     }
     final body = await _request('PATCH', '/me/settings', jsonBody: jsonBody);
     return UserSettings.fromJson(body);

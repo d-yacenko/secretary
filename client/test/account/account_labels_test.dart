@@ -90,6 +90,11 @@ void main() {
     );
     expect(find.byKey(const Key('account_labels_section')), findsOneWidget);
     expect(find.text('Метки'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Work'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Work'), findsOneWidget);
     expect(find.text('объектов: 3'), findsOneWidget);
   });

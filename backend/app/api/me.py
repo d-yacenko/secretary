@@ -52,6 +52,7 @@ class UserSettingsOut(BaseModel):
     allowed_assistant_models: list[str]
     proactive_enabled: bool
     proactive_interval_minutes: int
+    auto_label_enabled: bool
 
 
 class UserSettingsPatch(BaseModel):
@@ -64,6 +65,7 @@ class UserSettingsPatch(BaseModel):
     assistant_max_rounds: int | None = None
     proactive_enabled: bool | None = None
     proactive_interval_minutes: int | None = None
+    auto_label_enabled: bool | None = None
 
 
 class OpenAICredentialPut(BaseModel):
@@ -140,6 +142,7 @@ def _serialize_settings(effective: EffectiveUserSettings) -> UserSettingsOut:
         allowed_assistant_models=effective.allowed_assistant_models,
         proactive_enabled=effective.proactive_enabled,
         proactive_interval_minutes=effective.proactive_interval_minutes,
+        auto_label_enabled=effective.auto_label_enabled,
     )
 
 
@@ -230,6 +233,11 @@ def patch_my_settings(
             proactive_interval_minutes=(
                 payload.proactive_interval_minutes
                 if "proactive_interval_minutes" in payload.model_fields_set
+                else None
+            ),
+            auto_label_enabled=(
+                payload.auto_label_enabled
+                if "auto_label_enabled" in payload.model_fields_set
                 else None
             ),
         )

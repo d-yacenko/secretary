@@ -547,6 +547,11 @@ class UserSettings(Base):
         default=60,
         server_default=text("60"),
     )
+    auto_label_enabled: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

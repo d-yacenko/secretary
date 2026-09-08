@@ -1030,17 +1030,25 @@ def test_no_hardcoded_taxonomy_parser_or_auto_label_job_in_backend() -> None:
             assert role not in source, f"{path} hardcodes role label {role!r}"
         assert not scoring_pattern.search(source), f"{path} introduces relevance/role scoring"
     for job_type in HANDLERS:
+        if job_type == "auto_label_object":
+            continue
         assert "label" not in job_type
         assert "classif" not in job_type
     job_constants = (BACKEND_APP / "jobs" / "constants.py").read_text(encoding="utf-8")
-    assert "label" not in job_constants.lower()
+    assert "auto_label_object" in job_constants
+    for line in job_constants.splitlines():
+        lowered = line.lower()
+        if "auto_label_object" in lowered:
+            continue
+        assert "label" not in lowered
     proactive_service = (BACKEND_APP / "services" / "proactive_review_service.py").read_text(encoding="utf-8")
     assert "assign_label" not in proactive_service
     assert "remove_label" not in proactive_service
 
 
-def test_no_migration_added_for_pass_c() -> None:
+def test_pass_c_did_not_add_label_migration() -> None:
     versions = sorted(
         path.name for path in (BACKEND_APP.parent / "alembic" / "versions").glob("*.py") if path.name[0].isdigit()
     )
-    assert versions[-1].startswith("0031")
+    assert any(name.startswith("0031") for name in versions)
+    assert versions[-1].startswith("0032")

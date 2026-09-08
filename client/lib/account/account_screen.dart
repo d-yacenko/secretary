@@ -398,6 +398,34 @@ class _AccountScreenState extends State<AccountScreen>
     }
   }
 
+  Future<void> _saveAutoLabelEnabled(bool enabled) async {
+    if (_settingsSaving) {
+      return;
+    }
+    setState(() => _settingsSaving = true);
+    try {
+      final updated = await widget.apiClient.patchSettings(
+        autoLabelEnabled: enabled,
+      );
+      if (mounted) {
+        setState(() {
+          _settings = updated;
+          _error = null;
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _settingsSaving = false);
+      }
+    }
+  }
+
   Future<void> _showOpenAiKeyDialog({required bool replace}) async {
     await showDialog<void>(
       context: context,
@@ -762,6 +790,20 @@ class _AccountScreenState extends State<AccountScreen>
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      key: const Key('account_auto_label_toggle'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Автоматические метки'),
+                      subtitle: const Text(
+                        'Секретарь может автоматически добавлять только уже существующие '
+                        'метки к новым и изменённым объектам. Новые метки не создаются.',
+                      ),
+                      value: settings.autoLabelEnabled,
+                      onChanged: _settingsSaving
+                          ? null
+                          : (value) => _saveAutoLabelEnabled(value),
                     ),
                   ],
                 ],

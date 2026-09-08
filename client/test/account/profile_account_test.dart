@@ -506,6 +506,88 @@ void main() {
       );
       expect(find.text('По умолчанию (6)'), findsOneWidget);
     });
+
+    testWidgets('auto-label toggle defaults off and patches true', (tester) async {
+      bool? patched;
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/me/settings') &&
+              request.method == 'PATCH') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            patched = body['auto_label_enabled'] as bool?;
+            expect(body.containsKey('proactive_enabled'), isFalse);
+            return http.Response(
+              jsonEncode(accountSettingsJson(autoLabelEnabled: patched == true)),
+              200,
+            );
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      final toggle = find.byKey(const Key('account_auto_label_toggle'));
+      await tester.ensureVisible(toggle);
+      final switchFinder = find.descendant(
+        of: toggle,
+        matching: find.byType(Switch),
+      );
+      expect(tester.widget<Switch>(switchFinder).value, isFalse);
+      await tester.tap(switchFinder);
+      await tester.pumpAndSettle();
+      expect(patched, isTrue);
+      expect(tester.widget<Switch>(switchFinder).value, isTrue);
+    });
+
+    testWidgets('auto-label toggle error restores previous value', (tester) async {
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (request.url.path.endsWith('/me/settings') &&
+              request.method == 'PATCH') {
+            return http.Response.bytes(
+              utf8.encode(jsonEncode({'detail': 'auto-label unavailable'})),
+              422,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: _buildAuth(client)),
+      );
+
+      final toggle = find.byKey(const Key('account_auto_label_toggle'));
+      await tester.ensureVisible(toggle);
+      final switchFinder = find.descendant(
+        of: toggle,
+        matching: find.byType(Switch),
+      );
+      await tester.tap(switchFinder);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(switchFinder).value, isFalse);
+      expect(find.textContaining('auto-label unavailable'), findsOneWidget);
+    });
   });
 
   group('Identity profile UX', () {

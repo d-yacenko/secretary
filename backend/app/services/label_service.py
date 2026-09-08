@@ -95,6 +95,14 @@ class AssignLabelResult:
 
 
 @dataclass(frozen=True)
+class BackgroundAssignResult:
+    edge: Edge | None
+    created: int = 0
+    already_present: int = 0
+    suppressed_rejected: int = 0
+
+
+@dataclass(frozen=True)
 class RemoveLabelResult:
     edge: Edge | None
     changed: bool
@@ -238,6 +246,38 @@ class LabelService:
         self._session.flush()
         return AssignLabelResult(edge=edge, created=True)
 
+    def assign_label_background(
+        self,
+        object_id: UUID,
+        label_id: UUID,
+        *,
+        confidence: float | None,
+        metadata: dict,
+    ) -> BackgroundAssignResult:
+        self._lock_objects(object_id, label_id)
+        source = self._require_visible_object(object_id)
+        label = self._require_active_label(label_id)
+        if source.kind == KIND_LABEL:
+            raise ValidationError("a label cannot be labeled")
+        existing = self._active_assignment(source.id, label.id)
+        if existing is not None:
+            return BackgroundAssignResult(edge=existing, already_present=1)
+        if self._rejected_assignment(source.id, label.id) is not None:
+            return BackgroundAssignResult(edge=None, suppressed_rejected=1)
+        edge = Edge(
+            user_id=self._user_id,
+            source_id=source.id,
+            target_id=label.id,
+            type=EDGE_TYPE_LABELED_WITH,
+            origin=self._origin,
+            state=self._state,
+            confidence=confidence,
+            metadata_=dict(metadata),
+        )
+        self._session.add(edge)
+        self._session.flush()
+        return BackgroundAssignResult(edge=edge, created=1)
+
     def remove_label(self, object_id: UUID, label_id: UUID) -> RemoveLabelResult:
         self._lock_objects(object_id, label_id)
         source = self._owned_object(object_id)
@@ -334,6 +374,17 @@ class LabelService:
                 Edge.target_id == label_id,
                 Edge.type == EDGE_TYPE_LABELED_WITH,
                 Edge.state != REJECTED_STATE,
+            )
+        )
+
+    def _rejected_assignment(self, source_id: UUID, label_id: UUID) -> Edge | None:
+        return self._session.scalar(
+            select(Edge).where(
+                Edge.user_id == self._user_id,
+                Edge.source_id == source_id,
+                Edge.target_id == label_id,
+                Edge.type == EDGE_TYPE_LABELED_WITH,
+                Edge.state == REJECTED_STATE,
             )
         )
 

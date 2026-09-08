@@ -29,6 +29,7 @@ from app.proactive.constants import (
     PROACTIVE_INTERVAL_MINUTES_MAX,
     PROACTIVE_INTERVAL_MINUTES_MIN,
 )
+from app.services.auto_label_constants import AUTO_LABEL_ENABLED_DEFAULT
 from app.services.errors import ValidationError
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 
@@ -50,6 +51,7 @@ class EffectiveUserSettings:
     openai_api_key: str | None = field(default=None, repr=False)
     proactive_enabled: bool = PROACTIVE_ENABLED_DEFAULT
     proactive_interval_minutes: int = PROACTIVE_INTERVAL_MINUTES_DEFAULT
+    auto_label_enabled: bool = AUTO_LABEL_ENABLED_DEFAULT
 
 
 class EffectiveUserSettingsService:
@@ -86,6 +88,7 @@ class EffectiveUserSettingsService:
             openai_api_key=resolved_key,
             proactive_enabled=self._resolve_proactive_enabled(row),
             proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
+            auto_label_enabled=self._resolve_auto_label_enabled(row),
         )
 
     def get_settings_view(self, user_id: UUID) -> EffectiveUserSettings:
@@ -108,6 +111,7 @@ class EffectiveUserSettingsService:
             openai_api_key=None,
             proactive_enabled=self._resolve_proactive_enabled(row),
             proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
+            auto_label_enabled=self._resolve_auto_label_enabled(row),
         )
 
     def get_or_create_settings_row(self, user_id: UUID) -> UserSettings:
@@ -129,6 +133,7 @@ class EffectiveUserSettingsService:
         assistant_max_rounds_set: bool = False,
         proactive_enabled: bool | None = None,
         proactive_interval_minutes: int | None = None,
+        auto_label_enabled: bool | None = None,
     ) -> EffectiveUserSettings:
         row = self.get_or_create_settings_row(user_id)
         allowed_models = settings.allowed_assistant_models
@@ -167,6 +172,8 @@ class EffectiveUserSettingsService:
             row.proactive_interval_minutes = self._validate_proactive_interval_minutes(
                 proactive_interval_minutes
             )
+        if auto_label_enabled is not None:
+            row.auto_label_enabled = bool(auto_label_enabled)
         row.updated_at = utcnow()
         self._session.flush()
         return self.get_settings_view(user_id)
@@ -270,6 +277,11 @@ class EffectiveUserSettingsService:
                 f"{PROACTIVE_INTERVAL_MINUTES_MIN} and {PROACTIVE_INTERVAL_MINUTES_MAX}"
             )
         return value
+
+    def _resolve_auto_label_enabled(self, row: UserSettings | None) -> bool:
+        if row is None:
+            return AUTO_LABEL_ENABLED_DEFAULT
+        return bool(row.auto_label_enabled)
 
     def _validate_timezone(self, timezone: str) -> str:
         text = timezone.strip()

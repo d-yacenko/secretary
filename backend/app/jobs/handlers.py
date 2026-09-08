@@ -17,6 +17,7 @@ from app.db.models import Object
 from app.db.session import SessionLocal
 from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.jobs.constants import (
+    JOB_TYPE_AUTO_LABEL_OBJECT,
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
@@ -49,6 +50,7 @@ from app.resources.constants import (
     CONTENT_INGESTED_POLICY_KEY,
     CONTENT_INGESTED_REVISION_KEY,
 )
+from app.services.auto_label_service import enqueue_auto_label_object
 from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.correlation_service import CorrelationService
 from app.services.effective_user_settings_service import (
@@ -163,12 +165,14 @@ def handle_embed_object(
     if not _object_is_active(session, object_id, user_id):
         return
     parent_trace_id = _parent_trace_id_from_payload(payload)
+    embed_trace_id = None
     with ai_trace_session(
         user_id,
         WORKLOAD_EMBEDDING,
         object_id=object_id,
         parent_trace_id=parent_trace_id,
-    ):
+    ) as embed_trace:
+        embed_trace_id = embed_trace.trace_id
         service = embedding_service
         if service is None:
             settings_service = EffectiveUserSettingsService.build(session)
@@ -196,6 +200,12 @@ def handle_embed_object(
                 lookup_session.commit()
         finally:
             lookup_session.close()
+    enqueue_auto_label_object(
+        session,
+        object_id,
+        user_id,
+        parent_trace_id=embed_trace_id,
+    )
 
 
 def handle_summarize_resource(
@@ -425,12 +435,24 @@ def handle_proactive_review(
     ProactiveReviewService(session, user_id).run(payload)
 
 
+def handle_auto_label_object(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    from app.services.auto_label_service import AutoLabelService
+
+    AutoLabelService(session, user_id).run_job(payload)
+
+
 HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_EMBED_OBJECT: handle_embed_object,
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT: handle_extract_explicit_resource_content,
     JOB_TYPE_SUMMARIZE_RESOURCE: handle_summarize_resource,
     JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
+    JOB_TYPE_AUTO_LABEL_OBJECT: handle_auto_label_object,
     JOB_TYPE_SYNC_GOOGLE_GMAIL: handle_sync_google_gmail,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR: handle_sync_google_calendar,
     JOB_TYPE_SYNC_YANDEX_MAIL: handle_sync_yandex_mail,

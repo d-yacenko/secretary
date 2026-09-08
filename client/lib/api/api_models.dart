@@ -28,6 +28,7 @@ class UserSettings {
     required this.maxAssistantMaxRounds,
     required this.openaiKeyConfigured,
     required this.allowedAssistantModels,
+    this.autoLabelEnabled = false,
   });
 
   final String timezone;
@@ -41,6 +42,7 @@ class UserSettings {
   final int maxAssistantMaxRounds;
   final bool openaiKeyConfigured;
   final List<String> allowedAssistantModels;
+  final bool autoLabelEnabled;
 
   factory UserSettings.fromJson(Map<String, dynamic> json) {
     return UserSettings(
@@ -58,6 +60,7 @@ class UserSettings {
           (json['allowed_assistant_models'] as List<dynamic>)
               .map((item) => item as String)
               .toList(),
+      autoLabelEnabled: json['auto_label_enabled'] as bool? ?? false,
     );
   }
 }

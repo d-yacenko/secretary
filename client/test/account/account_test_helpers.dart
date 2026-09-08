@@ -40,6 +40,7 @@ Map<String, dynamic> accountSettingsJson({
   int maxAssistantMaxRounds = 12,
   bool openaiKeyConfigured = false,
   List<String> allowedAssistantModels = const ['gpt-5.6-luna', 'gpt-5.6-terra'],
+  bool autoLabelEnabled = false,
 }) {
   return {
     'timezone': timezone,
@@ -53,6 +54,7 @@ Map<String, dynamic> accountSettingsJson({
     'max_assistant_max_rounds': maxAssistantMaxRounds,
     'openai_key_configured': openaiKeyConfigured,
     'allowed_assistant_models': allowedAssistantModels,
+    'auto_label_enabled': autoLabelEnabled,
   };
 }
 
