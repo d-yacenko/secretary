@@ -210,6 +210,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Подробности'));
+    await tester.pumpAndSettle();
+
     expect(find.textContaining('secret'), findsNothing);
     expect(find.textContaining('mail.example/message/1'), findsOneWidget);
   });

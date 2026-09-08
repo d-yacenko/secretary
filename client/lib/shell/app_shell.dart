@@ -12,6 +12,7 @@ import '../graph/graph_workspace_controller.dart';
 import '../graph/graph_workspace_screen.dart';
 import '../search/search_screen.dart';
 import '../today/today_screen.dart';
+import '../ui/shell_clock.dart';
 
 const double kShellWideBreakpoint = 600;
 
@@ -171,12 +172,14 @@ class _AppShellState extends State<AppShell> {
               selectedIndex: _selectedIndex,
               onDestinationSelected: _selectDestination,
               labelType: NavigationRailLabelType.all,
+              groupAlignment: -0.9,
               leading: captureAction,
-              trailing: Expanded(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: accountAction,
-                ),
+              trailing: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const ShellClock(key: Key('shell_clock')),
+                  accountAction,
+                ],
               ),
               destinations: ShellDestination.values
                   .map(

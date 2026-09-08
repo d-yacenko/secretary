@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:personal_secretary/ui/object_visuals.dart';
+import 'package:personal_secretary/ui/object_presentation.dart';
+import 'package:personal_secretary/ui/provider_icon.dart';
 
 void main() {
   test('known object kind icon and label', () {
@@ -24,11 +25,27 @@ void main() {
     expect(providerLabel(null), 'Источник');
   });
 
-    test('provider compact glyphs', () {
+  test('provider compact glyphs remain available as fallback labels', () {
     expect(providerCompactGlyph('yandex_calendar'), 'Я');
     expect(providerCompactGlyph('google_calendar'), 'G');
     expect(providerCompactGlyph('yandex_mail'), 'Я');
     expect(providerCompactGlyph('gmail'), 'G');
     expect(providerCompactGlyph('mattermost'), 'M');
+  });
+
+  test('provider visuals use colored icons distinct from kind icons', () {
+    expect(providerVisual('gmail').icon, Icons.mail);
+    expect(providerVisual('gmail').icon, isNot(iconForKind('email')));
+    expect(providerVisual('google_calendar').icon, Icons.calendar_month);
+    expect(providerVisual('google_drive').icon, Icons.cloud);
+    expect(providerVisual('yandex_mail').icon, Icons.alternate_email);
+    expect(providerVisual('yandex_calendar').icon, Icons.event);
+    expect(providerVisual('yandex_disk').icon, Icons.cloud_queue);
+    expect(providerVisual('mattermost').icon, Icons.forum);
+    expect(providerVisual('local_device').icon, Icons.computer);
+    expect(providerVisual('upload').icon, Icons.upload_file);
+    expect(providerVisual('web').icon, Icons.language);
+    expect(providerVisual('unknown-source').icon, Icons.source_outlined);
+    expect(providerVisual('gmail').color, isNot(const Color(0xFF000000)));
   });
 }

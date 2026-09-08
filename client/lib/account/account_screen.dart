@@ -6,6 +6,7 @@ import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/domain_labels.dart';
+import '../ui/ui_text_scale.dart';
 import 'account_labels_section.dart';
 import 'account_layout.dart';
 import 'identity_profile_template.dart';
@@ -652,6 +653,8 @@ class _AccountScreenState extends State<AccountScreen>
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              _InterfaceScaleCard(),
               const SizedBox(height: 16),
               AccountSectionCard(
                 title: 'Моя идентичность',
@@ -1668,6 +1671,49 @@ class _ConnectionRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Text('$label: $status$suffix'),
+    );
+  }
+}
+
+class _InterfaceScaleCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final controller = UiTextScaleScope.maybeOf(context);
+    if (controller == null) {
+      return const SizedBox.shrink();
+    }
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return AccountSectionCard(
+          title: 'Интерфейс',
+          children: [
+            Text(
+              'Масштаб текста на этом устройстве: ${controller.percent}%',
+              key: const Key('ui_text_scale_label'),
+            ),
+            Slider(
+              key: const Key('ui_text_scale_slider'),
+              value: controller.factor,
+              min: kUiTextScaleMin,
+              max: kUiTextScaleMax,
+              divisions: 8,
+              label: '${controller.percent}%',
+              onChanged: controller.setFactor,
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                key: const Key('ui_text_scale_reset'),
+                onPressed: controller.factor == kUiTextScaleDefault
+                    ? null
+                    : controller.reset,
+                child: const Text('100% / по умолчанию'),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

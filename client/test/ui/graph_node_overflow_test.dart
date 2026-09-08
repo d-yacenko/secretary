@@ -118,7 +118,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('graph_node_overview-1')),
-        matching: find.text('G'),
+        matching: find.byIcon(Icons.mail),
       ),
       findsOneWidget,
     );

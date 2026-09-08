@@ -922,7 +922,13 @@ class _GraphNodeCard extends StatelessWidget {
                     ),
                   ),
                   if (object.provider != null)
-                    providerBadge(context, object.provider!),
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: FittedBox(
+                        child: providerBadge(context, object.provider!),
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 4),

@@ -2,9 +2,11 @@
 
 ## Current phase
 
-Workflow Intelligence Pass E-C-R1 — complete seed evidence & authoritative stale fence: **implemented, awaiting Architect review** on `review/workflow-intelligence-proactive-personalization-e-c`. Parent `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`. Production remains `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`. No production deploy. Design Quality Pass **not started**.
+Design Quality Pass A — Shared Visual System, Dense Inbox & Core UI Polish: **implemented, awaiting Architect review** on `review/design-quality-a-core-ui`. Exact parent / accepted production: `d694c24150b5c6f62cca0d64db423fc34a88525c`. No production deploy. Design Quality Pass B **not started**.
 
-Workflow Intelligence Pass E-C — Proactive Personalization: implemented at `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`; **not deployed**.
+Workflow Intelligence Pass E-C / E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. Proactive **OFF**. Real-user `auto_label_enabled=true` (pre-existing). Android `minSdk` 23.
+
+Workflow Intelligence Pass E-C — Proactive Personalization: later closed in production at `d694c24150b5c6f62cca0d64db423fc34a88525c` (application lineage includes `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`).
 
 Workflow Intelligence Pass E-B — Personal Relevance / Responsibility Evidence Foundation: **production exact-version deploy checkpoint complete** at `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`. Proactive remains **OFF**. Production `auto_label_enabled=false`. Alembic **`0033 / 0033`**.
 
@@ -374,9 +376,7 @@ Pass E-A (personal semantic context + label descriptions as auto-label evidence)
 
 Pass E-B (personal relevance / responsibility evidence foundation): **production exact-version deploy checkpoint complete** at `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d` (E-B `de573253b3cf5372e250b7669e3ad10cba47827a`, E-B-R1 `2d21424af44fc488b14ac4f844257b4afe4d2363`, E-B-R2 `f00604ae…`). No inferred-role persistence.
 
-Pass E-C (Proactive personalization using E-B evidence): implemented at `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`; **not deployed**.
-
-Pass E-C-R1 (complete seed evidence & authoritative stale fence): **implemented, awaiting Architect review** on `review/workflow-intelligence-proactive-personalization-e-c`. No production deploy. Proactive remains **OFF**. No Alembic `0034`.
+Pass E-C (Proactive personalization using E-B evidence) and E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -384,21 +384,39 @@ Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
 Manual Graph node drag; persisted personal Graph layout; final desktop/mobile polish.
 
+### Design Quality Pass A — deferred product / correctness backlog (do not implement here)
+
+- Manual persisted read/unread divider in Inbox
+- Arbitrary colored Object bookmark/flag semantics
+- Task priority/criticality 1–5 and Agent inference of criticality
+- Task start/end period semantics
+- Unified Calendar
+- Persistent Assistant conversation threads + New Conversation
+- AI daily-budget limiter
+- Mattermost exact-source link sometimes opens the wrong message (correctness)
+- Recurring calendar instances missing from Today (correctness; do not add recurring events to Inbox as a workaround)
+- Graph Advanced UX (manual dragging, persisted layout, chronological layout, status relayout/filter redesign)
+- Platform native notifications (Android/Linux)
+- Android “OK Google” / custom voice assistant / App Actions
+- Camera/gallery image capture and image understanding
+- Final app icon pending user artwork
+- Label catalog stale after returning from label management (Flutter-only refresh candidate; not expanded in Pass A)
+
 ## VDS production
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
-- Production phase: Workflow Intelligence **Pass E-B production exact-version deploy checkpoint complete** at `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`; Pass E-C not deployed
+- Production application SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c`
+- Production phase: Workflow Intelligence **Pass E-C CLOSED**; Design Quality Pass A **not deployed**
 - Alembic on production: **`0033 / 0033`** (current/head); no `0034`
-- Auto-labeling on production: **OFF** (`auto_label_enabled=false`)
-- Proactive: unchanged / **OFF** (`proactive_enabled=false`, interval 60)
+- Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
+- Proactive: **OFF** (`proactive_enabled=false`, interval 60)
 - Pass E-A: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`
 - Pass E-B application: `de573253b3cf5372e250b7669e3ad10cba47827a`
 - Pass E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`
 - Pass E-B-R2 / accepted production SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
-- Pass E-C application: `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56` (**not deployed**)
-- Pass E-C-R1: awaiting Architect review on `review/workflow-intelligence-proactive-personalization-e-c`; **not deployed**; Proactive remains **OFF**
+- Pass E-C / E-C-R1 production SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c` (**CLOSED**)
+- Design Quality Pass A: `review/design-quality-a-core-ui` (**not deployed**)
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -482,4 +500,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await architect review of Universal Intake Iteration A. Do not start Safe External Actions or scheduled_activity implementation.
+Await Architect review of Design Quality Pass A. Do not start Design Quality Pass B.

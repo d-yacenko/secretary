@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'app_spacing.dart';
+import 'provider_icon.dart';
+
 /// Shared kind/provider presentation for Search, Graph filters, and cards.
 
 const Map<String, String> objectKindLabels = {
@@ -107,30 +110,22 @@ IconData iconForObjectKind(String kind) {
 
 IconData iconForKind(String kind) => iconForObjectKind(kind);
 
-/// Compact provider glyph for header rows; null when provider is absent.
+/// Compact provider icon for header rows; null when provider is absent.
 Widget? compactProviderGlyphWidget(String? provider, {double size = 14}) {
-  if (provider == null || provider.isEmpty) {
+  if (!providerHasIdentity(provider)) {
     return null;
   }
-  final glyph = providerCompactGlyph(provider);
-  if (glyph != null) {
-    return Text(
-      glyph,
-      style: TextStyle(fontSize: size, fontWeight: FontWeight.w600),
-    );
-  }
-  return Icon(Icons.storage_outlined, size: size);
+  return ProviderSourceIcon(provider: provider, size: size);
 }
 
 Widget providerCompactIcon(String? provider, {double size = 18}) {
-  final glyphWidget = compactProviderGlyphWidget(provider, size: size);
-  if (glyphWidget != null) {
-    return glyphWidget;
+  if (!providerHasIdentity(provider)) {
+    return Icon(Icons.source_outlined, size: size);
   }
-  return Icon(Icons.storage_outlined, size: size);
+  return ProviderSourceIcon(provider: provider, size: size);
 }
 
-/// Compact title + kind icon + provider glyph + trailing metadata on one row.
+/// Compact title + kind icon + provider icon + trailing metadata on one row.
 class ObjectCompactHeaderRow extends StatelessWidget {
   const ObjectCompactHeaderRow({
     super.key,
@@ -140,6 +135,8 @@ class ObjectCompactHeaderRow extends StatelessWidget {
     required this.trailingText,
     this.trailingBadges = const [],
     this.semanticsLabel,
+    this.onProviderTap,
+    this.titleMaxLines,
   });
 
   final String title;
@@ -148,6 +145,8 @@ class ObjectCompactHeaderRow extends StatelessWidget {
   final String trailingText;
   final List<Widget> trailingBadges;
   final String? semanticsLabel;
+  final VoidCallback? onProviderTap;
+  final int? titleMaxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -157,41 +156,51 @@ class ObjectCompactHeaderRow extends StatelessWidget {
     final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
           fontWeight: FontWeight.w600,
         );
-    final metadataStyle = Theme.of(context).textTheme.bodyMedium;
-    final providerGlyph = compactProviderGlyphWidget(provider, size: 14);
+    final metadataStyle = Theme.of(context).textTheme.bodySmall;
+    final wide = isWideLayout(context);
+    final maxLines = titleMaxLines ?? (wide ? 1 : 2);
 
     return Semantics(
       label: label,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(iconForKind(kind), size: 16),
-          if (providerGlyph != null) ...[
-            const SizedBox(width: 6),
-            providerGlyph,
+          Icon(iconForKind(kind), size: AppSpacing.kindIconSize),
+          if (providerHasIdentity(provider)) ...[
+            const SizedBox(width: AppSpacing.xs),
+            ProviderSourceIcon(
+              provider: provider,
+              size: AppSpacing.providerIconSize,
+              onPressed: onProviderTap,
+              openTooltip: onProviderTap == null
+                  ? providerName
+                  : 'Открыть в источнике',
+            ),
           ],
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
               title,
               style: titleStyle,
               overflow: TextOverflow.ellipsis,
-              maxLines: 2,
+              maxLines: maxLines,
             ),
           ),
           ...trailingBadges.map(
             (badge) => Padding(
-              padding: const EdgeInsets.only(left: 6),
+              padding: const EdgeInsets.only(left: AppSpacing.xs),
               child: badge,
             ),
           ),
           if (trailingText.isNotEmpty) ...[
-            const SizedBox(width: 8),
-            Text(
-              trailingText,
-              style: metadataStyle,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 2,
+            const SizedBox(width: AppSpacing.sm),
+            Flexible(
+              child: Text(
+                trailingText,
+                style: metadataStyle,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
             ),
           ],
         ],

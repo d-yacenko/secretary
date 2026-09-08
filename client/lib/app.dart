@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'auth/auth_controller.dart';
@@ -6,11 +7,17 @@ import 'auth/auth_gate.dart';
 import 'assistant/assistant_controller.dart';
 import 'capture/capture_controller.dart';
 import 'graph/graph_workspace_controller.dart';
+import 'ui/ui_text_scale.dart';
 
 class PersonalSecretaryApp extends StatefulWidget {
-  const PersonalSecretaryApp({super.key, required this.authController});
+  const PersonalSecretaryApp({
+    super.key,
+    required this.authController,
+    this.textScaleController,
+  });
 
   final AuthController authController;
+  final UiTextScaleController? textScaleController;
 
   @override
   State<PersonalSecretaryApp> createState() => _PersonalSecretaryAppState();
@@ -21,12 +28,13 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   late final AuthSessionNavigator _authSessionNavigator;
   late final CaptureController _captureController;
   late final AssistantController _assistantController;
-
   late final GraphWorkspaceController _graphController;
+  late final UiTextScaleController _textScale;
 
   @override
   void initState() {
     super.initState();
+    _textScale = widget.textScaleController ?? UiTextScaleController();
     _authSessionNavigator = AuthSessionNavigator(_navigatorKey);
     _captureController = CaptureController(
       apiClient: widget.authController.apiClient,
@@ -42,7 +50,11 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     );
     widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
+    _textScale.addListener(_onAuthChanged);
     widget.authController.initialize();
+    if (widget.textScaleController == null) {
+      _textScale.load();
+    }
   }
 
   void _onSessionTerminated() {
@@ -60,33 +72,74 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   void dispose() {
     widget.authController.onSessionTerminated = null;
     widget.authController.removeListener(_onAuthChanged);
+    _textScale.removeListener(_onAuthChanged);
+    if (widget.textScaleController == null) {
+      _textScale.dispose();
+    }
     _captureController.dispose();
     _assistantController.dispose();
     _graphController.dispose();
     super.dispose();
   }
 
+  Map<ShortcutActivator, VoidCallback> get _scaleShortcuts {
+    return {
+      const SingleActivator(LogicalKeyboardKey.equal, control: true):
+          () => _textScale.nudge(0.05),
+      const SingleActivator(LogicalKeyboardKey.numpadAdd, control: true):
+          () => _textScale.nudge(0.05),
+      const SingleActivator(LogicalKeyboardKey.minus, control: true):
+          () => _textScale.nudge(-0.05),
+      const SingleActivator(LogicalKeyboardKey.numpadSubtract, control: true):
+          () => _textScale.nudge(-0.05),
+      const SingleActivator(LogicalKeyboardKey.digit0, control: true):
+          () => _textScale.reset(),
+      const SingleActivator(LogicalKeyboardKey.numpad0, control: true):
+          () => _textScale.reset(),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _navigatorKey,
-      title: 'Личный секретарь',
-      locale: const Locale('ru', 'RU'),
-      supportedLocales: const [Locale('ru', 'RU')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        useMaterial3: true,
-      ),
-      home: AuthGate(
-        authController: widget.authController,
-        captureController: _captureController,
-        assistantController: _assistantController,
-        graphController: _graphController,
+    return UiTextScaleScope(
+      controller: _textScale,
+      child: CallbackShortcuts(
+        bindings: _scaleShortcuts,
+        child: Focus(
+          autofocus: true,
+          child: MaterialApp(
+            navigatorKey: _navigatorKey,
+            title: 'Личный секретарь',
+            locale: const Locale('ru', 'RU'),
+            supportedLocales: const [Locale('ru', 'RU')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+              useMaterial3: true,
+            ),
+            builder: (context, child) {
+              final mq = MediaQuery.of(context);
+              return MediaQuery(
+                data: mq.copyWith(
+                  textScaler: TextScaler.linear(
+                    mq.textScaler.scale(1.0) * _textScale.factor,
+                  ),
+                ),
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
+            home: AuthGate(
+              authController: widget.authController,
+              captureController: _captureController,
+              assistantController: _assistantController,
+              graphController: _graphController,
+            ),
+          ),
+        ),
       ),
     );
   }

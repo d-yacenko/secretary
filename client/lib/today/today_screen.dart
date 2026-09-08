@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_error.dart';
@@ -12,6 +14,7 @@ import '../sources/source_refresh_service.dart';
 import '../ui/date_format.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
+import '../ui/today_event_emphasis.dart';
 
 enum TodayLoadState { loading, ready, error }
 
@@ -25,6 +28,8 @@ class TodayScreen extends StatefulWidget {
     this.onAskSecretary,
     this.onShowInGraph,
     this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
+    this.now,
+    this.clockTick = const Duration(minutes: 1),
   });
 
   final SecretaryApiClient apiClient;
@@ -34,6 +39,8 @@ class TodayScreen extends StatefulWidget {
   final AskSecretaryHandler? onAskSecretary;
   final ShowInGraphHandler? onShowInGraph;
   final Duration passiveRefreshInterval;
+  final DateTime Function()? now;
+  final Duration clockTick;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -45,6 +52,8 @@ class _TodayScreenState extends State<TodayScreen> {
   String? _errorMessage;
   String? _refreshStatusMessage;
   bool _isSourceRefreshing = false;
+  late DateTime _now;
+  Timer? _clock;
 
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
@@ -53,6 +62,15 @@ class _TodayScreenState extends State<TodayScreen> {
   @override
   void initState() {
     super.initState();
+    _now = (widget.now ?? DateTime.now)().toLocal();
+    _clock = Timer.periodic(widget.clockTick, (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _now = (widget.now ?? DateTime.now)().toLocal();
+      });
+    });
     _passiveRefresh = PassiveSnapshotRefresh(
       interval: widget.passiveRefreshInterval,
       isPaused: () => _isSourceRefreshing,
@@ -64,6 +82,7 @@ class _TodayScreenState extends State<TodayScreen> {
 
   @override
   void dispose() {
+    _clock?.cancel();
     _passiveRefresh.dispose();
     super.dispose();
   }
@@ -256,6 +275,7 @@ class _TodayScreenState extends State<TodayScreen> {
             else
               ...today.calendarEvents.map((event) => _EventRow(
                     event: event,
+                    emphasis: todayEventEmphasis(event, now: _now),
                     onTap: () => _openObjectDetail(event.id),
                   )),
             const SizedBox(height: 16),
@@ -351,22 +371,49 @@ class _TaskRow extends StatelessWidget {
 }
 
 class _EventRow extends StatelessWidget {
-  const _EventRow({required this.event, required this.onTap});
+  const _EventRow({
+    required this.event,
+    required this.emphasis,
+    required this.onTap,
+  });
 
   final SecretaryObject event;
+  final TodayEventEmphasis emphasis;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final time = formatUserTime(event.startAt);
-    return ListTile(
-      title: ObjectCompactHeaderRow(
-        title: event.title,
-        kind: event.kind,
-        provider: event.provider,
-        trailingText: time.isEmpty ? 'Нет времени' : time,
+    final scheme = Theme.of(context).colorScheme;
+    Color? background;
+    Color? stripe;
+    switch (emphasis) {
+      case TodayEventEmphasis.current:
+        background = scheme.errorContainer.withValues(alpha: 0.35);
+        stripe = scheme.error;
+      case TodayEventEmphasis.soon:
+        background = scheme.tertiaryContainer.withValues(alpha: 0.45);
+        stripe = scheme.tertiary;
+      case TodayEventEmphasis.none:
+        break;
+    }
+    return DecoratedBox(
+      key: Key('today_event_${emphasis.name}_${event.id}'),
+      decoration: BoxDecoration(
+        color: background,
+        border: stripe == null
+            ? null
+            : Border(left: BorderSide(color: stripe, width: 3)),
       ),
-      onTap: onTap,
+      child: ListTile(
+        title: ObjectCompactHeaderRow(
+          title: event.title,
+          kind: event.kind,
+          provider: event.provider,
+          trailingText: time.isEmpty ? 'Нет времени' : time,
+        ),
+        onTap: onTap,
+      ),
     );
   }
 }

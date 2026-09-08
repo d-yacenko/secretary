@@ -3,11 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_secretary/ui/object_presentation.dart';
 
 void main() {
-  Widget wrap(Widget child) {
+  Widget wrap(Widget child, {double width = 320}) {
     return MaterialApp(
       home: Scaffold(
         body: SizedBox(
-          width: 320,
+          width: width,
           child: child,
         ),
       ),
@@ -27,12 +27,13 @@ void main() {
     );
 
     final iconBox = tester.getRect(find.byIcon(Icons.email_outlined));
-    final glyphBox = tester.getRect(find.text('G'));
+    final providerBox = tester.getRect(find.byIcon(Icons.mail));
     final titleBox = tester.getRect(find.text('Тема письма'));
     final timeBox = tester.getRect(find.text('09:42'));
 
     expect(iconBox.left, lessThan(titleBox.left));
-    expect(glyphBox.left, lessThan(titleBox.left));
+    expect(providerBox.left, lessThan(titleBox.left));
+    expect(iconBox.left, lessThan(providerBox.left));
     expect(timeBox.left, greaterThan(titleBox.right));
   });
 
@@ -59,7 +60,7 @@ void main() {
     );
 
     expect(find.byIcon(Icons.event_outlined), findsOneWidget);
-    expect(find.text('G'), findsOneWidget);
+    expect(find.byIcon(Icons.calendar_month), findsOneWidget);
     expect(find.text('Weekly sync'), findsOneWidget);
     expect(find.text('Локальная задача без провайдера'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -78,7 +79,7 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Я'), findsOneWidget);
+    expect(find.byIcon(Icons.alternate_email), findsOneWidget);
     expect(find.textContaining('вчера'), findsOneWidget);
   });
 }

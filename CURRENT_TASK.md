@@ -1,29 +1,29 @@
-# Current task — Workflow Intelligence Pass E-C-R1
+# Current task — Design Quality Pass A
 
 ## Status
 
-Workflow Intelligence Pass E-C-R1 — complete seed evidence & authoritative stale fence: **implemented, awaiting Architect review**.
+Design Quality Pass A — Shared Visual System, Dense Inbox & Core UI Polish: **implemented, awaiting Architect review**.
 
-Do **not** deploy production. Do **not** start Design Quality Pass. Do **not** enable Proactive or auto-label.
+Do **not** deploy production. Do **not** start Design Quality Pass B.
 
 ## Branch
 
-`review/workflow-intelligence-proactive-personalization-e-c`
+`review/design-quality-a-core-ui`
 
-- Exact parent of this corrective: `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`
-- Production baseline: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
+- Exact parent / accepted production: `d694c24150b5c6f62cca0d64db423fc34a88525c`
 
-## Production truth (unchanged)
+## Production truth
 
-- Production application SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
-- Alembic on production: **`0033 / 0033`**; **no `0034`**
-- `auto_label_enabled=false`
-- Proactive **OFF** (`proactive_enabled=false`, interval 60)
-- Pass E-C application: `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`
-- Android `minSdk`: 23
+- Production application SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c`
+- Alembic: **`0033 / 0033`**; **no `0034`**
+- Android `minSdk`: **23**
+- Proactive: **OFF** (`proactive_enabled=false`, interval 60)
+- Real-user `auto_label_enabled`: **true** (pre-existing production value; this pass does not change it)
+- Workflow Intelligence D / E-A / E-B / E-C: **CLOSED**
+- Design Quality Pass had not started before this branch
 
-## Corrective goal
+## Scope
 
-Initial E-B snapshot must cover the entire Proactive seed set or the provider is not called. After a valid notify decision, re-validate E-B evidence under the existing per-user serialization gate and hold that authority through Notification create/flush and successor enqueue.
+Flutter/client presentation only. No migration, no new API, no Agent/Proactive/auto-label/tool changes.
 
 Do not read, decrypt, modify, recreate, re-encrypt, or commit `secretary_architect_context_encrypted.md`.

@@ -145,6 +145,7 @@ void main() {
 
     expect(assistantCalls, 1);
     expect(find.text('Hello back'), findsOneWidget);
+    expect(find.byTooltip('Скопировать ответ'), findsOneWidget);
     expect(find.text('Задача: Referenced task'), findsOneWidget);
   });
 

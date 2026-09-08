@@ -14,9 +14,14 @@ import '../local/local_intake_actions.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../sources/source_sync_error_presentation.dart';
+import '../navigation/source_navigation_service.dart';
+import '../ui/app_spacing.dart';
 import '../ui/date_format.dart';
+import '../ui/inbox_date_groups.dart';
+import '../ui/object_actions.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
+import '../ui/provider_icon.dart';
 import '../voice/voice_transcription_controller.dart';
 import 'inbox_intake_url.dart';
 import 'notification_labels.dart';
@@ -70,6 +75,8 @@ class InboxScreenState extends State<InboxScreen> {
 
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
+  late final SourceNavigationService _sourceNavigation =
+      SourceNavigationService(apiClient: widget.apiClient);
   late final PassiveSnapshotRefresh _passiveRefresh;
   late final LocalIntakeActions _localIntakeActions;
 
@@ -390,6 +397,24 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
+  Future<void> _openInboxSource(InboxSourceObjectOut sourceObject) async {
+    try {
+      await _sourceNavigation.launchForObject(sourceObject.id);
+    } on SourceLaunchException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _openSourceObject(InboxSourceObjectOut sourceObject) async {
     final result = await openObjectDetail(
       context,
@@ -427,26 +452,12 @@ class InboxScreenState extends State<InboxScreen> {
           _buildIntakeBar(),
           if (_intakeErrorMessage != null)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: Text(
                 _intakeErrorMessage!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              tooltip: 'Обновить',
-              onPressed: _isSourceRefreshing ? null : _refreshWithSources,
-              icon: _isSourceRefreshing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-            ),
-          ),
           Expanded(
             child: Stack(
               children: [
@@ -475,11 +486,87 @@ class InboxScreenState extends State<InboxScreen> {
     await _voice.startRecording();
   }
 
+  List<Widget> _intakeActionButtons({required bool inputDisabled}) {
+    return [
+      IconButton(
+        key: const Key('inbox_voice_button'),
+        visualDensity: VisualDensity.compact,
+        tooltip: _voice.voiceState == VoiceState.recording
+            ? 'Остановить запись'
+            : 'Записать голос',
+        onPressed: _isIntakePending &&
+                _voice.voiceState != VoiceState.recording
+            ? null
+            : _onVoicePressed,
+        icon: _voice.voiceState == VoiceState.transcribing ||
+                _voice.voiceState == VoiceState.starting
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(
+                _voice.voiceState == VoiceState.recording
+                    ? Icons.stop_circle_outlined
+                    : Icons.mic_none_outlined,
+              ),
+      ),
+      FilledButton(
+        key: const Key('inbox_link_add_button'),
+        onPressed: inputDisabled ? null : _submitIntake,
+        child: _isIntakePending
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('Добавить'),
+      ),
+      IconButton(
+        key: const Key('inbox_add_file_button'),
+        tooltip: 'Добавить файл',
+        visualDensity: VisualDensity.compact,
+        onPressed: inputDisabled
+            ? null
+            : () => _localIntakeActions.pickAndRegisterFile(context),
+        icon: const Icon(Icons.insert_drive_file_outlined),
+      ),
+      IconButton(
+        key: const Key('inbox_add_folder_button'),
+        tooltip: 'Добавить папку',
+        visualDensity: VisualDensity.compact,
+        onPressed: inputDisabled
+            ? null
+            : () => _localIntakeActions.pickAndRegisterFolder(context),
+        icon: const Icon(Icons.folder_outlined),
+      ),
+      IconButton(
+        key: const Key('inbox_refresh_button'),
+        tooltip: 'Обновить',
+        visualDensity: VisualDensity.compact,
+        onPressed: _isSourceRefreshing ? null : _refreshWithSources,
+        icon: _isSourceRefreshing
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.refresh),
+      ),
+    ];
+  }
+
   Widget _buildIntakeBar() {
     final voiceBusy = _voice.isVoiceBusy;
     final inputDisabled = _isIntakePending || voiceBusy;
+    final wide = isWideLayout(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm,
+        AppSpacing.lg,
+        0,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -487,11 +574,14 @@ class InboxScreenState extends State<InboxScreen> {
             Material(
               color: Theme.of(context).colorScheme.errorContainer,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.xs,
+                ),
                 child: Row(
                   children: [
                     const Icon(Icons.mic, size: 16),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Text(
                         'Запись… нажмите микрофон, чтобы остановить',
@@ -503,13 +593,15 @@ class InboxScreenState extends State<InboxScreen> {
               ),
             ),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: TextField(
                   key: const Key('inbox_link_input'),
                   controller: _intakeController,
                   enabled: !inputDisabled,
-                  maxLines: 3,
+                  minLines: 1,
+                  maxLines: wide ? 2 : 3,
                   decoration: const InputDecoration(
                     hintText: 'Введите заметку или вставьте ссылку',
                     isDense: true,
@@ -518,60 +610,22 @@ class InboxScreenState extends State<InboxScreen> {
                   onSubmitted: (_) => _submitIntake(),
                 ),
               ),
-              const SizedBox(width: 4),
-              IconButton(
-                key: const Key('inbox_voice_button'),
-                visualDensity: VisualDensity.compact,
-                tooltip: _voice.voiceState == VoiceState.recording
-                    ? 'Остановить запись'
-                    : 'Записать голос',
-                onPressed: _isIntakePending &&
-                        _voice.voiceState != VoiceState.recording
-                    ? null
-                    : _onVoicePressed,
-                icon: _voice.voiceState == VoiceState.transcribing ||
-                        _voice.voiceState == VoiceState.starting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        _voice.voiceState == VoiceState.recording
-                            ? Icons.stop_circle_outlined
-                            : Icons.mic_none_outlined,
-                      ),
-              ),
-              const SizedBox(width: 4),
-              FilledButton(
-                key: const Key('inbox_link_add_button'),
-                onPressed: inputDisabled ? null : _submitIntake,
-                child: _isIntakePending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Добавить'),
-              ),
-              IconButton(
-                key: const Key('inbox_add_file_button'),
-                tooltip: 'Добавить файл',
-                onPressed: inputDisabled
-                    ? null
-                    : () => _localIntakeActions.pickAndRegisterFile(context),
-                icon: const Icon(Icons.insert_drive_file_outlined),
-              ),
-              IconButton(
-                key: const Key('inbox_add_folder_button'),
-                tooltip: 'Добавить папку',
-                onPressed: inputDisabled
-                    ? null
-                    : () => _localIntakeActions.pickAndRegisterFolder(context),
-                icon: const Icon(Icons.folder_outlined),
-              ),
+              if (wide) ...[
+                const SizedBox(width: AppSpacing.xs),
+                ..._intakeActionButtons(inputDisabled: inputDisabled),
+              ],
             ],
           ),
+          if (!wide)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Wrap(
+                spacing: AppSpacing.xs,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: _intakeActionButtons(inputDisabled: inputDisabled),
+              ),
+            ),
           if (_voice.voiceState == VoiceState.error &&
               _voice.voiceErrorMessage != null)
             Padding(
@@ -648,8 +702,9 @@ class InboxScreenState extends State<InboxScreen> {
         if (!hasNotifications && !hasSources && syncErrorRows.isEmpty) {
           return const Center(child: Text('Входящие пусты'));
         }
+        final groupedSources = groupInboxSourceEntries(inbox.recentSourceObjects);
         return ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
           children: [
             if (_refreshStatusMessage != null)
               Padding(
@@ -695,42 +750,54 @@ class InboxScreenState extends State<InboxScreen> {
                 child: Text('Нет недавних входящих объектов'),
               )
             else
-              ...inbox.recentSourceObjects.map(
-                (sourceObject) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _SourceObjectCard(
-                    sourceObject: sourceObject,
-                    onTap: () => _openSourceObject(sourceObject),
-                    onAskSecretary: widget.onAskSecretary == null
-                        ? null
-                        : () {
-                            widget.onAskSecretary!(
-                              SecretaryObject(
-                                id: sourceObject.id,
-                                kind: sourceObject.kind,
-                                title: sourceObject.title,
-                                body: sourceObject.excerpt,
-                                provider: sourceObject.provider,
-                                externalId: null,
-                                canonicalUri: null,
-                                status: sourceObject.status,
-                                startAt: null,
-                                dueAt: null,
-                                occurredAt: sourceObject.primaryAt,
-                                metadata: const {},
-                                origin: sourceObject.origin,
-                                state: sourceObject.state,
-                                confidence: null,
-                                createdAt: sourceObject.primaryAt ?? '',
-                                updatedAt: sourceObject.primaryAt ?? '',
-                              ),
-                            );
-                          },
-                    onShowInGraph: widget.onShowInGraph == null
-                        ? null
-                        : () => widget.onShowInGraph!(sourceObject.id),
-                  ),
-                ),
+              ...groupedSources.map(
+                (entry) => switch (entry) {
+                  InboxDateSeparatorEntry() => InboxDateSeparator(
+                      entry: entry,
+                    ),
+                  InboxSourceObjectEntry(:final sourceObject) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: isWideLayout(context)
+                            ? AppSpacing.xs
+                            : AppSpacing.sm,
+                      ),
+                      child: _SourceObjectCard(
+                        sourceObject: sourceObject,
+                        onTap: () => _openSourceObject(sourceObject),
+                        onOpenSource: providerHasIdentity(sourceObject.provider)
+                            ? () => _openInboxSource(sourceObject)
+                            : null,
+                        onAskSecretary: widget.onAskSecretary == null
+                            ? null
+                            : () {
+                                widget.onAskSecretary!(
+                                  SecretaryObject(
+                                    id: sourceObject.id,
+                                    kind: sourceObject.kind,
+                                    title: sourceObject.title,
+                                    body: sourceObject.excerpt,
+                                    provider: sourceObject.provider,
+                                    externalId: null,
+                                    canonicalUri: null,
+                                    status: sourceObject.status,
+                                    startAt: null,
+                                    dueAt: null,
+                                    occurredAt: sourceObject.primaryAt,
+                                    metadata: const {},
+                                    origin: sourceObject.origin,
+                                    state: sourceObject.state,
+                                    confidence: null,
+                                    createdAt: sourceObject.primaryAt ?? '',
+                                    updatedAt: sourceObject.primaryAt ?? '',
+                                  ),
+                                );
+                              },
+                        onShowInGraph: widget.onShowInGraph == null
+                            ? null
+                            : () => widget.onShowInGraph!(sourceObject.id),
+                      ),
+                    ),
+                },
               ),
           ],
         );
@@ -861,23 +928,30 @@ class _SourceObjectCard extends StatelessWidget {
   const _SourceObjectCard({
     required this.sourceObject,
     required this.onTap,
+    this.onOpenSource,
     this.onAskSecretary,
     this.onShowInGraph,
   });
 
   final InboxSourceObjectOut sourceObject;
   final VoidCallback onTap;
+  final VoidCallback? onOpenSource;
   final VoidCallback? onAskSecretary;
   final VoidCallback? onShowInGraph;
 
   @override
   Widget build(BuildContext context) {
     final when = formatUserDateTime(sourceObject.primaryAt);
+    final wide = isWideLayout(context);
     return Card(
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.symmetric(
+            horizontal: wide ? AppSpacing.md : AppSpacing.md,
+            vertical: wide ? AppSpacing.xs : AppSpacing.sm,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -886,32 +960,30 @@ class _SourceObjectCard extends StatelessWidget {
                 kind: sourceObject.kind,
                 provider: sourceObject.provider,
                 trailingText: when,
+                onProviderTap: onOpenSource,
               ),
               if (sourceObject.excerpt != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
                   child: Text(
                     sourceObject.excerpt!,
-                    maxLines: 2,
+                    maxLines: wide ? 1 : 3,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  if (onAskSecretary != null)
-                    TextButton(
-                      onPressed: onAskSecretary,
-                      child: const Text('Спросить секретаря'),
-                    ),
-                  if (onShowInGraph != null)
-                    TextButton(
-                      onPressed: onShowInGraph,
-                      child: const Text('Показать в графе'),
-                    ),
-                ],
-              ),
+              if (onAskSecretary != null || onShowInGraph != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: Wrap(
+                    spacing: AppSpacing.xs,
+                    children: [
+                      if (onAskSecretary != null)
+                        AskSecretaryAction(onPressed: onAskSecretary),
+                      if (onShowInGraph != null)
+                        OpenInGraphAction(onPressed: onShowInGraph),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

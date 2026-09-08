@@ -479,8 +479,8 @@ void main() {
     expect(find.textContaining('google_calendar'), findsNothing);
     expect(find.textContaining('Яндекс Календарь'), findsNothing);
     expect(find.textContaining('Google Календарь'), findsNothing);
-    expect(find.text('Я'), findsOneWidget);
-    expect(find.text('G'), findsOneWidget);
+    expect(find.byIcon(Icons.event), findsOneWidget);
+    expect(find.byIcon(Icons.calendar_month), findsOneWidget);
   });
 
   testWidgets('passive refresh loads newer today snapshot without navigation',

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -14,10 +13,14 @@ import '../navigation/source_navigation_service.dart';
 import '../objects/object_delete_actions.dart';
 import '../objects/object_labels_section.dart';
 import '../tasks/task_management_actions.dart';
+import '../ui/app_spacing.dart';
 import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
+import '../ui/linkified_text.dart';
+import '../ui/object_actions.dart';
 import '../ui/object_dates.dart';
 import '../ui/object_visuals.dart';
+import '../ui/provider_icon.dart';
 
 enum ObjectDetailLoadState { loading, ready, error }
 
@@ -265,18 +268,14 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
               onPressed: _deleteObject,
             ),
           if (_object != null && widget.onShowInGraph != null)
-            TextButton(
+            OpenInGraphAction(
               onPressed: () {
                 widget.onShowInGraph!(_object!.id);
                 Navigator.of(context).pop();
               },
-              child: const Text('Показать в графе'),
             ),
           if (_object != null && widget.onAskSecretary != null)
-            TextButton(
-              onPressed: _askSecretary,
-              child: const Text('Спросить секретаря'),
-            ),
+            AskSecretaryAction(onPressed: _askSecretary),
           if (_object != null)
             TextButton(
               onPressed: _useAsTaskContext,
@@ -306,26 +305,73 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       case ObjectDetailLoadState.ready:
         final object = _object!;
         final primaryDateValue = objectPrimaryDateDisplayValue(object);
+        final wide = isWideLayout(context);
         return SelectionArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Icon(iconForKind(object.kind), size: AppSpacing.kindIconSize),
+                  if (providerHasIdentity(object.provider))
+                    ProviderSourceIcon(
+                      provider: object.provider,
+                      onPressed: _sourcePresentation?.canOpen == true
+                          ? _openSource
+                          : null,
+                      openTooltip: _sourcePresentation?.canOpen == true
+                          ? (_sourcePresentation!.openLabel ??
+                              'Открыть в источнике')
+                          : providerLabel(object.provider),
+                    ),
+                  Text(
+                    objectKindLabel(object.kind),
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  if (primaryDateValue.isNotEmpty)
+                    Text(
+                      primaryDateValue,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  if (object.status != null)
+                    Text(taskStatusLabel(object.status)),
+                  if (object.state == 'proposed')
+                    Text(
+                      provenanceStateLabel(object.state),
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                ],
+              ),
               if (_sourcePresentation != null) ...[
-                if (_sourcePresentation!.canOpen)
+                if (_sourcePresentation!.canOpen && !wide)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: FilledButton(
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
+                    child: OpenSourceAction(
                       key: const Key('object_detail_open_source'),
                       onPressed: _openSource,
-                      child: Text(_sourcePresentation!.openLabel ?? 'Открыть в источнике'),
+                      label: _sourcePresentation!.openLabel ??
+                          'Открыть в источнике',
+                    ),
+                  ),
+                if (_sourcePresentation!.canOpen && wide)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OpenSourceAction(
+                      key: const Key('object_detail_open_source'),
+                      onPressed: _openSource,
+                      label: _sourcePresentation!.openLabel ??
+                          'Открыть в источнике',
                     ),
                   ),
                 if (_sourcePresentation!.canShowInFolder)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: OutlinedButton(
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
                       key: const Key('object_detail_show_in_folder'),
                       onPressed: _showInFolder,
                       child: Text(_sourcePresentation!.showInFolderLabel),
@@ -333,33 +379,21 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   ),
                 if (_sourcePresentation!.isDisabled)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
                     child: Text(
                       _sourcePresentation!.disabledReason!,
                       style: TextStyle(color: Theme.of(context).colorScheme.error),
                     ),
                   ),
               ],
-              if (primaryDateValue.isNotEmpty)
-                _FieldRow(
-                  label: objectPrimaryDateFieldLabel(object),
-                  value: primaryDateValue,
+              if (object.body != null && object.body!.trim().isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                LinkifiedText(
+                  key: const Key('object_detail_body'),
+                  text: object.body!,
                 ),
-              _FieldRow(label: 'Тип', value: objectKindLabel(object.kind)),
-              if (object.status != null)
-                _FieldRow(label: 'Статус', value: taskStatusLabel(object.status)),
-              _FieldRow(label: 'Состояние', value: provenanceStateLabel(object.state)),
-              _FieldRow(label: 'Источник', value: originLabel(object.origin)),
-              _FieldRow(
-                label: 'Создано',
-                value: formatUserDateTime(object.createdAt),
-              ),
-              _FieldRow(
-                label: 'Обновлено',
-                value: formatUserDateTime(object.updatedAt),
-              ),
-              if (object.body != null) _FieldRow(label: 'Текст', value: object.body!),
-              const SizedBox(height: 16),
+              ],
+              const SizedBox(height: AppSpacing.lg),
               if (object.kind == 'label')
                 Text(
                   'Управлять метками можно в разделе Аккаунт.',
@@ -373,7 +407,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   authController: widget.authController,
                 ),
               if (_attachmentNeighbors.isNotEmpty) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 Text('Вложения', style: Theme.of(context).textTheme.titleMedium),
                 ..._attachmentNeighbors.map(
                   (neighbor) => ListTile(
@@ -384,17 +418,32 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   ),
                 ),
               ],
-              if (object.provider != null)
-                _FieldRow(label: 'Провайдер', value: providerLabel(object.provider!)),
-              if (object.canonicalUri != null)
-                _CanonicalUriRow(uri: object.canonicalUri!),
-              if (object.metadata.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text('Метаданные', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 4),
-                Text(_formatMetadata(object.metadata)),
-              ],
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.lg),
+              ExpansionTile(
+                key: const Key('object_detail_technical'),
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Подробности'),
+                children: [
+                  _FieldRow(label: 'Состояние', value: provenanceStateLabel(object.state)),
+                  _FieldRow(label: 'Источник', value: originLabel(object.origin)),
+                  _FieldRow(
+                    label: 'Создано',
+                    value: formatUserDateTime(object.createdAt),
+                  ),
+                  _FieldRow(
+                    label: 'Обновлено',
+                    value: formatUserDateTime(object.updatedAt),
+                  ),
+                  if (object.provider != null)
+                    _FieldRow(
+                      label: 'Провайдер',
+                      value: providerLabel(object.provider!),
+                    ),
+                  if (object.canonicalUri != null)
+                    _CanonicalUriRow(uri: object.canonicalUri!),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
               Text('Связи', style: Theme.of(context).textTheme.titleMedium),
               if (_neighbors.isEmpty)
                 const Padding(
@@ -456,11 +505,6 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       return objectKindLabel(attachment.kind);
     }
     return parts.join(' • ');
-  }
-
-  String _formatMetadata(Map<String, dynamic> metadata) {
-    const encoder = JsonEncoder.withIndent('  ');
-    return encoder.convert(metadata);
   }
 }
 

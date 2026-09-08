@@ -54,6 +54,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
         widget.controller.sendState == AssistantSendState.error) {
       _inputController.text = widget.controller.pendingRetryMessage!;
     }
+    if (widget.controller.messages.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    }
   }
 
   @override
@@ -79,9 +82,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
           pending == null) {
         _inputController.clear();
       }
+      final replyCompleted = _lastSendState == AssistantSendState.sending &&
+          controller.sendState == AssistantSendState.idle;
       _lastSendState = controller.sendState;
       setState(() {});
-      _scrollToEnd();
+      if (replyCompleted) {
+        _scrollToEnd();
+      }
     }
   }
 
@@ -91,7 +98,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
         return;
       }
       final target = _scrollController.position.maxScrollExtent;
-      if (_scrollController.offset == target) {
+      if (!target.isFinite) {
+        return;
+      }
+      if ((_scrollController.offset - target).abs() < 2) {
         return;
       }
       _scrollController.jumpTo(target);
@@ -227,6 +237,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
           Expanded(
             child: SelectionArea(
               child: ListView.builder(
+                key: const Key('assistant_message_list'),
                 controller: _scrollController,
                 padding: const EdgeInsets.all(16),
                 itemCount: controller.messages.length,
@@ -237,6 +248,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment:
                           isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                       children: [
@@ -254,6 +266,29 @@ class _AssistantScreenState extends State<AssistantScreen> {
                               ? Text(message.content)
                               : AssistantMessageBody(content: message.content),
                         ),
+                        if (!isUser)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: IconButton(
+                              key: Key('assistant_copy_$index'),
+                              tooltip: 'Скопировать ответ',
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.copy_outlined, size: 18),
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: message.content),
+                                );
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Ответ скопирован'),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         if (!isUser && actionPlan != null)
                           _ActionPlanCard(
                             actionPlan: actionPlan,

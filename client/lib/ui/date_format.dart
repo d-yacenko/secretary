@@ -35,3 +35,42 @@ String formatUserTime(String? iso) {
   final minute = local.minute.toString().padLeft(2, '0');
   return '$hour:$minute';
 }
+
+const _monthGenitive = [
+  'января',
+  'февраля',
+  'марта',
+  'апреля',
+  'мая',
+  'июня',
+  'июля',
+  'августа',
+  'сентября',
+  'октября',
+  'ноября',
+  'декабря',
+];
+
+const _weekdays = [
+  'понедельник',
+  'вторник',
+  'среда',
+  'четверг',
+  'пятница',
+  'суббота',
+  'воскресенье',
+];
+
+String formatRussianClockTime(DateTime local) {
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+String formatRussianDayMonth(DateTime local, {bool padDay = false}) {
+  final day = padDay ? local.day.toString().padLeft(2, '0') : '${local.day}';
+  return '$day ${_monthGenitive[local.month - 1]}';
+}
+
+String formatRussianWeekday(DateTime local) => _weekdays[local.weekday - 1];
+
