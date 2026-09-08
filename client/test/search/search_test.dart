@@ -231,7 +231,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Письмо от преподавателя'), findsOneWidget);
-    expect(find.byIcon(Icons.mail), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
     expect(find.textContaining('30.08.2026'), findsOneWidget);
     expect(find.textContaining('Письмо · Gmail'), findsNothing);
     expect(find.textContaining('Gmail'), findsNothing);
@@ -339,7 +339,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('test для электронного секретаря'), findsOneWidget);
-    expect(find.byIcon(Icons.mail), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
     expect(find.textContaining('31.08.2026'), findsOneWidget);
     expect(find.textContaining('Письмо · Gmail'), findsNothing);
     expect(find.textContaining('это тестовое письмо'), findsOneWidget);

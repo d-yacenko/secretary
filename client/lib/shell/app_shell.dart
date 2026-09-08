@@ -146,11 +146,13 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final destination = ShellDestination.values[_selectedIndex];
     final isWide = MediaQuery.sizeOf(context).width >= kShellWideBreakpoint;
+    final showRailClock = isWide && MediaQuery.sizeOf(context).height >= 520;
 
     final captureAction = isWide
         ? Padding(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
             child: FilledButton.icon(
+              key: const Key('shell_add_button'),
               onPressed: _openCapture,
               icon: const Icon(Icons.add),
               label: const Text('Добавить'),
@@ -159,6 +161,7 @@ class _AppShellState extends State<AppShell> {
         : null;
 
     final accountAction = IconButton(
+      key: const Key('shell_account_button'),
       icon: const Icon(Icons.account_circle),
       tooltip: 'Аккаунт',
       onPressed: _openAccount,
@@ -172,15 +175,17 @@ class _AppShellState extends State<AppShell> {
               selectedIndex: _selectedIndex,
               onDestinationSelected: _selectDestination,
               labelType: NavigationRailLabelType.all,
-              groupAlignment: -0.9,
-              leading: captureAction,
-              trailing: Column(
+              groupAlignment: -1.0,
+              leadingAtTop: true,
+              trailingAtBottom: true,
+              leading: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const ShellClock(key: Key('shell_clock')),
-                  accountAction,
+                  captureAction!,
+                  if (showRailClock) const ShellClock(key: Key('shell_clock')),
                 ],
               ),
+              trailing: accountAction,
               destinations: ShellDestination.values
                   .map(
                     (d) => NavigationRailDestination(

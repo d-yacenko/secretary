@@ -33,15 +33,15 @@ void main() {
     expect(providerCompactGlyph('mattermost'), 'M');
   });
 
-  test('provider visuals use colored icons distinct from kind icons', () {
-    expect(providerVisual('gmail').icon, Icons.mail);
-    expect(providerVisual('gmail').icon, isNot(iconForKind('email')));
-    expect(providerVisual('google_calendar').icon, Icons.calendar_month);
-    expect(providerVisual('google_drive').icon, Icons.cloud);
-    expect(providerVisual('yandex_mail').icon, Icons.alternate_email);
-    expect(providerVisual('yandex_calendar').icon, Icons.event);
-    expect(providerVisual('yandex_disk').icon, Icons.cloud_queue);
-    expect(providerVisual('mattermost').icon, Icons.forum);
+  test('provider visuals use source marks not duplicated kind icons', () {
+    expect(providerVisual('gmail').mark, ProviderSourceMark.google);
+    expect(iconForKind('email'), Icons.email_outlined);
+    expect(providerVisual('google_calendar').mark, ProviderSourceMark.google);
+    expect(providerVisual('google_drive').mark, ProviderSourceMark.google);
+    expect(providerVisual('yandex_mail').mark, ProviderSourceMark.yandex);
+    expect(providerVisual('yandex_calendar').mark, ProviderSourceMark.yandex);
+    expect(providerVisual('yandex_disk').mark, ProviderSourceMark.yandex);
+    expect(providerVisual('mattermost').mark, ProviderSourceMark.mattermost);
     expect(providerVisual('local_device').icon, Icons.computer);
     expect(providerVisual('upload').icon, Icons.upload_file);
     expect(providerVisual('web').icon, Icons.language);

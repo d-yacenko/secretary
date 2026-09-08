@@ -479,8 +479,10 @@ void main() {
     expect(find.textContaining('google_calendar'), findsNothing);
     expect(find.textContaining('Яндекс Календарь'), findsNothing);
     expect(find.textContaining('Google Календарь'), findsNothing);
-    expect(find.byIcon(Icons.event), findsOneWidget);
-    expect(find.byIcon(Icons.calendar_month), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
+    expect(find.byIcon(Icons.calendar_month), findsNothing);
+    expect(find.byIcon(Icons.forum), findsNothing);
   });
 
   testWidgets('passive refresh loads newer today snapshot without navigation',

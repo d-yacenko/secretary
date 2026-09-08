@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Design Quality Pass A — Shared Visual System, Dense Inbox & Core UI Polish: **implemented, awaiting Architect review** on `review/design-quality-a-core-ui`. Exact parent / accepted production: `d694c24150b5c6f62cca0d64db423fc34a88525c`. No production deploy. Design Quality Pass B **not started**.
+Design Quality Pass A-R1 — Rail, Intake Controls & True Source Identity: **implemented, awaiting Architect review** on `review/design-quality-a-core-ui`. Exact parent of R1: `f09e49ee44e9c24fa4eeda72bbbd060ba5135cc4`. Accepted production: `d694c24150b5c6f62cca0d64db423fc34a88525c`. No production deploy. Design Quality Pass B **not started**.
 
 Workflow Intelligence Pass E-C / E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. Proactive **OFF**. Real-user `auto_label_enabled=true` (pre-existing). Android `minSdk` 23.
 
@@ -500,4 +500,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Design Quality Pass A. Do not start Design Quality Pass B.
+Await Architect review of Design Quality Pass A-R1. Do not start Design Quality Pass B.

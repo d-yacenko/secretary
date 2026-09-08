@@ -391,7 +391,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Дима — Синхронизация'), findsOneWidget);
-    expect(find.byIcon(Icons.event), findsOneWidget);
+    expect(find.byIcon(Icons.event_outlined), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
     expect(find.textContaining('02.09.2026'), findsOneWidget);
     expect(find.textContaining('Событие •'), findsNothing);
   });

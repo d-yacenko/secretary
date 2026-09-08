@@ -2,99 +2,96 @@ import 'package:flutter/material.dart';
 
 import 'app_spacing.dart';
 import 'object_presentation.dart';
+import 'provider_source_mark.dart';
+
+export 'provider_source_mark.dart';
 
 class ProviderVisual {
   const ProviderVisual({
-    required this.icon,
-    required this.color,
+    required this.mark,
     required this.label,
+    this.icon,
+    this.color = const Color(0xFF607D8B),
   });
 
-  final IconData icon;
-  final Color color;
+  final ProviderSourceMark mark;
   final String label;
+  final IconData? icon;
+  final Color color;
+}
+
+ProviderSourceMark providerSourceMark(String? provider) {
+  switch (provider?.trim() ?? '') {
+    case 'gmail':
+    case 'google_calendar':
+    case 'google_drive':
+    case 'google':
+      return ProviderSourceMark.google;
+    case 'yandex_mail':
+    case 'yandex_calendar':
+    case 'yandex_disk':
+    case 'yandex':
+      return ProviderSourceMark.yandex;
+    case 'mattermost':
+      return ProviderSourceMark.mattermost;
+    case 'local_device':
+      return ProviderSourceMark.computer;
+    case 'web':
+      return ProviderSourceMark.web;
+    case 'upload':
+      return ProviderSourceMark.file;
+    case 'cloud':
+      return ProviderSourceMark.cloud;
+    default:
+      return ProviderSourceMark.fallback;
+  }
 }
 
 ProviderVisual providerVisual(String? provider) {
   final key = provider?.trim() ?? '';
-  switch (key) {
-    case 'gmail':
+  final mark = providerSourceMark(key);
+  final label = providerLabel(key.isEmpty ? provider : key);
+  switch (mark) {
+    case ProviderSourceMark.google:
+      return ProviderVisual(mark: mark, label: label, color: const Color(0xFF4285F4));
+    case ProviderSourceMark.yandex:
+      return ProviderVisual(mark: mark, label: label, color: const Color(0xFFFC3F1D));
+    case ProviderSourceMark.mattermost:
+      return ProviderVisual(mark: mark, label: label, color: const Color(0xFF0058CC));
+    case ProviderSourceMark.computer:
       return ProviderVisual(
-        icon: Icons.mail,
-        color: const Color(0xFFEA4335),
-        label: providerLabel(key),
-      );
-    case 'google_calendar':
-      return ProviderVisual(
-        icon: Icons.calendar_month,
-        color: const Color(0xFF4285F4),
-        label: providerLabel(key),
-      );
-    case 'google_drive':
-      return ProviderVisual(
-        icon: Icons.cloud,
-        color: const Color(0xFF0F9D58),
-        label: providerLabel(key),
-      );
-    case 'google':
-      return ProviderVisual(
-        icon: Icons.apps,
-        color: const Color(0xFF4285F4),
-        label: providerLabel(key),
-      );
-    case 'yandex_mail':
-      return ProviderVisual(
-        icon: Icons.alternate_email,
-        color: const Color(0xFFFC3F1D),
-        label: providerLabel(key),
-      );
-    case 'yandex_calendar':
-      return ProviderVisual(
-        icon: Icons.event,
-        color: const Color(0xFFFFCC00),
-        label: providerLabel(key),
-      );
-    case 'yandex_disk':
-      return ProviderVisual(
-        icon: Icons.cloud_queue,
-        color: const Color(0xFFFFCC00),
-        label: providerLabel(key),
-      );
-    case 'yandex':
-      return ProviderVisual(
-        icon: Icons.alternate_email,
-        color: const Color(0xFFFC3F1D),
-        label: providerLabel(key),
-      );
-    case 'mattermost':
-      return ProviderVisual(
-        icon: Icons.forum,
-        color: const Color(0xFF0058CC),
-        label: providerLabel(key),
-      );
-    case 'local_device':
-      return ProviderVisual(
+        mark: mark,
+        label: label,
         icon: Icons.computer,
         color: const Color(0xFF5F6368),
-        label: providerLabel(key),
       );
-    case 'upload':
+    case ProviderSourceMark.cloud:
       return ProviderVisual(
-        icon: Icons.upload_file,
-        color: const Color(0xFF7B61FF),
-        label: providerLabel(key),
+        mark: mark,
+        label: label,
+        icon: Icons.cloud_outlined,
+        color: const Color(0xFF5F6368),
       );
-    case 'web':
+    case ProviderSourceMark.web:
       return ProviderVisual(
+        mark: mark,
+        label: label,
         icon: Icons.language,
         color: const Color(0xFF1A73E8),
-        label: providerLabel(key),
       );
-    default:
+    case ProviderSourceMark.file:
       return ProviderVisual(
+        mark: mark,
+        label: label,
+        icon: Icons.upload_file,
+        color: const Color(0xFF7B61FF),
+      );
+    case ProviderSourceMark.fallback:
+      return ProviderVisual(
+        mark: mark,
+        label: label,
         icon: Icons.source_outlined,
         color: const Color(0xFF607D8B),
-        label: providerLabel(provider),
       );
   }
 }
@@ -103,7 +100,7 @@ bool providerHasIdentity(String? provider) {
   return provider != null && provider.trim().isNotEmpty;
 }
 
-/// Colored compact provider/source icon. Distinct from Object kind icons.
+/// Source-system mark. Distinct from Object kind icons.
 class ProviderSourceIcon extends StatelessWidget {
   const ProviderSourceIcon({
     super.key,
@@ -124,27 +121,22 @@ class ProviderSourceIcon extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final visual = providerVisual(provider);
-    final icon = Icon(
-      visual.icon,
-      size: size,
-      color: visual.color,
-    );
+    final artSize = size.clamp(14.0, 18.0);
+    final mark = ProviderSourceMarkView(mark: visual.mark, size: artSize);
     final semantics = openTooltip ?? visual.label;
-    final labeled = Semantics(
-      button: onPressed != null,
-      label: semantics,
-      child: Tooltip(
-        message: semantics,
-        child: icon,
-      ),
-    );
     if (onPressed == null) {
       return KeyedSubtree(
         key: Key('provider_icon_${provider!.trim()}'),
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: labeled,
+        child: Tooltip(
+          message: semantics,
+          child: Semantics(
+            label: semantics,
+            child: SizedBox(
+              width: artSize,
+              height: artSize,
+              child: mark,
+            ),
+          ),
         ),
       );
     }
@@ -159,7 +151,7 @@ class ProviderSourceIcon extends StatelessWidget {
       constraints: compact
           ? const BoxConstraints(minWidth: 32, minHeight: 32)
           : const BoxConstraints(minWidth: 40, minHeight: 40),
-      icon: icon,
+      icon: mark,
     );
   }
 }

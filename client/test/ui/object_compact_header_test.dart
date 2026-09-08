@@ -27,7 +27,7 @@ void main() {
     );
 
     final iconBox = tester.getRect(find.byIcon(Icons.email_outlined));
-    final providerBox = tester.getRect(find.byIcon(Icons.mail));
+    final providerBox = tester.getRect(find.byKey(const Key('source_mark_google')));
     final titleBox = tester.getRect(find.text('Тема письма'));
     final timeBox = tester.getRect(find.text('09:42'));
 
@@ -60,7 +60,8 @@ void main() {
     );
 
     expect(find.byIcon(Icons.event_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.calendar_month), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
+    expect(find.byIcon(Icons.calendar_month), findsNothing);
     expect(find.text('Weekly sync'), findsOneWidget);
     expect(find.text('Локальная задача без провайдера'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -79,7 +80,7 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.byIcon(Icons.alternate_email), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
     expect(find.textContaining('вчера'), findsOneWidget);
   });
 }

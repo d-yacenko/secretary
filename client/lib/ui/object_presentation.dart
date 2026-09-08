@@ -165,7 +165,11 @@ class ObjectCompactHeaderRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(iconForKind(kind), size: AppSpacing.kindIconSize),
+          Icon(
+            iconForKind(kind),
+            size: AppSpacing.kindIconSize,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           if (providerHasIdentity(provider)) ...[
             const SizedBox(width: AppSpacing.xs),
             ProviderSourceIcon(

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
-import 'object_presentation.dart';
 import 'provider_icon.dart';
 
 export 'object_presentation.dart'
     show iconForKind, objectKindLabel, providerLabel, providerCompactGlyph;
 export 'provider_icon.dart'
-    show ProviderSourceIcon, providerVisual, providerHasIdentity;
+    show
+        ProviderSourceIcon,
+        providerVisual,
+        providerHasIdentity,
+        providerSourceMark,
+        ProviderSourceMark;
 
 Widget providerBadge(BuildContext context, String? provider) {
   if (!providerHasIdentity(provider)) {

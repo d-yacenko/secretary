@@ -44,41 +44,75 @@ class _ShellClockState extends State<ShellClock> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    const ink = Color(0xFF121417);
+    const lcdFace = Color(0xFFC5CBD3);
+    const lcdInset = Color(0xFF8A9199);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              formatRussianClockTime(_now),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      child: DecoratedBox(
+        key: const Key('shell_clock_display'),
+        decoration: BoxDecoration(
+          color: lcdFace,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: lcdInset, width: 1.5),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              offset: Offset(0, 1),
+              blurRadius: 0,
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  formatRussianClockTime(_now),
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontFeatures: [FontFeature.tabularFigures()],
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                    height: 1.05,
+                    letterSpacing: 0.6,
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              formatRussianDayMonth(_now),
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              formatRussianWeekday(_now),
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  formatRussianDayMonth(_now),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 9,
+                    height: 1.1,
+                    color: ink,
+                  ),
+                ),
               ),
-            ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  formatRussianWeekday(_now),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 8,
+                    height: 1.1,
+                    color: ink,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

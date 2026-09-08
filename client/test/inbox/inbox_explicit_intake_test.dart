@@ -91,7 +91,8 @@ void main() {
 
     expect(find.byKey(const Key('inbox_link_input')), findsOneWidget);
     expect(find.byKey(const Key('inbox_link_add_button')), findsOneWidget);
-    expect(find.text('Добавить'), findsOneWidget);
+    expect(find.byTooltip('Добавить во входящие'), findsOneWidget);
+    expect(find.byIcon(Icons.move_to_inbox_outlined), findsOneWidget);
   });
 
   testWidgets('empty inbox still shows intake controls', (tester) async {

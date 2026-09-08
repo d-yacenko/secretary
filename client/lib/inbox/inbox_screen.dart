@@ -486,41 +486,64 @@ class InboxScreenState extends State<InboxScreen> {
     await _voice.startRecording();
   }
 
-  List<Widget> _intakeActionButtons({required bool inputDisabled}) {
-    return [
-      IconButton(
-        key: const Key('inbox_voice_button'),
-        visualDensity: VisualDensity.compact,
-        tooltip: _voice.voiceState == VoiceState.recording
-            ? 'Остановить запись'
-            : 'Записать голос',
-        onPressed: _isIntakePending &&
-                _voice.voiceState != VoiceState.recording
-            ? null
-            : _onVoicePressed,
-        icon: _voice.voiceState == VoiceState.transcribing ||
-                _voice.voiceState == VoiceState.starting
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(
-                _voice.voiceState == VoiceState.recording
-                    ? Icons.stop_circle_outlined
-                    : Icons.mic_none_outlined,
-              ),
+  Widget _voiceButton() {
+    return IconButton(
+      key: const Key('inbox_voice_button'),
+      visualDensity: VisualDensity.compact,
+      tooltip: _voice.voiceState == VoiceState.recording
+          ? 'Остановить запись'
+          : 'Записать голос',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
-      FilledButton(
-        key: const Key('inbox_link_add_button'),
-        onPressed: inputDisabled ? null : _submitIntake,
-        child: _isIntakePending
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Text('Добавить'),
+      onPressed: _isIntakePending &&
+              _voice.voiceState != VoiceState.recording
+          ? null
+          : _onVoicePressed,
+      icon: _voice.voiceState == VoiceState.transcribing ||
+              _voice.voiceState == VoiceState.starting
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(
+              _voice.voiceState == VoiceState.recording
+                  ? Icons.stop_circle_outlined
+                  : Icons.mic_none_outlined,
+            ),
+    );
+  }
+
+  List<Widget> _intakeSideButtons({required bool inputDisabled}) {
+    return [
+      Semantics(
+        button: true,
+        label: 'Добавить во входящие',
+        child: Tooltip(
+          message: 'Добавить во входящие',
+          child: FilledButton(
+            key: const Key('inbox_link_add_button'),
+            onPressed: inputDisabled ? null : _submitIntake,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(40, 40),
+              padding: const EdgeInsets.all(8),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: _isIntakePending
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.move_to_inbox_outlined),
+          ),
+        ),
       ),
       IconButton(
         key: const Key('inbox_add_file_button'),
@@ -560,6 +583,9 @@ class InboxScreenState extends State<InboxScreen> {
     final voiceBusy = _voice.isVoiceBusy;
     final inputDisabled = _isIntakePending || voiceBusy;
     final wide = isWideLayout(context);
+    final fieldEnabled = !_isIntakePending &&
+        _voice.voiceState != VoiceState.starting &&
+        _voice.voiceState != VoiceState.transcribing;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -599,20 +625,27 @@ class InboxScreenState extends State<InboxScreen> {
                 child: TextField(
                   key: const Key('inbox_link_input'),
                   controller: _intakeController,
-                  enabled: !inputDisabled,
+                  enabled: fieldEnabled,
+                  readOnly: _voice.voiceState == VoiceState.recording,
                   minLines: 1,
                   maxLines: wide ? 2 : 3,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Введите заметку или вставьте ссылку',
                     isDense: true,
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                    suffixIcon: _voiceButton(),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 36,
+                    ),
                   ),
                   onSubmitted: (_) => _submitIntake(),
                 ),
               ),
               if (wide) ...[
                 const SizedBox(width: AppSpacing.xs),
-                ..._intakeActionButtons(inputDisabled: inputDisabled),
+                ..._intakeSideButtons(inputDisabled: inputDisabled),
               ],
             ],
           ),
@@ -623,7 +656,7 @@ class InboxScreenState extends State<InboxScreen> {
                 spacing: AppSpacing.xs,
                 runSpacing: AppSpacing.xs,
                 crossAxisAlignment: WrapCrossAlignment.center,
-                children: _intakeActionButtons(inputDisabled: inputDisabled),
+                children: _intakeSideButtons(inputDisabled: inputDisabled),
               ),
             ),
           if (_voice.voiceState == VoiceState.error &&

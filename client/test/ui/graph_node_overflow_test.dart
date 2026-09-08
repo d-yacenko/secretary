@@ -118,7 +118,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('graph_node_overview-1')),
-        matching: find.byIcon(Icons.mail),
+        matching: find.byKey(const Key('source_mark_google')),
       ),
       findsOneWidget,
     );
