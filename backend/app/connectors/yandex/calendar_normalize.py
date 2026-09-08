@@ -121,6 +121,7 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
     fields: dict[str, str] = {}
     property_params: dict[str, dict[str, str]] = {}
     attendees: list[str] = []
+    attendees_truncated = False
     nested_depth = 0
     for line in _unfold_ical_lines(block):
         upper = line.strip().upper()
@@ -136,10 +137,12 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
             continue
         name, params, value = parsed
         if name == "ATTENDEE":
-            if len(attendees) < MAX_ATTENDEES_IN_METADATA:
-                email = _ical_email(value)
-                if email and email not in attendees:
+            email = _ical_email(value)
+            if email and email not in attendees:
+                if len(attendees) < MAX_ATTENDEES_IN_METADATA:
                     attendees.append(email)
+                else:
+                    attendees_truncated = True
             continue
         if name in {
             "UID",
@@ -156,7 +159,12 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
         }:
             fields[name] = value
             property_params[name] = params
-    return {"fields": fields, "params": property_params, "attendees": attendees}
+    return {
+        "fields": fields,
+        "params": property_params,
+        "attendees": attendees,
+        "attendees_truncated": attendees_truncated,
+    }
 
 
 def extract_vevent_blocks(ical_text: str) -> list[str]:
@@ -208,6 +216,7 @@ def normalize_caldav_events(
         fields = parsed["fields"]
         params = parsed["params"]
         attendees = parsed["attendees"]
+        attendees_truncated = parsed["attendees_truncated"]
         event_uid = fields.get("UID")
         if not event_uid:
             continue
@@ -246,6 +255,8 @@ def normalize_caldav_events(
             metadata["organizer"] = organizer
         if attendees:
             metadata["attendees"] = [{"email": email} for email in attendees]
+        if attendees_truncated:
+            metadata["attendees_truncated"] = True
 
         normalized_events.append(
             {

@@ -8,9 +8,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
+from types import SimpleNamespace
+from typing import NamedTuple
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -24,7 +26,9 @@ from app.db.models import (
 from app.domain.labels import EDGE_TYPE_LABELED_WITH, KIND_LABEL
 from app.domain.object_visibility import object_is_active
 from app.personal_relevance.models import (
+    LABEL_EVIDENCE_FETCH_LIMIT,
     PERSONAL_RELEVANCE_EVIDENCE_VERSION,
+    PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS,
     PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT,
     PERSONAL_RELEVANCE_MAX_OBJECTS,
     PERSONAL_RELEVANCE_MAX_SEMANTIC_CONTEXT_CHARS,
@@ -33,11 +37,21 @@ from app.personal_relevance.models import (
     ObjectPersonalRelevanceEvidence,
     PersonalRelevanceEvidenceSnapshot,
     PersonalRelevanceUserContext,
+    object_evidence_canonical_payload,
+    user_context_canonical_payload,
 )
 from app.services.label_service import label_description
 from app.services.personal_semantic_context_service import load_personal_semantic_context
 from app.services.provenance import REJECTED_STATE
-from app.services.user_identity_constants import MAX_CONNECTED_ACCOUNT_IDENTIFIERS
+from app.services.user_identity_constants import (
+    MAX_ALIAS_ITEMS,
+    MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS,
+    MAX_CONNECTED_ACCOUNT_IDENTIFIERS,
+    MAX_FULL_NAME_CHARS,
+    MAX_IDENTITY_LIST_ITEM_CHARS,
+    MAX_IDENTITY_LIST_ITEMS,
+    MAX_PREFERRED_NAME_CHARS,
+)
 from app.services.user_identity_context_service import (
     UserIdentityContextService,
     UserIdentityRuntimeFacts,
@@ -45,8 +59,31 @@ from app.services.user_identity_context_service import (
 )
 from app.services.user_participation_evidence_service import (
     ParticipationIdentity,
-    current_user_participation_roles,
+    current_user_participation,
     extract_email_address,
+)
+
+_IDENTITY_FIELD_ORDER = (
+    "full_name",
+    "preferred_name",
+    "aliases",
+    "roles",
+    "organizations",
+    "emails",
+    "phones",
+    "telegram",
+    "other_identifiers",
+    "connected_account_identifiers",
+)
+_IDENTITY_SHRINK_ORDER = (
+    "connected_account_identifiers",
+    "other_identifiers",
+    "aliases",
+    "telegram",
+    "phones",
+    "organizations",
+    "roles",
+    "emails",
 )
 
 
@@ -65,7 +102,7 @@ class PersonalRelevanceEvidenceService:
         object_ids: Sequence[UUID],
     ) -> PersonalRelevanceEvidenceSnapshot:
         user_context, identity = self._load_user_context(user_id)
-        user_context_signature = _sha256_canonical(user_context.to_payload())
+        user_context_signature = _sha256_canonical(user_context_canonical_payload(user_context))
 
         requested = _dedupe_ids(object_ids)
         truncated_objects = len(requested) > PERSONAL_RELEVANCE_MAX_OBJECTS
@@ -77,6 +114,8 @@ class PersonalRelevanceEvidenceService:
         signatures: dict[str, str] = {}
         for obj in owned:
             labels, labels_truncated = labels_by_object.get(obj.id, ((), False))
+            participation = current_user_participation(obj, identity)
+            title = obj.title or ""
             record = ObjectPersonalRelevanceEvidence(
                 object_id=obj.id,
                 kind=obj.kind,
@@ -84,14 +123,15 @@ class PersonalRelevanceEvidenceService:
                 origin=obj.origin,
                 state=obj.state,
                 status=obj.status,
-                title=(obj.title or "")[:PERSONAL_RELEVANCE_MAX_TITLE_CHARS],
+                title=title[:PERSONAL_RELEVANCE_MAX_TITLE_CHARS],
                 updated_at=obj.updated_at,
                 due_at=obj.due_at,
                 start_at=obj.start_at,
                 occurred_at=obj.occurred_at,
-                user_participation_roles=current_user_participation_roles(obj, identity),
+                user_participation_roles=participation.roles,
                 assigned_labels=labels,
                 labels_truncated=labels_truncated,
+                participation_truncated=participation.truncated,
             )
             object_records.append(record)
             signatures[str(obj.id)] = object_evidence_signature(
@@ -107,7 +147,6 @@ class PersonalRelevanceEvidenceService:
             object_evidence_signatures=signatures,
         )
 
-
     def _load_user_context(
         self, user_id: UUID
     ) -> tuple[PersonalRelevanceUserContext, ParticipationIdentity]:
@@ -115,10 +154,10 @@ class PersonalRelevanceEvidenceService:
         bounded = bound_runtime_identity_facts(raw_facts)
         semantic = load_personal_semantic_context(self._session, user_id, lock_rows=False)
         semantic_text = semantic.context_text or ""
-        semantic_truncated = len(semantic_text) > PERSONAL_RELEVANCE_MAX_SEMANTIC_CONTEXT_CHARS
+        truncated = _identity_was_truncated(raw_facts, bounded)
+        if len(semantic_text) > PERSONAL_RELEVANCE_MAX_SEMANTIC_CONTEXT_CHARS:
+            truncated = True
         semantic_text = semantic_text[:PERSONAL_RELEVANCE_MAX_SEMANTIC_CONTEXT_CHARS]
-        identity_truncated = _identity_was_truncated(raw_facts, bounded)
-        truncated = identity_truncated or semantic_truncated
 
         google_emails, yandex_mail_emails, yandex_calendar_emails, mm_ids, mm_usernames = (
             self._connected_match_tokens(user_id)
@@ -143,7 +182,7 @@ class PersonalRelevanceEvidenceService:
         connected = list(bounded.connected_account_identifiers)
         seen_connected = {item.casefold() for item in connected}
         for remote_id in sorted(mm_ids):
-            token = f"mattermost:user_id:{remote_id}"
+            token = f"mattermost:user_id:{remote_id}"[:MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS]
             key = token.casefold()
             if key in seen_connected:
                 continue
@@ -153,17 +192,32 @@ class PersonalRelevanceEvidenceService:
             connected.append(token)
             seen_connected.add(key)
 
+        projection = {
+            "full_name": bounded.full_name,
+            "preferred_name": bounded.preferred_name,
+            "aliases": list(bounded.aliases),
+            "roles": list(bounded.roles),
+            "organizations": list(bounded.organizations),
+            "emails": list(bounded.emails),
+            "phones": list(bounded.phones),
+            "telegram": list(bounded.telegram),
+            "other_identifiers": list(bounded.other_identifiers),
+            "connected_account_identifiers": connected,
+        }
+        projection, budget_truncated = fit_identity_json_budget(projection)
+        truncated = truncated or budget_truncated
+
         user_context = PersonalRelevanceUserContext(
-            full_name=bounded.full_name,
-            preferred_name=bounded.preferred_name,
-            aliases=tuple(bounded.aliases),
-            roles=tuple(bounded.roles),
-            organizations=tuple(bounded.organizations),
-            emails=tuple(bounded.emails),
-            phones=tuple(bounded.phones),
-            telegram=tuple(bounded.telegram),
-            other_identifiers=tuple(bounded.other_identifiers),
-            connected_account_identifiers=tuple(connected),
+            full_name=projection["full_name"],
+            preferred_name=projection["preferred_name"],
+            aliases=tuple(projection["aliases"]),
+            roles=tuple(projection["roles"]),
+            organizations=tuple(projection["organizations"]),
+            emails=tuple(projection["emails"]),
+            phones=tuple(projection["phones"]),
+            telegram=tuple(projection["telegram"]),
+            other_identifiers=tuple(projection["other_identifiers"]),
+            connected_account_identifiers=tuple(projection["connected_account_identifiers"]),
             semantic_context=semantic_text,
             truncated=truncated,
         )
@@ -223,66 +277,117 @@ class PersonalRelevanceEvidenceService:
         user_id: UUID,
         object_ids: list[UUID],
     ) -> dict[UUID, tuple[tuple[AssignedLabelEvidence, ...], bool]]:
-        if not object_ids:
-            return {}
-        rows = self._session.execute(
-            select(Edge, Object)
-            .join(Object, Edge.target_id == Object.id)
-            .where(
-                Edge.user_id == user_id,
-                Edge.source_id.in_(object_ids),
-                Edge.type == EDGE_TYPE_LABELED_WITH,
-                Edge.state != REJECTED_STATE,
-                Object.user_id == user_id,
-                Object.kind == KIND_LABEL,
-                Object.state != REJECTED_STATE,
-                object_is_active(Object),
+        result: dict[UUID, tuple[tuple[AssignedLabelEvidence, ...], bool]] = {
+            object_id: ((), False) for object_id in object_ids
+        }
+        grouped: dict[UUID, list[tuple[int, AssignedLabelEvidence]]] = {}
+        for row in fetch_bounded_label_assignment_rows(self._session, user_id, object_ids):
+            evidence = AssignedLabelEvidence(
+                label_id=row.label_id,
+                title=row.title,
+                description=label_description(SimpleNamespace(body=row.body)),
+                assignment_origin=row.assignment_origin,
+                assignment_confidence=row.assignment_confidence,
             )
-        ).all()
-        grouped: dict[UUID, list[AssignedLabelEvidence]] = {object_id: [] for object_id in object_ids}
-        for edge, label in rows:
-            grouped.setdefault(edge.source_id, []).append(
-                AssignedLabelEvidence(
-                    label_id=label.id,
-                    title=label.title,
-                    description=label_description(label),
-                    assignment_origin=edge.origin,
-                    assignment_confidence=edge.confidence,
-                )
-            )
-        result: dict[UUID, tuple[tuple[AssignedLabelEvidence, ...], bool]] = {}
-        for object_id, labels in grouped.items():
-            labels.sort(key=lambda item: (item.title.casefold(), item.label_id.bytes))
-            truncated = len(labels) > PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT
-            result[object_id] = (
-                tuple(labels[:PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT]),
-                truncated,
-            )
+            grouped.setdefault(row.source_id, []).append((row.rn, evidence))
+        for source_id, ranked in grouped.items():
+            ranked.sort(key=lambda item: item[0])
+            truncated = len(ranked) > PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT
+            kept = [item[1] for item in ranked[:PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT]]
+            result[source_id] = (tuple(kept), truncated)
         return result
+
+
+class _LabelAssignmentRow(NamedTuple):
+    source_id: UUID
+    rn: int
+    label_id: UUID
+    title: str
+    body: str | None
+    assignment_origin: str
+    assignment_confidence: float | None
+
+
+def fetch_bounded_label_assignment_rows(
+    session: Session,
+    user_id: UUID,
+    object_ids: list[UUID],
+) -> list[_LabelAssignmentRow]:
+    if not object_ids:
+        return []
+    ranked = (
+        select(
+            Edge.source_id.label("source_id"),
+            Edge.origin.label("assignment_origin"),
+            Edge.confidence.label("assignment_confidence"),
+            Object.id.label("label_id"),
+            Object.title.label("title"),
+            Object.body.label("body"),
+            func.row_number()
+            .over(
+                partition_by=Edge.source_id,
+                order_by=(
+                    Object.metadata_["label_key"].as_string().asc(),
+                    Object.id.asc(),
+                ),
+            )
+            .label("rn"),
+        )
+        .select_from(Edge)
+        .join(Object, Edge.target_id == Object.id)
+        .where(
+            Edge.user_id == user_id,
+            Edge.source_id.in_(object_ids),
+            Edge.type == EDGE_TYPE_LABELED_WITH,
+            Edge.state != REJECTED_STATE,
+            Object.user_id == user_id,
+            Object.kind == KIND_LABEL,
+            Object.state != REJECTED_STATE,
+            object_is_active(Object),
+        )
+        .subquery()
+    )
+    rows = session.execute(
+        select(ranked).where(ranked.c.rn <= LABEL_EVIDENCE_FETCH_LIMIT)
+    ).all()
+    return [
+        _LabelAssignmentRow(
+            source_id=row.source_id,
+            rn=int(row.rn),
+            label_id=row.label_id,
+            title=row.title,
+            body=row.body,
+            assignment_origin=row.assignment_origin,
+            assignment_confidence=row.assignment_confidence,
+        )
+        for row in rows
+    ]
 
 
 def object_evidence_signature(
     record: ObjectPersonalRelevanceEvidence,
     user_context_signature: str,
 ) -> str:
-    payload = {
-        "version": PERSONAL_RELEVANCE_EVIDENCE_VERSION,
-        "object_id": str(record.object_id),
-        "kind": record.kind,
-        "provider": record.provider,
-        "origin": record.origin,
-        "state": record.state,
-        "status": record.status,
-        "title": record.title,
-        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
-        "due_at": record.due_at.isoformat() if record.due_at else None,
-        "start_at": record.start_at.isoformat() if record.start_at else None,
-        "occurred_at": record.occurred_at.isoformat() if record.occurred_at else None,
-        "user_participation_roles": list(record.user_participation_roles),
-        "assigned_labels": [item.to_payload() for item in record.assigned_labels],
-        "user_context_signature": user_context_signature,
-    }
-    return _sha256_canonical(payload)
+    return _sha256_canonical(
+        object_evidence_canonical_payload(record, user_context_signature)
+    )
+
+
+def fit_identity_json_budget(projection: dict) -> tuple[dict, bool]:
+    fitted = {key: projection[key] for key in _IDENTITY_FIELD_ORDER}
+    truncated = False
+    while _canonical_len(fitted) > PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS:
+        dropped = False
+        for key in _IDENTITY_SHRINK_ORDER:
+            items = fitted[key]
+            if isinstance(items, list) and items:
+                fitted = {**fitted, key: items[:-1]}
+                truncated = True
+                dropped = True
+                break
+        if not dropped:
+            break
+    return fitted, truncated
 
 
 def _dedupe_ids(object_ids: Sequence[UUID]) -> list[UUID]:
@@ -300,30 +405,71 @@ def _identity_was_truncated(
     raw: UserIdentityRuntimeFacts,
     bounded: UserIdentityRuntimeFacts,
 ) -> bool:
-    pairs = (
-        (raw.aliases, bounded.aliases),
-        (raw.roles, bounded.roles),
-        (raw.organizations, bounded.organizations),
-        (raw.emails, bounded.emails),
-        (raw.phones, bounded.phones),
-        (raw.telegram, bounded.telegram),
-        (raw.other_identifiers, bounded.other_identifiers),
-        (raw.connected_account_identifiers, bounded.connected_account_identifiers),
-    )
-    if any(len(left) > len(right) for left, right in pairs):
+    if _scalar_truncated(raw.full_name, bounded.full_name, MAX_FULL_NAME_CHARS):
         return True
-    full_truncated = bool(
-        raw.full_name
-        and (bounded.full_name is None or len(raw.full_name) > len(bounded.full_name))
+    if _scalar_truncated(
+        raw.preferred_name, bounded.preferred_name, MAX_PREFERRED_NAME_CHARS
+    ):
+        return True
+    pairs = (
+        (raw.aliases, bounded.aliases, MAX_ALIAS_ITEMS, MAX_IDENTITY_LIST_ITEM_CHARS),
+        (raw.roles, bounded.roles, MAX_IDENTITY_LIST_ITEMS, MAX_IDENTITY_LIST_ITEM_CHARS),
+        (
+            raw.organizations,
+            bounded.organizations,
+            MAX_IDENTITY_LIST_ITEMS,
+            MAX_IDENTITY_LIST_ITEM_CHARS,
+        ),
+        (raw.emails, bounded.emails, MAX_IDENTITY_LIST_ITEMS, MAX_IDENTITY_LIST_ITEM_CHARS),
+        (raw.phones, bounded.phones, MAX_IDENTITY_LIST_ITEMS, MAX_IDENTITY_LIST_ITEM_CHARS),
+        (raw.telegram, bounded.telegram, MAX_IDENTITY_LIST_ITEMS, MAX_IDENTITY_LIST_ITEM_CHARS),
+        (
+            raw.other_identifiers,
+            bounded.other_identifiers,
+            MAX_IDENTITY_LIST_ITEMS,
+            MAX_IDENTITY_LIST_ITEM_CHARS,
+        ),
+        (
+            raw.connected_account_identifiers,
+            bounded.connected_account_identifiers,
+            MAX_CONNECTED_ACCOUNT_IDENTIFIERS,
+            MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS,
+        ),
     )
-    preferred_truncated = bool(
-        raw.preferred_name
-        and (
-            bounded.preferred_name is None
-            or len(raw.preferred_name) > len(bounded.preferred_name)
-        )
-    )
-    return full_truncated or preferred_truncated
+    return any(_list_truncated(raw_list, bounded_list, max_items, max_chars) for raw_list, bounded_list, max_items, max_chars in pairs)
+
+
+def _scalar_truncated(raw: str | None, bounded: str | None, limit: int) -> bool:
+    if raw is None:
+        return False
+    stripped = raw.strip()
+    if not stripped:
+        return False
+    return bounded != stripped[:limit] or len(stripped) > limit
+
+
+def _list_truncated(
+    raw_values: list[str],
+    bounded: list[str],
+    max_items: int,
+    max_item_chars: int,
+) -> bool:
+    seen: set[str] = set()
+    kept = 0
+    for value in raw_values:
+        normalized = value.strip()
+        if not normalized:
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if kept >= max_items:
+            return True
+        if len(normalized) > max_item_chars:
+            return True
+        kept += 1
+    return kept != len(bounded)
 
 
 def _emails_from_query(values) -> frozenset[str]:
@@ -335,6 +481,13 @@ def _emails_from_query(values) -> frozenset[str]:
     return frozenset(emails)
 
 
+def _canonical_len(value: object) -> int:
+    return len(_canonical_json(value))
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _sha256_canonical(value: object) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()

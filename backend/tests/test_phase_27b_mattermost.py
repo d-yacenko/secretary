@@ -50,6 +50,7 @@ MATTERMOST_OPTIONAL_METADATA_KEYS = frozenset(
         "author_username",
         "author_display_name",
         "mentioned_user_ids",
+        "mentioned_user_ids_truncated",
     }
 )
 MATTERMOST_METADATA_KEYS = MATTERMOST_REQUIRED_METADATA_KEYS | MATTERMOST_OPTIONAL_METADATA_KEYS

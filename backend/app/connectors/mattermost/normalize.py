@@ -131,7 +131,7 @@ def _bounded_file_ids(file_ids: list[Any] | None) -> list[str]:
     return bounded
 
 
-def _bounded_mention_ids(post: dict[str, Any]) -> list[str]:
+def _bounded_mention_ids(post: dict[str, Any]) -> tuple[list[str], bool]:
     raw_values: list[Any] = []
     props = post.get("props")
     if isinstance(props, dict):
@@ -144,15 +144,17 @@ def _bounded_mention_ids(post: dict[str, Any]) -> list[str]:
 
     bounded: list[str] = []
     seen: set[str] = set()
+    truncated = False
     for raw in raw_values:
         for item in _flatten_mention_values(raw):
             if item in seen:
                 continue
             seen.add(item)
-            bounded.append(item)
             if len(bounded) >= MAX_MENTIONED_USER_IDS_IN_METADATA:
-                return bounded
-    return bounded
+                truncated = True
+                continue
+            bounded.append(item)
+    return bounded, truncated
 
 
 def _flatten_mention_values(value: Any) -> list[str]:
@@ -224,7 +226,7 @@ def normalize_mattermost_post(
     create_at_ms = int(post.get("create_at") or 0)
     update_at_ms = int(post.get("update_at") or 0)
     file_ids = _bounded_file_ids(post.get("file_ids"))
-    mentioned_user_ids = _bounded_mention_ids(post)
+    mentioned_user_ids, mentions_truncated = _bounded_mention_ids(post)
     root_id = str(post.get("root_id") or "").strip() or None
 
     metadata: dict[str, Any] = {
@@ -243,6 +245,8 @@ def normalize_mattermost_post(
     }
     if mentioned_user_ids:
         metadata["mentioned_user_ids"] = mentioned_user_ids
+    if mentions_truncated:
+        metadata["mentioned_user_ids_truncated"] = True
     if channel.team_id:
         metadata["team_id"] = channel.team_id
     if channel.team_name:

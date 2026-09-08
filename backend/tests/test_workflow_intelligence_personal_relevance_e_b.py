@@ -14,6 +14,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ObjectCreate
+from app.connectors.mattermost.constants import MAX_MENTIONED_USER_IDS_IN_METADATA
 from app.connectors.mattermost.normalize import MattermostChannelContext, normalize_mattermost_post
 from app.db.models import (
     Edge,
@@ -28,7 +29,9 @@ from app.db.models import (
     YandexMailAccount,
 )
 from app.personal_relevance.models import (
+    LABEL_EVIDENCE_FETCH_LIMIT,
     PERSONAL_RELEVANCE_EVIDENCE_VERSION,
+    PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS,
     PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT,
     PERSONAL_RELEVANCE_MAX_OBJECTS,
     PersonalDependency,
@@ -37,9 +40,17 @@ from app.personal_relevance.models import (
 from app.proactive.constants import PROACTIVE_READ_TOOL_NAMES
 from app.services.graph_service import GraphService
 from app.services.label_service import LabelService
-from app.services.personal_relevance_evidence_service import PersonalRelevanceEvidenceService
+from app.services.personal_relevance_evidence_service import (
+    PersonalRelevanceEvidenceService,
+    fetch_bounded_label_assignment_rows,
+    fit_identity_json_budget,
+)
 from app.services.personal_semantic_context_service import PersonalSemanticContextService
 from app.services.provenance import AGENT_ORIGIN, USER_ORIGIN
+from app.services.user_identity_constants import (
+    MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS,
+    MAX_IDENTITY_LIST_ITEMS,
+)
 from app.services.user_identity_context_service import UserIdentityProfileService
 from app.services.user_identity_profile_parser import parse_profile_text
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
@@ -669,6 +680,242 @@ def test_truncation_is_stable(db_session) -> None:
         item.label_id for item in second.objects[0].assigned_labels
     ]
     assert first.objects[0].labels_truncated is True
+
+
+def test_labels_truncated_flips_object_signature_when_prefix_is_unchanged(
+    db_session,
+) -> None:
+    user_id = _user(db_session)
+    _identity(db_session, user_id)
+    note = _graph(db_session, user_id).create_object(
+        ObjectCreate(kind="note", title="Note", origin="user")
+    )
+    labels = _labels(db_session, user_id)
+    first_eight = [labels.create_label(f"L{index:02d}").label for index in range(8)]
+    for label in first_eight:
+        labels.assign_label(note.id, label.id)
+    complete = _service(db_session).build_snapshot(user_id, [note.id])
+    assert complete.objects[0].labels_truncated is False
+    assert len(complete.objects[0].assigned_labels) == 8
+    prefix = [item.label_id for item in complete.objects[0].assigned_labels]
+    extra = labels.create_label("L08").label
+    labels.assign_label(note.id, extra.id)
+    overflow = _service(db_session).build_snapshot(user_id, [note.id])
+    assert overflow.objects[0].labels_truncated is True
+    assert [item.label_id for item in overflow.objects[0].assigned_labels] == prefix
+    assert overflow.object_evidence_signatures[str(note.id)] != complete.object_evidence_signatures[
+        str(note.id)
+    ]
+
+
+def test_label_fetch_is_hard_bounded_max_plus_one(db_session) -> None:
+    user_id = _user(db_session)
+    _identity(db_session, user_id)
+    note = _graph(db_session, user_id).create_object(
+        ObjectCreate(kind="note", title="Note", origin="user")
+    )
+    labels = _labels(db_session, user_id)
+    created = [labels.create_label(f"M{index:02d}").label for index in range(15)]
+    for label in created:
+        labels.assign_label(note.id, label.id)
+    rows = fetch_bounded_label_assignment_rows(db_session, user_id, [note.id])
+    assert len(rows) == LABEL_EVIDENCE_FETCH_LIMIT
+    snapshot = _service(db_session).build_snapshot(user_id, [note.id])
+    assert len(snapshot.objects[0].assigned_labels) == PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT
+    assert snapshot.objects[0].labels_truncated is True
+
+
+def test_user_context_truncated_flips_when_extra_item_exceeds_list_bound(
+    db_session,
+) -> None:
+    user_id = _user(db_session)
+    emails = "\n".join(f"- e{index:02d}@example.com" for index in range(MAX_IDENTITY_LIST_ITEMS))
+    UserIdentityProfileService.build(db_session).upsert_profile(
+        user_id, f"Имя: Alice Example\nEmail:\n{emails}\n"
+    )
+    note = _graph(db_session, user_id).create_object(
+        ObjectCreate(kind="note", title="Note", origin="user")
+    )
+    complete = _service(db_session).build_snapshot(user_id, [note.id])
+    assert complete.user_context.truncated is False
+    retained = list(complete.user_context.emails)
+    db_session.add(
+        GoogleAccount(
+            user_id=user_id,
+            email="extra@example.com",
+            scopes=["gmail"],
+        )
+    )
+    db_session.flush()
+    overflow = _service(db_session).build_snapshot(user_id, [note.id])
+    assert overflow.user_context.truncated is True
+    assert list(overflow.user_context.emails) == retained
+    assert overflow.user_context_signature != complete.user_context_signature
+    assert overflow.object_evidence_signatures[str(note.id)] != complete.object_evidence_signatures[
+        str(note.id)
+    ]
+
+
+def test_item_char_truncation_sets_truncated_without_dropping_list_length(
+    db_session,
+) -> None:
+    user_id = _user(db_session)
+    long_email = ("x" * 320) + "@example.com"
+    db_session.add(
+        GoogleAccount(user_id=user_id, email=long_email, scopes=["gmail"])
+    )
+    db_session.flush()
+    snapshot = _service(db_session).build_snapshot(user_id, [])
+    assert snapshot.user_context.truncated is True
+    assert len(snapshot.user_context.connected_account_identifiers) == 1
+    identifier = snapshot.user_context.connected_account_identifiers[0]
+    assert len(identifier) == MAX_CONNECTED_ACCOUNT_IDENTIFIER_CHARS
+    assert identifier.startswith("google:")
+
+
+def test_identity_aggregate_budget_drops_list_tails_and_sets_truncated() -> None:
+    aliases = [f"{index:02d}" + ("a" * 180) for index in range(20)]
+    projection = {
+        "full_name": "Alice Example",
+        "preferred_name": "Alice",
+        "aliases": aliases,
+        "roles": ["role"] * 12,
+        "organizations": ["org"] * 12,
+        "emails": [f"e{index:02d}@example.com" for index in range(12)],
+        "phones": [],
+        "telegram": [],
+        "other_identifiers": [],
+        "connected_account_identifiers": [],
+    }
+    fitted, truncated = fit_identity_json_budget(projection)
+    encoded = json.dumps(fitted, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert truncated is True
+    assert len(encoded) <= PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS
+    assert fitted["aliases"] == aliases[: len(fitted["aliases"])]
+    assert len(fitted["aliases"]) < len(aliases)
+
+
+def test_large_profile_hits_aggregate_identity_budget(db_session) -> None:
+    user_id = _user(db_session)
+    aliases = "\n".join(f"- A{index:02d}{'x' * 197}" for index in range(20))
+    UserIdentityProfileService.build(db_session).upsert_profile(
+        user_id,
+        f"Имя: Alice Example\nВарианты имени:\n{aliases}\n",
+    )
+    snapshot = _service(db_session).build_snapshot(user_id, [])
+    assert snapshot.user_context.truncated is True
+    identity_payload = {
+        key: snapshot.user_context.to_payload()[key]
+        for key in (
+            "full_name",
+            "preferred_name",
+            "aliases",
+            "roles",
+            "organizations",
+            "emails",
+            "phones",
+            "telegram",
+            "other_identifiers",
+            "connected_account_identifiers",
+        )
+    }
+    encoded = json.dumps(
+        identity_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    assert len(encoded) <= PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS
+    assert snapshot.user_context.to_payload()["truncated"] is True
+
+
+def test_generic_owner_email_is_not_assignee(db_session) -> None:
+    user_id = _user(db_session)
+    _identity(db_session, user_id, email="alice@example.com")
+    obj = _graph(db_session, user_id).create_object(
+        ObjectCreate(
+            kind="file",
+            title="Drive file",
+            origin="source",
+            provider="google_drive",
+            metadata={"owner_email": "alice@example.com", "assignee": "alice@example.com"},
+        )
+    )
+    snapshot = _service(db_session).build_snapshot(user_id, [obj.id])
+    assert snapshot.objects[0].user_participation_roles == ()
+    assert "assignee" not in snapshot.objects[0].user_participation_roles
+
+
+def test_email_recipient_inspection_is_bounded_and_truncated(db_session) -> None:
+    user_id = _user(db_session)
+    _identity(db_session, user_id, email="alice@example.com")
+    recipients = [f"other{index:02d}@example.com" for index in range(21)]
+    obj = _graph(db_session, user_id).create_object(
+        ObjectCreate(
+            kind="email",
+            title="Many recipients",
+            origin="source",
+            provider="gmail",
+            metadata={
+                "sender": "boss@example.com",
+                "recipients": recipients,
+                "cc": [],
+            },
+        )
+    )
+    snapshot = _service(db_session).build_snapshot(user_id, [obj.id])
+    assert snapshot.objects[0].user_participation_roles == ()
+    assert snapshot.objects[0].participation_truncated is True
+
+
+def test_calendar_attendees_truncated_propagates_to_participation(db_session) -> None:
+    user_id = _user(db_session)
+    _identity(db_session, user_id, email="alice@example.com")
+    db_session.add(GoogleAccount(user_id=user_id, email="alice@example.com", scopes=["calendar"]))
+    db_session.flush()
+    obj = _graph(db_session, user_id).create_object(
+        ObjectCreate(
+            kind="event",
+            title="Crowded",
+            origin="source",
+            provider="google_calendar",
+            metadata={
+                "organizer": "boss@example.com",
+                "attendees": [{"email": "other@example.com"}],
+                "attendees_truncated": True,
+            },
+        )
+    )
+    snapshot = _service(db_session).build_snapshot(user_id, [obj.id])
+    assert snapshot.objects[0].user_participation_roles == ()
+    assert snapshot.objects[0].participation_truncated is True
+
+
+def test_mattermost_normalize_marks_mentions_truncated() -> None:
+    mentions = [f"user-{index}" for index in range(MAX_MENTIONED_USER_IDS_IN_METADATA + 1)]
+    post = {
+        "id": "p-many",
+        "user_id": "author-1",
+        "message": "hello",
+        "create_at": 1,
+        "update_at": 1,
+        "props": {"mentions": mentions},
+    }
+    normalized = normalize_mattermost_post(
+        post,
+        "https://mm.example.com",
+        uuid.uuid4(),
+        MattermostChannelContext(
+            channel_id="ch",
+            channel_name="general",
+            channel_display_name="General",
+            channel_type="O",
+            team_id=None,
+            team_name=None,
+            team_display_name=None,
+        ),
+        {"username": "bob", "display_name": "Bob"},
+    )
+    assert normalized is not None
+    assert len(normalized["metadata"]["mentioned_user_ids"]) == MAX_MENTIONED_USER_IDS_IN_METADATA
+    assert normalized["metadata"]["mentioned_user_ids_truncated"] is True
 
 
 def test_proactive_allowlist_and_instructions_untouched() -> None:

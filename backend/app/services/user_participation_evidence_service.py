@@ -12,6 +12,9 @@ from typing import Any
 
 from app.db.models import Object
 from app.personal_relevance.models import (
+    PERSONAL_RELEVANCE_MAX_ATTENDEES,
+    PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES,
+    PERSONAL_RELEVANCE_MAX_MENTIONS,
     PERSONAL_RELEVANCE_MAX_PARTICIPATION_ROLES,
     USER_PARTICIPATION_ROLES,
 )
@@ -28,6 +31,12 @@ class ParticipationIdentity:
     mattermost_usernames: frozenset[str]
     has_google_account: bool
     has_yandex_calendar_account: bool
+
+
+@dataclass(frozen=True)
+class ParticipationEvidence:
+    roles: tuple[str, ...]
+    truncated: bool = False
 
 
 def extract_email_address(value: object) -> str | None:
@@ -49,11 +58,12 @@ def extract_email_address(value: object) -> str | None:
     return candidate.casefold()
 
 
-def current_user_participation_roles(
+def current_user_participation(
     obj: Object,
     identity: ParticipationIdentity,
-) -> tuple[str, ...]:
+) -> ParticipationEvidence:
     roles: set[str] = set()
+    truncated = False
     metadata = obj.metadata_ if isinstance(obj.metadata_, dict) else {}
     provider = obj.provider
 
@@ -64,13 +74,21 @@ def current_user_participation_roles(
         sender = extract_email_address(metadata.get("sender"))
         if sender is not None and sender in identity.emails:
             roles.add("sender")
-        for recipient in _string_items(metadata.get("recipients")):
+        recipients, recipients_truncated = _bounded_string_items(
+            metadata.get("recipients"), PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES
+        )
+        truncated = truncated or recipients_truncated
+        for recipient in recipients:
             email = extract_email_address(recipient)
             if email is not None and email in identity.emails:
                 roles.add("direct_recipient")
                 break
-        for copied in _string_items(metadata.get("cc")):
-            email = extract_email_address(copied)
+        copied, cc_truncated = _bounded_string_items(
+            metadata.get("cc"), PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES
+        )
+        truncated = truncated or cc_truncated
+        for item in copied:
+            email = extract_email_address(item)
             if email is not None and email in identity.emails:
                 roles.add("copied_recipient")
                 break
@@ -83,7 +101,13 @@ def current_user_participation_roles(
             provider, identity
         ):
             roles.add("organizer")
-        for attendee in _attendee_entries(metadata.get("attendees")):
+        attendees, attendees_truncated = _bounded_attendee_entries(
+            metadata.get("attendees"), PERSONAL_RELEVANCE_MAX_ATTENDEES
+        )
+        truncated = truncated or attendees_truncated or _truthy_flag(
+            metadata.get("attendees_truncated")
+        )
+        for attendee in attendees:
             email = extract_email_address(attendee.get("email"))
             self_flag = _truthy_flag(attendee.get("self"))
             if (email is not None and email in identity.emails) or (
@@ -102,21 +126,30 @@ def current_user_participation_roles(
         author_username = _scalar_str(metadata.get("author_username"))
         if author_username and author_username.casefold() in identity.mattermost_usernames:
             roles.add("author")
-        for mention in _string_items(metadata.get("mentioned_user_ids")):
+        mentions, mentions_truncated = _bounded_string_items(
+            metadata.get("mentioned_user_ids"), PERSONAL_RELEVANCE_MAX_MENTIONS
+        )
+        truncated = truncated or mentions_truncated or _truthy_flag(
+            metadata.get("mentioned_user_ids_truncated")
+        )
+        for mention in mentions:
             if mention in identity.mattermost_user_ids:
                 roles.add("mentioned")
                 break
-        for mention in _string_items(metadata.get("mentioned_usernames")):
+        mention_names, names_truncated = _bounded_string_items(
+            metadata.get("mentioned_usernames"), PERSONAL_RELEVANCE_MAX_MENTIONS
+        )
+        truncated = truncated or names_truncated
+        for mention in mention_names:
             if mention.casefold() in identity.mattermost_usernames:
                 roles.add("mentioned")
                 break
 
-    assignee = _first_assignee_email(metadata)
-    if assignee is not None and assignee in identity.emails:
-        roles.add("assignee")
-
     ordered = [role for role in USER_PARTICIPATION_ROLES if role in roles]
-    return tuple(ordered[:PERSONAL_RELEVANCE_MAX_PARTICIPATION_ROLES])
+    if len(ordered) > PERSONAL_RELEVANCE_MAX_PARTICIPATION_ROLES:
+        truncated = True
+        ordered = ordered[:PERSONAL_RELEVANCE_MAX_PARTICIPATION_ROLES]
+    return ParticipationEvidence(roles=tuple(ordered), truncated=truncated)
 
 
 def _calendar_self_trusted(provider: str | None, identity: ParticipationIdentity) -> bool:
@@ -127,12 +160,18 @@ def _calendar_self_trusted(provider: str | None, identity: ParticipationIdentity
     return False
 
 
-def _first_assignee_email(metadata: dict[str, Any]) -> str | None:
-    for key in ("assignee", "assigned_to", "owner_email"):
-        email = extract_email_address(metadata.get(key))
-        if email is not None:
-            return email
-    return None
+def _bounded_string_items(value: object, limit: int) -> tuple[list[str], bool]:
+    items = _string_items(value)
+    if len(items) > limit:
+        return items[:limit], True
+    return items, False
+
+
+def _bounded_attendee_entries(value: object, limit: int) -> tuple[list[dict[str, Any]], bool]:
+    entries = _attendee_entries(value)
+    if len(entries) > limit:
+        return entries[:limit], True
+    return entries, False
 
 
 def _string_items(value: object) -> list[str]:

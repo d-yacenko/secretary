@@ -16,7 +16,12 @@ PERSONAL_RELEVANCE_MAX_OBJECTS = 20
 PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT = 8
 PERSONAL_RELEVANCE_MAX_TITLE_CHARS = 500
 PERSONAL_RELEVANCE_MAX_SEMANTIC_CONTEXT_CHARS = 4000
+PERSONAL_RELEVANCE_MAX_IDENTITY_JSON_CHARS = 4000
 PERSONAL_RELEVANCE_MAX_PARTICIPATION_ROLES = 8
+PERSONAL_RELEVANCE_MAX_EMAIL_ADDRESSES = 20
+PERSONAL_RELEVANCE_MAX_ATTENDEES = 20
+PERSONAL_RELEVANCE_MAX_MENTIONS = 30
+LABEL_EVIDENCE_FETCH_LIMIT = PERSONAL_RELEVANCE_MAX_LABELS_PER_OBJECT + 1
 
 USER_PARTICIPATION_ROLES = (
     "author",
@@ -79,6 +84,7 @@ class PersonalRelevanceUserContext:
             "other_identifiers": list(self.other_identifiers),
             "connected_account_identifiers": list(self.connected_account_identifiers),
             "semantic_context": self.semantic_context,
+            "truncated": self.truncated,
         }
 
 
@@ -118,6 +124,7 @@ class ObjectPersonalRelevanceEvidence:
     user_participation_roles: tuple[str, ...]
     assigned_labels: tuple[AssignedLabelEvidence, ...]
     labels_truncated: bool = False
+    participation_truncated: bool = False
 
     def to_payload(self) -> dict:
         return {
@@ -133,6 +140,7 @@ class ObjectPersonalRelevanceEvidence:
             "start_at": _iso(self.start_at),
             "occurred_at": _iso(self.occurred_at),
             "user_participation_roles": list(self.user_participation_roles),
+            "participation_truncated": self.participation_truncated,
             "assigned_labels": [item.to_payload() for item in self.assigned_labels],
             "labels_truncated": self.labels_truncated,
         }
@@ -151,12 +159,26 @@ class PersonalRelevanceEvidenceSnapshot:
         return {
             "version": self.version,
             "user_context": self.user_context.to_payload(),
-            "user_context_truncated": self.user_context.truncated,
             "truncated_objects": self.truncated_objects,
             "user_context_signature": self.user_context_signature,
             "objects": [item.to_payload() for item in self.objects],
             "object_evidence_signatures": dict(self.object_evidence_signatures),
         }
+
+
+def user_context_canonical_payload(context: PersonalRelevanceUserContext) -> dict:
+    return context.to_payload()
+
+
+def object_evidence_canonical_payload(
+    record: ObjectPersonalRelevanceEvidence,
+    user_context_signature: str,
+) -> dict:
+    return {
+        "version": PERSONAL_RELEVANCE_EVIDENCE_VERSION,
+        **record.to_payload(),
+        "user_context_signature": user_context_signature,
+    }
 
 
 def _iso(value: datetime | None) -> str | None:

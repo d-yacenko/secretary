@@ -149,6 +149,25 @@ def test_normalize_caldav_preserves_organizer_and_attendee_emails() -> None:
         {"email": "guest@yandex.ru"},
         {"email": "owner@yandex.ru"},
     ]
+    assert "attendees_truncated" not in events[0]["metadata"]
+
+
+def test_normalize_caldav_marks_attendees_truncated() -> None:
+    attendee_lines = "".join(
+        f"ATTENDEE:mailto:g{index:02d}@yandex.ru\n" for index in range(21)
+    )
+    ical = (
+        "BEGIN:VEVENT\n"
+        "UID:many-att\n"
+        "SUMMARY:Review\n"
+        f"{attendee_lines}"
+        "DTSTART:20260829T100000Z\n"
+        "DTEND:20260829T110000Z\n"
+        "END:VEVENT\n"
+    )
+    events = normalize_caldav_events(ical, CALENDAR_HREF)
+    assert len(events[0]["metadata"]["attendees"]) == 20
+    assert events[0]["metadata"]["attendees_truncated"] is True
 
 
 def test_unescape_ical_text_decodes_newlines_and_punctuation() -> None:

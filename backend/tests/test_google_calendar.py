@@ -155,6 +155,18 @@ def test_calendar_normalization_preserves_self_attendee_and_organizer_flags() ->
     assert normalized["metadata"]["attendees"] == [
         {"email": "me@example.com", "response_status": "accepted", "self": "true"},
     ]
+    assert "attendees_truncated" not in normalized["metadata"]
+
+
+def test_calendar_normalization_marks_attendees_truncated() -> None:
+    event = _sample_calendar_event("evt-many")
+    event["attendees"] = [
+        {"email": f"a{index}@example.com", "responseStatus": "accepted"}
+        for index in range(21)
+    ]
+    normalized = normalize_calendar_event(event, calendar_id="primary")
+    assert len(normalized["metadata"]["attendees"]) == 20
+    assert normalized["metadata"]["attendees_truncated"] is True
 
 
 def test_bounded_calendar_sync_creates_observed_event_objects(

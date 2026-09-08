@@ -3,6 +3,8 @@ from typing import Any
 
 from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, MAX_EVENT_BODY_CHARS
 
+MAX_ATTENDEES_IN_METADATA = 20
+
 
 def _parse_event_datetime(field: dict[str, Any] | None) -> datetime | None:
     if not field:
@@ -17,11 +19,14 @@ def _parse_event_datetime(field: dict[str, Any] | None) -> datetime | None:
     return None
 
 
-def _compact_attendees(attendees: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+def _compact_attendees(
+    attendees: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, str]], bool]:
     if not attendees:
-        return []
+        return [], False
+    truncated = len(attendees) > MAX_ATTENDEES_IN_METADATA
     compact: list[dict[str, str]] = []
-    for attendee in attendees[:20]:
+    for attendee in attendees[:MAX_ATTENDEES_IN_METADATA]:
         email = attendee.get("email")
         if not email:
             continue
@@ -32,7 +37,7 @@ def _compact_attendees(attendees: list[dict[str, Any]] | None) -> list[dict[str,
         if attendee.get("self"):
             entry["self"] = "true"
         compact.append(entry)
-    return compact
+    return compact, truncated
 
 
 def normalize_calendar_event(
@@ -49,6 +54,7 @@ def normalize_calendar_event(
         body = str(description)[:MAX_EVENT_BODY_CHARS]
 
     organizer = event.get("organizer") or {}
+    attendees, attendees_truncated = _compact_attendees(event.get("attendees"))
     metadata = {
         "calendar_id": calendar_id,
         "event_id": event_id,
@@ -56,11 +62,13 @@ def normalize_calendar_event(
         "status": event.get("status"),
         "location": event.get("location"),
         "html_link": event.get("htmlLink"),
-        "attendees": _compact_attendees(event.get("attendees")),
+        "attendees": attendees,
         "organizer": organizer.get("email"),
         "recurring_event_id": event.get("recurringEventId"),
         "updated": event.get("updated"),
     }
+    if attendees_truncated:
+        metadata["attendees_truncated"] = True
     if organizer.get("self"):
         metadata["organizer_self"] = True
 

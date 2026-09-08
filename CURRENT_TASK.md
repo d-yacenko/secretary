@@ -1,8 +1,8 @@
-# Current task — Workflow Intelligence Pass E-B
+# Current task — Workflow Intelligence Pass E-B-R1
 
 ## Status
 
-Workflow Intelligence Pass E-B — Personal Relevance / Responsibility Evidence Foundation: **active review phase**.
+Workflow Intelligence Pass E-B-R1 — exact evidence signatures & hard boundedness corrective: **awaiting Architect review**.
 
 Pass E-A is **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED**.
 
@@ -18,14 +18,14 @@ Do **not** start Pass E-C. Do **not** change Proactive. Do **not** deploy produc
 - Alembic on production: **`0033`** (current/head)
 - `auto_label_enabled=false` in production
 - Proactive unchanged / **OFF** at the accepted production checkpoint
-- Pass D remains ACCEPTED / CLOSED at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`
 - Pass E-A: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`
-- Pass E-B: **active review**
+- Pass E-B application: `de573253b3cf5372e250b7669e3ad10cba47827a`
+- Pass E-B-R1: **awaiting Architect review**
 - Pass E-C: **not started**
 
 ## Parent / base
 
-`fac292e7bb82fa95549f96ef83206fa2e55a5084`
+`de573253b3cf5372e250b7669e3ad10cba47827a`
 
 ## Non-goals
 
