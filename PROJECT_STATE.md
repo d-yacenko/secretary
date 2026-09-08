@@ -2,7 +2,9 @@
 
 ## Current phase
 
-Workflow Intelligence Pass E-C — Proactive Personalization: **implemented, awaiting Architect review** on `review/workflow-intelligence-proactive-personalization-e-c`. Exact parent / production baseline: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`. No production deploy. Design Quality Pass **not started**.
+Workflow Intelligence Pass E-C-R1 — complete seed evidence & authoritative stale fence: **implemented, awaiting Architect review** on `review/workflow-intelligence-proactive-personalization-e-c`. Parent `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`. Production remains `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`. No production deploy. Design Quality Pass **not started**.
+
+Workflow Intelligence Pass E-C — Proactive Personalization: implemented at `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`; **not deployed**.
 
 Workflow Intelligence Pass E-B — Personal Relevance / Responsibility Evidence Foundation: **production exact-version deploy checkpoint complete** at `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`. Proactive remains **OFF**. Production `auto_label_enabled=false`. Alembic **`0033 / 0033`**.
 
@@ -372,7 +374,9 @@ Pass E-A (personal semantic context + label descriptions as auto-label evidence)
 
 Pass E-B (personal relevance / responsibility evidence foundation): **production exact-version deploy checkpoint complete** at `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d` (E-B `de573253b3cf5372e250b7669e3ad10cba47827a`, E-B-R1 `2d21424af44fc488b14ac4f844257b4afe4d2363`, E-B-R2 `f00604ae…`). No inferred-role persistence.
 
-Pass E-C (Proactive personalization using E-B evidence): **implemented, awaiting Architect review** on `review/workflow-intelligence-proactive-personalization-e-c`. No production deploy. Proactive remains **OFF**. No Alembic `0034`.
+Pass E-C (Proactive personalization using E-B evidence): implemented at `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56`; **not deployed**.
+
+Pass E-C-R1 (complete seed evidence & authoritative stale fence): **implemented, awaiting Architect review** on `review/workflow-intelligence-proactive-personalization-e-c`. No production deploy. Proactive remains **OFF**. No Alembic `0034`.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -393,7 +397,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Pass E-B application: `de573253b3cf5372e250b7669e3ad10cba47827a`
 - Pass E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`
 - Pass E-B-R2 / accepted production SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
-- Pass E-C / Proactive personalization: implemented on `review/workflow-intelligence-proactive-personalization-e-c`; **not deployed**; Proactive remains **OFF**
+- Pass E-C application: `c7c9c90dc7c96a29bd6dccbbbf1d0ce0c5b7ea56` (**not deployed**)
+- Pass E-C-R1: awaiting Architect review on `review/workflow-intelligence-proactive-personalization-e-c`; **not deployed**; Proactive remains **OFF**
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`

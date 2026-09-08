@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -33,6 +34,7 @@ from app.proactive.constants import (
     PROACTIVE_EVENT_HORIZON,
     PROACTIVE_EVENT_KINDS,
     PROACTIVE_GATE_ORIGINS,
+    PROACTIVE_INTERVAL_MINUTES_DEFAULT,
     PROACTIVE_MAX_OUTPUT_TOKENS,
     PROACTIVE_MAX_ROUNDS,
     PROACTIVE_MAX_UNRESOLVED,
@@ -45,6 +47,7 @@ from app.proactive.constants import (
     PROACTIVE_TASK_LOOKBACK,
     PROPOSAL_TYPE_PROACTIVE_INSIGHT,
     PROPOSAL_TYPE_TASK,
+    STALE_FENCE_INCOMPLETE,
     STALE_FENCE_NOT_APPLICABLE,
     STALE_FENCE_STALE,
     STALE_FENCE_UNCHANGED,
@@ -61,7 +64,10 @@ from app.services.effective_user_settings_service import (
 )
 from app.services.job_queue_service import JobQueueService, utcnow
 from app.services.notification_service import NotificationService
-from app.services.personal_relevance_evidence_service import PersonalRelevanceEvidenceService
+from app.services.personal_relevance_evidence_service import (
+    PersonalRelevanceEvidenceService,
+    acquire_personal_relevance_authority,
+)
 from app.services.provenance import CONFIRMED_STATE, REJECTED_STATE
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
 
@@ -71,60 +77,81 @@ _UNRESOLVED_STATUSES = (NOTIFICATION_STATUS_NEW, NOTIFICATION_STATUS_READ)
 _REFERENCES_EDGE = "references"
 
 
+def snapshot_covers_seed_ids(
+    snapshot: PersonalRelevanceEvidenceSnapshot,
+    seed_ids: Sequence[UUID],
+) -> bool:
+    expected = {str(item) for item in seed_ids}
+    object_ids = [str(item.object_id) for item in snapshot.objects]
+    if len(object_ids) != len(set(object_ids)):
+        return False
+    if snapshot.version != PERSONAL_RELEVANCE_EVIDENCE_VERSION:
+        return False
+    if snapshot.truncated_objects:
+        return False
+    signature_keys = set(snapshot.object_evidence_signatures)
+    return signature_keys == expected and set(object_ids) == expected
+
+
 def personal_relevance_evidence_is_stale(
     initial: PersonalRelevanceEvidenceSnapshot,
     fresh: PersonalRelevanceEvidenceSnapshot,
+    seed_ids: Sequence[UUID],
 ) -> bool:
+    if not snapshot_covers_seed_ids(initial, seed_ids):
+        return True
+    if not snapshot_covers_seed_ids(fresh, seed_ids):
+        return True
+    if initial.version != fresh.version:
+        return True
     if initial.user_context_signature != fresh.user_context_signature:
         return True
-    for object_id, signature in initial.object_evidence_signatures.items():
-        if fresh.object_evidence_signatures.get(object_id) != signature:
-            return True
-    return False
+    if dict(initial.object_evidence_signatures) != dict(fresh.object_evidence_signatures):
+        return True
+    if initial.truncated_objects != fresh.truncated_objects:
+        return True
+    return initial.user_context.truncated != fresh.user_context.truncated
 
 
 def seed_context_from_evidence(
     seed_objects: list[Object],
     snapshot: PersonalRelevanceEvidenceSnapshot,
 ) -> dict:
+    seed_ids = [obj.id for obj in seed_objects]
+    if not snapshot_covers_seed_ids(snapshot, seed_ids):
+        raise ValueError("personal relevance snapshot does not cover the Proactive seed set")
     evidence_by_id = {item.object_id: item for item in snapshot.objects}
     seed_payload = []
     for obj in seed_objects:
-        entry = {
-            "id": str(obj.id),
-            "kind": obj.kind,
-            "title": obj.title,
-            "status": obj.status,
-            "origin": obj.origin,
-            "updated_at": parse_aware_datetime(obj.updated_at).isoformat()
-            if parse_aware_datetime(obj.updated_at)
-            else None,
-            "due_at": parse_aware_datetime(obj.due_at).isoformat()
-            if parse_aware_datetime(obj.due_at)
-            else None,
-            "start_at": parse_aware_datetime(obj.start_at).isoformat()
-            if parse_aware_datetime(obj.start_at)
-            else None,
-        }
-        evidence = evidence_by_id.get(obj.id)
-        if evidence is not None:
-            payload = evidence.to_payload()
-            entry.update(
-                {
-                    "object_id": payload["object_id"],
-                    "provider": payload["provider"],
-                    "state": payload["state"],
-                    "occurred_at": payload["occurred_at"],
-                    "user_participation_roles": payload["user_participation_roles"],
-                    "participation_truncated": payload["participation_truncated"],
-                    "assigned_labels": payload["assigned_labels"],
-                    "labels_truncated": payload["labels_truncated"],
-                    "object_evidence_signature": snapshot.object_evidence_signatures[
-                        str(obj.id)
-                    ],
-                }
-            )
-        seed_payload.append(entry)
+        evidence = evidence_by_id[obj.id]
+        payload = evidence.to_payload()
+        seed_payload.append(
+            {
+                "id": str(obj.id),
+                "kind": obj.kind,
+                "title": obj.title,
+                "status": obj.status,
+                "origin": obj.origin,
+                "updated_at": parse_aware_datetime(obj.updated_at).isoformat()
+                if parse_aware_datetime(obj.updated_at)
+                else None,
+                "due_at": parse_aware_datetime(obj.due_at).isoformat()
+                if parse_aware_datetime(obj.due_at)
+                else None,
+                "start_at": parse_aware_datetime(obj.start_at).isoformat()
+                if parse_aware_datetime(obj.start_at)
+                else None,
+                "object_id": payload["object_id"],
+                "provider": payload["provider"],
+                "state": payload["state"],
+                "occurred_at": payload["occurred_at"],
+                "user_participation_roles": payload["user_participation_roles"],
+                "participation_truncated": payload["participation_truncated"],
+                "assigned_labels": payload["assigned_labels"],
+                "labels_truncated": payload["labels_truncated"],
+                "object_evidence_signature": snapshot.object_evidence_signatures[str(obj.id)],
+            }
+        )
     return {
         "user_context": snapshot.user_context.to_payload(),
         "user_context_signature": snapshot.user_context_signature,
@@ -206,12 +233,21 @@ def _proactive_proposal_sql():
 
 
 class ProactiveReviewService:
-    def __init__(self, session: Session, user_id: UUID) -> None:
+    def __init__(
+        self,
+        session: Session,
+        user_id: UUID,
+        *,
+        after_llm=None,
+        after_authority=None,
+    ) -> None:
         self._session = session
         self._user_id = user_id
         self._queue = JobQueueService(session)
         self._notifications = NotificationService(session, user_id)
         self._settings_service = EffectiveUserSettingsService.build(session)
+        self._after_llm = after_llm
+        self._after_authority = after_authority
 
     def run(self, payload: dict) -> None:
         control = read_proactive_control(self._session, self._user_id, for_update=False)
@@ -232,14 +268,24 @@ class ProactiveReviewService:
         if not read_proactive_control(self._session, self._user_id, for_update=False).enabled:
             return
         effective = self._load_effective()
-        decision, runner = self._run_llm(effective, seed_objects, window_start, window_end)
+        outcome = self._run_llm(effective, seed_objects, window_start, window_end)
+        if outcome["incomplete"]:
+            self._commit_quiet_successor(window_end)
+            return
+        decision = outcome["decision"]
+        runner = outcome["runner"]
+        if runner is not None and runner.has_rejected_tool_attempt:
+            decision = None
+        if outcome["authority_held"]:
+            if outcome["enabled"]:
+                if runner is None or not runner.has_rejected_tool_attempt:
+                    self._maybe_notify(decision)
+                self._enqueue_successor(window_end, outcome["interval_minutes"])
+            return
         locked = read_proactive_control(self._session, self._user_id, for_update=True)
         if not locked.enabled:
             return
-        if runner is not None and runner.has_rejected_tool_attempt:
-            decision = None
-        else:
-            self._maybe_notify(decision)
+        self._maybe_notify(decision)
         self._enqueue_successor(window_end, locked.interval_minutes)
 
     def _commit_quiet_successor(self, window_end: datetime) -> None:
@@ -364,7 +410,7 @@ class ProactiveReviewService:
         seed_objects: list[Object],
         window_start: datetime,
         window_end: datetime,
-    ) -> tuple[ProactiveDecision | None, ProactiveToolRunner]:
+    ) -> dict:
         tools = DomainToolService(
             self._session,
             self._user_id,
@@ -378,10 +424,22 @@ class ProactiveReviewService:
             tools,
             initial_seen_object_ids=seed_ids,
         )
+        empty = {
+            "decision": None,
+            "runner": runner,
+            "incomplete": False,
+            "authority_held": False,
+            "enabled": False,
+            "interval_minutes": PROACTIVE_INTERVAL_MINUTES_DEFAULT,
+        }
         if not read_proactive_control(self._session, self._user_id, for_update=False).enabled:
-            return None, runner
+            return empty
         evidence_service = PersonalRelevanceEvidenceService.build(self._session)
         snapshot = evidence_service.build_snapshot(self._user_id, seed_ids)
+        if not snapshot_covers_seed_ids(snapshot, seed_ids):
+            logger.info("proactive seed personal-relevance evidence incomplete")
+            empty["incomplete"] = True
+            return empty
         provider = create_proactive_provider(effective)
         message = (
             "Perform a bounded proactive attention review. "
@@ -394,6 +452,11 @@ class ProactiveReviewService:
             ensure_ascii=False,
         )
         job_id = get_current_job_id()
+        parsed = None
+        fence_result = STALE_FENCE_NOT_APPLICABLE
+        authority_held = False
+        enabled = False
+        interval_minutes = PROACTIVE_INTERVAL_MINUTES_DEFAULT
         with ai_trace_session(
             self._user_id,
             WORKLOAD_BACKGROUND_PROACTIVE_REVIEW,
@@ -410,9 +473,7 @@ class ProactiveReviewService:
                 tool_definitions=PROACTIVE_TOOL_DEFINITIONS,
             )
             runner.commit_model_visible_outputs()
-            parsed = None
             pre_fence = None
-            fence_result = STALE_FENCE_NOT_APPLICABLE
             if not runner.has_rejected_tool_attempt:
                 parsed = self._parse_decision(result.answer)
                 if parsed is not None:
@@ -422,12 +483,42 @@ class ProactiveReviewService:
                         seen_ids=runner.seen_object_ids | seed_id_set,
                     )
                 pre_fence = parsed
-                parsed, fence_result = self._apply_stale_evidence_fence(
-                    parsed,
-                    evidence_service,
-                    snapshot,
-                    seed_ids,
-                )
+                if (
+                    parsed is not None
+                    and parsed.decision == "notify"
+                    and parsed.notification is not None
+                ):
+                    if self._after_llm is not None:
+                        self._after_llm()
+                    self._session.expire_all()
+                    settings = acquire_personal_relevance_authority(
+                        self._session, self._user_id, seed_ids
+                    )
+                    authority_held = True
+                    if settings is None:
+                        parsed = None
+                    else:
+                        locked = read_proactive_control(
+                            self._session, self._user_id, for_update=False
+                        )
+                        enabled = locked.enabled
+                        interval_minutes = locked.interval_minutes
+                        if not enabled:
+                            parsed = None
+                        else:
+                            fresh = evidence_service.build_snapshot(self._user_id, seed_ids)
+                            if not snapshot_covers_seed_ids(fresh, seed_ids):
+                                parsed = None
+                                fence_result = STALE_FENCE_INCOMPLETE
+                            elif personal_relevance_evidence_is_stale(
+                                snapshot, fresh, seed_ids
+                            ):
+                                parsed = None
+                                fence_result = STALE_FENCE_STALE
+                            else:
+                                fence_result = STALE_FENCE_UNCHANGED
+                                if self._after_authority is not None:
+                                    self._after_authority()
             record_if_active(
                 PROACTIVE_PERSONAL_RELEVANCE_EVENT,
                 self._personal_relevance_audit_metadata(
@@ -438,22 +529,14 @@ class ProactiveReviewService:
                     fence_result=fence_result,
                 ),
             )
-        return parsed, runner
-
-    def _apply_stale_evidence_fence(
-        self,
-        decision: ProactiveDecision | None,
-        evidence_service: PersonalRelevanceEvidenceService,
-        initial: PersonalRelevanceEvidenceSnapshot,
-        seed_ids: list[UUID],
-    ) -> tuple[ProactiveDecision | None, str]:
-        if decision is None or decision.decision != "notify" or decision.notification is None:
-            return decision, STALE_FENCE_NOT_APPLICABLE
-        self._session.expire_all()
-        fresh = evidence_service.build_snapshot(self._user_id, seed_ids)
-        if personal_relevance_evidence_is_stale(initial, fresh):
-            return None, STALE_FENCE_STALE
-        return decision, STALE_FENCE_UNCHANGED
+        return {
+            "decision": parsed,
+            "runner": runner,
+            "incomplete": False,
+            "authority_held": authority_held,
+            "enabled": enabled,
+            "interval_minutes": interval_minutes,
+        }
 
     def _personal_relevance_audit_metadata(
         self,

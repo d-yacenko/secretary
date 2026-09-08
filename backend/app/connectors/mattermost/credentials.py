@@ -9,6 +9,7 @@ from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConfigurationError
 from app.connectors.mattermost.errors import MattermostConfigurationError
 from app.db.models import MattermostAccount
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 
 def utcnow() -> datetime:
@@ -79,6 +80,9 @@ class MattermostAccountStore:
             remote_user_id=remote_user_id,
         )
         encrypted = self._encryption.encrypt(access_token)
+        identity_changed = account is None or account.username != username or account.email != email
+        if identity_changed and lock_user_serialization_row(self._session, user_id) is None:
+            raise MattermostConfigurationError("user not found")
         if account is None:
             account = MattermostAccount(
                 user_id=user_id,

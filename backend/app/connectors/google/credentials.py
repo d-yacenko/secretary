@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConnectorError, GoogleOAuthError
 from app.db.models import GoogleAccount
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 
 def utcnow() -> datetime:
@@ -77,6 +78,8 @@ class GoogleAccountStore:
     ) -> GoogleAccount:
         account = self.get_by_email(user_id, email)
         if account is None:
+            if lock_user_serialization_row(self._session, user_id) is None:
+                raise GoogleOAuthError("user not found")
             account = GoogleAccount(user_id=user_id, email=email, scopes=scopes)
             self._session.add(account)
         else:

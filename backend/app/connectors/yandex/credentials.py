@@ -9,6 +9,7 @@ from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.google.errors import GoogleConfigurationError
 from app.connectors.yandex.errors import YandexConfigurationError
 from app.db.models import YandexMailAccount
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 
 def utcnow() -> datetime:
@@ -82,6 +83,8 @@ class YandexMailAccountStore:
     ) -> YandexMailAccount:
         account = self.get_by_email(user_id, email)
         if account is None:
+            if lock_user_serialization_row(self._session, user_id) is None:
+                raise YandexConfigurationError("user not found")
             account = YandexMailAccount(
                 user_id=user_id,
                 email=email,

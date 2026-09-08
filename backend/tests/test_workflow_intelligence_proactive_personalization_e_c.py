@@ -4,21 +4,32 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai_audit.constants import EVENT_TRACE_STARTED
 from app.api.schemas import ObjectCreate
+from app.db.engine import engine
 from app.db.models import (
+    AITrace,
     AITraceEvent,
+    Edge,
     GoogleAccount,
+    Job,
+    Notification,
     Object,
+    User,
+    UserIdentityProfile,
+    UserSemanticContext,
     UserSettings,
 )
 from app.jobs.constants import JOB_STATUS_PENDING, JOB_TYPE_PROACTIVE_REVIEW
@@ -36,8 +47,13 @@ from app.services.graph_service import GraphService
 from app.services.label_service import LabelService
 from app.services.personal_relevance_evidence_service import PersonalRelevanceEvidenceService
 from app.services.personal_semantic_context_service import PersonalSemanticContextService
-from app.services.proactive_review_service import ProactiveReviewService
+from app.services.proactive_review_service import (
+    ProactiveReviewService,
+    personal_relevance_evidence_is_stale,
+    snapshot_covers_seed_ids,
+)
 from app.services.user_identity_context_service import UserIdentityProfileService
+from app.services.user_serialization_gate import lock_user_serialization_row
 from app.tools.registry import PROACTIVE_TOOL_DEFINITIONS
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 from tests.test_proactive_secretary_c import (
@@ -596,3 +612,200 @@ def test_no_second_job_type() -> None:
     assert JOB_TYPE_PROACTIVE_REVIEW != JOB_TYPE_AUTO_LABEL_OBJECT
     versions = list((Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("0034*"))
     assert versions == []
+
+
+def test_incomplete_snapshot_skips_llm(db_session, monkeypatch, silent_trace) -> None:
+    _enable(db_session)
+    source = _source_email(db_session)
+    original = PersonalRelevanceEvidenceService.build_snapshot
+
+    def incomplete(self, user_id, object_ids):
+        snap = original(self, user_id, object_ids)
+        if not snap.objects:
+            return snap
+        dropped = snap.objects[0]
+        objects = snap.objects[1:]
+        signatures = {
+            key: value
+            for key, value in snap.object_evidence_signatures.items()
+            if key != str(dropped.object_id)
+        }
+        return replace(snap, objects=objects, object_evidence_signatures=signatures)
+
+    monkeypatch.setattr(PersonalRelevanceEvidenceService, "build_snapshot", incomplete)
+    provider = _install_provider(monkeypatch, ScriptedProactiveProvider(_insight_answer(source.id)))
+    before_jobs = _count_jobs(db_session, status=JOB_STATUS_PENDING)
+    ProactiveReviewService(db_session, BOOTSTRAP_USER_ID).run(_proactive_payload())
+    assert provider.calls == 0
+    assert _notifications(db_session) == []
+    assert _count_jobs(db_session, status=JOB_STATUS_PENDING) == before_jobs + 1
+
+
+def test_stale_equality_treats_added_or_removed_seed_as_stale(db_session) -> None:
+    first = _source_email(db_session, title="A")
+    second = GraphService(db_session, BOOTSTRAP_USER_ID).create_object(
+        ObjectCreate(kind="email", title="B", origin="source")
+    )
+    service = PersonalRelevanceEvidenceService.build(db_session)
+    both = service.build_snapshot(BOOTSTRAP_USER_ID, [first.id, second.id])
+    one = service.build_snapshot(BOOTSTRAP_USER_ID, [first.id])
+    assert snapshot_covers_seed_ids(both, [first.id, second.id])
+    assert not snapshot_covers_seed_ids(one, [first.id, second.id])
+    assert personal_relevance_evidence_is_stale(both, one, [first.id, second.id])
+    extra = dict(one.object_evidence_signatures)
+    extra[str(second.id)] = "not-a-real-signature"
+    mutated = replace(one, object_evidence_signatures=extra, truncated_objects=False)
+    assert personal_relevance_evidence_is_stale(one, mutated, [first.id])
+
+
+@contextmanager
+def _isolated_proactive_user():
+    user_id = uuid.uuid4()
+    with Session(engine) as session:
+        session.add(User(id=user_id, display_name=f"proactive-e-c-r1-{user_id}"))
+        session.add(
+            UserSettings(
+                user_id=user_id,
+                proactive_enabled=True,
+                proactive_interval_minutes=60,
+            )
+        )
+        session.commit()
+    try:
+        yield user_id
+    finally:
+        with Session(engine) as session:
+            session.execute(delete(Notification).where(Notification.user_id == user_id))
+            session.execute(
+                delete(AITraceEvent).where(
+                    AITraceEvent.trace_id.in_(select(AITrace.id).where(AITrace.user_id == user_id))
+                )
+            )
+            session.execute(delete(AITrace).where(AITrace.user_id == user_id))
+            session.execute(delete(Job).where(Job.user_id == user_id))
+            session.execute(delete(Edge).where(Edge.user_id == user_id))
+            session.execute(delete(Object).where(Object.user_id == user_id))
+            session.execute(delete(GoogleAccount).where(GoogleAccount.user_id == user_id))
+            session.execute(delete(UserSemanticContext).where(UserSemanticContext.user_id == user_id))
+            session.execute(delete(UserIdentityProfile).where(UserIdentityProfile.user_id == user_id))
+            session.execute(delete(UserSettings).where(UserSettings.user_id == user_id))
+            session.execute(delete(User).where(User.id == user_id))
+            session.commit()
+
+
+def _run_isolated_review(monkeypatch, user_id, source_id, **hooks) -> None:
+    _install_provider(monkeypatch, ScriptedProactiveProvider(_insight_answer(source_id)))
+    monkeypatch.setattr(
+        "app.services.proactive_review_service.ai_trace_session",
+        _noop_trace,
+    )
+    with Session(engine) as worker:
+        ProactiveReviewService(worker, user_id, **hooks).run(_proactive_payload())
+        worker.commit()
+
+
+def test_separate_session_semantic_writer_before_authority_discards(monkeypatch) -> None:
+    with _isolated_proactive_user() as user_id:
+        with Session(engine) as session:
+            source = _source_email(session, user_id)
+            source_id = source.id
+            PersonalSemanticContextService.build(session).upsert_context(user_id, "before")
+            session.commit()
+
+        def after_llm() -> None:
+            with Session(engine) as other:
+                PersonalSemanticContextService.build(other).upsert_context(user_id, "after")
+                other.commit()
+
+        _run_isolated_review(monkeypatch, user_id, source_id, after_llm=after_llm)
+        with Session(engine) as session:
+            assert list(session.scalars(select(Notification).where(Notification.user_id == user_id))) == []
+
+
+def test_separate_session_label_writer_before_authority_discards(monkeypatch) -> None:
+    with _isolated_proactive_user() as user_id:
+        with Session(engine) as session:
+            source = _source_email(session, user_id)
+            source_id = source.id
+            created = LabelService(session, user_id).create_label("Race")
+            session.commit()
+            label_id = created.label.id
+
+        def after_llm() -> None:
+            with Session(engine) as other:
+                LabelService(other, user_id).assign_label(source_id, label_id)
+                other.commit()
+
+        _run_isolated_review(monkeypatch, user_id, source_id, after_llm=after_llm)
+        with Session(engine) as session:
+            assert list(session.scalars(select(Notification).where(Notification.user_id == user_id))) == []
+
+
+def test_separate_session_object_freshness_writer_before_authority_discards(
+    monkeypatch,
+) -> None:
+    with _isolated_proactive_user() as user_id:
+        with Session(engine) as session:
+            source = _source_email(session, user_id)
+            source_id = source.id
+            session.commit()
+
+        def after_llm() -> None:
+            with Session(engine) as other:
+                obj = other.get(Object, source_id)
+                assert obj is not None
+                obj.title = "changed-after-model"
+                obj.updated_at = datetime.now(UTC)
+                other.commit()
+
+        _run_isolated_review(monkeypatch, user_id, source_id, after_llm=after_llm)
+        with Session(engine) as session:
+            assert list(session.scalars(select(Notification).where(Notification.user_id == user_id))) == []
+
+
+def test_separate_session_connected_account_writer_before_authority_discards(
+    monkeypatch,
+) -> None:
+    with _isolated_proactive_user() as user_id:
+        with Session(engine) as session:
+            source = _source_email(session, user_id)
+            source_id = source.id
+            session.add(
+                GoogleAccount(user_id=user_id, email="before@example.com", scopes=["gmail"])
+            )
+            session.commit()
+
+        def after_llm() -> None:
+            with Session(engine) as other:
+                account = other.scalar(
+                    select(GoogleAccount).where(GoogleAccount.user_id == user_id)
+                )
+                assert account is not None
+                account.email = "after@example.com"
+                other.commit()
+
+        _run_isolated_review(monkeypatch, user_id, source_id, after_llm=after_llm)
+        with Session(engine) as session:
+            assert list(session.scalars(select(Notification).where(Notification.user_id == user_id))) == []
+
+
+def test_authority_blocks_user_gate_until_notification_flush(monkeypatch) -> None:
+    with _isolated_proactive_user() as user_id:
+        with Session(engine) as session:
+            source = _source_email(session, user_id)
+            source_id = source.id
+            session.commit()
+
+        def after_authority() -> None:
+            with Session(engine) as other:
+                other.execute(text("SET LOCAL lock_timeout = '100ms'"))
+                with pytest.raises(OperationalError):
+                    lock_user_serialization_row(other, user_id)
+
+        _run_isolated_review(
+            monkeypatch, user_id, source_id, after_authority=after_authority
+        )
+        with Session(engine) as session:
+            notes = list(session.scalars(select(Notification).where(Notification.user_id == user_id)))
+            assert len(notes) == 1
+            assert notes[0].source_object_id == source_id

@@ -20,6 +20,7 @@ from app.db.models import (
     GoogleAccount,
     MattermostAccount,
     Object,
+    UserSettings,
     YandexCalendarAccount,
     YandexMailAccount,
 )
@@ -41,7 +42,11 @@ from app.personal_relevance.models import (
     user_context_canonical_payload,
 )
 from app.services.label_service import label_description
-from app.services.personal_semantic_context_service import load_personal_semantic_context
+from app.services.personal_semantic_context_service import (
+    load_personal_semantic_context,
+    lock_identity_profile_row,
+    lock_semantic_context_row,
+)
 from app.services.provenance import REJECTED_STATE
 from app.services.user_identity_constants import (
     MAX_ALIAS_ITEMS,
@@ -62,6 +67,7 @@ from app.services.user_participation_evidence_service import (
     current_user_participation,
     extract_email_address,
 )
+from app.services.user_serialization_gate import lock_user_serialization_row
 
 _IDENTITY_FIELD_ORDER = (
     "full_name",
@@ -491,3 +497,49 @@ def _canonical_json(value: object) -> str:
 
 def _sha256_canonical(value: object) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _lock_account_rows(session: Session, model, user_id: UUID) -> None:
+    list(
+        session.scalars(
+            select(model)
+            .where(model.user_id == user_id)
+            .order_by(model.id.asc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+
+
+def acquire_personal_relevance_authority(
+    session: Session,
+    user_id: UUID,
+    seed_ids: Sequence[UUID],
+) -> UserSettings | None:
+    """Lock E-B signature inputs. Order matches auto-label: User, settings, semantic, identity, then objects.
+
+    Connected-account rows are locked after identity and before seed objects.
+    """
+    user = lock_user_serialization_row(session, user_id)
+    if user is None:
+        return None
+    settings = session.scalar(
+        select(UserSettings)
+        .where(UserSettings.user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    lock_semantic_context_row(session, user_id)
+    lock_identity_profile_row(session, user_id)
+    _lock_account_rows(session, GoogleAccount, user_id)
+    _lock_account_rows(session, YandexMailAccount, user_id)
+    _lock_account_rows(session, YandexCalendarAccount, user_id)
+    _lock_account_rows(session, MattermostAccount, user_id)
+    for object_id in sorted(seed_ids, key=lambda item: item.bytes):
+        session.scalar(
+            select(Object)
+            .where(Object.id == object_id, Object.user_id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    return settings
