@@ -1,33 +1,40 @@
-# Current task — Workflow Intelligence Pass D-R2
+# Current task — Workflow Intelligence Pass D-R3
 
 ## Status
 
-Workflow Intelligence Pass D-R2: **implementation complete**; **awaiting Architect review**.
+Workflow Intelligence Pass D-R3: **implementation complete**; **awaiting Architect review**.
 
-No production deploy until Architect acceptance.
+Do **not** deploy this corrective before Architect acceptance.
+Do **not** start Pass E.
 
 ## Branch
 
 `review/workflow-intelligence-auto-label-d`
 
-## SHAs
+## Production truth
 
-- Pass C production baseline (accepted / closed / E2E accepted): `b3f7d92566601b9535fc502261799b6ed69a6b2c`
-- Production remains Pass C. Alembic on production remains **`0031`**. Auto-label production remains **OFF**. Migration **`0032` is review-only**.
-- Pass D application: `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566`
-- Pass D-R1: `bac9ca4d6741493f098a37cce29d246b24b3dfca`
-- Pass D-R2: see latest commit on this branch after push.
+- Production application SHA: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (Pass D-R2, Architect-accepted application)
+- Alembic on production: **`0032`** (deployed)
+- `auto_label_enabled=false` in production (must remain OFF)
+- Pass D application accepted; production E2E/closure **BLOCKED** by D-R3 (post-model audit / `users FOR UPDATE` hang)
+- Production no-backfill / default / opt-out checks: **PASS**
+- Production assignment happy path: **NOT PASS**
+- Pass E: not started
+
+## Parent / base
+
+`e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`
 
 ## Scope
 
-Keep the Pass D product contract. No new autonomy, no Proactive changes, no taxonomy automation.
+Keep the Pass D product contract. No new autonomy, no Proactive changes, no taxonomy automation, no AI-audit schema/FK redesign.
 
-- Transactional post-model fence held through `labeled_with` writes (`user` + `user_settings` + source object + vocabulary `FOR UPDATE`, `populate_existing`)
-- Identity facts removed from Pass D classifier input, signature, and job payload (Pass E)
-- Enqueue dedupe/cap serialized on the same user gate
+- User serialization sentinel: PostgreSQL `FOR NO KEY UPDATE` (`with_for_update(key_share=True)`, `populate_existing=True`) in `acquire_auto_label_user_gate` and `LabelService._lock_user`
+- Keep `UserSettings FOR UPDATE` and source Object / vocabulary `FOR UPDATE` for the R2 mutation fence
+- Real separate-session AI-audit regression (do not patch `ai_trace_session` to `nullcontext`; do not redirect audit `SessionLocal` to the worker session)
 
 ## Non-goals
 
-Do not deploy production. Do not apply `0032` to production. Do not enable auto-labeling in production.
+Do not deploy production. Do not enable auto-labeling in production.
 
 Do not read, decrypt, modify, recreate, re-encrypt, or commit `secretary_architect_context_encrypted.md`.

@@ -2,13 +2,17 @@
 
 ## Current phase
 
-Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`. **This is the production baseline.**
+Workflow Intelligence Pass D — bounded background auto-labeling: application **accepted** at `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (D-R2). **Production E2E/closure BLOCKED by D-R3.**
 
-Workflow Intelligence Pass D — bounded background auto-labeling: application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566` (**not production-deployed**).
+Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
 
-Workflow Intelligence Pass D-R1 — post-model fencing & boundedness: `bac9ca4d6741493f098a37cce29d246b24b3dfca` (review branch only).
+Workflow Intelligence Pass D application: `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566`.
 
-Workflow Intelligence Pass D-R2 — transactional fence through edge writes, identity removed from Pass D classifier, enqueue gate: **awaiting Architect review** on `review/workflow-intelligence-auto-label-d`.
+Workflow Intelligence Pass D-R1: `bac9ca4d6741493f098a37cce29d246b24b3dfca`.
+
+Workflow Intelligence Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (deployed application SHA; Alembic `0032`).
+
+Workflow Intelligence Pass D-R3 — user-gate lock compatibility with AI-audit FK `KEY SHARE`: **awaiting Architect review** on `review/workflow-intelligence-auto-label-d`. **Do not deploy before review. Pass E not started.**
 
 PHASE 22.5A — Local Retrieval Foundation: **accepted / closed**
 
@@ -348,13 +352,15 @@ Semantic file summaries; folders as retrieval/graph source; local-file and email
 
 ### PHASE 29 — Personal Workflow Intelligence
 
-Pass C (label relevance / ANNOTATE): **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`. **Production baseline.**
+Pass C (label relevance / ANNOTATE): **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
 
-Pass D (bounded opt-in background auto-labeling, existing vocabulary only): application `b3819ae5d0cf3a0c6c01e96d411c0cafe67df566`. **Not deployed.** Default `auto_label_enabled=false`. Alembic `0032` is review-only.
+Pass D (bounded opt-in background auto-labeling, existing vocabulary only): application accepted at `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`. Default `auto_label_enabled=false`. Migration `0032` is **deployed**. Production assignment happy path **NOT PASS** (post-model audit / `users FOR UPDATE` hang). Production no-backfill / default / opt-out: **PASS**. Closure **BLOCKED by D-R3**.
 
 Pass D-R1: `bac9ca4d6741493f098a37cce29d246b24b3dfca`.
 
-Pass D-R2 (transactional post-model fence through edge writes; identity facts out of Pass D classifier; serialized enqueue dedupe/cap): **awaiting Architect review**.
+Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28` (production application SHA).
+
+Pass D-R3 (user serialization gate `FOR NO KEY UPDATE` so AI-audit FK `KEY SHARE` can commit): **awaiting Architect review**. Do not deploy. Pass E not started.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -366,11 +372,12 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `b3f7d92566601b9535fc502261799b6ed69a6b2c`
-- Production phase: Workflow Intelligence **Pass C** (not Pass D)
-- Alembic on production: **`0031`** (head on production). Review migration `0032` is **not** applied.
-- Auto-labeling on production: **OFF** (`auto_label_enabled` default false; column exists only after `0032`)
-- Pass D / D-R1 / D-R2 remain on `review/workflow-intelligence-auto-label-d` until Architect acceptance
+- Production application SHA: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`
+- Production phase: Workflow Intelligence **Pass D-R2 application deployed**; E2E/closure **BLOCKED by D-R3**
+- Alembic on production: **`0032`** (head on production)
+- Auto-labeling on production: **OFF** (`auto_label_enabled=false`)
+- Pass D-R3 remains on `review/workflow-intelligence-auto-label-d` until Architect acceptance; **do not deploy R3 yet**
+- Pass E: not started
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`

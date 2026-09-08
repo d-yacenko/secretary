@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.ai_audit.constants import WORKLOAD_BACKGROUND_AUTO_LABEL
 from app.ai_audit.context import ai_trace_session, get_active_trace
-from app.db.models import Job, Object, User, UserSettings
+from app.db.models import Job, Object, UserSettings
 from app.domain.labels import KIND_LABEL
 from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.domain.scheduled_activity import KIND_SCHEDULED_ACTIVITY
@@ -48,7 +48,7 @@ from app.services.auto_label_models import (
 from app.services.correlation_constants import SEMANTIC_SUMMARY_METADATA_KEY
 from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.job_queue_service import JobQueueService
-from app.services.label_service import LabelService
+from app.services.label_service import LabelService, lock_user_serialization_row
 from app.services.provenance import AGENT_ORIGIN, CONFIRMED_STATE, REJECTED_STATE
 
 
@@ -70,12 +70,7 @@ def is_auto_label_enabled(session: Session, user_id: UUID) -> bool:
 
 
 def acquire_auto_label_user_gate(session: Session, user_id: UUID) -> UserSettings | None:
-    user = session.scalar(
-        select(User)
-        .where(User.id == user_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    user = lock_user_serialization_row(session, user_id)
     if user is None:
         return None
     return session.scalar(

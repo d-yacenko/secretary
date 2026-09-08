@@ -13,11 +13,18 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
-from app.ai_audit.constants import EVENT_MODEL_ROUND, WORKLOAD_BACKGROUND_AUTO_LABEL
+from app.ai_audit.constants import (
+    EVENT_MODEL_ROUND,
+    EVENT_TRACE_FINISHED,
+    EVENT_TRACE_STARTED,
+    WORKLOAD_BACKGROUND_AUTO_LABEL,
+)
 from app.ai_audit.context import ai_trace_session, set_current_job_id
+from app.ai_audit.trace_service import AITraceService
 from app.api.deps import get_db
 from app.api.schemas import ObjectCreate
 from app.db.engine import engine
@@ -60,6 +67,7 @@ from app.services.auto_label_constants import (
 from app.services.auto_label_models import AutoLabelAssignment, validate_auto_label_assignments
 from app.services.auto_label_service import (
     AutoLabelService,
+    acquire_auto_label_user_gate,
     bounded_object_input,
     enqueue_auto_label_object,
 )
@@ -1286,3 +1294,173 @@ def test_no_taxonomy_prefixes_in_auto_label_modules() -> None:
         text = path.read_text(encoding="utf-8")
         for prefix in forbidden:
             assert prefix not in text
+
+
+def _use_real_audit_sessions(monkeypatch) -> None:
+    from app.db.session import SessionLocal as RealSessionLocal
+
+    monkeypatch.setattr("app.ai_audit.context.SessionLocal", RealSessionLocal)
+
+
+def test_user_serialization_lock_compiles_to_no_key_update() -> None:
+    user_sql = str(
+        select(User)
+        .where(User.id == BOOTSTRAP_USER_ID)
+        .with_for_update(key_share=True)
+        .compile(dialect=postgresql.dialect())
+    )
+    settings_sql = str(
+        select(UserSettings)
+        .where(UserSettings.user_id == BOOTSTRAP_USER_ID)
+        .with_for_update()
+        .compile(dialect=postgresql.dialect())
+    )
+    assert "FOR NO KEY UPDATE" in user_sql
+    assert "FOR NO KEY UPDATE" not in settings_sql
+    assert "FOR UPDATE" in settings_sql
+
+
+def test_real_ai_audit_session_completes_with_user_gate(monkeypatch) -> None:
+    _use_real_audit_sessions(monkeypatch)
+    with _isolated_auto_label_user() as user_id:
+        note_id, label_id, payload = _seed_note_and_label(user_id)
+        with Session(engine) as session:
+            job_id = _auto_label_jobs_for(session, user_id)[0].id
+        fake = FakeAutoLabelClassifier(
+            assignments=[
+                AutoLabelAssignment(label_id=label_id, confidence=0.99, rationale="match")
+            ]
+        )
+        errors: list[BaseException] = []
+
+        def worker_run() -> None:
+            try:
+                token = set_current_job_id(job_id)
+                try:
+                    with Session(engine) as worker:
+                        worker.execute(text("SET LOCAL lock_timeout = '3s'"))
+                        worker.execute(text("SET LOCAL statement_timeout = '8s'"))
+                        with patch(
+                            "app.services.auto_label_service.create_auto_label_classifier_from_effective",
+                            lambda *_args, **_kwargs: fake,
+                        ):
+                            handle_auto_label_object(worker, None, payload, user_id)
+                        worker.commit()
+                finally:
+                    from app.ai_audit.context import reset_current_job_id
+
+                    reset_current_job_id(token)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        thread = threading.Thread(target=worker_run)
+        thread.start()
+        thread.join(timeout=12)
+        assert not thread.is_alive()
+        assert errors == []
+        with Session(engine) as session:
+            assert _count_active_edges(session, user_id) == 1
+            edge = session.scalar(
+                select(Edge).where(
+                    Edge.user_id == user_id,
+                    Edge.type == EDGE_TYPE_LABELED_WITH,
+                    Edge.state != REJECTED_STATE,
+                )
+            )
+            assert edge is not None
+            assert edge.source_id == note_id
+            assert edge.target_id == label_id
+            traces = list(
+                session.scalars(
+                    select(AITrace).where(
+                        AITrace.user_id == user_id,
+                        AITrace.workload == WORKLOAD_BACKGROUND_AUTO_LABEL,
+                    )
+                )
+            )
+            assert len(traces) == 1
+            trace = traces[0]
+            assert trace.finished_at is not None
+            assert trace.success is True
+            assert trace.job_id == job_id
+            events = {
+                item.event_type
+                for item in session.scalars(
+                    select(AITraceEvent).where(AITraceEvent.trace_id == trace.id)
+                )
+            }
+            assert EVENT_TRACE_STARTED in events
+            assert EVENT_MODEL_ROUND in events
+            assert "auto_label_result" in events
+            assert EVENT_TRACE_FINISHED in events
+
+
+def test_user_gate_allows_audit_fk_and_serializes_second_gate(monkeypatch) -> None:
+    _use_real_audit_sessions(monkeypatch)
+    with _isolated_auto_label_user() as user_id:
+        gate_held = threading.Event()
+        release_gate = threading.Event()
+        audit_committed = threading.Event()
+        second_acquired = threading.Event()
+        errors: list[BaseException] = []
+
+        def holder() -> None:
+            try:
+                with Session(engine) as session:
+                    session.execute(text("SET LOCAL lock_timeout = '8s'"))
+                    acquire_auto_label_user_gate(session, user_id)
+                    gate_held.set()
+                    assert release_gate.wait(timeout=10)
+                    session.commit()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        def auditor() -> None:
+            try:
+                assert gate_held.wait(timeout=5)
+                with Session(engine) as audit:
+                    audit.execute(text("SET LOCAL lock_timeout = '3s'"))
+                    audit.execute(text("SET LOCAL statement_timeout = '5s'"))
+                    service = AITraceService(audit)
+                    trace = service.start_trace(
+                        user_id=user_id,
+                        workload=WORKLOAD_BACKGROUND_AUTO_LABEL,
+                    )
+                    service.record_event(
+                        trace_id=trace.id,
+                        user_id=user_id,
+                        sequence=1,
+                        event_type=EVENT_TRACE_STARTED,
+                        metadata={"workload": WORKLOAD_BACKGROUND_AUTO_LABEL},
+                    )
+                    audit.commit()
+                audit_committed.set()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        def waiter() -> None:
+            try:
+                assert gate_held.wait(timeout=5)
+                with Session(engine) as session:
+                    session.execute(text("SET LOCAL lock_timeout = '8s'"))
+                    LabelService(session, user_id)._lock_user()
+                    second_acquired.set()
+                    session.commit()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=holder),
+            threading.Thread(target=auditor),
+            threading.Thread(target=waiter),
+        ]
+        for item in threads:
+            item.start()
+        assert audit_committed.wait(timeout=6)
+        assert not second_acquired.is_set()
+        release_gate.set()
+        for item in threads:
+            item.join(timeout=10)
+            assert not item.is_alive()
+        assert second_acquired.is_set()
+        assert errors == []

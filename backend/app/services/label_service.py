@@ -32,6 +32,16 @@ _RESERVED_LABEL_CREATE = "labels must be created through LabelService"
 _RESERVED_LABELED_WITH = "labeled_with assignments must use assign_label/remove_label"
 
 
+def lock_user_serialization_row(session: Session, user_id: UUID) -> User | None:
+    """Per-user taxonomy/auto-label sentinel: PostgreSQL FOR NO KEY UPDATE."""
+    return session.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+
+
 def normalize_label_name(name: str) -> tuple[str, str]:
     if not isinstance(name, str):
         raise ValidationError("label name is required")
@@ -300,12 +310,7 @@ class LabelService:
         return labels
 
     def _lock_user(self) -> None:
-        row = self._session.scalar(
-            select(User)
-            .where(User.id == self._user_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        row = lock_user_serialization_row(self._session, self._user_id)
         if row is None:
             raise NotFoundError("user", self._user_id)
 
