@@ -15,6 +15,7 @@ from app.domain.labels import (
     LABEL_DESCRIPTION_MAX_CHARS,
     LABEL_NAME_MAX_CHARS,
     LABEL_SCHEMA_VERSION,
+    LABELS_BY_OBJECTS_MAX,
     LIST_LABELS_MAX,
 )
 from app.domain.object_visibility import (
@@ -259,6 +260,55 @@ class LabelService:
         tombstone_object(label)
         self._session.flush()
         return DeleteLabelResult(label=label, changed=True)
+
+    def list_labels_by_objects(self, object_ids: list[UUID]) -> dict[UUID, list[LabelRecord]]:
+        unique: list[UUID] = []
+        seen: set[UUID] = set()
+        for object_id in object_ids:
+            if object_id in seen:
+                continue
+            seen.add(object_id)
+            unique.append(object_id)
+        if len(unique) > LABELS_BY_OBJECTS_MAX:
+            raise ValidationError(
+                f"at most {LABELS_BY_OBJECTS_MAX} object_ids are allowed"
+            )
+        if not unique:
+            return {}
+        source = aliased(Object)
+        label = aliased(Object)
+        rows = self._session.execute(
+            select(Edge.source_id, label)
+            .select_from(Edge)
+            .join(source, source.id == Edge.source_id)
+            .join(label, label.id == Edge.target_id)
+            .where(
+                Edge.user_id == self._user_id,
+                Edge.type == EDGE_TYPE_LABELED_WITH,
+                Edge.state != REJECTED_STATE,
+                Edge.source_id.in_(unique),
+                source.user_id == self._user_id,
+                source.state != REJECTED_STATE,
+                object_is_active(source),
+                label.user_id == self._user_id,
+                label.kind == KIND_LABEL,
+                label.state != REJECTED_STATE,
+                object_is_active(label),
+            )
+            .order_by(func.lower(label.title), label.id)
+        ).all()
+        grouped: dict[UUID, list[LabelRecord]] = {}
+        for source_id, item in rows:
+            grouped.setdefault(source_id, []).append(
+                LabelRecord(
+                    id=item.id,
+                    title=item.title,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                    description=label_description(item),
+                )
+            )
+        return grouped
 
     def get_object_labels(self, object_id: UUID) -> list[LabelRecord]:
         source = self._require_visible_object(object_id)

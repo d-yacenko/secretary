@@ -617,6 +617,29 @@ class SecretaryApiClient {
     return LabelList.fromJson(decoded);
   }
 
+  Future<Map<String, List<LabelItem>>> labelsByObjects(
+    List<String> objectIds,
+  ) async {
+    final decoded = await _requestJson(
+      'POST',
+      '/labels/by-objects',
+      jsonBody: {'object_ids': objectIds},
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected labels-by-objects response format');
+    }
+    final raw = decoded['objects'];
+    if (raw is! Map<String, dynamic>) {
+      throw ServerException('Unexpected labels-by-objects response format');
+    }
+    return {
+      for (final entry in raw.entries)
+        entry.key: (entry.value as List<dynamic>)
+            .map((e) => LabelItem.fromJson(e as Map<String, dynamic>))
+            .toList(),
+    };
+  }
+
   Future<LabelWriteResult> createLabel(
     String name, {
     String? description,

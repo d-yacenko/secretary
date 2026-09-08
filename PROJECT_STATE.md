@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Design Quality Pass A-R1 — Rail, Intake Controls & True Source Identity: **implemented, awaiting Architect review** on `review/design-quality-a-core-ui`. Exact parent of R1: `f09e49ee44e9c24fa4eeda72bbbd060ba5135cc4`. Accepted production: `d694c24150b5c6f62cca0d64db423fc34a88525c`. No production deploy. Design Quality Pass B **not started**.
+Design Quality Pass B — Label Visibility & Screen-by-Screen Polish: **implemented, awaiting Architect review** on `review/design-quality-b-label-visibility`. Exact parent / accepted Pass A/A-R1 client baseline: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69`. Server production remains `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. No production deploy. Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
 
 Workflow Intelligence Pass E-C / E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. Proactive **OFF**. Real-user `auto_label_enabled=true` (pre-existing). Android `minSdk` 23.
 
@@ -378,7 +378,9 @@ Pass E-B (personal relevance / responsibility evidence foundation): **production
 
 Pass E-C (Proactive personalization using E-B evidence) and E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`.
 
-Unified colored labels/tags remain a later taxonomy-UX item, not schema.
+Unified colored labels/tags remain a later taxonomy-UX item, not schema. Pass B shows assigned label titles on list cards (`2 + +N`); no category icons, colors, or taxonomy fields.
+
+Brand + Label Icon Asset Polish — deferred pending user-provided/approved iconset.
 
 ### PHASE 30 — Release / advanced UX
 
@@ -400,14 +402,14 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Android “OK Google” / custom voice assistant / App Actions
 - Camera/gallery image capture and image understanding
 - Final app icon pending user artwork
-- Label catalog stale after returning from label management (Flutter-only refresh candidate; not expanded in Pass A)
+- Label catalog stale after returning from label management (Flutter-only refresh candidate; addressed in Pass B for Search filter catalog)
 
 ## VDS production
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - Production application SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c`
-- Production phase: Workflow Intelligence **Pass E-C CLOSED**; Design Quality Pass A **not deployed**
+- Production phase: Workflow Intelligence **Pass E-C CLOSED**; Design Quality Pass A/A-R1 accepted at `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**); Pass B **not deployed**
 - Alembic on production: **`0033 / 0033`** (current/head); no `0034`
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -416,7 +418,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Pass E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`
 - Pass E-B-R2 / accepted production SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
 - Pass E-C / E-C-R1 production SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c` (**CLOSED**)
-- Design Quality Pass A: `review/design-quality-a-core-ui` (**not deployed**)
+- Design Quality Pass A/A-R1: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**)
+- Design Quality Pass B: `review/design-quality-b-label-visibility` (**not deployed**)
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -500,4 +503,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Design Quality Pass A-R1. Do not start Design Quality Pass B.
+Await Architect review of Design Quality Pass B. Do not deploy. Do not start Graph Advanced UX.

@@ -75,8 +75,8 @@ class _ShellClockState extends State<ShellClock> {
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontFeatures: [FontFeature.tabularFigures()],
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
                     color: ink,
                     height: 1.05,
                     letterSpacing: 0.6,
@@ -87,11 +87,11 @@ class _ShellClockState extends State<ShellClock> {
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  formatRussianDayMonth(_now),
+                  formatRussianNumericDate(_now),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 9,
+                    fontSize: 10.5,
                     height: 1.1,
                     color: ink,
                   ),
@@ -104,7 +104,7 @@ class _ShellClockState extends State<ShellClock> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 8,
+                    fontSize: 9.5,
                     height: 1.1,
                     color: ink,
                   ),

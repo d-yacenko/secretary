@@ -42,6 +42,22 @@ class ObjectLabelsOut(BaseModel):
     labels: list[LabelItemOut]
 
 
+class LabelsByObjectsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_ids: list[UUID]
+
+
+class ObjectLabelProjectionOut(BaseModel):
+    id: UUID
+    title: str
+    description: str | None = None
+
+
+class LabelsByObjectsOut(BaseModel):
+    objects: dict[str, list[ObjectLabelProjectionOut]]
+
+
 class AssignLabelOut(BaseModel):
     object_id: UUID
     label_id: UUID
@@ -105,6 +121,30 @@ def list_labels(
     service: LabelService = Depends(_service),
 ) -> LabelListOut:
     return LabelListOut(labels=[_item(row) for row in service.list_labels(limit=limit)])
+
+
+@router.post("/labels/by-objects", response_model=LabelsByObjectsOut)
+def labels_by_objects(
+    payload: LabelsByObjectsRequest,
+    service: LabelService = Depends(_service),
+) -> LabelsByObjectsOut:
+    try:
+        grouped = service.list_labels_by_objects(payload.object_ids)
+    except (NotFoundError, ConflictError, ValidationError) as exc:
+        _raise_domain(exc)
+    return LabelsByObjectsOut(
+        objects={
+            str(object_id): [
+                ObjectLabelProjectionOut(
+                    id=row.id,
+                    title=row.title,
+                    description=row.description,
+                )
+                for row in rows
+            ]
+            for object_id, rows in grouped.items()
+        }
+    )
 
 
 @router.post("/labels", response_model=LabelWriteOut)

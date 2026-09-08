@@ -6,10 +6,13 @@ import '../api/secretary_api_client.dart';
 import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
+import '../navigation/app_route_observer.dart';
 import '../navigation/secretary_navigation.dart';
+import '../ui/assigned_labels_loader.dart';
 import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
+import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
 
 enum SearchLoadState { idle, loading, ready, empty, error }
@@ -36,7 +39,7 @@ class SearchScreen extends StatefulWidget {
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<SearchScreen> {
+class _SearchScreenState extends State<SearchScreen> with RouteAware {
   final _queryController = TextEditingController();
   SearchLoadState _loadState = SearchLoadState.idle;
   List<SecretaryObject> _results = [];
@@ -46,12 +49,27 @@ class _SearchScreenState extends State<SearchScreen> {
   String _selectedSort = 'relevance';
   SearchFacetsOut? _facets;
   List<LabelItem> _labels = [];
+  Map<String, List<LabelItem>> _assignedByObject = {};
   String? _selectedLabelId;
 
   @override
   void initState() {
     super.initState();
     _loadFacets();
+    _loadLabels();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
     _loadLabels();
   }
 
@@ -81,6 +99,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _queryController.dispose();
     super.dispose();
   }
@@ -113,6 +132,15 @@ class _SearchScreenState extends State<SearchScreen> {
         _results = results;
         _loadState = results.isEmpty ? SearchLoadState.empty : SearchLoadState.ready;
       });
+      final assigned = await loadAssignedLabelsByObjects(
+        apiClient: widget.apiClient,
+        onAuthFailure: widget.authController.handleAuthenticationFailure,
+        objectIds: results.map((item) => item.id),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _assignedByObject = assigned);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -261,6 +289,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   final object = _results[index];
                   return _SearchResultTile(
                     object: object,
+                    labels: _assignedByObject[object.id] ?? const [],
                     onTap: () => _openObject(object),
                   );
                 },
@@ -275,10 +304,12 @@ class _SearchScreenState extends State<SearchScreen> {
 class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
     required this.object,
+    required this.labels,
     required this.onTap,
   });
 
   final SecretaryObject object;
+  final List<LabelItem> labels;
   final VoidCallback onTap;
 
   @override
@@ -303,6 +334,7 @@ class _SearchResultTile extends StatelessWidget {
                 provider: object.provider,
                 trailingText: dateLabel,
               ),
+              ObjectLabelStrip(labels: labels),
               if (statusLine.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(

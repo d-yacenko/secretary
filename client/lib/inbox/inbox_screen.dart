@@ -15,10 +15,12 @@ import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../sources/source_sync_error_presentation.dart';
 import '../navigation/source_navigation_service.dart';
+import '../ui/assigned_labels_loader.dart';
 import '../ui/app_spacing.dart';
 import '../ui/date_format.dart';
 import '../ui/inbox_date_groups.dart';
 import '../ui/object_actions.dart';
+import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
 import '../ui/provider_icon.dart';
@@ -62,6 +64,7 @@ class InboxScreen extends StatefulWidget {
 class InboxScreenState extends State<InboxScreen> {
   InboxLoadState _loadState = InboxLoadState.loading;
   InboxOut? _inbox;
+  Map<String, List<LabelItem>> _labelsByObject = {};
   String? _errorMessage;
   String? _mutatingNotificationId;
   String? _refreshStatusMessage;
@@ -177,6 +180,15 @@ class InboxScreenState extends State<InboxScreen> {
           statuses: snapshot.sourceSyncStatus,
         );
       });
+      final labels = await loadAssignedLabelsByObjects(
+        apiClient: widget.apiClient,
+        onAuthFailure: widget.authController.handleAuthenticationFailure,
+        objectIds: snapshot.recentSourceObjects.map((item) => item.id),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _labelsByObject = labels);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -796,6 +808,7 @@ class InboxScreenState extends State<InboxScreen> {
                       ),
                       child: _SourceObjectCard(
                         sourceObject: sourceObject,
+                        labels: _labelsByObject[sourceObject.id] ?? const [],
                         onTap: () => _openSourceObject(sourceObject),
                         onOpenSource: providerHasIdentity(sourceObject.provider)
                             ? () => _openInboxSource(sourceObject)
@@ -960,6 +973,7 @@ class _NotificationCard extends StatelessWidget {
 class _SourceObjectCard extends StatelessWidget {
   const _SourceObjectCard({
     required this.sourceObject,
+    required this.labels,
     required this.onTap,
     this.onOpenSource,
     this.onAskSecretary,
@@ -967,6 +981,7 @@ class _SourceObjectCard extends StatelessWidget {
   });
 
   final InboxSourceObjectOut sourceObject;
+  final List<LabelItem> labels;
   final VoidCallback onTap;
   final VoidCallback? onOpenSource;
   final VoidCallback? onAskSecretary;
@@ -1004,6 +1019,7 @@ class _SourceObjectCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+              ObjectLabelStrip(labels: labels),
               if (onAskSecretary != null || onShowInGraph != null)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.xs),

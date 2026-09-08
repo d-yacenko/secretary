@@ -61,6 +61,16 @@ const _weekdays = [
   'воскресенье',
 ];
 
+String formatRussianNumericDate(DateTime local, {bool twoDigitYear = true}) {
+  final day = local.day.toString().padLeft(2, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  if (twoDigitYear) {
+    final year = (local.year % 100).toString().padLeft(2, '0');
+    return '$day.$month.$year';
+  }
+  return '$day.$month.${local.year}';
+}
+
 String formatRussianClockTime(DateTime local) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');

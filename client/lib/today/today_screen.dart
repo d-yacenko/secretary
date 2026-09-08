@@ -11,7 +11,9 @@ import '../capture/capture_controller.dart';
 import '../inbox/notification_labels.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
+import '../ui/assigned_labels_loader.dart';
 import '../ui/date_format.dart';
+import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
 import '../ui/today_event_emphasis.dart';
@@ -49,6 +51,7 @@ class TodayScreen extends StatefulWidget {
 class _TodayScreenState extends State<TodayScreen> {
   TodayLoadState _loadState = TodayLoadState.loading;
   TodayOut? _today;
+  Map<String, List<LabelItem>> _labelsByObject = {};
   String? _errorMessage;
   String? _refreshStatusMessage;
   bool _isSourceRefreshing = false;
@@ -111,6 +114,18 @@ class _TodayScreenState extends State<TodayScreen> {
         _today = snapshot;
         _loadState = TodayLoadState.ready;
       });
+      final labels = await loadAssignedLabelsByObjects(
+        apiClient: widget.apiClient,
+        onAuthFailure: widget.authController.handleAuthenticationFailure,
+        objectIds: [
+          ...snapshot.tasks.map((item) => item.id),
+          ...snapshot.calendarEvents.map((item) => item.id),
+        ],
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _labelsByObject = labels);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -266,6 +281,7 @@ class _TodayScreenState extends State<TodayScreen> {
               ...today.tasks.map((task) => _TaskRow(
                     task: task,
                     today: today,
+                    labels: _labelsByObject[task.id] ?? const [],
                     onTap: () => _openObjectDetail(task.id),
                   )),
             const SizedBox(height: 16),
@@ -276,6 +292,7 @@ class _TodayScreenState extends State<TodayScreen> {
               ...today.calendarEvents.map((event) => _EventRow(
                     event: event,
                     emphasis: todayEventEmphasis(event, now: _now),
+                    labels: _labelsByObject[event.id] ?? const [],
                     onTap: () => _openObjectDetail(event.id),
                   )),
             const SizedBox(height: 16),
@@ -334,11 +351,13 @@ class _TaskRow extends StatelessWidget {
   const _TaskRow({
     required this.task,
     required this.today,
+    required this.labels,
     required this.onTap,
   });
 
   final SecretaryObject task;
   final TodayOut today;
+  final List<LabelItem> labels;
   final VoidCallback onTap;
 
   @override
@@ -365,6 +384,7 @@ class _TaskRow extends StatelessWidget {
               ]
             : const [],
       ),
+      subtitle: labels.isEmpty ? null : ObjectLabelStrip(labels: labels),
       onTap: onTap,
     );
   }
@@ -374,11 +394,13 @@ class _EventRow extends StatelessWidget {
   const _EventRow({
     required this.event,
     required this.emphasis,
+    required this.labels,
     required this.onTap,
   });
 
   final SecretaryObject event;
   final TodayEventEmphasis emphasis;
+  final List<LabelItem> labels;
   final VoidCallback onTap;
 
   @override
@@ -412,6 +434,7 @@ class _EventRow extends StatelessWidget {
           provider: event.provider,
           trailingText: time.isEmpty ? 'Нет времени' : time,
         ),
+        subtitle: labels.isEmpty ? null : ObjectLabelStrip(labels: labels),
         onTap: onTap,
       ),
     );

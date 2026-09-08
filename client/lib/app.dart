@@ -7,6 +7,7 @@ import 'auth/auth_gate.dart';
 import 'assistant/assistant_controller.dart';
 import 'capture/capture_controller.dart';
 import 'graph/graph_workspace_controller.dart';
+import 'navigation/app_route_observer.dart';
 import 'ui/ui_text_scale.dart';
 
 class PersonalSecretaryApp extends StatefulWidget {
@@ -109,6 +110,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
           autofocus: true,
           child: MaterialApp(
             navigatorKey: _navigatorKey,
+            navigatorObservers: [appRouteObserver],
             title: 'Личный секретарь',
             locale: const Locale('ru', 'RU'),
             supportedLocales: const [Locale('ru', 'RU')],
