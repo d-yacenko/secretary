@@ -29,6 +29,8 @@ def _compact_attendees(attendees: list[dict[str, Any]] | None) -> list[dict[str,
         response = attendee.get("responseStatus")
         if response:
             entry["response_status"] = str(response)
+        if attendee.get("self"):
+            entry["self"] = "true"
         compact.append(entry)
     return compact
 
@@ -46,6 +48,7 @@ def normalize_calendar_event(
     if description:
         body = str(description)[:MAX_EVENT_BODY_CHARS]
 
+    organizer = event.get("organizer") or {}
     metadata = {
         "calendar_id": calendar_id,
         "event_id": event_id,
@@ -54,10 +57,12 @@ def normalize_calendar_event(
         "location": event.get("location"),
         "html_link": event.get("htmlLink"),
         "attendees": _compact_attendees(event.get("attendees")),
-        "organizer": event.get("organizer", {}).get("email"),
+        "organizer": organizer.get("email"),
         "recurring_event_id": event.get("recurringEventId"),
         "updated": event.get("updated"),
     }
+    if organizer.get("self"):
+        metadata["organizer_self"] = True
 
     title = str(event.get("summary") or f"Calendar event {event_id}")
 

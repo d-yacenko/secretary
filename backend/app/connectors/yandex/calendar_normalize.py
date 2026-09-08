@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from email.utils import parseaddr
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -99,9 +100,27 @@ def _parse_ical_datetime_value(value: str, params: dict[str, str]) -> datetime |
     return parsed.astimezone(UTC)
 
 
+MAX_ATTENDEES_IN_METADATA = 20
+
+
+def _ical_email(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = unescape_ical_text(value) or value
+    raw = raw.strip()
+    if raw.lower().startswith("mailto:"):
+        raw = raw[7:]
+    _, addr = parseaddr(raw)
+    candidate = (addr or raw).strip().strip("<>").strip()
+    if "@" not in candidate or any(ch.isspace() for ch in candidate):
+        return None
+    return candidate
+
+
 def _parse_vevent_block(block: str) -> dict[str, Any]:
     fields: dict[str, str] = {}
     property_params: dict[str, dict[str, str]] = {}
+    attendees: list[str] = []
     nested_depth = 0
     for line in _unfold_ical_lines(block):
         upper = line.strip().upper()
@@ -116,6 +135,12 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
         if parsed is None:
             continue
         name, params, value = parsed
+        if name == "ATTENDEE":
+            if len(attendees) < MAX_ATTENDEES_IN_METADATA:
+                email = _ical_email(value)
+                if email and email not in attendees:
+                    attendees.append(email)
+            continue
         if name in {
             "UID",
             "SUMMARY",
@@ -127,10 +152,11 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
             "LAST-MODIFIED",
             "RECURRENCE-ID",
             "RRULE",
+            "ORGANIZER",
         }:
             fields[name] = value
             property_params[name] = params
-    return {"fields": fields, "params": property_params}
+    return {"fields": fields, "params": property_params, "attendees": attendees}
 
 
 def extract_vevent_blocks(ical_text: str) -> list[str]:
@@ -181,6 +207,7 @@ def normalize_caldav_events(
         parsed = _parse_vevent_block(block)
         fields = parsed["fields"]
         params = parsed["params"]
+        attendees = parsed["attendees"]
         event_uid = fields.get("UID")
         if not event_uid:
             continue
@@ -214,6 +241,11 @@ def normalize_caldav_events(
             "recurrence_id": recurrence_id,
             "rrule": fields.get("RRULE"),
         }
+        organizer = _ical_email(fields.get("ORGANIZER"))
+        if organizer:
+            metadata["organizer"] = organizer
+        if attendees:
+            metadata["attendees"] = [{"email": email} for email in attendees]
 
         normalized_events.append(
             {

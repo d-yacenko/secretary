@@ -130,6 +130,27 @@ def test_normalize_caldav_event_matches_event_object_shape() -> None:
     assert normalized["external_id"] == build_external_id(CALENDAR_HREF, "evt-yandex-1")
 
 
+def test_normalize_caldav_preserves_organizer_and_attendee_emails() -> None:
+    ical = (
+        "BEGIN:VEVENT\n"
+        "UID:org-att-1\n"
+        "SUMMARY:Review\n"
+        "ORGANIZER;CN=Owner:mailto:owner@yandex.ru\n"
+        "ATTENDEE;CN=Guest:mailto:guest@yandex.ru\n"
+        "ATTENDEE:mailto:owner@yandex.ru\n"
+        "DTSTART:20260829T100000Z\n"
+        "DTEND:20260829T110000Z\n"
+        "END:VEVENT\n"
+    )
+    events = normalize_caldav_events(ical, CALENDAR_HREF)
+    assert len(events) == 1
+    assert events[0]["metadata"]["organizer"] == "owner@yandex.ru"
+    assert events[0]["metadata"]["attendees"] == [
+        {"email": "guest@yandex.ru"},
+        {"email": "owner@yandex.ru"},
+    ]
+
+
 def test_unescape_ical_text_decodes_newlines_and_punctuation() -> None:
     assert unescape_ical_text("Строка 1\\nСтрока 2\\n\\nСтрока 4") == (
         "Строка 1\nСтрока 2\n\nСтрока 4"

@@ -2,9 +2,11 @@
 
 ## Current phase
 
-Workflow Intelligence Pass E-A — Personal Semantic Context & Label Semantics: **in review** on `review/workflow-intelligence-semantic-context-e-a`. **Do not deploy. Pass E-B and Proactive personalization have not started.**
+Workflow Intelligence Pass E-B — Personal Relevance / Responsibility Evidence Foundation: **active review** on `review/workflow-intelligence-personal-relevance-e-b`. Pass E-C has **not started**. Proactive behavior is unchanged / **OFF** at the accepted production checkpoint.
 
-Workflow Intelligence Pass D — bounded background auto-labeling: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`. D-R3 production happy path **PASS**. Alembic on production remains **`0032`**. Production `auto_label_enabled=false`.
+Workflow Intelligence Pass E-A — Personal Semantic Context & Label Semantics: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`. Production application SHA = `fac292e7bb82fa95549f96ef83206fa2e55a5084`. Alembic on production: **`0033`**. Production `auto_label_enabled=false`.
+
+Workflow Intelligence Pass D — bounded background auto-labeling: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`. D-R3 production happy path **PASS**. Production `auto_label_enabled=false`.
 
 Workflow Intelligence Pass C — label relevance / ANNOTATE: **accepted / closed** at `b3f7d92566601b9535fc502261799b6ed69a6b2c`.
 
@@ -364,7 +366,9 @@ Pass D-R2: `e621f4cbb7d9d4531686d79b301f4d8c3b1b8e28`.
 
 Pass D-R3 (user serialization gate `FOR NO KEY UPDATE` so AI-audit FK `KEY SHARE` can commit): **accepted** at `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`.
 
-Pass E-A (personal semantic context + label descriptions as auto-label evidence): **in review**. Pass E-B and Proactive personalization **not started**.
+Pass E-A (personal semantic context + label descriptions as auto-label evidence): **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`. Production Alembic **`0033`**. Production `auto_label_enabled=false`. Proactive **OFF** at this checkpoint.
+
+Pass E-B (personal relevance / responsibility evidence foundation): **active review**. No inferred-role persistence. Pass E-C / Proactive personalization **not started**.
 
 Unified colored labels/tags remain a later taxonomy-UX item, not schema.
 
@@ -376,12 +380,13 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `f979ef1a66a7b76f1a7f13ddc8841e0ed2518bbb`
-- Production phase: Workflow Intelligence **Pass D ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED**
-- Alembic on production: **`0032`** (head on production)
+- Production application SHA: `fac292e7bb82fa95549f96ef83206fa2e55a5084`
+- Production phase: Workflow Intelligence **Pass E-A ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`
+- Alembic on production: **`0033`** (head on production)
 - Auto-labeling on production: **OFF** (`auto_label_enabled=false`)
-- Pass E-A is on `review/workflow-intelligence-semantic-context-e-a`; **do not deploy**
-- Pass E-B / Proactive personalization: not started
+- Proactive: unchanged / **OFF** at the accepted production checkpoint
+- Pass E-B: active review (do not deploy)
+- Pass E-C / Proactive personalization: not started
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`

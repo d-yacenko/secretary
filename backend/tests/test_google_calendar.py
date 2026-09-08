@@ -143,6 +143,20 @@ def test_calendar_normalization_preserves_calendar_and_event_ids() -> None:
     assert normalized["due_at"] is not None
 
 
+def test_calendar_normalization_preserves_self_attendee_and_organizer_flags() -> None:
+    event = _sample_calendar_event("evt-self")
+    event["organizer"] = {"email": "me@example.com", "self": True}
+    event["attendees"] = [
+        {"email": "me@example.com", "self": True, "responseStatus": "accepted"},
+    ]
+    normalized = normalize_calendar_event(event, calendar_id="primary")
+    assert normalized["metadata"]["organizer"] == "me@example.com"
+    assert normalized["metadata"]["organizer_self"] is True
+    assert normalized["metadata"]["attendees"] == [
+        {"email": "me@example.com", "response_status": "accepted", "self": "true"},
+    ]
+
+
 def test_bounded_calendar_sync_creates_observed_event_objects(
     db_session,
     oauth_client_file: str,

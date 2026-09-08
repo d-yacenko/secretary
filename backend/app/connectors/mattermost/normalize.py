@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -6,6 +7,7 @@ from uuid import UUID
 
 from app.connectors.mattermost.constants import (
     MAX_FILE_IDS_IN_METADATA,
+    MAX_MENTIONED_USER_IDS_IN_METADATA,
     MAX_MESSAGE_BODY_CHARS,
     MAX_TITLE_CHARS,
 )
@@ -129,6 +131,57 @@ def _bounded_file_ids(file_ids: list[Any] | None) -> list[str]:
     return bounded
 
 
+def _bounded_mention_ids(post: dict[str, Any]) -> list[str]:
+    raw_values: list[Any] = []
+    props = post.get("props")
+    if isinstance(props, dict):
+        raw_values.append(props.get("mentions"))
+        raw_values.append(props.get("mentioned_users"))
+    metadata = post.get("metadata")
+    if isinstance(metadata, dict):
+        raw_values.append(metadata.get("mentions"))
+    raw_values.append(post.get("mention_ids"))
+
+    bounded: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        for item in _flatten_mention_values(raw):
+            if item in seen:
+                continue
+            seen.add(item)
+            bounded.append(item)
+            if len(bounded) >= MAX_MENTIONED_USER_IDS_IN_METADATA:
+                return bounded
+    return bounded
+
+
+def _flatten_mention_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except (TypeError, ValueError):
+                return [stripped]
+            return _flatten_mention_values(parsed)
+        return [stripped]
+    if isinstance(value, list):
+        items: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                items.append(item.strip())
+            elif isinstance(item, dict):
+                user_id = item.get("user_id") or item.get("id")
+                if isinstance(user_id, str) and user_id.strip():
+                    items.append(user_id.strip())
+        return items
+    return []
+
+
 def create_at_to_datetime(create_at_ms: int) -> datetime:
     return datetime.fromtimestamp(create_at_ms / 1000.0, tz=UTC)
 
@@ -171,6 +224,7 @@ def normalize_mattermost_post(
     create_at_ms = int(post.get("create_at") or 0)
     update_at_ms = int(post.get("update_at") or 0)
     file_ids = _bounded_file_ids(post.get("file_ids"))
+    mentioned_user_ids = _bounded_mention_ids(post)
     root_id = str(post.get("root_id") or "").strip() or None
 
     metadata: dict[str, Any] = {
@@ -187,6 +241,8 @@ def normalize_mattermost_post(
         "post_type": str(post.get("type") or "") or None,
         "file_ids": file_ids,
     }
+    if mentioned_user_ids:
+        metadata["mentioned_user_ids"] = mentioned_user_ids
     if channel.team_id:
         metadata["team_id"] = channel.team_id
     if channel.team_name:
