@@ -266,6 +266,7 @@ class InboxSourceObjectOut(BaseModel):
     state: str
     status: str | None
     primary_at: datetime | None
+    feed_at: datetime
     excerpt: str | None
 
 
@@ -286,6 +287,14 @@ class InboxOut(BaseModel):
     unresolved_notifications: list[NotificationOut]
     recent_source_objects: list[InboxSourceObjectOut]
     source_sync_status: list[SourceSyncStatusOut]
+    recent_next_cursor: str | None = None
+    recent_has_more: bool = False
+
+
+class InboxFeedOut(BaseModel):
+    items: list[InboxSourceObjectOut]
+    next_cursor: str | None
+    has_more: bool
 
 
 class SourceStatusListOut(BaseModel):

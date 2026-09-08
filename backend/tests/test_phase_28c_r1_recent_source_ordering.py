@@ -13,7 +13,6 @@ from app.services.graph_service import GraphService
 from app.services.job_queue_service import utcnow
 from app.services.object_primary_date import object_primary_search_datetime
 from app.services.recent_source_service import (
-    RECENT_SOURCE_RESERVED_PER_PROVIDER,
     RecentSourceService,
 )
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -152,7 +151,7 @@ def test_recent_source_provider_ranking_uses_max_inbox_feed_at(db_session: Sessi
 def test_recent_source_reserved_rows_use_inbox_feed_at(db_session: Session) -> None:
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     base = utcnow()
-    for index in range(RECENT_SOURCE_RESERVED_PER_PROVIDER + 2):
+    for index in range(5):
         _create_source_object(
             graph,
             db_session,
@@ -166,9 +165,9 @@ def test_recent_source_reserved_rows_use_inbox_feed_at(db_session: Session) -> N
 
     rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=30)
     gmail_rows = [row for row in rows if row.provider == "gmail"]
-    assert len(gmail_rows) >= RECENT_SOURCE_RESERVED_PER_PROVIDER
-    titles = [row.title for row in gmail_rows[:RECENT_SOURCE_RESERVED_PER_PROVIDER]]
-    assert titles == [f"Gmail reserved {index}" for index in range(RECENT_SOURCE_RESERVED_PER_PROVIDER)]
+    assert len(gmail_rows) >= 3
+    titles = [row.title for row in gmail_rows[:3]]
+    assert titles == [f"Gmail reserved {index}" for index in range(3)]
 
 
 def test_inbox_recent_primary_at_uses_domain_date_not_created_at(

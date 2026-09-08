@@ -6,6 +6,7 @@ InboxSourceObjectOut _row({
   required String id,
   required String title,
   String? primaryAt,
+  String? feedAt,
 }) {
   return InboxSourceObjectOut(
     id: id,
@@ -17,6 +18,7 @@ InboxSourceObjectOut _row({
     origin: 'source',
     excerpt: 'excerpt',
     primaryAt: primaryAt,
+    feedAt: feedAt,
   );
 }
 
@@ -57,5 +59,63 @@ void main() {
     expect(grouped.first, isA<InboxDateSeparatorEntry>());
     expect((grouped.first as InboxDateSeparatorEntry).label, 'Без даты');
     expect(grouped.whereType<InboxSourceObjectEntry>().length, 2);
+  });
+
+  test('groups by feed_at not primary_at', () {
+    final grouped = groupInboxSourceEntries([
+      _row(
+        id: '1',
+        title: 'Future event',
+        primaryAt: DateTime(2026, 12, 7, 6, 30).toIso8601String(),
+        feedAt: DateTime(2026, 9, 8, 12).toIso8601String(),
+      ),
+    ]);
+    final sep = grouped.first as InboxDateSeparatorEntry;
+    expect(sep.date, DateTime(2026, 9, 8));
+    expect(
+      (grouped[1] as InboxSourceObjectEntry).sourceObject.primaryAt,
+      contains('2026-12-07'),
+    );
+  });
+
+  test('page-boundary same feed day has one separator', () {
+    final day = DateTime(2026, 9, 7, 18).toIso8601String();
+    final grouped = groupInboxSourceEntries([
+      _row(id: '1', title: 'A', primaryAt: day, feedAt: day),
+      _row(id: '2', title: 'B', primaryAt: day, feedAt: day),
+    ]);
+    expect(grouped.whereType<InboxDateSeparatorEntry>().length, 1);
+  });
+
+  test('monotonic feed dates never reverse', () {
+    final grouped = groupInboxSourceEntries([
+      _row(
+        id: '1',
+        title: 'A',
+        primaryAt: DateTime(2026, 9, 8).toIso8601String(),
+        feedAt: DateTime(2026, 9, 8).toIso8601String(),
+      ),
+      _row(
+        id: '2',
+        title: 'B',
+        primaryAt: DateTime(2026, 12, 7).toIso8601String(),
+        feedAt: DateTime(2026, 9, 7).toIso8601String(),
+      ),
+      _row(
+        id: '3',
+        title: 'C',
+        primaryAt: DateTime(2026, 9, 9).toIso8601String(),
+        feedAt: DateTime(2026, 9, 6).toIso8601String(),
+      ),
+    ]);
+    final dates = grouped
+        .whereType<InboxDateSeparatorEntry>()
+        .map((entry) => entry.date)
+        .toList();
+    expect(dates, [
+      DateTime(2026, 9, 8),
+      DateTime(2026, 9, 7),
+      DateTime(2026, 9, 6),
+    ]);
   });
 }

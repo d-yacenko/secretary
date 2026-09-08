@@ -135,6 +135,7 @@ class ObjectCompactHeaderRow extends StatelessWidget {
     required this.trailingText,
     this.trailingBadges = const [],
     this.semanticsLabel,
+    this.trailingTooltip,
     this.onProviderTap,
     this.titleMaxLines,
   });
@@ -145,6 +146,7 @@ class ObjectCompactHeaderRow extends StatelessWidget {
   final String trailingText;
   final List<Widget> trailingBadges;
   final String? semanticsLabel;
+  final String? trailingTooltip;
   final VoidCallback? onProviderTap;
   final int? titleMaxLines;
 
@@ -199,11 +201,14 @@ class ObjectCompactHeaderRow extends StatelessWidget {
           if (trailingText.isNotEmpty) ...[
             const SizedBox(width: AppSpacing.sm),
             Flexible(
-              child: Text(
-                trailingText,
-                style: metadataStyle,
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
+              child: Tooltip(
+                message: trailingTooltip ?? trailingText,
+                child: Text(
+                  trailingText,
+                  style: metadataStyle,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
               ),
             ),
           ],

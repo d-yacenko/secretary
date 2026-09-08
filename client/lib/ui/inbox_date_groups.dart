@@ -50,7 +50,7 @@ List<InboxSourceListEntry> groupInboxSourceEntries(
   DateTime? currentDate;
   var undatedOpen = false;
   for (final object in objects) {
-    final date = parseLocalInboxDate(object.primaryAt);
+    final date = parseLocalInboxDate(object.feedStamp);
     if (date == null) {
       if (!undatedOpen) {
         entries.add(
@@ -85,13 +85,32 @@ class InboxDateSeparator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final style = Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: entry.isWeekend ? scheme.error : scheme.onSurfaceVariant,
-          fontWeight: FontWeight.w600,
+    final style = Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: entry.isWeekend ? scheme.error : scheme.primary,
+          fontWeight: FontWeight.w700,
         );
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
-      child: Text(entry.label, style: style),
+      child: Row(
+        children: [
+          Flexible(
+            child: Text(
+              entry.label,
+              style: style,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: scheme.outlineVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

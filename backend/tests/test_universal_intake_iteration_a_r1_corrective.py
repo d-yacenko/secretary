@@ -21,7 +21,6 @@ from app.services.correlation_constants import (
 from app.services.domain_tool_service import DomainToolService
 from app.services.job_queue_service import utcnow
 from app.services.recent_source_service import (
-    RECENT_SOURCE_RESERVED_PER_PROVIDER,
     RecentSourceService,
 )
 from app.services.representation_service import KIND_SUMMARY
@@ -321,7 +320,7 @@ def test_notes_do_not_consume_provider_reserved_inbox_slots(db_session) -> None:
         note.updated_at = now - timedelta(seconds=index)
         db_session.add(note)
 
-    for index in range(RECENT_SOURCE_RESERVED_PER_PROVIDER):
+    for index in range(3):
         gmail = Object(
             user_id=BOOTSTRAP_USER_ID,
             kind="email",
@@ -338,7 +337,7 @@ def test_notes_do_not_consume_provider_reserved_inbox_slots(db_session) -> None:
 
     db_session.commit()
     titles = {row.title for row in RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent()}
-    for index in range(RECENT_SOURCE_RESERVED_PER_PROVIDER):
+    for index in range(3):
         assert f"Gmail primary {index}" in titles
 
 

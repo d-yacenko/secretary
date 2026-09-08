@@ -595,6 +595,7 @@ class InboxSourceObjectOut {
     required this.status,
     required this.primaryAt,
     required this.excerpt,
+    this.feedAt,
   });
 
   final String id;
@@ -606,6 +607,10 @@ class InboxSourceObjectOut {
   final String? status;
   final String? primaryAt;
   final String? excerpt;
+  final String? feedAt;
+
+  String get feedStamp =>
+      (feedAt != null && feedAt!.trim().isNotEmpty) ? feedAt! : (primaryAt ?? '');
 
   factory InboxSourceObjectOut.fromJson(Map<String, dynamic> json) {
     return InboxSourceObjectOut(
@@ -618,6 +623,7 @@ class InboxSourceObjectOut {
       status: json['status'] as String?,
       primaryAt: json['primary_at'] as String?,
       excerpt: json['excerpt'] as String?,
+      feedAt: json['feed_at'] as String?,
     );
   }
 }
@@ -668,11 +674,15 @@ class InboxOut {
     required this.unresolvedNotifications,
     required this.recentSourceObjects,
     required this.sourceSyncStatus,
+    this.recentNextCursor,
+    this.recentHasMore = false,
   });
 
   final List<NotificationOut> unresolvedNotifications;
   final List<InboxSourceObjectOut> recentSourceObjects;
   final List<SourceSyncStatusOut> sourceSyncStatus;
+  final String? recentNextCursor;
+  final bool recentHasMore;
 
   factory InboxOut.fromJson(Map<String, dynamic> json) {
     return InboxOut(
@@ -686,6 +696,30 @@ class InboxOut {
       sourceSyncStatus: (json['source_sync_status'] as List<dynamic>)
           .map((e) => SourceSyncStatusOut.fromJson(e as Map<String, dynamic>))
           .toList(),
+      recentNextCursor: json['recent_next_cursor'] as String?,
+      recentHasMore: json['recent_has_more'] as bool? ?? false,
+    );
+  }
+}
+
+class InboxFeedPage {
+  InboxFeedPage({
+    required this.items,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+
+  final List<InboxSourceObjectOut> items;
+  final String? nextCursor;
+  final bool hasMore;
+
+  factory InboxFeedPage.fromJson(Map<String, dynamic> json) {
+    return InboxFeedPage(
+      items: (json['items'] as List<dynamic>)
+          .map((e) => InboxSourceObjectOut.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      nextCursor: json['next_cursor'] as String?,
+      hasMore: json['has_more'] as bool? ?? false,
     );
   }
 }

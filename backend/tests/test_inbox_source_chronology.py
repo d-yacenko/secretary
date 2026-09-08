@@ -17,8 +17,6 @@ from app.services.job_queue_service import utcnow
 from app.services.object_primary_date import object_primary_search_datetime
 from app.services.object_query_service import ObjectQueryService
 from app.services.recent_source_service import (
-    RECENT_SOURCE_MAX_RESERVED_PROVIDERS,
-    RECENT_SOURCE_RESERVED_PER_PROVIDER,
     RecentSourceService,
     inbox_feed_at,
     inbox_feed_at_sql,
@@ -397,7 +395,7 @@ def test_provider_reservation_uses_inbox_feed_at_not_created_at(db_session: Sess
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     now = utcnow()
     old = now - timedelta(days=80)
-    for index in range(RECENT_SOURCE_MAX_RESERVED_PROVIDERS):
+    for index in range(8):
         _create_source(
             graph,
             db_session,
@@ -446,7 +444,7 @@ def test_attachments_do_not_consume_reserved_provider_slots(db_session: Session)
             "mime_type": "application/octet-stream",
             "size": 4,
         }
-        for index in range(RECENT_SOURCE_RESERVED_PER_PROVIDER + 2)
+        for index in range(5)
     ]
     EmailAttachmentService(db_session, BOOTSTRAP_USER_ID).materialize_gmail_attachments(
         parent,
@@ -454,7 +452,7 @@ def test_attachments_do_not_consume_reserved_provider_slots(db_session: Session)
         lambda _desc: b"data",
     )
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
-    for index in range(RECENT_SOURCE_RESERVED_PER_PROVIDER):
+    for index in range(3):
         _create_source(
             graph,
             db_session,
@@ -469,9 +467,7 @@ def test_attachments_do_not_consume_reserved_provider_slots(db_session: Session)
     gmail_titles = [row.title for row in rows if row.provider == "gmail"]
     assert "Parent with many attachments" in gmail_titles
     assert all(not title.startswith("child-") for title in gmail_titles)
-    reserved = gmail_titles[:RECENT_SOURCE_RESERVED_PER_PROVIDER]
-    assert "Parent with many attachments" in reserved
-    assert sum(1 for title in reserved if title.startswith("Other gmail")) == 2
+    assert sum(1 for title in gmail_titles if title.startswith("Other gmail")) == 3
 
 
 def test_chronology_applied_before_limit(db_session: Session) -> None:
@@ -614,6 +610,8 @@ def test_inbox_api_order_hides_attachments_and_keeps_contract(
         "unresolved_notifications",
         "recent_source_objects",
         "source_sync_status",
+        "recent_next_cursor",
+        "recent_has_more",
     }
     recent = body["recent_source_objects"]
     titles = [item["title"] for item in recent]
@@ -630,6 +628,7 @@ def test_inbox_api_order_hides_attachments_and_keeps_contract(
         "state",
         "status",
         "primary_at",
+        "feed_at",
         "excerpt",
     }
     db_session.refresh(parent)

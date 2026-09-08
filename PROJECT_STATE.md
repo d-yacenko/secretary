@@ -2,7 +2,9 @@
 
 ## Current phase
 
-Design Quality Pass B — Label Visibility & Screen-by-Screen Polish: application `bff6cfb2174f2d3fb39bac6db1bf71cee72e4c4a` (not deployed). Design Quality Pass B-R1 — stale selected label cleanup: **implemented, awaiting Architect review** on `review/design-quality-b-label-visibility`. Exact parent: `bff6cfb2174f2d3fb39bac6db1bf71cee72e4c4a`. Pass A/A-R1 client baseline: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69`. Server production remains `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. No production deploy. Design Quality Pass C / Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
+Temporal Correctness A — Inbox Feed Semantics & Pagination: **implemented, awaiting Architect review** on `review/temporal-correctness-inbox-feed-a`. Exact parent / production: `2c88cb5f18680c699eb11c970e34e3629271a66b`. Design Quality Pass A/B / B-R1 **CLOSED / PRODUCTION**. Alembic **`0033 / 0033`**. No production deploy. Temporal Correctness B (recurring calendar) **not started**. Design Quality Pass C **deferred until Temporal A+B**. Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
+
+Design Quality Pass B / B-R1: **ACCEPTED / CLOSED / PRODUCTION** at `2c88cb5f18680c699eb11c970e34e3629271a66b`. `/labels/by-objects` live. Proactive **OFF**. Real-user `auto_label_enabled=true`. Android `minSdk` 23.
 
 Workflow Intelligence Pass E-C / E-C-R1: **ACCEPTED / CLOSED / PRODUCTION** at `d694c24150b5c6f62cca0d64db423fc34a88525c`. Alembic **`0033 / 0033`**. Proactive **OFF**. Real-user `auto_label_enabled=true` (pre-existing). Android `minSdk` 23.
 
@@ -408,8 +410,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c`
-- Production phase: Workflow Intelligence **Pass E-C CLOSED**; Design Quality Pass A/A-R1 accepted at `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**); Pass B `bff6cfb2…` **not deployed**; B-R1 **not deployed**
+- Production application SHA: `2c88cb5f18680c699eb11c970e34e3629271a66b`
+- Production phase: Design Quality Pass B / B-R1 **CLOSED**; Temporal Correctness A **not deployed**; Temporal Correctness B **not started**; Design Quality Pass C **deferred**
 - Alembic on production: **`0033 / 0033`** (current/head); no `0034`
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -418,8 +420,11 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Pass E-B-R1: `2d21424af44fc488b14ac4f844257b4afe4d2363`
 - Pass E-B-R2 / accepted production SHA: `f00604aeb5ef9ae3319a6e76bdf7093d623c1d8d`
 - Pass E-C / E-C-R1 production SHA: `d694c24150b5c6f62cca0d64db423fc34a88525c` (**CLOSED**)
-- Design Quality Pass A/A-R1: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (**not deployed**)
-- Design Quality Pass B / B-R1: `review/design-quality-b-label-visibility` (**not deployed**)
+- Design Quality Pass A/A-R1: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (included in B production)
+- Design Quality Pass B / B-R1: `2c88cb5f18680c699eb11c970e34e3629271a66b` (**PRODUCTION**)
+- Temporal Correctness A: `review/temporal-correctness-inbox-feed-a` (**not deployed**)
+- Temporal Correctness B — Recurring Calendar Materialization & Today: **NEXT, not started**
+- Design Quality Pass C: **deferred until Temporal A+B**
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -503,4 +508,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Design Quality Pass B-R1. Do not deploy. Do not start Design Quality Pass C / Graph Advanced UX.
+Await Architect review of Temporal Correctness A. Do not deploy. Do not start Temporal Correctness B, Design Quality Pass C, or Graph Advanced UX.

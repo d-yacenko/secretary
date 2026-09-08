@@ -38,10 +38,7 @@ from app.jobs.worker import process_one_job
 from app.llm.embedding_service import FakeEmbeddingService
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService, utcnow
-from app.services.recent_source_service import (
-    RECENT_SOURCE_RESERVED_PER_PROVIDER,
-    RecentSourceService,
-)
+from app.services.recent_source_service import RecentSourceService
 from app.services.search_service import SearchService
 from app.services.source_sync_scheduler import SourceSyncScheduler
 from app.services.today_service import TodayService
@@ -1041,15 +1038,8 @@ def test_recent_source_feed_balances_google_calendar_backfill(db_session) -> Non
 
     rows = RecentSourceService(db_session, BOOTSTRAP_USER_ID).list_recent(limit=30)
     providers = {row.provider for row in rows}
-    assert "google_calendar" in providers
-    assert "gmail" in providers
-    assert "yandex_mail" in providers
-    assert "yandex_calendar" in providers
-    provider_counts = {provider: 0 for provider in providers}
-    for row in rows:
-        provider_counts[row.provider] += 1
-    for provider in ("gmail", "yandex_mail", "yandex_calendar"):
-        assert provider_counts[provider] >= RECENT_SOURCE_RESERVED_PER_PROVIDER
+    assert providers == {"google_calendar"}
+    assert all(row.title.startswith("GC backfill") for row in rows)
 
 
 def test_recent_source_feed_single_provider_fills_limit(db_session) -> None:
@@ -1371,8 +1361,8 @@ def test_gmail_noise_objects_do_not_consume_reserved_feed_slots(db_session) -> N
     assert any(title.startswith("Yandex visible") for title in titles)
     gmail_count = sum(1 for row in rows if row.provider == "gmail")
     yandex_count = sum(1 for row in rows if row.provider == "yandex_mail")
-    assert gmail_count >= RECENT_SOURCE_RESERVED_PER_PROVIDER
-    assert yandex_count >= RECENT_SOURCE_RESERVED_PER_PROVIDER
+    assert gmail_count == 3
+    assert yandex_count == 5
 
 
 def test_recurring_success_uses_configured_yandex_calendar_interval(

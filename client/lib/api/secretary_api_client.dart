@@ -312,6 +312,21 @@ class SecretaryApiClient {
     return InboxOut.fromJson(body);
   }
 
+  Future<InboxFeedPage> getInboxFeed({
+    required String cursor,
+    int limit = 30,
+  }) async {
+    final body = await _request(
+      'GET',
+      '/inbox/feed',
+      queryParameters: {
+        'cursor': cursor,
+        'limit': limit.toString(),
+      },
+    );
+    return InboxFeedPage.fromJson(body);
+  }
+
   Future<IntakeLinkResult> intakeLink(
     String url, {
     String? accountId,

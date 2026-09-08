@@ -25,6 +25,7 @@ import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
 import '../ui/provider_icon.dart';
 import '../voice/voice_transcription_controller.dart';
+import 'inbox_feed_merge.dart';
 import 'inbox_intake_url.dart';
 import 'notification_labels.dart';
 
@@ -64,11 +65,17 @@ class InboxScreen extends StatefulWidget {
 class InboxScreenState extends State<InboxScreen> {
   InboxLoadState _loadState = InboxLoadState.loading;
   InboxOut? _inbox;
+  List<InboxSourceObjectOut> _feedObjects = [];
   Map<String, List<LabelItem>> _labelsByObject = {};
   String? _errorMessage;
   String? _mutatingNotificationId;
   String? _refreshStatusMessage;
   String? _intakeErrorMessage;
+  String? _nextCursor;
+  String? _loadMoreError;
+  bool _hasMore = false;
+  bool _isLoadingMore = false;
+  bool _loadedContinuation = false;
   bool _isSourceRefreshing = false;
   bool _isIntakePending = false;
   bool _isDragHovering = false;
@@ -82,6 +89,7 @@ class InboxScreenState extends State<InboxScreen> {
       SourceNavigationService(apiClient: widget.apiClient);
   late final PassiveSnapshotRefresh _passiveRefresh;
   late final LocalIntakeActions _localIntakeActions;
+  final ScrollController _feedScrollController = ScrollController();
 
   @override
   void initState() {
@@ -104,6 +112,7 @@ class InboxScreenState extends State<InboxScreen> {
       onRefresh: () => _loadInbox(showFullLoader: false, passive: true),
     );
     _passiveRefresh.attach();
+    _feedScrollController.addListener(_onFeedScroll);
     _loadInbox();
   }
 
@@ -112,6 +121,7 @@ class InboxScreenState extends State<InboxScreen> {
     _voice.removeListener(_onVoiceChanged);
     _voice.dispose();
     _intakeController.dispose();
+    _feedScrollController.dispose();
     _passiveRefresh.dispose();
     super.dispose();
   }
@@ -147,6 +157,23 @@ class InboxScreenState extends State<InboxScreen> {
     await _localIntakeActions.registerDroppedFiles(context, paths);
   }
 
+  void _onFeedScroll() {
+    if (!_feedScrollController.hasClients) {
+      return;
+    }
+    if (_feedScrollController.position.extentAfter < 480) {
+      _loadMore();
+    }
+  }
+
+  void _scheduleFeedPrefetch() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _onFeedScroll();
+      }
+    });
+  }
+
   Future<void> _onLocalIntakeSuccess() async {
     await _loadInbox(showFullLoader: false);
   }
@@ -163,6 +190,8 @@ class InboxScreenState extends State<InboxScreen> {
       setState(() {
         _loadState = InboxLoadState.loading;
         _errorMessage = null;
+        _loadMoreError = null;
+        _loadedContinuation = false;
       });
     }
 
@@ -171,8 +200,19 @@ class InboxScreenState extends State<InboxScreen> {
       if (!mounted) {
         return;
       }
+      final preserveTail = passive && _loadedContinuation;
+      final mergedFeed = mergeInboxFeedHead(
+        existing: _feedObjects,
+        firstPage: snapshot.recentSourceObjects,
+        preserveTail: preserveTail,
+      );
       setState(() {
         _inbox = snapshot;
+        _feedObjects = mergedFeed;
+        if (!preserveTail) {
+          _nextCursor = snapshot.recentNextCursor;
+          _hasMore = snapshot.recentHasMore;
+        }
         _loadState = InboxLoadState.ready;
         _refreshStatusMessage =
             SourceRefreshService.clearSyncContinuesMessageIfSettled(
@@ -180,15 +220,26 @@ class InboxScreenState extends State<InboxScreen> {
           statuses: snapshot.sourceSyncStatus,
         );
       });
+      _scheduleFeedPrefetch();
+      final labelIds = preserveTail
+          ? snapshot.recentSourceObjects.map((item) => item.id)
+          : mergedFeed.map((item) => item.id);
       final labels = await loadAssignedLabelsByObjects(
         apiClient: widget.apiClient,
         onAuthFailure: widget.authController.handleAuthenticationFailure,
-        objectIds: snapshot.recentSourceObjects.map((item) => item.id),
+        objectIds: labelIds,
       );
       if (!mounted) {
         return;
       }
-      setState(() => _labelsByObject = labels);
+      setState(() {
+        if (preserveTail) {
+          _labelsByObject = {..._labelsByObject, ...labels};
+        } else {
+          _labelsByObject = labels;
+        }
+      });
+      _scheduleFeedPrefetch();
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -201,6 +252,63 @@ class InboxScreenState extends State<InboxScreen> {
       setState(() {
         _loadState = InboxLoadState.error;
         _errorMessage = e.message;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore || _nextCursor == null) {
+      return;
+    }
+    _isLoadingMore = true;
+    setState(() {
+      _loadMoreError = null;
+    });
+    final cursor = _nextCursor!;
+    try {
+      final page = await widget.apiClient.getInboxFeed(cursor: cursor);
+      if (!mounted) {
+        _isLoadingMore = false;
+        return;
+      }
+      final known = _feedObjects.map((item) => item.id).toSet();
+      final appended = [
+        for (final item in page.items)
+          if (!known.contains(item.id)) item,
+      ];
+      setState(() {
+        _feedObjects = [..._feedObjects, ...appended];
+        _nextCursor = page.nextCursor;
+        _hasMore = page.hasMore;
+        _isLoadingMore = false;
+        _loadedContinuation = true;
+      });
+      _scheduleFeedPrefetch();
+      if (appended.isEmpty) {
+        return;
+      }
+      final labels = await loadAssignedLabelsByObjects(
+        apiClient: widget.apiClient,
+        onAuthFailure: widget.authController.handleAuthenticationFailure,
+        objectIds: appended.map((item) => item.id),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _labelsByObject = {..._labelsByObject, ...labels});
+    } on AuthenticationException {
+      _isLoadingMore = false;
+      if (mounted) {
+        setState(() {});
+      }
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      _isLoadingMore = false;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadMoreError = e.message;
       });
     }
   }
@@ -359,6 +467,8 @@ class InboxScreenState extends State<InboxScreen> {
               .toList(),
           recentSourceObjects: inbox.recentSourceObjects,
           sourceSyncStatus: inbox.sourceSyncStatus,
+          recentNextCursor: inbox.recentNextCursor,
+          recentHasMore: inbox.recentHasMore,
         );
         _mutatingNotificationId = null;
       });
@@ -393,6 +503,8 @@ class InboxScreenState extends State<InboxScreen> {
               .toList(),
           recentSourceObjects: inbox.recentSourceObjects,
           sourceSyncStatus: inbox.sourceSyncStatus,
+          recentNextCursor: inbox.recentNextCursor,
+          recentHasMore: inbox.recentHasMore,
         );
         _mutatingNotificationId = null;
       });
@@ -452,7 +564,12 @@ class InboxScreenState extends State<InboxScreen> {
             .where((row) => row.id != result.deletedObjectId)
             .toList(),
         sourceSyncStatus: inbox.sourceSyncStatus,
+        recentNextCursor: inbox.recentNextCursor,
+        recentHasMore: inbox.recentHasMore,
       );
+      _feedObjects = _feedObjects
+          .where((row) => row.id != result.deletedObjectId)
+          .toList();
     });
   }
 
@@ -742,13 +859,15 @@ class InboxScreenState extends State<InboxScreen> {
       case InboxLoadState.ready:
         final inbox = _inbox!;
         final hasNotifications = inbox.unresolvedNotifications.isNotEmpty;
-        final hasSources = inbox.recentSourceObjects.isNotEmpty;
+        final hasSources = _feedObjects.isNotEmpty;
         final syncErrorRows = sourceSyncErrorRows(inbox.sourceSyncStatus);
         if (!hasNotifications && !hasSources && syncErrorRows.isEmpty) {
           return const Center(child: Text('Входящие пусты'));
         }
-        final groupedSources = groupInboxSourceEntries(inbox.recentSourceObjects);
+        final groupedSources = groupInboxSourceEntries(_feedObjects);
         return ListView(
+          key: const Key('inbox_feed_list'),
+          controller: _feedScrollController,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
           children: [
             if (_refreshStatusMessage != null)
@@ -844,6 +963,34 @@ class InboxScreenState extends State<InboxScreen> {
                       ),
                     ),
                 },
+              ),
+            if (_isLoadingMore)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            if (_loadMoreError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  children: [
+                    Text(
+                      _loadMoreError!,
+                      textAlign: TextAlign.center,
+                    ),
+                    TextButton(
+                      key: const Key('inbox_load_more_retry'),
+                      onPressed: _loadMore,
+                      child: const Text('Повторить'),
+                    ),
+                  ],
+                ),
               ),
           ],
         );
@@ -990,6 +1137,16 @@ class _SourceObjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final when = formatUserDateTime(sourceObject.primaryAt);
+    final feedDate = parseLocalInboxDate(sourceObject.feedStamp);
+    final primaryDate = parseLocalInboxDate(sourceObject.primaryAt);
+    final isEvent = sourceObject.kind == 'event' ||
+        sourceObject.kind == 'calendar_event';
+    final trailingTooltip = isEvent &&
+            feedDate != null &&
+            primaryDate != null &&
+            feedDate != primaryDate
+        ? 'Во входящих: ${formatInboxDateSeparator(feedDate)}; событие: $when'
+        : null;
     final wide = isWideLayout(context);
     return Card(
       margin: EdgeInsets.zero,
@@ -1008,6 +1165,7 @@ class _SourceObjectCard extends StatelessWidget {
                 kind: sourceObject.kind,
                 provider: sourceObject.provider,
                 trailingText: when,
+                trailingTooltip: trailingTooltip,
                 onProviderTap: onOpenSource,
               ),
               if (sourceObject.excerpt != null)
