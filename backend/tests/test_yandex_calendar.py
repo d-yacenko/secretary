@@ -1089,9 +1089,12 @@ def test_incremental_sync_persists_token_after_all_occurrences_in_resource(
     )
     result = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert result["created"] == 10
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-2"
 
-    assert result["created"] == 20
-    assert result["synchronized"] == 20
+    second = sync_service.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert second["created"] == 10
     assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-3"
 
 

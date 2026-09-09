@@ -170,11 +170,10 @@ class YandexCalendarSyncService:
             )
             self._merge_stats(totals, batch_stats)
 
-            if stored.get("sync_token"):
+            if stored.get("sync_token") and quota > 0:
                 if not stored.get("covered_window_end"):
                     stored["covered_window_end"] = window_max.isoformat()
-                incremental_quota = quota if quota > 0 else 1
-                batch_stats, incremental_remaining, stored = self._sync_steady_state_calendar(
+                batch_stats, quota, stored = self._sync_steady_state_calendar(
                     transport=transport,
                     snapshot=snapshot,
                     account_id=account_id,
@@ -186,11 +185,9 @@ class YandexCalendarSyncService:
                     calendar_summary=calendar_summary,
                     window_min=window_min,
                     window_max=window_max,
-                    occurrence_budget=incremental_quota,
+                    occurrence_budget=quota,
                 )
                 self._merge_stats(totals, batch_stats)
-                if quota > 0:
-                    quota = incremental_remaining
             elif quota > 0:
                 batch_stats, quota, stored = self._sync_backfill_calendar(
                     transport=transport,
@@ -264,6 +261,9 @@ class YandexCalendarSyncService:
         occurrence_budget: int,
     ) -> tuple[_BatchStats, int, dict[str, Any], bool]:
         op_min, op_max = self._operational_window()
+        after_href = stored.get("operational_href_cursor")
+        if after_href is not None:
+            after_href = str(after_href)
         self._session.commit()
         fetch_result = transport.query_events(
             calendar_href=calendar_href,
@@ -272,6 +272,7 @@ class YandexCalendarSyncService:
             max_results=self._max_limit,
             expand_min=op_min,
             expand_max=op_max,
+            after_href=after_href,
         )
         apply_result = self._apply_fetch_batch(
             user_id=snapshot.user_id,
@@ -285,6 +286,14 @@ class YandexCalendarSyncService:
             reconcile_occurrences=True,
         )
         occurrence_budget -= apply_result.stats.budget_consumed
+        if fetch_result.truncated or not apply_result.completed_all_resources:
+            cursor = apply_result.last_processed_href
+            if cursor is None and fetch_result.events:
+                cursor = fetch_result.events[-1].event_href
+            if cursor:
+                stored["operational_href_cursor"] = cursor
+        else:
+            stored.pop("operational_href_cursor", None)
         operational_hit = bool(fetch_result.events)
         return apply_result.stats, occurrence_budget, stored, operational_hit
 
@@ -681,12 +690,15 @@ class YandexCalendarSyncService:
                 calendar_summary=calendar_summary,
                 time_min=time_min,
                 time_max=time_max,
-                cap_occurrences=False,
+                cap_occurrences=True,
                 occurrence_budget=occurrence_budget,
                 reconcile_occurrences=True,
             )
             self._merge_stats(totals, apply_result.stats)
-            occurrence_budget -= apply_result.stats.synchronized
+            occurrence_budget -= apply_result.stats.budget_consumed
+
+            if not apply_result.completed_all_resources:
+                break
 
             if fetch_result.sync_token:
                 stored["sync_token"] = fetch_result.sync_token
@@ -720,13 +732,23 @@ class YandexCalendarSyncService:
         completed_all_resources = True
 
         for deleted_href in fetch_result.deleted_hrefs:
+            if cap_occurrences and occurrence_budget <= 0:
+                completed_all_resources = False
+                break
             self._session.commit()
-            tombstoned_count = self._tombstone_all_by_event_href(user_id, deleted_href)
+            tombstoned_count, deletions_complete = self._tombstone_all_by_event_href(
+                user_id,
+                deleted_href,
+                max_count=occurrence_budget if cap_occurrences else None,
+            )
             stats.tombstoned += tombstoned_count
             stats.synchronized += tombstoned_count
             stats.budget_consumed += tombstoned_count
             if cap_occurrences:
                 occurrence_budget -= tombstoned_count
+            if not deletions_complete:
+                completed_all_resources = False
+                break
         if fetch_result.deleted_hrefs:
             self._session.commit()
 
@@ -768,18 +790,22 @@ class YandexCalendarSyncService:
                 completed_all_resources = False
                 break
             if reconcile_occurrences and returned_ids:
-                removed = self._tombstone_missing_occurrences(
+                removed, missing_complete = self._tombstone_missing_occurrences(
                     user_id=user_id,
                     event_href=raw_event.event_href,
                     returned_external_ids=returned_ids,
                     time_min=time_min,
                     time_max=time_max,
+                    max_count=occurrence_budget if cap_occurrences else None,
                 )
                 stats.tombstoned += removed
                 stats.synchronized += removed
                 stats.budget_consumed += removed
                 if cap_occurrences:
                     occurrence_budget -= removed
+                if not missing_complete:
+                    completed_all_resources = False
+                    break
             if resource_completed:
                 last_processed_href = raw_event.event_href
             self._session.commit()
@@ -801,20 +827,25 @@ class YandexCalendarSyncService:
         returned_external_ids: set[str],
         time_min: datetime,
         time_max: datetime,
-    ) -> int:
+        max_count: int | None = None,
+    ) -> tuple[int, bool]:
         tombstoned = 0
+        complete = True
         for obj in self._find_active_by_event_href_in_window(
             user_id, event_href, time_min, time_max
         ):
             if obj.external_id in returned_external_ids:
                 continue
+            if max_count is not None and tombstoned >= max_count:
+                complete = False
+                break
             metadata = dict(obj.metadata_ or {})
             metadata["caldav_deleted"] = True
             metadata["deleted_at"] = self._now_factory().isoformat()
             obj.status = "deleted"
             obj.metadata_ = metadata
             tombstoned += 1
-        return tombstoned
+        return tombstoned, complete
 
     def _merge_stats(self, totals: _BatchStats, batch: _BatchStats) -> None:
         totals.synchronized += batch.synchronized
@@ -872,18 +903,27 @@ class YandexCalendarSyncService:
             return "updated"
         return "unchanged"
 
-    def _tombstone_all_by_event_href(self, user_id: UUID, event_href: str) -> int:
+    def _tombstone_all_by_event_href(
+        self,
+        user_id: UUID,
+        event_href: str,
+        max_count: int | None = None,
+    ) -> tuple[int, bool]:
         tombstoned = 0
+        complete = True
         for obj in self._find_all_by_event_href(user_id, event_href):
             if obj.status == "deleted":
                 continue
+            if max_count is not None and tombstoned >= max_count:
+                complete = False
+                break
             metadata = dict(obj.metadata_ or {})
             metadata["caldav_deleted"] = True
             metadata["deleted_at"] = self._now_factory().isoformat()
             obj.status = "deleted"
             obj.metadata_ = metadata
             tombstoned += 1
-        return tombstoned
+        return tombstoned, complete
 
     def _open_transport(self, snapshot: YandexCalendarSyncSnapshot) -> CalDavTransport:
         if self._transport_factory is not None:

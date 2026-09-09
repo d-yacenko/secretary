@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Temporal Correctness B — Recurring Calendar Materialization & Today: **implemented, awaiting Architect review** on `review/temporal-correctness-recurring-calendar-b`. Exact production / parent: `10e9d2d290da37489ee7dbfa0902b587d3ca3768`. Temporal Correctness A **CLOSED / DEPLOYED**; Inbox infinite scroll production-confirmed. Design Quality Pass A/B / B-R1 **CLOSED / PRODUCTION**. Alembic **`0033 / 0033`**. Android product contract **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`. Next after Temporal B (record only): Inbox Workflow Controls — Review Marker & Manual Bookmarks. Design Quality Pass C **after Workflow Controls**. Graph Advanced UX **later**. Encrypted Architect context untouched. No production deploy.
+Temporal Correctness B-R1 — stable live continuation & truthful hard bounds: **implemented, awaiting Architect review** on `review/temporal-correctness-recurring-calendar-b`. Production remains `10e9d2d290da37489ee7dbfa0902b587d3ca3768`. Temporal B application: `df9ea214eb90e07a9f93f9a3728dce96e82bbfa1`. Temporal A **CLOSED / DEPLOYED**. Alembic **`0033 / 0033`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`. Inbox Workflow Controls / Design Quality Pass C / Graph **not started**. Encrypted Architect context untouched. No production deploy.
 
 Design Quality Pass B / B-R1: **ACCEPTED / CLOSED / PRODUCTION** at `2c88cb5f18680c699eb11c970e34e3629271a66b`. `/labels/by-objects` live. Proactive **OFF**. Real-user `auto_label_enabled=true`. Android `minSdk` 23.
 
@@ -411,7 +411,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - Production application SHA: `10e9d2d290da37489ee7dbfa0902b587d3ca3768`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED** (Inbox infinite scroll production-confirmed); Temporal Correctness B **awaiting Architect review** (not deployed); Inbox Workflow Controls **next after B**; Design Quality Pass C **after Workflow Controls**; Graph Advanced UX **later**
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal B architecture **accepted** at `df9ea214`; B-R1 **awaiting Architect review** (not deployed); Inbox Workflow Controls **not started**; Design Quality Pass C **not started**; Graph Advanced UX **later**
 - Alembic on production: **`0033 / 0033`** (current/head); no `0034`
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -423,7 +423,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Design Quality Pass A/A-R1: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (included in B production)
 - Design Quality Pass B / B-R1: `2c88cb5f18680c699eb11c970e34e3629271a66b` (**PRODUCTION**)
 - Temporal Correctness A: `10e9d2d290da37489ee7dbfa0902b587d3ca3768` (**CLOSED / DEPLOYED**; Inbox infinite scroll production-confirmed)
-- Temporal Correctness B — Recurring Calendar Materialization & Today: `review/temporal-correctness-recurring-calendar-b` (**current, not deployed**)
+- Temporal Correctness B — Recurring Calendar Materialization & Today: `df9ea214eb90e07a9f93f9a3728dce96e82bbfa1` (**architecture accepted**)
+- Temporal Correctness B-R1: `review/temporal-correctness-recurring-calendar-b` (**current, not deployed**)
 - Next after Temporal B (not implemented): Inbox Workflow Controls — Review Marker (persisted cross-device read/reviewed boundary on stable Inbox order; mouse/touch drag) & Manual Bookmarks (any Object kind; ~6–7 colors; subjective annotation only; no LLM/auto-label/Proactive meaning; separate from Labels)
 - Design Quality Pass C: **after Workflow Controls** (thin dense cards, right-edge timestamps, date balloon separators, labels density, marker/bookmark visuals, Linux/Android QA) — **not started**
 - Android minSdk: `23`
@@ -509,4 +510,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Temporal Correctness B. Do not deploy. Do not start Inbox Workflow Controls, Design Quality Pass C, or Graph Advanced UX.
+Await Architect review of Temporal Correctness B-R1. Do not deploy. Do not start Inbox Workflow Controls, Design Quality Pass C, or Graph Advanced UX.

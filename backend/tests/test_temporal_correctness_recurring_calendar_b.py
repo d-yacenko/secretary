@@ -15,12 +15,14 @@ from app.connectors.google.constants import (
     CALENDAR_READONLY_SCOPE,
     LIVE_CALENDAR_MAX_PAGES_PER_CALENDAR,
     LIVE_CALENDAR_PAGE_SIZE,
+    LIVE_COVERAGE_STATE_KEY,
 )
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.caldav_transport import (
     CalDavCalendar,
     CalDavEvent,
+    CalDavFetchResult,
     FakeCalDavTransport,
 )
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
@@ -29,6 +31,7 @@ from app.connectors.yandex.calendar_normalize import (
     normalize_caldav_events,
 )
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
+from app.connectors.yandex.constants import CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION
 from app.db.models import Object
 from app.services.today_service import TodayService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -735,6 +738,285 @@ def test_yandex_all_day_and_timezone_occurrence_in_today(db_session, credential_
     today_ids = _today_event_ids(db_session)
     assert any("all-day-week" in item for item in today_ids)
     assert any("tz-week" in item for item in today_ids)
+
+
+def test_google_live_continuation_survives_now_drift(
+    db_session,
+    oauth_client_file,
+    credential_key,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_now = {"value": FIXED_NOW}
+    monkeypatch.setattr(
+        "app.connectors.google.calendar_sync.utcnow",
+        lambda: current_now["value"],
+    )
+    account = _google_account(db_session, credential_key)
+    occurrence_id = "weekly-master_20260909T121000Z"
+    events = [
+        _google_occurrence(
+            event_id=f"dense-{index:03d}",
+            start=FIXED_NOW + timedelta(minutes=index),
+            recurring_event_id="dense",
+        )
+        for index in range(12)
+    ]
+    events[6] = _google_occurrence(
+        event_id=occurrence_id,
+        start=FIXED_NOW + timedelta(minutes=6),
+    )
+    captured: dict = {}
+    fake_http = FakeHttpClient(_google_handlers({"primary": events}, captured))
+    sync = _build_google_sync(db_session, credential_key, oauth_client_file, fake_http)
+    first = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    assert first["created"] == 5
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    live = store.get_calendar_sync_state(account.id, BOOTSTRAP_USER_ID)[LIVE_COVERAGE_STATE_KEY]
+    frozen = live["calendars"]["primary"]
+    assert frozen["next_page_token"]
+    assert frozen["active_time_min"]
+    assert frozen["active_time_max"]
+    run1_min = captured["event_calls"][0]["timeMin"]
+    run1_max = captured["event_calls"][0]["timeMax"]
+
+    current_now["value"] = FIXED_NOW + timedelta(minutes=15)
+    captured["event_calls"].clear()
+    second = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=5)
+    assert captured["event_calls"][0]["timeMin"] == run1_min
+    assert captured["event_calls"][0]["timeMax"] == run1_max
+    assert captured["event_calls"][0].get("pageToken")
+    assert second["created"] == 5
+    obj = db_session.scalar(select(Object).where(Object.external_id == f"primary:{occurrence_id}"))
+    assert obj is not None
+
+    sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    live = store.get_calendar_sync_state(account.id, BOOTSTRAP_USER_ID)[LIVE_COVERAGE_STATE_KEY]
+    assert live.get("calendars", {}).get("primary") is None
+
+    current_now["value"] = FIXED_NOW + timedelta(minutes=30)
+    captured["event_calls"].clear()
+    sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    assert captured["event_calls"][0].get("pageToken") in (None, "")
+    assert captured["event_calls"][0]["timeMin"] != run1_min
+
+
+def test_google_malformed_live_continuation_resets_to_fresh_window(
+    db_session,
+    oauth_client_file,
+    credential_key,
+    freeze_google_now,
+) -> None:
+    account = _google_account(db_session, credential_key)
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    store.update_calendar_sync_state(
+        account.id,
+        BOOTSTRAP_USER_ID,
+        {
+            LIVE_COVERAGE_STATE_KEY: {
+                "calendars": {
+                    "primary": {"next_page_token": "stale-token"},
+                }
+            }
+        },
+    )
+    db_session.commit()
+    captured: dict = {}
+    fake_http = FakeHttpClient(
+        _google_handlers(
+            {"primary": [_google_occurrence(event_id="only", start=TODAY_OCCURRENCE_START)]},
+            captured,
+        )
+    )
+    sync = _build_google_sync(db_session, credential_key, oauth_client_file, fake_http)
+    sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=10)
+    assert captured["event_calls"][0].get("pageToken") in (None, "")
+
+
+def test_yandex_query_local_slice_sets_truncated() -> None:
+    events = [
+        CalDavEvent(
+            event_href=f"{CALENDAR_HREF}evt-{index:03d}.ics",
+            etag=f'"{index}"',
+            calendar_data=(
+                "BEGIN:VEVENT\n"
+                f"UID:evt-{index:03d}\n"
+                "DTSTART:20260909T100000Z\n"
+                "DTEND:20260909T110000Z\n"
+                "END:VEVENT\n"
+            ),
+        )
+        for index in range(3)
+    ]
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=None)],
+        query_events_by_calendar={CALENDAR_HREF: events},
+    )
+    result = transport.query_events(
+        CALENDAR_HREF,
+        FIXED_NOW - timedelta(days=1),
+        FIXED_NOW + timedelta(days=1),
+        max_results=2,
+    )
+    assert result.truncated is True
+    assert len(result.events) == 2
+
+
+def test_yandex_same_calendar_truncation_reaches_later_recurring_resource(
+    db_session, credential_key
+) -> None:
+    _, account = _yandex_account(db_session, credential_key, email="trunc@yandex.ru")
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    store.update_sync_state(
+        account,
+        {
+            "normalization_version": CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+            "calendars": {CALENDAR_HREF: {"sync_token": "token-1"}},
+        },
+    )
+    db_session.commit()
+    dense_events = []
+    for index in range(100):
+        start = TODAY_OCCURRENCE_START + timedelta(minutes=index)
+        uid = f"aaa-{index:03d}"
+        ical = (
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\n"
+            f"UID:{uid}\nSUMMARY:Dense {index}\n"
+            f"DTSTART:{start.strftime('%Y%m%dT%H%M%SZ')}\n"
+            f"DTEND:{(start + timedelta(minutes=15)).strftime('%Y%m%dT%H%M%SZ')}\n"
+            "END:VEVENT\nEND:VCALENDAR\n"
+        )
+        dense_events.append(
+            CalDavEvent(
+                event_href=f"{CALENDAR_HREF}{uid}.ics",
+                etag=f'"{uid}"',
+                calendar_data=ical,
+            )
+        )
+    href_weekly = f"{CALENDAR_HREF}zzz-weekly.ics"
+    master = CalDavEvent(event_href=href_weekly, etag='"w"', calendar_data=_yandex_master_ical())
+    expanded = CalDavEvent(
+        event_href=href_weekly,
+        etag='"w"',
+        calendar_data=_yandex_weekly_expanded(include_today=True),
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=None)],
+        query_events_by_calendar={CALENDAR_HREF: [*dense_events, master]},
+        multiget_events_by_calendar={CALENDAR_HREF: {href_weekly: expanded}},
+        sync_tokens_by_calendar={CALENDAR_HREF: "token-1"},
+    )
+    sync = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: FIXED_NOW,
+    )
+    first = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    mutations = first["created"] + first["updated"] + first["tombstoned"]
+    assert mutations <= 100
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    cursor = account.sync_state["calendars"][CALENDAR_HREF].get("operational_href_cursor")
+    assert cursor
+    external_id = build_external_id(CALENDAR_HREF, WEEKLY_UID, "20260909T100000Z")
+    assert db_session.scalar(select(Object).where(Object.external_id == external_id)) is None
+
+    second = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    obj = db_session.scalar(select(Object).where(Object.external_id == external_id))
+    assert obj is not None
+    assert external_id in _today_event_ids(db_session)
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert "operational_href_cursor" not in account.sync_state["calendars"][CALENDAR_HREF]
+    assert second["created"] >= 1
+
+
+def test_yandex_incremental_does_not_advance_token_past_unprocessed_budget(
+    db_session, credential_key
+) -> None:
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        email="budget@yandex.ru",
+        app_password="calendar-app-password",
+        caldav_host="caldav.yandex.ru",
+    )
+    store.update_sync_state(
+        account,
+        {
+            "normalization_version": CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+            "calendars": {
+                CALENDAR_HREF: {
+                    "sync_token": "token-start",
+                    "covered_window_end": (FIXED_NOW + timedelta(days=90)).isoformat(),
+                }
+            },
+        },
+    )
+    db_session.commit()
+    changed = []
+    for index in range(5):
+        start = TODAY_OCCURRENCE_START + timedelta(hours=index)
+        uid = f"chg-{index}"
+        changed.append(
+            CalDavEvent(
+                event_href=f"{CALENDAR_HREF}{uid}.ics",
+                etag=f'"v1-{index}"',
+                calendar_data=(
+                    "BEGIN:VCALENDAR\nBEGIN:VEVENT\n"
+                    f"UID:{uid}\nSUMMARY:Changed {index}\n"
+                    f"DTSTART:{start.strftime('%Y%m%dT%H%M%SZ')}\n"
+                    f"DTEND:{(start + timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ')}\n"
+                    "END:VEVENT\nEND:VCALENDAR\n"
+                ),
+            )
+        )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-start")],
+        query_events_by_calendar={CALENDAR_HREF: []},
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-start": CalDavFetchResult(
+                    events=changed,
+                    sync_token="token-done",
+                )
+            }
+        },
+    )
+    sync = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: FIXED_NOW,
+    )
+    first = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=2)
+    mutations = first["created"] + first["updated"] + first["tombstoned"]
+    assert mutations <= 2
+    assert first["created"] == 2
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-start"
+
+    second = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    mutations_two = second["created"] + second["updated"] + second["tombstoned"]
+    assert mutations_two <= 100
+    assert second["created"] == 3
+    count = db_session.scalar(
+        select(func.count())
+        .select_from(Object)
+        .where(Object.provider == "yandex_calendar", Object.user_id == BOOTSTRAP_USER_ID)
+    )
+    assert count == 5
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-done"
 
 
 def test_today_service_still_only_queries_event_objects(db_session) -> None:

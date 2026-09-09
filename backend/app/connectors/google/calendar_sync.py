@@ -29,6 +29,7 @@ from app.connectors.google.constants import (
     LIVE_CALENDAR_MAX_PAGES_PER_CALENDAR,
     LIVE_CALENDAR_PAGE_SIZE,
     LIVE_COVERAGE_STATE_KEY,
+    LIVE_COVERAGE_VERSION,
     MAX_CALENDAR_SYNC_CALENDARS,
     MAX_CALENDAR_SYNC_EVENTS,
 )
@@ -54,6 +55,33 @@ def _fair_calendar_quota(remaining: int, calendars_left: int) -> int:
     if remaining <= 0 or calendars_left <= 0:
         return 0
     return max(1, remaining // calendars_left)
+
+
+def _parse_stored_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _resolve_live_page_chain(
+    stored: dict[str, Any],
+    fallback_min: datetime,
+    fallback_max: datetime,
+) -> tuple[datetime, datetime, str | None]:
+    raw_token = stored.get("next_page_token")
+    if not raw_token:
+        return fallback_min, fallback_max, None
+    time_min = _parse_stored_datetime(stored.get("active_time_min"))
+    time_max = _parse_stored_datetime(stored.get("active_time_max"))
+    if time_min is None or time_max is None:
+        return fallback_min, fallback_max, None
+    return time_min, time_max, str(raw_token)
 
 
 class CalendarSyncService:
@@ -166,8 +194,7 @@ class CalendarSyncService:
         calendar_entries: list[tuple[str, str | None]],
         effective_limit: int,
     ) -> dict[str, int]:
-        time_min, time_max = self._live_operational_window()
-        window_id = f"{time_min.isoformat()}|{time_max.isoformat()}"
+        fresh_min, fresh_max = self._live_operational_window()
 
         created = 0
         updated = 0
@@ -190,14 +217,14 @@ class CalendarSyncService:
                 continue
             self._session.commit()
             stored = dict(calendars_live.get(calendar_id) or {})
-            page_token = None
-            if stored.get("window_id") == window_id:
-                raw_token = stored.get("next_page_token")
-                page_token = str(raw_token) if raw_token else None
+            if not isinstance(stored, dict):
+                stored = {}
+            time_min, time_max, next_token = _resolve_live_page_chain(
+                stored, fresh_min, fresh_max
+            )
 
             processed_for_calendar = 0
             pages = 0
-            next_token = page_token
             while processed_for_calendar < quota and pages < LIVE_CALENDAR_MAX_PAGES_PER_CALENDAR:
                 page_size = min(
                     LIVE_CALENDAR_PAGE_SIZE,
@@ -239,14 +266,16 @@ class CalendarSyncService:
             remaining -= processed_for_calendar
             if next_token:
                 calendars_live[calendar_id] = {
-                    "window_id": window_id,
+                    "version": LIVE_COVERAGE_VERSION,
+                    "active_time_min": time_min.isoformat(),
+                    "active_time_max": time_max.isoformat(),
                     "next_page_token": next_token,
                 }
             else:
                 calendars_live.pop(calendar_id, None)
 
+        live_state["version"] = LIVE_COVERAGE_VERSION
         live_state["calendars"] = calendars_live
-        live_state["window_id"] = window_id
         calendar_state[LIVE_COVERAGE_STATE_KEY] = live_state
         self._account_store.update_calendar_sync_state(account_id, user_id, calendar_state)
         self._session.commit()

@@ -184,6 +184,7 @@ class CalDavTransport(Protocol):
         max_results: int,
         expand_min: datetime | None = None,
         expand_max: datetime | None = None,
+        after_href: str | None = None,
     ) -> CalDavFetchResult:
         ...
 
@@ -364,12 +365,14 @@ class CalDavHttpTransport:
         max_results: int,
         expand_min: datetime | None = None,
         expand_max: datetime | None = None,
+        after_href: str | None = None,
     ) -> CalDavFetchResult:
         refs, sync_token, deleted, truncated = self._query_event_refs(
             calendar_href=calendar_href,
             time_min=time_min,
             time_max=time_max,
             max_results=max_results,
+            after_href=after_href,
         )
         events = self._multiget_events(
             calendar_href=calendar_href,
@@ -390,6 +393,7 @@ class CalDavHttpTransport:
         time_min: datetime,
         time_max: datetime,
         max_results: int,
+        after_href: str | None = None,
     ) -> tuple[list[CalDavEventRef], str | None, list[str], bool]:
         start = _format_caldav_time(time_min)
         end = _format_caldav_time(time_max)
@@ -406,8 +410,12 @@ class CalDavHttpTransport:
         )
         xml = self._request("REPORT", calendar_href, body, depth="1")
         refs, sync_token, deleted, truncated = self._parse_href_multistatus(xml)
+        refs = sorted(refs, key=lambda item: item.event_href)
+        if after_href:
+            refs = [ref for ref in refs if ref.event_href > after_href]
         if len(refs) > max_results:
-            refs = sorted(refs, key=lambda item: item.event_href)[:max_results]
+            refs = refs[:max_results]
+            truncated = True
         return refs, sync_token, deleted, truncated
 
     def _multiget_events(
@@ -673,6 +681,7 @@ class FakeCalDavTransport:
         max_results: int,
         expand_min: datetime | None = None,
         expand_max: datetime | None = None,
+        after_href: str | None = None,
     ) -> CalDavFetchResult:
         self._check_tx()
         self.query_calls.append(calendar_href)
@@ -684,11 +693,18 @@ class FakeCalDavTransport:
             for event in source_events
             if self._event_in_time_range(event, time_min, time_max)
         ]
-        if len(refs) > max_results:
+        if after_href:
+            refs = [ref for ref in refs if ref.event_href > after_href]
+        truncated = len(refs) > max_results
+        if truncated:
             refs = refs[:max_results]
         expanded_events = self._multiget_from_refs(calendar_href, refs)
         token = self._sync_tokens.get(calendar_href)
-        return CalDavFetchResult(events=expanded_events, sync_token=token)
+        return CalDavFetchResult(
+            events=expanded_events,
+            sync_token=token,
+            truncated=truncated,
+        )
 
     def _multiget_from_refs(
         self, calendar_href: str, refs: list[CalDavEventRef]
