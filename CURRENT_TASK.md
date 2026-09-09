@@ -1,34 +1,26 @@
-# Current task — Temporal Correctness B-R2
+# Current task — Temporal Correctness B-R3 (Yandex recurrence fallback)
 
 ## Status
 
-Temporal Correctness B-R2 — provider-authoritative continuation (Google nextPageToken; Yandex local vs provider truncation; bounded tombstone reads): **implemented, awaiting Architect review**.
+Production remains frozen at `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`. Do **not** rollback. Do **not** deploy before Architect review.
 
-Do **not** deploy production. Do **not** start Inbox Workflow Controls. Do **not** start Design Quality Pass C / Graph Advanced UX.
+Temporal Correctness B Google production acceptance: **PASS**.
 
-## Branch
+Yandex remaining production defect diagnosis: **PROVIDER_UNEXPANDED** (resource-specific; calendar-query/multiget/`c:expand` succeed, but this weekly resource returns an RRULE master with zero RECURRENCE-ID occurrences).
 
-`review/temporal-correctness-recurring-calendar-b`
+B-R3 (this branch): bounded **python-dateutil** Yandex connector fallback for that shape. Awaiting Architect review.
 
-- Exact production: `10e9d2d290da37489ee7dbfa0902b587d3ca3768`
-- Temporal B application: `df9ea214eb90e07a9f93f9a3728dce96e82bbfa1`
-- B-R1: `99e03c898da4f698dd8398a10eb9925045f190e5`
-- B-R2: awaiting Architect review (this commit)
+Do **not** start Inbox Workflow Controls. Do **not** start Design Quality Pass C / Graph Advanced UX.
 
-## Production truth
+## Production
 
-- Production application SHA: `10e9d2d290da37489ee7dbfa0902b587d3ca3768`
-- Temporal Correctness A: **CLOSED / DEPLOYED**
-- Temporal Correctness B architecture: **accepted**; B-R1 accepted as parent; B-R2 focused corrective only
+- Exact SHA (still live): `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`
+- Previous production: `10e9d2d290da37489ee7dbfa0902b587d3ca3768`
 - Alembic: **`0033 / 0033`**; **no `0034`**
 - Android `minSdk`: **23**
-- Proactive: **OFF**
+- Proactive: **OFF**, interval **60**
 - Real-user `auto_label_enabled`: **true**
 - Inbox Workflow Controls / Pass C / Graph: **not started**
 - Encrypted Architect context: untouched
-
-## Scope
-
-Google live: provider `nextPageToken` is authoritative even for short or empty pages. Yandex: distinguish local vs provider truncation; local continuation from selected refs; provider 507 uses operational time-slice subdivision. Bounded tombstone DB prefix reads. No TodayService RRULE. No migration.
 
 Do not read, decrypt, modify, recreate, re-encrypt, or commit `secretary_architect_context_encrypted.md`.

@@ -31,7 +31,10 @@ from app.connectors.yandex.calendar_history_state import (
     set_last_history_calendar_href,
     start_active_history_range,
 )
-from app.connectors.yandex.calendar_normalize import normalize_caldav_events
+from app.connectors.yandex.calendar_normalize import (
+    build_external_id,
+    normalize_caldav_resource,
+)
 from app.connectors.yandex.constants import (
     CALENDAR_BACKFILL_MIN_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_DAYS,
@@ -355,17 +358,17 @@ class YandexCalendarSyncService:
                 cap_occurrences=True,
                 occurrence_budget=occurrence_budget,
                 reconcile_occurrences=True,
+                allow_fallback=True,
             )
             self._merge_stats(totals, apply_result.stats)
             occurrence_budget -= apply_result.stats.budget_consumed
 
             if fetch_result.local_truncated or not apply_result.completed_all_resources:
-                if fetch_result.local_truncated and apply_result.completed_all_resources:
-                    cursor = fetch_result.last_selected_href
-                else:
-                    cursor = apply_result.last_processed_href or fetch_result.last_selected_href
-                if cursor:
-                    stored["operational_href_cursor"] = cursor
+                if not apply_result.completed_all_resources:
+                    if apply_result.last_processed_href:
+                        stored["operational_href_cursor"] = apply_result.last_processed_href
+                elif fetch_result.last_selected_href:
+                    stored["operational_href_cursor"] = fetch_result.last_selected_href
                 if stored.get("operational_slice_end"):
                     self._persist_operational_query_range(
                         stored, range_start, range_end, leaf_start, leaf_end
@@ -787,6 +790,9 @@ class YandexCalendarSyncService:
                 cap_occurrences=True,
                 occurrence_budget=occurrence_budget,
                 reconcile_occurrences=True,
+                allow_fallback=True,
+                fallback_min=self._operational_window()[0],
+                fallback_max=self._operational_window()[1],
             )
             self._merge_stats(totals, apply_result.stats)
             occurrence_budget -= apply_result.stats.budget_consumed
@@ -820,6 +826,9 @@ class YandexCalendarSyncService:
         cap_occurrences: bool,
         occurrence_budget: int,
         reconcile_occurrences: bool,
+        allow_fallback: bool = False,
+        fallback_min: datetime | None = None,
+        fallback_max: datetime | None = None,
     ) -> _ApplyBatchResult:
         stats = _BatchStats()
         last_processed_href: str | None = None
@@ -847,7 +856,7 @@ class YandexCalendarSyncService:
             self._session.commit()
 
         for raw_event in fetch_result.events:
-            normalized_list = normalize_caldav_events(
+            result = normalize_caldav_resource(
                 raw_event.calendar_data,
                 calendar_href=calendar_href,
                 calendar_summary=calendar_summary,
@@ -855,7 +864,11 @@ class YandexCalendarSyncService:
                 event_href=raw_event.event_href,
                 time_min=time_min,
                 time_max=time_max,
+                allow_fallback=allow_fallback,
+                fallback_min=fallback_min,
+                fallback_max=fallback_max,
             )
+            normalized_list = result.events
             returned_ids: set[str] = set()
             resource_completed = True
             for normalized in normalized_list:
@@ -883,7 +896,26 @@ class YandexCalendarSyncService:
             if not resource_completed:
                 completed_all_resources = False
                 break
-            if reconcile_occurrences and returned_ids:
+            if result.recurrence_master_uid:
+                if cap_occurrences and occurrence_budget <= 0:
+                    completed_all_resources = False
+                    break
+                tombstoned_legacy = self._tombstone_legacy_recurrence_master(
+                    user_id,
+                    calendar_href,
+                    result.recurrence_master_uid,
+                )
+                if tombstoned_legacy:
+                    stats.tombstoned += 1
+                    stats.synchronized += 1
+                    stats.budget_consumed += 1
+                    if cap_occurrences:
+                        occurrence_budget -= 1
+            if (
+                reconcile_occurrences
+                and result.occurrence_set_complete
+                and (returned_ids or result.recurrence_master_uid)
+            ):
                 removed, missing_complete = self._tombstone_missing_occurrences(
                     user_id=user_id,
                     event_href=raw_event.event_href,
@@ -945,6 +977,25 @@ class YandexCalendarSyncService:
             obj.metadata_ = metadata
             tombstoned += 1
         return tombstoned, complete
+
+    def _tombstone_legacy_recurrence_master(
+        self,
+        user_id: UUID,
+        calendar_href: str,
+        event_uid: str,
+    ) -> bool:
+        external_id = build_external_id(calendar_href, event_uid)
+        obj = self._find_existing_event(user_id, external_id)
+        if obj is None:
+            return False
+        if obj.status == "deleted":
+            return False
+        metadata = dict(obj.metadata_ or {})
+        metadata["recurrence_master_superseded"] = True
+        metadata["recurrence_master_superseded_at"] = self._now_factory().isoformat()
+        obj.status = "deleted"
+        obj.metadata_ = metadata
+        return True
 
     def _merge_stats(self, totals: _BatchStats, batch: _BatchStats) -> None:
         totals.synchronized += batch.synchronized
