@@ -191,7 +191,6 @@ class InboxScreenState extends State<InboxScreen> {
         _loadState = InboxLoadState.loading;
         _errorMessage = null;
         _loadMoreError = null;
-        _loadedContinuation = false;
       });
     }
 
@@ -200,7 +199,7 @@ class InboxScreenState extends State<InboxScreen> {
       if (!mounted) {
         return;
       }
-      final preserveTail = passive && _loadedContinuation;
+      final preserveTail = _loadedContinuation;
       final mergedFeed = mergeInboxFeedHead(
         existing: _feedObjects,
         firstPage: snapshot.recentSourceObjects,
@@ -212,6 +211,7 @@ class InboxScreenState extends State<InboxScreen> {
         if (!preserveTail) {
           _nextCursor = snapshot.recentNextCursor;
           _hasMore = snapshot.recentHasMore;
+          _loadedContinuation = false;
         }
         _loadState = InboxLoadState.ready;
         _refreshStatusMessage =
@@ -281,7 +281,9 @@ class InboxScreenState extends State<InboxScreen> {
         _nextCursor = page.nextCursor;
         _hasMore = page.hasMore;
         _isLoadingMore = false;
-        _loadedContinuation = true;
+        if (appended.isNotEmpty) {
+          _loadedContinuation = true;
+        }
       });
       _scheduleFeedPrefetch();
       if (appended.isEmpty) {

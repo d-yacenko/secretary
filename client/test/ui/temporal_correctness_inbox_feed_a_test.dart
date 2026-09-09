@@ -59,7 +59,12 @@ Map<String, dynamic> inboxPayload({
   };
 }
 
-Widget pumpInbox(SecretaryApiClient apiClient) {
+Widget pumpInbox(
+  SecretaryApiClient apiClient, {
+  Duration passiveRefreshInterval = const Duration(days: 1),
+  Duration? sourceRefreshTimeout,
+  Duration? sourceRefreshPollInterval,
+}) {
   final auth = AuthController(
     apiClient: apiClient,
     tokenStore: FakeTokenStore(),
@@ -75,11 +80,28 @@ Widget pumpInbox(SecretaryApiClient apiClient) {
           apiClient: apiClient,
           authController: auth,
         ),
-        passiveRefreshInterval: const Duration(days: 1),
+        passiveRefreshInterval: passiveRefreshInterval,
+        sourceRefreshTimeout: sourceRefreshTimeout,
+        sourceRefreshPollInterval: sourceRefreshPollInterval,
       ),
     ),
   );
 }
+
+ScrollPosition inboxFeedPosition(WidgetTester tester) {
+  return tester
+      .state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const Key('inbox_feed_list')),
+          matching: find.byType(Scrollable),
+        ),
+      )
+      .position;
+}
+
+http.Response okSync() => jsonRes({'triggered': <String>[], 'count': 0});
+
+http.Response okStatus() => jsonRes({'sources': <Object>[]});
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -238,14 +260,7 @@ void main() {
     expect(find.text('First page 0'), findsOneWidget);
     expect(inboxCalls, 1);
 
-    final position = tester
-        .state<ScrollableState>(
-          find.descendant(
-            of: find.byKey(const Key('inbox_feed_list')),
-            matching: find.byType(Scrollable),
-          ),
-        )
-        .position;
+    final position = inboxFeedPosition(tester);
     position.jumpTo(position.maxScrollExtent);
     await tester.pumpAndSettle();
     expect(find.text('Second page C'), findsOneWidget);
@@ -346,5 +361,279 @@ void main() {
     expect(find.textContaining('08 сентября'), findsOneWidget);
     expect(find.textContaining('07.12.2026'), findsOneWidget);
     expect(find.byType(Divider), findsOneWidget);
+  });
+
+  testWidgets('manual source refresh keeps continuation tail and scroll',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 360);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var inboxCalls = 0;
+    final feedCursors = <String?>[];
+    final firstPage = [
+      sourceRow(
+        id: 'p1-0',
+        title: 'First page 0',
+        feedAt: '2026-09-08T12:00:00Z',
+      ),
+    ];
+    final refreshedHead = [
+      sourceRow(
+        id: 'head',
+        title: 'New head',
+        feedAt: '2026-09-08T13:00:00Z',
+      ),
+      ...firstPage,
+    ];
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxCalls++;
+          return jsonRes(
+            inboxPayload(
+              sources: inboxCalls == 1 ? firstPage : refreshedHead,
+              cursor: 'cursor-1',
+              hasMore: true,
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/inbox/feed')) {
+          feedCursors.add(request.url.queryParameters['cursor']);
+          return jsonRes({
+            'items': [
+              sourceRow(
+                id: 'c',
+                title: 'Second page C',
+                feedAt: '2026-09-07T10:00:00Z',
+              ),
+            ],
+            'next_cursor': 'deep-cursor',
+            'has_more': false,
+          });
+        }
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/sources/sync')) {
+          return okSync();
+        }
+        if (request.url.path.endsWith('/sources/status')) {
+          return okStatus();
+        }
+        if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(
+      pumpInbox(
+        apiClient,
+        sourceRefreshTimeout: const Duration(milliseconds: 50),
+        sourceRefreshPollInterval: const Duration(milliseconds: 10),
+      ),
+    );
+    await tester.pumpAndSettle();
+    inboxFeedPosition(tester).jumpTo(inboxFeedPosition(tester).maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(find.text('Second page C'), findsOneWidget);
+    expect(feedCursors, ['cursor-1']);
+    final pixelsBefore = inboxFeedPosition(tester).pixels;
+    expect(pixelsBefore, greaterThan(0));
+
+    await tester.tap(find.byKey(const Key('inbox_refresh_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New head'), findsOneWidget);
+    expect(inboxFeedPosition(tester).pixels, isNot(0));
+    await tester.scrollUntilVisible(
+      find.text('Second page C'),
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('inbox_feed_list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(find.text('Second page C'), findsOneWidget);
+    expect(find.text('First page 0'), findsOneWidget);
+    expect(feedCursors, ['cursor-1']);
+  });
+
+  testWidgets('note intake refresh keeps continuation tail', (tester) async {
+    tester.view.physicalSize = const Size(800, 360);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var inboxCalls = 0;
+    var feedCalls = 0;
+    final firstPage = [
+      sourceRow(
+        id: 'p1-0',
+        title: 'First page 0',
+        feedAt: '2026-09-08T12:00:00Z',
+      ),
+    ];
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxCalls++;
+          return jsonRes(
+            inboxPayload(
+              sources: inboxCalls == 1
+                  ? firstPage
+                  : [
+                      sourceRow(
+                        id: 'note-1',
+                        title: 'Intake note',
+                        feedAt: '2026-09-08T13:00:00Z',
+                        kind: 'note',
+                        provider: 'upload',
+                      ),
+                      ...firstPage,
+                    ],
+              cursor: 'cursor-1',
+              hasMore: true,
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/inbox/feed')) {
+          feedCalls++;
+          return jsonRes({
+            'items': [
+              sourceRow(
+                id: 'c',
+                title: 'Second page C',
+                feedAt: '2026-09-07T10:00:00Z',
+              ),
+            ],
+            'next_cursor': null,
+            'has_more': false,
+          });
+        }
+        if (request.url.path == '/capture/note') {
+          return jsonRes({'note_id': 'n1'}, 201);
+        }
+        if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    inboxFeedPosition(tester).jumpTo(inboxFeedPosition(tester).maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(find.text('Second page C'), findsOneWidget);
+    expect(feedCalls, 1);
+
+    await tester.enterText(
+      find.byKey(const Key('inbox_link_input')),
+      'Идея после скролла',
+    );
+    await tester.tap(find.byKey(const Key('inbox_link_add_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Intake note'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Second page C'),
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('inbox_feed_list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(find.text('Second page C'), findsOneWidget);
+    expect(feedCalls, 1);
+  });
+
+  testWidgets('passive refresh keeps continuation tail', (tester) async {
+    tester.view.physicalSize = const Size(800, 360);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var inboxCalls = 0;
+    var feedCalls = 0;
+    final firstPage = [
+      sourceRow(
+        id: 'p1-0',
+        title: 'First page 0',
+        feedAt: '2026-09-08T12:00:00Z',
+      ),
+    ];
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxCalls++;
+          return jsonRes(
+            inboxPayload(
+              sources: inboxCalls == 1
+                  ? firstPage
+                  : [
+                      sourceRow(
+                        id: 'head',
+                        title: 'Passive head',
+                        feedAt: '2026-09-08T13:00:00Z',
+                      ),
+                      ...firstPage,
+                    ],
+              cursor: 'cursor-1',
+              hasMore: true,
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/inbox/feed')) {
+          feedCalls++;
+          return jsonRes({
+            'items': [
+              sourceRow(
+                id: 'c',
+                title: 'Second page C',
+                feedAt: '2026-09-07T10:00:00Z',
+              ),
+            ],
+            'next_cursor': null,
+            'has_more': false,
+          });
+        }
+        if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(
+      pumpInbox(
+        apiClient,
+        passiveRefreshInterval: const Duration(milliseconds: 40),
+      ),
+    );
+    await tester.pumpAndSettle();
+    inboxFeedPosition(tester).jumpTo(inboxFeedPosition(tester).maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(find.text('Second page C'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pumpAndSettle();
+    expect(find.text('Passive head'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Second page C'),
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('inbox_feed_list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(find.text('Second page C'), findsOneWidget);
+    expect(feedCalls, 1);
   });
 }

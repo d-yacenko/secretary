@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Temporal Correctness A — Inbox Feed Semantics & Pagination: **implemented, awaiting Architect review** on `review/temporal-correctness-inbox-feed-a`. Exact parent / production: `2c88cb5f18680c699eb11c970e34e3629271a66b`. Design Quality Pass A/B / B-R1 **CLOSED / PRODUCTION**. Alembic **`0033 / 0033`**. No production deploy. Temporal Correctness B (recurring calendar) **not started**. Design Quality Pass C **deferred until Temporal A+B**. Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
+Temporal Correctness A-R1 — preserve deep-scroll Inbox refresh + real Android 23 APK: **implemented, awaiting Architect review** on `review/temporal-correctness-inbox-feed-a`. Production remains `2c88cb5f18680c699eb11c970e34e3629271a66b`. Temporal A application: `e79a977bbeb5d85fc35829b05e5cdae3fdc42e1e`. Design Quality Pass A/B / B-R1 **CLOSED / PRODUCTION**. Alembic **`0033 / 0033`**. Android product contract **minSdk 23**; prior Flutter `build apk` silently auto-bumped resolved artifacts to 24 — A-R1 restores a real API-23 APK. No production deploy. Temporal Correctness B (recurring calendar) **not started**. Design Quality Pass C **deferred until Temporal A+B**. Graph Advanced UX **not started**. Brand + Label Icon Asset Polish **deferred**.
 
 Design Quality Pass B / B-R1: **ACCEPTED / CLOSED / PRODUCTION** at `2c88cb5f18680c699eb11c970e34e3629271a66b`. `/labels/by-objects` live. Proactive **OFF**. Real-user `auto_label_enabled=true`. Android `minSdk` 23.
 
