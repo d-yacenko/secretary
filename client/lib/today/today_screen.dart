@@ -400,21 +400,23 @@ Widget? _todayBookmarkSubtitle({
   required ValueChanged<String> onSelect,
   required VoidCallback onClear,
 }) {
-  final labelsStrip = labels.isEmpty ? null : ObjectLabelStrip(labels: labels);
-  final unbookmarked = bookmarkColor == null
-      ? ObjectBookmarkControl(
-          color: bookmarkColor,
-          onSelect: onSelect,
-          onClear: onClear,
-        )
-      : null;
-  if (labelsStrip != null && unbookmarked != null) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [labelsStrip, unbookmarked],
-    );
+  final children = <Widget>[
+    if (labels.isNotEmpty) ObjectLabelStrip(labels: labels),
+    if (bookmarkColor == null)
+      ObjectBookmarkControl(
+        color: bookmarkColor,
+        onSelect: onSelect,
+        onClear: onClear,
+      ),
+  ];
+  if (children.isEmpty) {
+    return null;
   }
-  return labelsStrip ?? unbookmarked;
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: children,
+  );
 }
 
 class _TaskRow extends StatelessWidget {

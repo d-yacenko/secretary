@@ -1191,6 +1191,214 @@ void main() {
     expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
   });
 
+  testWidgets(
+      'today neutral bookmark shares left lane for task, google, labeled yandex',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    const titles = (
+      task: 'Task without labels',
+      google: 'Google event without labels',
+      yandex: 'Yandex event with label',
+    );
+
+    Map<String, dynamic> objectJson({
+      required String id,
+      required String kind,
+      required String title,
+      String? provider,
+      String? startAt,
+      String? dueAt,
+    }) {
+      return {
+        'id': id,
+        'kind': kind,
+        'title': title,
+        'body': null,
+        'provider': provider,
+        'external_id': null,
+        'canonical_uri': null,
+        'status': null,
+        'start_at': startAt,
+        'due_at': dueAt,
+        'metadata': {},
+        'origin': provider == null ? 'user' : 'source',
+        'state': provider == null ? 'confirmed' : 'observed',
+        'confidence': null,
+        'created_at': '2026-08-28T08:00:00Z',
+        'updated_at': '2026-08-28T08:00:00Z',
+      };
+    }
+
+    Finder rowRibbon(String title) {
+      return find.ancestor(
+        of: find.text(title),
+        matching: find.byType(ObjectBookmarkRibbon),
+      );
+    }
+
+    Finder controlOn(String title) {
+      return find.descendant(
+        of: rowRibbon(title),
+        matching: find.byKey(const Key('object_bookmark_control')),
+      );
+    }
+
+    Finder tabOn(String title) {
+      return find.descendant(
+        of: rowRibbon(title),
+        matching: find.byKey(const Key('object_bookmark_tab')),
+      );
+    }
+
+    Future<void> pumpToday(Size size) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final stored = <String, String>{};
+      final apiClient = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/today') {
+            return jsonRes({
+              'date': '2026-08-28',
+              'timezone': 'Europe/Amsterdam',
+              'day_start': '2026-08-28T00:00:00+02:00',
+              'tasks': [
+                objectJson(
+                  id: 'task-plain',
+                  kind: 'task',
+                  title: titles.task,
+                  dueAt: '2026-08-28T14:00:00+02:00',
+                ),
+              ],
+              'calendar_events': [
+                objectJson(
+                  id: 'google-plain',
+                  kind: 'event',
+                  title: titles.google,
+                  provider: 'google_calendar',
+                  startAt: '2026-08-28T09:00:00+02:00',
+                ),
+                objectJson(
+                  id: 'yandex-labeled',
+                  kind: 'event',
+                  title: titles.yandex,
+                  provider: 'yandex_calendar',
+                  startAt: '2026-08-28T10:00:00+02:00',
+                ),
+              ],
+              'notifications': [],
+            });
+          }
+          if (request.url.path == '/labels/by-objects') {
+            return jsonRes({
+              'objects': {
+                'yandex-labeled': [
+                  {'id': 'lab-1', 'title': 'Work'},
+                ],
+              },
+            });
+          }
+          if (request.url.path == '/object-bookmarks/by-objects') {
+            return jsonRes({
+              'objects': {
+                for (final entry in stored.entries)
+                  entry.key: {'color': entry.value},
+              },
+            });
+          }
+          if (request.method == 'PUT' &&
+              request.url.path.startsWith('/object-bookmarks/')) {
+            final id = request.url.path.split('/').last;
+            stored[id] = (jsonDecode(request.body) as Map)['color'] as String;
+            return jsonRes({
+              'object_id': id,
+              'color': stored[id],
+              'updated_at': '2026-09-09T13:00:00Z',
+            });
+          }
+          if (request.method == 'DELETE' &&
+              request.url.path.startsWith('/object-bookmarks/')) {
+            stored.remove(request.url.path.split('/').last);
+            return jsonRes({}, 200);
+          }
+          return jsonRes({}, 404);
+        }),
+      );
+      apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TodayScreen(
+              apiClient: apiClient,
+              authController: auth,
+              captureController: CaptureController(
+                apiClient: apiClient,
+                authController: auth,
+              ),
+              passiveRefreshInterval: const Duration(days: 1),
+              now: () => DateTime(2026, 8, 28, 12),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> assertAlignedNeutralBookmarks() async {
+      for (final title in [titles.task, titles.google, titles.yandex]) {
+        await tester.ensureVisible(controlOn(title));
+      }
+      await tester.pumpAndSettle();
+      final taskX = tester.getTopLeft(controlOn(titles.task)).dx;
+      final googleX = tester.getTopLeft(controlOn(titles.google)).dx;
+      final yandexX = tester.getTopLeft(controlOn(titles.yandex)).dx;
+      expect((taskX - yandexX).abs(), lessThanOrEqualTo(1.0));
+      expect((googleX - yandexX).abs(), lessThanOrEqualTo(1.0));
+    }
+
+    Future<void> cycleRow(String title) async {
+      await tester.ensureVisible(controlOn(title));
+      expect(controlOn(title), findsOneWidget);
+      await tester.tap(controlOn(title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Зелёный'));
+      await tester.pumpAndSettle();
+      expect(controlOn(title), findsNothing);
+      expect(tabOn(title), findsOneWidget);
+      await tester.tap(tabOn(title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Убрать закладку'));
+      await tester.pumpAndSettle();
+      expect(tabOn(title), findsNothing);
+      expect(controlOn(title), findsOneWidget);
+    }
+
+    await pumpToday(const Size(800, 900));
+    await assertAlignedNeutralBookmarks();
+    for (final title in [titles.task, titles.google, titles.yandex]) {
+      await cycleRow(title);
+    }
+    await assertAlignedNeutralBookmarks();
+
+    await pumpToday(const Size(360, 800));
+    await assertAlignedNeutralBookmarks();
+    await cycleRow(titles.task);
+    await assertAlignedNeutralBookmarks();
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('desktop drop on card center persists after that object',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
