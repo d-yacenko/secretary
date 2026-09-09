@@ -124,7 +124,8 @@ def test_migration_0033_from_0032() -> None:
         if path.name[0].isdigit()
     )
     assert any(name.startswith("0032") for name in versions)
-    assert versions[-1].startswith("0033")
+    assert any(name.startswith("0033") for name in versions)
+    assert versions[-1].startswith("0034")
     module_path = Path(__file__).resolve().parents[1] / "alembic/versions/0033_user_semantic_contexts.py"
     text_src = module_path.read_text(encoding="utf-8")
     assert 'down_revision: str | None = "0032"' in text_src

@@ -42,6 +42,38 @@ class InboxSourceObjectEntry extends InboxSourceListEntry {
   final InboxSourceObjectOut sourceObject;
 }
 
+class InboxReviewMarkerEntry extends InboxSourceListEntry {
+  const InboxReviewMarkerEntry();
+}
+
+/// Inserts a review marker before the object at [insertBeforeObjectIndex].
+/// Date separators stay attached to their objects.
+List<InboxSourceListEntry> insertReviewMarkerEntry({
+  required List<InboxSourceListEntry> entries,
+  required int insertBeforeObjectIndex,
+}) {
+  if (insertBeforeObjectIndex <= 0) {
+    return [const InboxReviewMarkerEntry(), ...entries];
+  }
+  var seen = 0;
+  final out = <InboxSourceListEntry>[];
+  var inserted = false;
+  for (final entry in entries) {
+    if (entry is InboxSourceObjectEntry) {
+      if (!inserted && seen == insertBeforeObjectIndex) {
+        out.add(const InboxReviewMarkerEntry());
+        inserted = true;
+      }
+      seen += 1;
+    }
+    out.add(entry);
+  }
+  if (!inserted) {
+    out.add(const InboxReviewMarkerEntry());
+  }
+  return out;
+}
+
 /// Inserts date separators into an already-ordered list without re-sorting.
 List<InboxSourceListEntry> groupInboxSourceEntries(
   List<InboxSourceObjectOut> objects,

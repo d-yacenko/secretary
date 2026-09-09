@@ -18,6 +18,7 @@ import '../ui/date_format.dart';
 import '../ui/domain_labels.dart';
 import '../ui/linkified_text.dart';
 import '../ui/object_actions.dart';
+import '../ui/object_bookmark.dart';
 import '../ui/object_dates.dart';
 import '../ui/object_visuals.dart';
 import '../ui/provider_icon.dart';
@@ -57,6 +58,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
   ContextResponse? _context;
   SourceActionPresentation? _sourcePresentation;
   String? _errorMessage;
+  String? _bookmarkColor;
   late final SourceNavigationService _sourceNavigation;
   late final SourceNavigationPresenter _sourcePresenter;
 
@@ -113,6 +115,15 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         _sourcePresentation = sourcePresentation;
         _loadState = ObjectDetailLoadState.ready;
       });
+      try {
+        final bookmarks = await widget.apiClient.bookmarksByObjects([widget.objectId]);
+        if (!mounted) {
+          return;
+        }
+        setState(() => _bookmarkColor = bookmarks[widget.objectId]);
+      } on ApiException {
+        // Bookmark is optional chrome; detail still loads.
+      }
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -345,6 +356,30 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                       provenanceStateLabel(object.state),
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
+                  ObjectBookmarkControl(
+                    color: _bookmarkColor,
+                    onSelect: (color) async {
+                      try {
+                        final saved = await widget.apiClient
+                            .putObjectBookmark(object.id, color);
+                        if (mounted) {
+                          setState(() => _bookmarkColor = saved);
+                        }
+                      } on ApiException {
+                        // keep previous
+                      }
+                    },
+                    onClear: () async {
+                      try {
+                        await widget.apiClient.deleteObjectBookmark(object.id);
+                        if (mounted) {
+                          setState(() => _bookmarkColor = null);
+                        }
+                      } on ApiException {
+                        // keep previous
+                      }
+                    },
+                  ),
                 ],
               ),
               if (_sourcePresentation != null) ...[

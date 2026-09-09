@@ -1,26 +1,28 @@
-# Current task — Temporal Correctness B-R3-R2 (autoflush supersession)
+# Current task — Inbox Workflow Controls A
 
 ## Status
 
-Production remains frozen at `4d05801cc596dfe41244bd689da9524f5ce261a7`. Do **not** rollback. Do **not** deploy before Architect review.
+Inbox Workflow Controls A (Review Marker & Manual Colored Bookmarks) is **implemented on `review/inbox-workflow-controls-a`**, awaiting Architect review.
 
-Temporal Correctness B Google production acceptance: **PASS**.
+Do **not** deploy. Do **not** start Design Quality Pass C. Do **not** start Graph Advanced UX.
 
-Yandex functional production acceptance: **PASS** (PROVIDER_UNEXPANDED fallback; occurrence count=3 is EXPECTED via UNTIL).
-
-B-R3-R2 (this branch): production `autoflush=False` legacy-master supersession must not be labeled `caldav_deleted`. Awaiting Architect review.
-
-Do **not** start Inbox Workflow Controls. Do **not** start Design Quality Pass C / Graph Advanced UX.
+Temporal Correctness B is **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Do not reopen recurrence/calendar logic.
 
 ## Production
 
-- Exact SHA (still live): `4d05801cc596dfe41244bd689da9524f5ce261a7`
-- Previous production: `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`
-- Alembic: **`0033 / 0033`**; **no `0034`**
+- Exact SHA (live): `71e6573f349a7f6c045c762337252a56d1993d00`
+- Temporal B Google recurring production: **PASS**
+- Temporal B Yandex recurring fallback production: **PASS**
+- Temporal A: **CLOSED**
+- Alembic on production: **`0033 / 0033`** (this branch adds **`0034`**, not applied until deploy)
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval **60**
 - Real-user `auto_label_enabled`: **true**
-- Inbox Workflow Controls / Pass C / Graph: **not started**
+- Design Quality Pass C / Graph: **not started**
 - Encrypted Architect context: untouched
+
+## Technical debt (record only, not fixed here)
+
+Yandex Calendar attendee payload ordering/normalization can rewrite source Object metadata and `updated_at` with stable semantic event identity. Future: **Yandex attendee canonicalization / passive-sync metadata churn** (canonical dedupe/sort before metadata equality).
 
 Do not read, decrypt, modify, recreate, re-encrypt, or commit `secretary_architect_context_encrypted.md`.

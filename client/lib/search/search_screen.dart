@@ -8,9 +8,11 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/app_route_observer.dart';
 import '../navigation/secretary_navigation.dart';
+import '../ui/assigned_bookmarks_loader.dart';
 import '../ui/assigned_labels_loader.dart';
 import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
+import '../ui/object_bookmark.dart';
 import '../ui/object_dates.dart';
 import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
@@ -50,6 +52,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   SearchFacetsOut? _facets;
   List<LabelItem> _labels = [];
   Map<String, List<LabelItem>> _assignedByObject = {};
+  Map<String, String> _bookmarksByObject = {};
   String? _selectedLabelId;
 
   @override
@@ -155,6 +158,15 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         return;
       }
       setState(() => _assignedByObject = assigned);
+      final bookmarks = await loadBookmarksByObjects(
+        apiClient: widget.apiClient,
+        onAuthFailure: widget.authController.handleAuthenticationFailure,
+        objectIds: results.map((item) => item.id),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _bookmarksByObject = bookmarks);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -304,6 +316,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
                   return _SearchResultTile(
                     object: object,
                     labels: _assignedByObject[object.id] ?? const [],
+                    bookmarkColor: _bookmarksByObject[object.id],
                     onTap: () => _openObject(object),
                   );
                 },
@@ -319,11 +332,13 @@ class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
     required this.object,
     required this.labels,
+    this.bookmarkColor,
     required this.onTap,
   });
 
   final SecretaryObject object;
   final List<LabelItem> labels;
+  final String? bookmarkColor;
   final VoidCallback onTap;
 
   @override
@@ -335,7 +350,9 @@ class _SearchResultTile extends StatelessWidget {
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: InkWell(
+      child: ObjectBookmarkRibbon(
+        color: bookmarkColor,
+        child: InkWell(
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -361,7 +378,8 @@ class _SearchResultTile extends StatelessWidget {
             ],
           ),
         ),
-      ),
+        ),
+        ),
     );
   }
 

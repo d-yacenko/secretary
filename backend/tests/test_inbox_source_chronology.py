@@ -612,6 +612,7 @@ def test_inbox_api_order_hides_attachments_and_keeps_contract(
         "source_sync_status",
         "recent_next_cursor",
         "recent_has_more",
+        "review_marker",
     }
     recent = body["recent_source_objects"]
     titles = [item["title"] for item in recent]

@@ -862,6 +862,60 @@ class UserSemanticContext(Base):
     )
 
 
+class InboxReviewMarker(Base):
+    __tablename__ = "inbox_review_markers"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    anchor_feed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    anchor_object_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ObjectBookmark(Base):
+    __tablename__ = "object_bookmarks"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("objects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    color: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        sa.PrimaryKeyConstraint("user_id", "object_id", name="pk_object_bookmarks"),
+        sa.UniqueConstraint("user_id", "object_id", name="uq_object_bookmarks_user_id_object_id"),
+        Index("ix_object_bookmarks_user_id", "user_id"),
+        Index("ix_object_bookmarks_object_id", "object_id"),
+    )
+
+
 class ExternalActionAttempt(Base):
     __tablename__ = "external_action_attempts"
 

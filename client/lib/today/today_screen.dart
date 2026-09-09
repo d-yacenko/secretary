@@ -11,8 +11,10 @@ import '../capture/capture_controller.dart';
 import '../inbox/notification_labels.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
+import '../ui/assigned_bookmarks_loader.dart';
 import '../ui/assigned_labels_loader.dart';
 import '../ui/date_format.dart';
+import '../ui/object_bookmark.dart';
 import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
@@ -52,6 +54,7 @@ class _TodayScreenState extends State<TodayScreen> {
   TodayLoadState _loadState = TodayLoadState.loading;
   TodayOut? _today;
   Map<String, List<LabelItem>> _labelsByObject = {};
+  Map<String, String> _bookmarksByObject = {};
   String? _errorMessage;
   String? _refreshStatusMessage;
   bool _isSourceRefreshing = false;
@@ -126,6 +129,18 @@ class _TodayScreenState extends State<TodayScreen> {
         return;
       }
       setState(() => _labelsByObject = labels);
+      final bookmarks = await loadBookmarksByObjects(
+        apiClient: widget.apiClient,
+        onAuthFailure: widget.authController.handleAuthenticationFailure,
+        objectIds: [
+          ...snapshot.tasks.map((item) => item.id),
+          ...snapshot.calendarEvents.map((item) => item.id),
+        ],
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _bookmarksByObject = bookmarks);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -282,6 +297,7 @@ class _TodayScreenState extends State<TodayScreen> {
                     task: task,
                     today: today,
                     labels: _labelsByObject[task.id] ?? const [],
+                    bookmarkColor: _bookmarksByObject[task.id],
                     onTap: () => _openObjectDetail(task.id),
                   )),
             const SizedBox(height: 16),
@@ -293,6 +309,7 @@ class _TodayScreenState extends State<TodayScreen> {
                     event: event,
                     emphasis: todayEventEmphasis(event, now: _now),
                     labels: _labelsByObject[event.id] ?? const [],
+                    bookmarkColor: _bookmarksByObject[event.id],
                     onTap: () => _openObjectDetail(event.id),
                   )),
             const SizedBox(height: 16),
@@ -352,12 +369,14 @@ class _TaskRow extends StatelessWidget {
     required this.task,
     required this.today,
     required this.labels,
+    this.bookmarkColor,
     required this.onTap,
   });
 
   final SecretaryObject task;
   final TodayOut today;
   final List<LabelItem> labels;
+  final String? bookmarkColor;
   final VoidCallback onTap;
 
   @override
@@ -366,7 +385,9 @@ class _TaskRow extends StatelessWidget {
     final dueAt = formatUserDateTime(task.dueAt);
     final when = dueAt.isEmpty ? 'Нет срока' : dueAt;
     final trailing = overdue ? 'Просрочено • $when' : when;
-    return ListTile(
+    return ObjectBookmarkRibbon(
+      color: bookmarkColor,
+      child: ListTile(
       title: ObjectCompactHeaderRow(
         title: task.title,
         kind: task.kind,
@@ -386,6 +407,7 @@ class _TaskRow extends StatelessWidget {
       ),
       subtitle: labels.isEmpty ? null : ObjectLabelStrip(labels: labels),
       onTap: onTap,
+    ),
     );
   }
 }
@@ -395,12 +417,14 @@ class _EventRow extends StatelessWidget {
     required this.event,
     required this.emphasis,
     required this.labels,
+    this.bookmarkColor,
     required this.onTap,
   });
 
   final SecretaryObject event;
   final TodayEventEmphasis emphasis;
   final List<LabelItem> labels;
+  final String? bookmarkColor;
   final VoidCallback onTap;
 
   @override
@@ -427,7 +451,9 @@ class _EventRow extends StatelessWidget {
             ? null
             : Border(left: BorderSide(color: stripe, width: 3)),
       ),
-      child: ListTile(
+      child: ObjectBookmarkRibbon(
+        color: bookmarkColor,
+        child: ListTile(
         title: ObjectCompactHeaderRow(
           title: event.title,
           kind: event.kind,
@@ -436,6 +462,7 @@ class _EventRow extends StatelessWidget {
         ),
         subtitle: labels.isEmpty ? null : ObjectLabelStrip(labels: labels),
         onTap: onTap,
+      ),
       ),
     );
   }

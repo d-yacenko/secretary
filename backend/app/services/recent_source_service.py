@@ -143,6 +143,11 @@ class RecentSourceService:
             self._not_child_email_attachment_clause(),
         )
 
+    def get_inbox_eligible(self, object_id: UUID) -> Object | None:
+        return self._session.scalar(
+            select(Object).where(Object.id == object_id, self._eligible_filters())
+        )
+
     def list_page(
         self,
         limit: int = RECENT_SOURCE_DEFAULT_LIMIT,

@@ -142,14 +142,13 @@ def _identity(
     )
 
 
-def test_no_alembic_0034() -> None:
+def test_alembic_head_includes_0034() -> None:
     versions = sorted(
         path.name
         for path in (Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("*.py")
         if path.name[0].isdigit()
     )
-    assert versions[-1].startswith("0033")
-    assert not any(name.startswith("0034") for name in versions)
+    assert versions[-1].startswith("0034")
 
 
 def test_judgment_vocabulary_exists_but_is_not_inferred() -> None:

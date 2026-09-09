@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Object
 from app.domain.object_visibility import is_object_tombstoned, tombstone_object
 from app.services.errors import NotFoundError
+from app.services.object_bookmark_service import ObjectBookmarkService
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class ObjectDeletionService:
             )
         deleted_at = datetime.now(UTC)
         tombstone_object(obj, when=deleted_at)
+        ObjectBookmarkService(self._session, self._user_id).delete_for_object(object_id)
         self._session.flush()
         return ObjectDeleteResult(
             object=obj,

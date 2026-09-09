@@ -283,12 +283,19 @@ class SourceSyncStatusOut(BaseModel):
     last_error: str | None
 
 
+class InboxReviewMarkerOut(BaseModel):
+    anchor_feed_at: datetime
+    anchor_object_id: UUID
+    updated_at: datetime
+
+
 class InboxOut(BaseModel):
     unresolved_notifications: list[NotificationOut]
     recent_source_objects: list[InboxSourceObjectOut]
     source_sync_status: list[SourceSyncStatusOut]
     recent_next_cursor: str | None = None
     recent_has_more: bool = False
+    review_marker: InboxReviewMarkerOut | None = None
 
 
 class InboxFeedOut(BaseModel):

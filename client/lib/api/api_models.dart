@@ -669,6 +669,26 @@ class SourceSyncStatusOut {
   }
 }
 
+class InboxReviewMarker {
+  const InboxReviewMarker({
+    required this.anchorFeedAt,
+    required this.anchorObjectId,
+    required this.updatedAt,
+  });
+
+  final String anchorFeedAt;
+  final String anchorObjectId;
+  final String updatedAt;
+
+  factory InboxReviewMarker.fromJson(Map<String, dynamic> json) {
+    return InboxReviewMarker(
+      anchorFeedAt: json['anchor_feed_at'] as String,
+      anchorObjectId: json['anchor_object_id'] as String,
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+}
+
 class InboxOut {
   InboxOut({
     required this.unresolvedNotifications,
@@ -676,6 +696,7 @@ class InboxOut {
     required this.sourceSyncStatus,
     this.recentNextCursor,
     this.recentHasMore = false,
+    this.reviewMarker,
   });
 
   final List<NotificationOut> unresolvedNotifications;
@@ -683,8 +704,10 @@ class InboxOut {
   final List<SourceSyncStatusOut> sourceSyncStatus;
   final String? recentNextCursor;
   final bool recentHasMore;
+  final InboxReviewMarker? reviewMarker;
 
   factory InboxOut.fromJson(Map<String, dynamic> json) {
+    final rawMarker = json['review_marker'];
     return InboxOut(
       unresolvedNotifications:
           (json['unresolved_notifications'] as List<dynamic>)
@@ -698,6 +721,9 @@ class InboxOut {
           .toList(),
       recentNextCursor: json['recent_next_cursor'] as String?,
       recentHasMore: json['recent_has_more'] as bool? ?? false,
+      reviewMarker: rawMarker is Map<String, dynamic>
+          ? InboxReviewMarker.fromJson(rawMarker)
+          : null,
     );
   }
 }

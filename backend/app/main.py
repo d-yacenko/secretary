@@ -16,6 +16,7 @@ from app.api.labels import router as labels_router
 from app.api.local import router as local_router
 from app.api.mattermost import router as mattermost_router
 from app.api.me import router as me_router
+from app.api.object_bookmarks import router as object_bookmarks_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.graph_workspace import router as graph_workspace_router
 from app.api.routes.notifications import router as notifications_router
@@ -82,6 +83,7 @@ app.include_router(capture_router)
 app.include_router(assistant_router)
 app.include_router(graph_router)
 app.include_router(labels_router)
+app.include_router(object_bookmarks_router)
 app.include_router(graph_workspace_router)
 app.include_router(tasks_router)
 app.include_router(relations_router)

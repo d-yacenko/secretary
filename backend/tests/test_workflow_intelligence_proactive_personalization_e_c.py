@@ -120,14 +120,13 @@ def _labeled_source(session: Session) -> tuple[Object, Object]:
     return source, created.label
 
 
-def test_no_alembic_0034() -> None:
+def test_alembic_head_includes_0034() -> None:
     versions = sorted(
         path.name
         for path in (Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("*.py")
         if path.name[0].isdigit()
     )
-    assert versions[-1].startswith("0033")
-    assert not any(name.startswith("0034") for name in versions)
+    assert versions[-1].startswith("0034")
 
 
 @pytest.mark.parametrize(
@@ -610,8 +609,6 @@ def test_no_second_job_type() -> None:
     from app.jobs.constants import JOB_TYPE_AUTO_LABEL_OBJECT
 
     assert JOB_TYPE_PROACTIVE_REVIEW != JOB_TYPE_AUTO_LABEL_OBJECT
-    versions = list((Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("0034*"))
-    assert versions == []
 
 
 def test_incomplete_snapshot_skips_llm(db_session, monkeypatch, silent_trace) -> None:

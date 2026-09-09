@@ -250,6 +250,9 @@ void main() {
           }
           return jsonRes({'objects': objects});
         }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
         return jsonRes({}, 404);
       }),
     );
@@ -316,6 +319,9 @@ void main() {
         if (request.url.path == '/labels/by-objects') {
           return jsonRes({'objects': {}});
         }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
         return jsonRes({}, 404);
       }),
     );
@@ -350,6 +356,9 @@ void main() {
           );
         }
         if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
           return jsonRes({'objects': {}});
         }
         return jsonRes({}, 404);
@@ -423,6 +432,9 @@ void main() {
           return okStatus();
         }
         if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
           return jsonRes({'objects': {}});
         }
         return jsonRes({}, 404);
@@ -522,6 +534,9 @@ void main() {
         if (request.url.path == '/labels/by-objects') {
           return jsonRes({'objects': {}});
         }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
         return jsonRes({}, 404);
       }),
     );
@@ -606,6 +621,9 @@ void main() {
           });
         }
         if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
           return jsonRes({'objects': {}});
         }
         return jsonRes({}, 404);

@@ -327,6 +327,51 @@ class SecretaryApiClient {
     return InboxFeedPage.fromJson(body);
   }
 
+  Future<InboxReviewMarker> putInboxReviewMarker(String afterObjectId) async {
+    final body = await _request(
+      'PUT',
+      '/inbox/review-marker',
+      jsonBody: {'after_object_id': afterObjectId},
+    );
+    return InboxReviewMarker.fromJson(body);
+  }
+
+  Future<void> deleteInboxReviewMarker() async {
+    await _request('DELETE', '/inbox/review-marker');
+  }
+
+  Future<Map<String, String>> bookmarksByObjects(List<String> objectIds) async {
+    final decoded = await _requestJson(
+      'POST',
+      '/object-bookmarks/by-objects',
+      jsonBody: {'object_ids': objectIds},
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw ServerException('Unexpected bookmarks-by-objects response format');
+    }
+    final raw = decoded['objects'];
+    if (raw is! Map<String, dynamic>) {
+      throw ServerException('Unexpected bookmarks-by-objects response format');
+    }
+    return {
+      for (final entry in raw.entries)
+        entry.key: (entry.value as Map<String, dynamic>)['color'] as String,
+    };
+  }
+
+  Future<String> putObjectBookmark(String objectId, String color) async {
+    final body = await _request(
+      'PUT',
+      '/object-bookmarks/$objectId',
+      jsonBody: {'color': color},
+    );
+    return body['color'] as String;
+  }
+
+  Future<void> deleteObjectBookmark(String objectId) async {
+    await _request('DELETE', '/object-bookmarks/$objectId');
+  }
+
   Future<IntakeLinkResult> intakeLink(
     String url, {
     String? accountId,
