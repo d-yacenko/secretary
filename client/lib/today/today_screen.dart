@@ -11,10 +11,10 @@ import '../capture/capture_controller.dart';
 import '../inbox/notification_labels.dart';
 import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
-import '../ui/assigned_bookmarks_loader.dart';
 import '../ui/assigned_labels_loader.dart';
 import '../ui/date_format.dart';
 import '../ui/object_bookmark.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
@@ -34,6 +34,7 @@ class TodayScreen extends StatefulWidget {
     this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
     this.now,
     this.clockTick = const Duration(minutes: 1),
+    this.bookmarkController,
   });
 
   final SecretaryApiClient apiClient;
@@ -45,6 +46,7 @@ class TodayScreen extends StatefulWidget {
   final Duration passiveRefreshInterval;
   final DateTime Function()? now;
   final Duration clockTick;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -54,7 +56,6 @@ class _TodayScreenState extends State<TodayScreen> {
   TodayLoadState _loadState = TodayLoadState.loading;
   TodayOut? _today;
   Map<String, List<LabelItem>> _labelsByObject = {};
-  Map<String, String> _bookmarksByObject = {};
   String? _errorMessage;
   String? _refreshStatusMessage;
   bool _isSourceRefreshing = false;
@@ -64,10 +65,23 @@ class _TodayScreenState extends State<TodayScreen> {
   late final SourceRefreshService _sourceRefreshService =
       SourceRefreshService(apiClient: widget.apiClient);
   late final PassiveSnapshotRefresh _passiveRefresh;
+  late final ObjectBookmarkController _bookmarks;
+  var _ownsBookmarks = false;
 
   @override
   void initState() {
     super.initState();
+    final provided = widget.bookmarkController;
+    if (provided != null) {
+      _bookmarks = provided;
+    } else {
+      _ownsBookmarks = true;
+      _bookmarks = ObjectBookmarkController(
+        apiClient: widget.apiClient,
+        authController: widget.authController,
+      );
+    }
+    _bookmarks.addListener(_onBookmarksChanged);
     _now = (widget.now ?? DateTime.now)().toLocal();
     _clock = Timer.periodic(widget.clockTick, (_) {
       if (!mounted) {
@@ -88,9 +102,19 @@ class _TodayScreenState extends State<TodayScreen> {
 
   @override
   void dispose() {
+    _bookmarks.removeListener(_onBookmarksChanged);
+    if (_ownsBookmarks) {
+      _bookmarks.dispose();
+    }
     _clock?.cancel();
     _passiveRefresh.dispose();
     super.dispose();
+  }
+
+  void _onBookmarksChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadToday(
@@ -129,18 +153,13 @@ class _TodayScreenState extends State<TodayScreen> {
         return;
       }
       setState(() => _labelsByObject = labels);
-      final bookmarks = await loadBookmarksByObjects(
-        apiClient: widget.apiClient,
-        onAuthFailure: widget.authController.handleAuthenticationFailure,
-        objectIds: [
-          ...snapshot.tasks.map((item) => item.id),
-          ...snapshot.calendarEvents.map((item) => item.id),
-        ],
-      );
+      await _bookmarks.reconcileVisible([
+        ...snapshot.tasks.map((item) => item.id),
+        ...snapshot.calendarEvents.map((item) => item.id),
+      ]);
       if (!mounted) {
         return;
       }
-      setState(() => _bookmarksByObject = bookmarks);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -202,67 +221,6 @@ class _TodayScreenState extends State<TodayScreen> {
     }
   }
 
-  Future<void> _setBookmark(String objectId, String color) async {
-    final previous = _bookmarksByObject[objectId];
-    setState(() => _bookmarksByObject[objectId] = color);
-    try {
-      final saved = await widget.apiClient.putObjectBookmark(objectId, color);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _bookmarksByObject[objectId] = saved);
-    } on AuthenticationException {
-      widget.authController.handleAuthenticationFailure();
-    } on ApiException {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        if (previous == null) {
-          _bookmarksByObject.remove(objectId);
-        } else {
-          _bookmarksByObject[objectId] = previous;
-        }
-      });
-    }
-  }
-
-  Future<void> _clearBookmark(String objectId) async {
-    final previous = _bookmarksByObject[objectId];
-    setState(() => _bookmarksByObject.remove(objectId));
-    try {
-      await widget.apiClient.deleteObjectBookmark(objectId);
-    } on AuthenticationException {
-      widget.authController.handleAuthenticationFailure();
-    } on ApiException {
-      if (!mounted) {
-        return;
-      }
-      if (previous != null) {
-        setState(() => _bookmarksByObject[objectId] = previous);
-      }
-    }
-  }
-
-  Future<void> _refreshBookmarkFor(String objectId) async {
-    final fetched = await loadBookmarksByObjects(
-      apiClient: widget.apiClient,
-      onAuthFailure: widget.authController.handleAuthenticationFailure,
-      objectIds: [objectId],
-    );
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      final color = fetched[objectId];
-      if (color == null) {
-        _bookmarksByObject.remove(objectId);
-      } else {
-        _bookmarksByObject[objectId] = color;
-      }
-    });
-  }
-
   Future<void> _openObjectDetail(String objectId) async {
     final result = await openObjectDetail(
       context,
@@ -273,6 +231,7 @@ class _TodayScreenState extends State<TodayScreen> {
       assistantController: widget.assistantController,
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
+      bookmarkController: _bookmarks,
     );
     if (!mounted) {
       return;
@@ -295,11 +254,9 @@ class _TodayScreenState extends State<TodayScreen> {
               .toList(),
           notifications: today.notifications,
         );
-        _bookmarksByObject.remove(result.deletedObjectId);
       });
-      return;
+      _bookmarks.forget(result.deletedObjectId);
     }
-    await _refreshBookmarkFor(objectId);
   }
 
   @override
@@ -363,9 +320,10 @@ class _TodayScreenState extends State<TodayScreen> {
                     task: task,
                     today: today,
                     labels: _labelsByObject[task.id] ?? const [],
-                    bookmarkColor: _bookmarksByObject[task.id],
-                    onBookmarkSelect: (color) => _setBookmark(task.id, color),
-                    onBookmarkClear: () => _clearBookmark(task.id),
+                    bookmarkColor: _bookmarks.colorFor(task.id),
+                    onBookmarkSelect: (color) =>
+                        _bookmarks.setColor(task.id, color),
+                    onBookmarkClear: () => _bookmarks.clear(task.id),
                     onTap: () => _openObjectDetail(task.id),
                   )),
             const SizedBox(height: 16),
@@ -377,9 +335,10 @@ class _TodayScreenState extends State<TodayScreen> {
                     event: event,
                     emphasis: todayEventEmphasis(event, now: _now),
                     labels: _labelsByObject[event.id] ?? const [],
-                    bookmarkColor: _bookmarksByObject[event.id],
-                    onBookmarkSelect: (color) => _setBookmark(event.id, color),
-                    onBookmarkClear: () => _clearBookmark(event.id),
+                    bookmarkColor: _bookmarks.colorFor(event.id),
+                    onBookmarkSelect: (color) =>
+                        _bookmarks.setColor(event.id, color),
+                    onBookmarkClear: () => _bookmarks.clear(event.id),
                     onTap: () => _openObjectDetail(event.id),
                   )),
             const SizedBox(height: 16),
@@ -398,6 +357,7 @@ class _TodayScreenState extends State<TodayScreen> {
                       assistantController: widget.assistantController,
                       onAskSecretary: widget.onAskSecretary,
                       onShowInGraph: widget.onShowInGraph,
+                      bookmarkController: _bookmarks,
                     ),
                   )),
           ],
@@ -432,6 +392,29 @@ class _EmptySection extends StatelessWidget {
       child: Text(message),
     );
   }
+}
+
+Widget? _todayBookmarkSubtitle({
+  required List<LabelItem> labels,
+  required String? bookmarkColor,
+  required ValueChanged<String> onSelect,
+  required VoidCallback onClear,
+}) {
+  final labelsStrip = labels.isEmpty ? null : ObjectLabelStrip(labels: labels);
+  final unbookmarked = bookmarkColor == null
+      ? ObjectBookmarkControl(
+          color: bookmarkColor,
+          onSelect: onSelect,
+          onClear: onClear,
+        )
+      : null;
+  if (labelsStrip != null && unbookmarked != null) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [labelsStrip, unbookmarked],
+    );
+  }
+  return labelsStrip ?? unbookmarked;
 }
 
 class _TaskRow extends StatelessWidget {
@@ -481,7 +464,12 @@ class _TaskRow extends StatelessWidget {
               ]
             : const [],
       ),
-      subtitle: labels.isEmpty ? null : ObjectLabelStrip(labels: labels),
+      subtitle: _todayBookmarkSubtitle(
+        labels: labels,
+        bookmarkColor: bookmarkColor,
+        onSelect: onBookmarkSelect,
+        onClear: onBookmarkClear,
+      ),
       onTap: onTap,
     ),
     );
@@ -542,7 +530,12 @@ class _EventRow extends StatelessWidget {
           provider: event.provider,
           trailingText: time.isEmpty ? 'Нет времени' : time,
         ),
-        subtitle: labels.isEmpty ? null : ObjectLabelStrip(labels: labels),
+        subtitle: _todayBookmarkSubtitle(
+          labels: labels,
+          bookmarkColor: bookmarkColor,
+          onSelect: onBookmarkSelect,
+          onClear: onBookmarkClear,
+        ),
         onTap: onTap,
       ),
       ),

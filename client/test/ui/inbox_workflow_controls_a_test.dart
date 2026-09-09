@@ -7,9 +7,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
+import 'package:personal_secretary/auth/auth_controller.dart';
+import 'package:personal_secretary/auth/server_url_store.dart';
+import 'package:personal_secretary/auth/token_store.dart';
+import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/inbox/inbox_review_marker.dart';
+import 'package:personal_secretary/inbox/inbox_screen.dart';
+import 'package:personal_secretary/search/search_screen.dart';
+import 'package:personal_secretary/today/today_screen.dart';
 import 'package:personal_secretary/ui/inbox_date_groups.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
+import 'package:personal_secretary/ui/object_bookmark_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'temporal_correctness_inbox_feed_a_test.dart';
@@ -81,6 +89,25 @@ Future<void> dragHandleToGap(
     await tester.pump();
   }
   await gesture.moveTo(tester.getCenter(gap));
+  await tester.pump();
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
+Future<void> dragHandleToCard(
+  WidgetTester tester, {
+  required String title,
+  bool longPress = false,
+}) async {
+  final handle = find.byKey(const Key('inbox_review_marker_handle'));
+  final card = find.text(title);
+  final gesture = await tester.startGesture(tester.getCenter(handle));
+  if (longPress) {
+    await tester.pump(kLongPressTimeout + kPressTimeout);
+  } else {
+    await tester.pump();
+  }
+  await gesture.moveTo(tester.getCenter(card));
   await tester.pump();
   await gesture.up();
   await tester.pumpAndSettle();
@@ -556,7 +583,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('object_bookmark_tab')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('blue'));
+    await tester.tap(find.text('Синий'));
     await tester.pumpAndSettle();
     expect(color, 'blue');
     await tester.tap(find.byKey(const Key('object_bookmark_tab')));
@@ -586,7 +613,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('object_bookmark_control')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('red'));
+    await tester.tap(find.text('Красный'));
     await tester.pumpAndSettle();
     expect(color, 'red');
     await tester.tap(find.byKey(const Key('object_bookmark_control')));
@@ -671,12 +698,754 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('object_bookmark_control')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('red'));
+    await tester.tap(find.text('Красный'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(inboxCalls, 1);
     expect(find.text('Card A'), findsOneWidget);
     expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+  });
+
+  Map<String, dynamic> todaySharedPayload({required String id, required String title}) {
+    return {
+      'date': '2026-09-09',
+      'timezone': 'Europe/Amsterdam',
+      'day_start': '2026-09-09T00:00:00+02:00',
+      'tasks': [],
+      'calendar_events': [
+        {
+          'id': id,
+          'kind': 'event',
+          'title': title,
+          'body': null,
+          'provider': 'google',
+          'external_id': null,
+          'canonical_uri': null,
+          'status': null,
+          'start_at': '2026-09-09T09:00:00+02:00',
+          'due_at': '2026-09-09T10:00:00+02:00',
+          'metadata': {},
+          'origin': 'source',
+          'state': 'observed',
+          'confidence': null,
+          'created_at': '2026-09-09T08:00:00Z',
+          'updated_at': '2026-09-09T08:00:00Z',
+        },
+      ],
+      'notifications': [],
+    };
+  }
+
+  testWidgets('shared bookmark state updates mounted Inbox and Today immediately',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var todayGets = 0;
+    var inboxGets = 0;
+    String? stored;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/today') {
+          todayGets++;
+          return jsonRes(todaySharedPayload(id: 'shared-1', title: 'Shared Event'));
+        }
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxGets++;
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'shared-1',
+                  title: 'Shared Event',
+                  feedAt: '2026-09-09T12:00:00Z',
+                  kind: 'event',
+                  provider: 'google',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          final objects = <String, Map<String, String>>{};
+          if (stored != null) {
+            objects['shared-1'] = {'color': stored!};
+          }
+          if (request.url.path == '/labels/by-objects') {
+            return jsonRes({'objects': {}});
+          }
+          return jsonRes({'objects': objects});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/object-bookmarks/shared-1') {
+          stored = (jsonDecode(request.body) as Map)['color'] as String;
+          return jsonRes({
+            'object_id': 'shared-1',
+            'color': stored,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/object-bookmarks/shared-1') {
+          stored = null;
+          return jsonRes({}, 200);
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final bookmarks = ObjectBookmarkController(
+      apiClient: apiClient,
+      authController: auth,
+    );
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              Expanded(
+                child: InboxScreen(
+                  apiClient: apiClient,
+                  authController: auth,
+                  captureController: capture,
+                  bookmarkController: bookmarks,
+                  passiveRefreshInterval: const Duration(days: 1),
+                ),
+              ),
+              Expanded(
+                child: TodayScreen(
+                  apiClient: apiClient,
+                  authController: auth,
+                  captureController: capture,
+                  bookmarkController: bookmarks,
+                  passiveRefreshInterval: const Duration(days: 1),
+                  now: () => DateTime(2026, 9, 9, 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(todayGets, 1);
+    expect(inboxGets, 1);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(InboxScreen),
+        matching: find.byKey(const Key('object_bookmark_control')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Красный'));
+    await tester.pumpAndSettle();
+    expect(todayGets, 1);
+    expect(inboxGets, 1);
+    expect(bookmarks.colorFor('shared-1'), 'red');
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNWidgets(2));
+    expect(
+      find.descendant(
+        of: find.byType(TodayScreen),
+        matching: find.byKey(const Key('object_bookmark_control')),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(TodayScreen),
+            matching: find.byKey(const Key('object_bookmark_tab')),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Синий'));
+    await tester.pumpAndSettle();
+    expect(todayGets, 1);
+    expect(bookmarks.colorFor('shared-1'), 'blue');
+
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(InboxScreen),
+            matching: find.byKey(const Key('object_bookmark_tab')),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Убрать закладку'));
+    await tester.pumpAndSettle();
+    expect(bookmarks.colorFor('shared-1'), isNull);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    expect(find.byKey(const Key('object_bookmark_control')), findsNWidgets(2));
+  });
+
+  testWidgets('search task can create bookmark into shared controller',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/search/facets') {
+          return jsonRes({
+            'kinds': [
+              {'value': 'task', 'count': 1},
+            ],
+            'providers': [],
+          });
+        }
+        if (request.url.path == '/labels') {
+          return jsonRes({'labels': []});
+        }
+        if (request.url.path == '/search') {
+          return jsonRes([
+            {
+              'id': 'task-1',
+              'kind': 'task',
+              'title': 'Alpha task',
+              'body': 'body',
+              'provider': null,
+              'external_id': null,
+              'canonical_uri': null,
+              'status': 'pending',
+              'start_at': null,
+              'due_at': null,
+              'metadata': {},
+              'origin': 'user',
+              'state': 'confirmed',
+              'confidence': null,
+              'created_at': '2026-08-28T08:00:00Z',
+              'updated_at': '2026-08-28T08:00:00Z',
+            },
+          ]);
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/object-bookmarks/task-1') {
+          return jsonRes({
+            'object_id': 'task-1',
+            'color': 'green',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final bookmarks = ObjectBookmarkController(
+      apiClient: apiClient,
+      authController: auth,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              Expanded(
+                child: SearchScreen(
+                  apiClient: apiClient,
+                  authController: auth,
+                  captureController: CaptureController(
+                    apiClient: apiClient,
+                    authController: auth,
+                  ),
+                  bookmarkController: bookmarks,
+                ),
+              ),
+              ListenableBuilder(
+                listenable: bookmarks,
+                builder: (context, _) => Text(
+                  'mirror:${bookmarks.colorFor('task-1') ?? 'none'}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'alpha');
+    await tester.tap(find.widgetWithText(FilledButton, 'Поиск'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha task'), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    await tester.tap(find.byKey(const Key('object_bookmark_control')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Зелёный'));
+    await tester.pumpAndSettle();
+    expect(bookmarks.colorFor('task-1'), 'green');
+    expect(find.text('mirror:green'), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_control')), findsNothing);
+  });
+
+  testWidgets('inbox bookmark visual grammar unbookmarked to remove',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? stored;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          final objects = <String, Map<String, String>>{};
+          if (stored != null) {
+            objects['a'] = {'color': stored!};
+          }
+          return jsonRes({'objects': objects});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/object-bookmarks/a') {
+          stored = (jsonDecode(request.body) as Map)['color'] as String;
+          return jsonRes({
+            'object_id': 'a',
+            'color': stored,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/object-bookmarks/a') {
+          stored = null;
+          return jsonRes({}, 200);
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    expect(find.byType(ObjectBookmarkGlyph), findsWidgets);
+    await tester.tap(find.byKey(const Key('object_bookmark_control')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Красный'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_control')), findsNothing);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('object_bookmark_tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Синий'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_control')), findsNothing);
+    await tester.tap(find.byKey(const Key('object_bookmark_tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Убрать закладку'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+  });
+
+  testWidgets('today task visual grammar uses the same swallow-tail glyph',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? stored;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/today') {
+          return jsonRes({
+            'date': '2026-08-28',
+            'timezone': 'Europe/Amsterdam',
+            'day_start': '2026-08-28T00:00:00+02:00',
+            'tasks': [
+              {
+                'id': 'task-1',
+                'kind': 'task',
+                'title': 'Due today',
+                'body': null,
+                'provider': null,
+                'external_id': null,
+                'canonical_uri': null,
+                'status': null,
+                'start_at': null,
+                'due_at': '2026-08-28T14:00:00+02:00',
+                'metadata': {},
+                'origin': 'user',
+                'state': 'confirmed',
+                'confidence': null,
+                'created_at': '2026-08-28T08:00:00Z',
+                'updated_at': '2026-08-28T08:00:00Z',
+              },
+            ],
+            'calendar_events': [],
+            'notifications': [],
+          });
+        }
+        if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          final objects = <String, Map<String, String>>{};
+          if (stored != null) {
+            objects['task-1'] = {'color': stored!};
+          }
+          return jsonRes({'objects': objects});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/object-bookmarks/task-1') {
+          stored = (jsonDecode(request.body) as Map)['color'] as String;
+          return jsonRes({
+            'object_id': 'task-1',
+            'color': stored,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/object-bookmarks/task-1') {
+          stored = null;
+          return jsonRes({}, 200);
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TodayScreen(
+            apiClient: apiClient,
+            authController: auth,
+            captureController: CaptureController(
+              apiClient: apiClient,
+              authController: auth,
+            ),
+            passiveRefreshInterval: const Duration(days: 1),
+            now: () => DateTime(2026, 8, 28, 12),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    await tester.tap(find.byKey(const Key('object_bookmark_control')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Красный'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_control')), findsNothing);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+    expect(find.byType(ObjectBookmarkGlyph), findsWidgets);
+    await tester.tap(find.byKey(const Key('object_bookmark_tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Убрать закладку'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+  });
+
+  testWidgets('desktop drop on card center persists after that object',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var inboxCalls = 0;
+    var putCalls = 0;
+    String? putAfter;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxCalls++;
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          putAfter =
+              (jsonDecode(request.body) as Map)['after_object_id'] as String;
+          return jsonRes({
+            'anchor_feed_at': '2026-09-09T12:00:00Z',
+            'anchor_object_id': 'a',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    await dragHandleToCard(tester, title: 'Card A');
+    expect(putCalls, 1);
+    expect(putAfter, 'a');
+    expect(inboxCalls, 1);
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+    expect(find.text('Card A'), findsOneWidget);
+    expect(find.text('Card B'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('android long-press drop on card center persists marker',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          expect(
+            (jsonDecode(request.body) as Map)['after_object_id'],
+            'a',
+          );
+          return jsonRes({
+            'anchor_feed_at': '2026-09-09T12:00:00Z',
+            'anchor_object_id': 'a',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    await dragHandleToCard(tester, title: 'Card A', longPress: true);
+    expect(putCalls, 1);
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('marker hover over card shows preview below then clears',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    final handle = find.byKey(const Key('inbox_review_marker_handle'));
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+    await gesture.moveTo(tester.getCenter(find.text('Card A')));
+    await tester.pump();
+    expect(
+      find.byKey(const Key('inbox_review_marker_card_preview_a')),
+      findsOneWidget,
+    );
+    await gesture.moveTo(const Offset(12, 12));
+    await tester.pump();
+    expect(
+      find.byKey(const Key('inbox_review_marker_card_preview_a')),
+      findsNothing,
+    );
+    await gesture.up();
+    await tester.pumpAndSettle();
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('card tap still opens detail and feed still scrolls',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/objects/a') {
+          return jsonRes(objectDetailJson(id: 'a', title: 'Card A'));
+        }
+        if (request.url.path == '/objects/a/neighbors') {
+          return jsonRes({'object_id': 'a', 'neighbors': []});
+        }
+        if (request.url.path == '/objects/a/context') {
+          return jsonRes({
+            'object': objectDetailJson(id: 'a', title: 'Card A'),
+            'edges': [],
+            'neighbors': [],
+          });
+        }
+        if (request.url.path == '/objects/a/labels') {
+          return jsonRes({'labels': []});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byKey(const Key('inbox_feed_list')), const Offset(0, -40));
+    await tester.pumpAndSettle();
+    expect(find.text('Card A'), findsOneWidget);
+    await tester.tap(find.text('Card A'));
+    await tester.pumpAndSettle();
+    expect(find.text('Card A'), findsWidgets);
+    debugDefaultTargetPlatformOverride = null;
   });
 }

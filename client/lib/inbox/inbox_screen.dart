@@ -15,13 +15,13 @@ import '../navigation/secretary_navigation.dart';
 import '../sources/source_refresh_service.dart';
 import '../sources/source_sync_error_presentation.dart';
 import '../navigation/source_navigation_service.dart';
-import '../ui/assigned_bookmarks_loader.dart';
 import '../ui/assigned_labels_loader.dart';
 import '../ui/app_spacing.dart';
 import '../ui/date_format.dart';
 import '../ui/inbox_date_groups.dart';
 import '../ui/object_actions.dart';
 import '../ui/object_bookmark.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
@@ -47,6 +47,7 @@ class InboxScreen extends StatefulWidget {
     this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
     this.sourceRefreshTimeout,
     this.sourceRefreshPollInterval,
+    this.bookmarkController,
   });
 
   final SecretaryApiClient apiClient;
@@ -60,6 +61,7 @@ class InboxScreen extends StatefulWidget {
   final Duration passiveRefreshInterval;
   final Duration? sourceRefreshTimeout;
   final Duration? sourceRefreshPollInterval;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<InboxScreen> createState() => InboxScreenState();
@@ -70,7 +72,6 @@ class InboxScreenState extends State<InboxScreen> {
   InboxOut? _inbox;
   List<InboxSourceObjectOut> _feedObjects = [];
   Map<String, List<LabelItem>> _labelsByObject = {};
-  Map<String, String> _bookmarksByObject = {};
   InboxReviewMarker? _reviewMarker;
   String? _markerError;
   String? _errorMessage;
@@ -85,6 +86,7 @@ class InboxScreenState extends State<InboxScreen> {
   bool _isSourceRefreshing = false;
   bool _isIntakePending = false;
   bool _isDragHovering = false;
+  String? _markerHoverObjectId;
 
   final TextEditingController _intakeController = TextEditingController();
   late final VoiceTranscriptionController _voice;
@@ -96,10 +98,23 @@ class InboxScreenState extends State<InboxScreen> {
   late final PassiveSnapshotRefresh _passiveRefresh;
   late final LocalIntakeActions _localIntakeActions;
   final ScrollController _feedScrollController = ScrollController();
+  late final ObjectBookmarkController _bookmarks;
+  var _ownsBookmarks = false;
 
   @override
   void initState() {
     super.initState();
+    final provided = widget.bookmarkController;
+    if (provided != null) {
+      _bookmarks = provided;
+    } else {
+      _ownsBookmarks = true;
+      _bookmarks = ObjectBookmarkController(
+        apiClient: widget.apiClient,
+        authController: widget.authController,
+      );
+    }
+    _bookmarks.addListener(_onBookmarksChanged);
     _localIntakeActions = LocalIntakeActions(
       apiClient: widget.apiClient,
       authController: widget.authController,
@@ -124,12 +139,22 @@ class InboxScreenState extends State<InboxScreen> {
 
   @override
   void dispose() {
+    _bookmarks.removeListener(_onBookmarksChanged);
+    if (_ownsBookmarks) {
+      _bookmarks.dispose();
+    }
     _voice.removeListener(_onVoiceChanged);
     _voice.dispose();
     _intakeController.dispose();
     _feedScrollController.dispose();
     _passiveRefresh.dispose();
     super.dispose();
+  }
+
+  void _onBookmarksChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _onVoiceChanged() {
@@ -253,21 +278,12 @@ class InboxScreenState extends State<InboxScreen> {
       final bookmarkIds = preserveTail
           ? snapshot.recentSourceObjects.map((item) => item.id)
           : mergedFeed.map((item) => item.id);
-      final bookmarks = await loadBookmarksByObjects(
-        apiClient: widget.apiClient,
-        onAuthFailure: widget.authController.handleAuthenticationFailure,
-        objectIds: bookmarkIds,
-      );
+      await _bookmarks.reconcileVisible(bookmarkIds);
       if (!mounted) {
         return;
       }
       setState(() {
         _reviewMarker = snapshot.reviewMarker;
-        if (preserveTail) {
-          _bookmarksByObject = {..._bookmarksByObject, ...bookmarks};
-        } else {
-          _bookmarksByObject = bookmarks;
-        }
       });
       _scheduleFeedPrefetch();
     } on AuthenticationException {
@@ -328,15 +344,7 @@ class InboxScreenState extends State<InboxScreen> {
         return;
       }
       setState(() => _labelsByObject = {..._labelsByObject, ...labels});
-      final bookmarks = await loadBookmarksByObjects(
-        apiClient: widget.apiClient,
-        onAuthFailure: widget.authController.handleAuthenticationFailure,
-        objectIds: appended.map((item) => item.id),
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() => _bookmarksByObject = {..._bookmarksByObject, ...bookmarks});
+      await _bookmarks.reconcileVisible(appended.map((item) => item.id));
     } on AuthenticationException {
       _isLoadingMore = false;
       if (mounted) {
@@ -386,48 +394,6 @@ class InboxScreenState extends State<InboxScreen> {
         _reviewMarker = previous;
         _markerError = e.message;
       });
-    }
-  }
-
-  Future<void> _setBookmark(String objectId, String color) async {
-    final previous = _bookmarksByObject[objectId];
-    setState(() => _bookmarksByObject[objectId] = color);
-    try {
-      final saved = await widget.apiClient.putObjectBookmark(objectId, color);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _bookmarksByObject[objectId] = saved);
-    } on AuthenticationException {
-      widget.authController.handleAuthenticationFailure();
-    } on ApiException {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        if (previous == null) {
-          _bookmarksByObject.remove(objectId);
-        } else {
-          _bookmarksByObject[objectId] = previous;
-        }
-      });
-    }
-  }
-
-  Future<void> _clearBookmark(String objectId) async {
-    final previous = _bookmarksByObject[objectId];
-    setState(() => _bookmarksByObject.remove(objectId));
-    try {
-      await widget.apiClient.deleteObjectBookmark(objectId);
-    } on AuthenticationException {
-      widget.authController.handleAuthenticationFailure();
-    } on ApiException {
-      if (!mounted) {
-        return;
-      }
-      if (previous != null) {
-        setState(() => _bookmarksByObject[objectId] = previous);
-      }
     }
   }
 
@@ -659,25 +625,6 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  Future<void> _refreshBookmarkFor(String objectId) async {
-    final fetched = await loadBookmarksByObjects(
-      apiClient: widget.apiClient,
-      onAuthFailure: widget.authController.handleAuthenticationFailure,
-      objectIds: [objectId],
-    );
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      final color = fetched[objectId];
-      if (color == null) {
-        _bookmarksByObject.remove(objectId);
-      } else {
-        _bookmarksByObject[objectId] = color;
-      }
-    });
-  }
-
   Future<void> _openSourceObject(InboxSourceObjectOut sourceObject) async {
     final result = await openObjectDetail(
       context,
@@ -688,6 +635,7 @@ class InboxScreenState extends State<InboxScreen> {
       assistantController: widget.assistantController,
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
+      bookmarkController: _bookmarks,
     );
     if (!mounted) {
       return;
@@ -711,11 +659,10 @@ class InboxScreenState extends State<InboxScreen> {
         _feedObjects = _feedObjects
             .where((row) => row.id != result.deletedObjectId)
             .toList();
-        _bookmarksByObject.remove(result.deletedObjectId);
+        _bookmarks.forget(result.deletedObjectId);
       });
       return;
     }
-    await _refreshBookmarkFor(sourceObject.id);
   }
 
   List<Widget> _inboxFeedChildren(
@@ -747,12 +694,29 @@ class InboxScreenState extends State<InboxScreen> {
           );
         case InboxSourceObjectEntry(:final sourceObject):
           widgets.add(
-            _SourceObjectCard(
+            _InboxMarkerCardTarget(
+              objectId: sourceObject.id,
+              onHoverChanged: (hovering) {
+                final next = hovering ? sourceObject.id : null;
+                if (_markerHoverObjectId == next) {
+                  return;
+                }
+                if (!hovering && _markerHoverObjectId != sourceObject.id) {
+                  return;
+                }
+                setState(() => _markerHoverObjectId = next);
+              },
+              onAccept: () {
+                setState(() => _markerHoverObjectId = null);
+                _persistReviewMarker(sourceObject.id);
+              },
+              child: _SourceObjectCard(
                 sourceObject: sourceObject,
                 labels: _labelsByObject[sourceObject.id] ?? const [],
-                bookmarkColor: _bookmarksByObject[sourceObject.id],
-                onBookmarkSelect: (color) => _setBookmark(sourceObject.id, color),
-                onBookmarkClear: () => _clearBookmark(sourceObject.id),
+                bookmarkColor: _bookmarks.colorFor(sourceObject.id),
+                onBookmarkSelect: (color) =>
+                    _bookmarks.setColor(sourceObject.id, color),
+                onBookmarkClear: () => _bookmarks.clear(sourceObject.id),
                 onTap: () => _openSourceObject(sourceObject),
                 onOpenSource: providerHasIdentity(sourceObject.provider)
                     ? () => _openInboxSource(sourceObject)
@@ -785,8 +749,20 @@ class InboxScreenState extends State<InboxScreen> {
                 onShowInGraph: widget.onShowInGraph == null
                     ? null
                     : () => widget.onShowInGraph!(sourceObject.id),
+              ),
             ),
           );
+          if (_markerHoverObjectId == sourceObject.id) {
+            widgets.add(
+              Container(
+                key: Key('inbox_review_marker_card_preview_${sourceObject.id}'),
+                height: 4,
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 2),
+                color: Theme.of(context).colorScheme.tertiary,
+              ),
+            );
+          }
           widgets.add(
             _InboxMarkerDropGap(
               afterObjectId: sourceObject.id,
@@ -1142,6 +1118,7 @@ class InboxScreenState extends State<InboxScreen> {
                       onAskSecretaryAboutNotification:
                           widget.onAskSecretaryAboutNotification,
                       onShowInGraph: widget.onShowInGraph,
+                      bookmarkController: _bookmarks,
                     ),
                   ),
                 ),
@@ -1353,6 +1330,20 @@ class _SourceObjectCard extends StatelessWidget {
         ? 'Во входящих: ${formatInboxDateSeparator(feedDate)}; событие: $when'
         : null;
     final wide = isWideLayout(context);
+    final actionChildren = <Widget>[
+      if (bookmarkColor == null &&
+          onBookmarkSelect != null &&
+          onBookmarkClear != null)
+        ObjectBookmarkControl(
+          color: bookmarkColor,
+          onSelect: onBookmarkSelect!,
+          onClear: onBookmarkClear!,
+        ),
+      if (onAskSecretary != null)
+        AskSecretaryAction(onPressed: onAskSecretary),
+      if (onShowInGraph != null)
+        OpenInGraphAction(onPressed: onShowInGraph),
+    ];
     return ObjectBookmarkRibbon(
       color: bookmarkColor,
       onSelect: onBookmarkSelect,
@@ -1389,27 +1380,49 @@ class _SourceObjectCard extends StatelessWidget {
               ObjectLabelStrip(labels: labels),
               Padding(
                 padding: const EdgeInsets.only(top: AppSpacing.xs),
-                child: Wrap(
-                  spacing: AppSpacing.xs,
-                  children: [
-                    if (onBookmarkSelect != null && onBookmarkClear != null)
-                      ObjectBookmarkControl(
-                        color: bookmarkColor,
-                        onSelect: onBookmarkSelect!,
-                        onClear: onBookmarkClear!,
+                child: wide
+                    ? Row(children: actionChildren)
+                    : Wrap(
+                        spacing: AppSpacing.xs,
+                        children: actionChildren,
                       ),
-                    if (onAskSecretary != null)
-                      AskSecretaryAction(onPressed: onAskSecretary),
-                    if (onShowInGraph != null)
-                      OpenInGraphAction(onPressed: onShowInGraph),
-                  ],
-                ),
               ),
             ],
           ),
         ),
       ),
     ),
+    );
+  }
+}
+
+class _InboxMarkerCardTarget extends StatelessWidget {
+  const _InboxMarkerCardTarget({
+    required this.objectId,
+    required this.onAccept,
+    required this.onHoverChanged,
+    required this.child,
+  });
+
+  final String objectId;
+  final VoidCallback onAccept;
+  final ValueChanged<bool> onHoverChanged;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<String>(
+      key: Key('inbox_review_marker_card_$objectId'),
+      onWillAcceptWithDetails: (details) {
+        final ok = details.data == 'inbox-review-marker';
+        if (ok) {
+          onHoverChanged(true);
+        }
+        return ok;
+      },
+      onLeave: (_) => onHoverChanged(false),
+      onAcceptWithDetails: (_) => onAccept(),
+      builder: (context, candidate, rejected) => child,
     );
   }
 }

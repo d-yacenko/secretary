@@ -12,6 +12,16 @@ const List<String> kBookmarkColorTokens = [
 
 const String kBookmarkClearMenuValue = '__clear__';
 
+const Map<String, String> kBookmarkColorLabels = {
+  'red': 'Красный',
+  'orange': 'Оранжевый',
+  'yellow': 'Жёлтый',
+  'green': 'Зелёный',
+  'blue': 'Синий',
+  'violet': 'Фиолетовый',
+  'gray': 'Серый',
+};
+
 Color bookmarkTokenColor(String token, ColorScheme scheme) {
   switch (token) {
     case 'red':
@@ -52,7 +62,7 @@ List<PopupMenuEntry<String>> bookmarkPaletteEntries({
               ),
             ),
             const SizedBox(width: 8),
-            Text(token),
+            Text(kBookmarkColorLabels[token] ?? token),
           ],
         ),
       ),
@@ -113,6 +123,27 @@ class ObjectBookmarkPaletteButton extends StatelessWidget {
   }
 }
 
+class ObjectBookmarkGlyph extends StatelessWidget {
+  const ObjectBookmarkGlyph({
+    super.key,
+    this.fillColor,
+    this.size = const Size(18, 18),
+  });
+
+  final Color? fillColor;
+  final Size size;
+
+  @override
+  Widget build(BuildContext context) {
+    final outline = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Icon(
+      fillColor == null ? Icons.bookmark_border : Icons.bookmark,
+      size: size.height,
+      color: fillColor ?? outline,
+    );
+  }
+}
+
 class ObjectBookmarkRibbon extends StatelessWidget {
   const ObjectBookmarkRibbon({
     super.key,
@@ -133,17 +164,9 @@ class ObjectBookmarkRibbon extends StatelessWidget {
       return child;
     }
     final tokenColor = bookmarkTokenColor(color!, Theme.of(context).colorScheme);
-    final tab = Container(
+    final tab = ObjectBookmarkGlyph(
       key: const Key('object_bookmark_tab'),
-      width: 10,
-      height: 18,
-      decoration: BoxDecoration(
-        color: tokenColor,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(2),
-          bottomRight: Radius.circular(2),
-        ),
-      ),
+      fillColor: tokenColor,
     );
     final canEdit = onSelect != null && onClear != null;
     return Stack(
@@ -152,12 +175,13 @@ class ObjectBookmarkRibbon extends StatelessWidget {
         child,
         Positioned(
           top: 0,
-          right: 10,
+          right: 8,
           child: canEdit
               ? ObjectBookmarkPaletteButton(
                   color: color,
                   onSelect: onSelect!,
                   onClear: onClear!,
+                  tooltip: 'Закладка',
                   child: tab,
                 )
               : tab,
@@ -186,13 +210,8 @@ class ObjectBookmarkControl extends StatelessWidget {
       color: color,
       onSelect: onSelect,
       onClear: onClear,
-      child: Icon(
-        color == null ? Icons.bookmark_border : Icons.bookmark,
-        size: 18,
-        color: color == null
-            ? Theme.of(context).colorScheme.onSurfaceVariant
-            : bookmarkTokenColor(color!, Theme.of(context).colorScheme),
-      ),
+      tooltip: 'поставить закладку',
+      child: const ObjectBookmarkGlyph(),
     );
   }
 }

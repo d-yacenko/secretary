@@ -8,6 +8,7 @@ import 'assistant/assistant_controller.dart';
 import 'capture/capture_controller.dart';
 import 'graph/graph_workspace_controller.dart';
 import 'navigation/app_route_observer.dart';
+import 'ui/object_bookmark_controller.dart';
 import 'ui/ui_text_scale.dart';
 
 class PersonalSecretaryApp extends StatefulWidget {
@@ -30,6 +31,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   late final CaptureController _captureController;
   late final AssistantController _assistantController;
   late final GraphWorkspaceController _graphController;
+  late final ObjectBookmarkController _bookmarkController;
   late final UiTextScaleController _textScale;
 
   @override
@@ -49,6 +51,10 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
     );
+    _bookmarkController = ObjectBookmarkController(
+      apiClient: widget.authController.apiClient,
+      authController: widget.authController,
+    );
     widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
     _textScale.addListener(_onAuthChanged);
@@ -62,6 +68,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     _captureController.resetSession();
     _assistantController.resetSession();
     _graphController.resetSession();
+    _bookmarkController.resetSession();
     _authSessionNavigator.resetNavigationStack();
   }
 
@@ -80,6 +87,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     _captureController.dispose();
     _assistantController.dispose();
     _graphController.dispose();
+    _bookmarkController.dispose();
     super.dispose();
   }
 
@@ -139,6 +147,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
               captureController: _captureController,
               assistantController: _assistantController,
               graphController: _graphController,
+              bookmarkController: _bookmarkController,
             ),
           ),
         ),

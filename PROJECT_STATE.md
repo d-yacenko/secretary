@@ -2,9 +2,9 @@
 
 ## Current phase
 
-Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **A** at `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`; **A-R1** at `d9d20c24ec0e2c4bbe21e1e024f0f2791ac443ee`; **A-R2 awaiting Architect review** on `review/inbox-workflow-controls-a`. Exact production/base: `71e6573f349a7f6c045c762337252a56d1993d00`. No production deploy. Design Quality Pass C **not started**. Graph Advanced UX **not started**. Encrypted Architect context untouched.
+Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `d824bdfca17bae652e3f3e19042b299475372e08`. **A-R3 Universal Bookmarks & Forgiving Review Marker awaiting Architect review** on `review/inbox-workflow-controls-a`. Exact production/base: `d824bdfca17bae652e3f3e19042b299475372e08`. No new production deploy for A-R3. Design Quality Pass C **NOT STARTED**. Graph bookmark visualization **DEFERRED** (must use the same shared bookmark controller). Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**.
 
-Temporal Correctness B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `71e6573f349a7f6c045c762337252a56d1993d00` (parent `4d05801cc596dfe41244bd689da9524f5ce261a7`). Google recurring production **PASS**. Yandex recurring fallback production **PASS**. Temporal A **CLOSED / DEPLOYED**. Alembic production **`0033 / 0033`**. This branch introduces Alembic **`0034`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`.
+Temporal Correctness B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `71e6573f349a7f6c045c762337252a56d1993d00` (parent `4d05801cc596dfe41244bd689da9524f5ce261a7`). Google recurring production **PASS**. Yandex recurring fallback production **PASS**. Temporal A **CLOSED / DEPLOYED**. Production Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`.
 
 Design Quality Pass B / B-R1: **ACCEPTED / CLOSED / PRODUCTION** at `2c88cb5f18680c699eb11c970e34e3629271a66b`. `/labels/by-objects` live. Proactive **OFF**. Real-user `auto_label_enabled=true`. Android `minSdk` 23.
 

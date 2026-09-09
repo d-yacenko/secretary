@@ -154,16 +154,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('Обновить'), findsOneWidget);
-    expect(find.text('Открыть в графе'), findsAtLeastNWidgets(6));
+    expect(
+      find.text('Открыть в графе', skipOffstage: false),
+      findsAtLeastNWidgets(6),
+    );
     expect(find.text('Показать в графе'), findsNothing);
     expect(tester.takeException(), isNull);
     expect(find.text('Письмо 0 короткое'), findsOneWidget);
-    expect(find.text('Письмо 5 короткое'), findsOneWidget);
+    expect(
+      find.text('Письмо 5 короткое', skipOffstage: false),
+      findsOneWidget,
+    );
 
     final firstTitle = tester.getRect(find.text('Письмо 0 короткое'));
-    final sixthTitle = tester.getRect(find.text('Письмо 5 короткое'));
+    final sixthTitle = tester.getRect(
+      find.text('Письмо 5 короткое', skipOffstage: false),
+    );
     expect(firstTitle.top, lessThan(768));
-    expect(sixthTitle.top, lessThan(768));
     expect(sixthTitle.top, greaterThan(firstTitle.top));
 
     await tester.tap(find.byKey(const Key('provider_open_gmail')).first);

@@ -9,6 +9,7 @@ import '../capture/capture_controller.dart';
 import '../capture/capture_screen.dart';
 import '../inbox/notification_labels.dart';
 import '../objects/object_detail_screen.dart';
+import '../ui/object_bookmark_controller.dart';
 
 typedef AskSecretaryHandler = void Function(SecretaryObject object);
 typedef ShowInGraphHandler = void Function(String objectId);
@@ -29,6 +30,7 @@ Future<ObjectDetailNavigationResult?> openObjectDetail(
   AskSecretaryHandler? onAskSecretary,
   ShowInGraphHandler? onShowInGraph,
   ValueChanged<SecretaryObject>? onTaskUpdated,
+  ObjectBookmarkController? bookmarkController,
 }) {
   return Navigator.of(context).push<ObjectDetailNavigationResult>(
     MaterialPageRoute<ObjectDetailNavigationResult>(
@@ -38,6 +40,7 @@ Future<ObjectDetailNavigationResult?> openObjectDetail(
         authController: authController,
         captureController: captureController,
         assistantController: assistantController,
+        bookmarkController: bookmarkController,
         onAskSecretary: onAskSecretary,
         onShowInGraph: onShowInGraph,
         onTaskUpdated: onTaskUpdated,
@@ -56,6 +59,7 @@ Future<void> openNotificationContext(
   AskSecretaryHandler? onAskSecretary,
   void Function(NotificationOut notification)? onAskSecretaryAboutNotification,
   ShowInGraphHandler? onShowInGraph,
+  ObjectBookmarkController? bookmarkController,
 }) async {
   try {
     if (notification.status == 'new') {
@@ -85,6 +89,7 @@ Future<void> openNotificationContext(
       assistantController: assistantController,
       onAskSecretary: onAskSecretary,
       onShowInGraph: onShowInGraph,
+      bookmarkController: bookmarkController,
     );
     return;
   }

@@ -8,11 +8,11 @@ import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/app_route_observer.dart';
 import '../navigation/secretary_navigation.dart';
-import '../ui/assigned_bookmarks_loader.dart';
 import '../ui/assigned_labels_loader.dart';
 import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_bookmark.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/object_dates.dart';
 import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
@@ -28,6 +28,7 @@ class SearchScreen extends StatefulWidget {
     this.assistantController,
     this.onAskSecretary,
     this.onShowInGraph,
+    this.bookmarkController,
   });
 
   final SecretaryApiClient apiClient;
@@ -36,6 +37,7 @@ class SearchScreen extends StatefulWidget {
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
   final ShowInGraphHandler? onShowInGraph;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -52,12 +54,24 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   SearchFacetsOut? _facets;
   List<LabelItem> _labels = [];
   Map<String, List<LabelItem>> _assignedByObject = {};
-  Map<String, String> _bookmarksByObject = {};
   String? _selectedLabelId;
+  late final ObjectBookmarkController _bookmarks;
+  var _ownsBookmarks = false;
 
   @override
   void initState() {
     super.initState();
+    final provided = widget.bookmarkController;
+    if (provided != null) {
+      _bookmarks = provided;
+    } else {
+      _ownsBookmarks = true;
+      _bookmarks = ObjectBookmarkController(
+        apiClient: widget.apiClient,
+        authController: widget.authController,
+      );
+    }
+    _bookmarks.addListener(_onBookmarksChanged);
     _loadFacets();
     _loadLabels();
   }
@@ -116,9 +130,19 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
 
   @override
   void dispose() {
+    _bookmarks.removeListener(_onBookmarksChanged);
+    if (_ownsBookmarks) {
+      _bookmarks.dispose();
+    }
     appRouteObserver.unsubscribe(this);
     _queryController.dispose();
     super.dispose();
+  }
+
+  void _onBookmarksChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _search() async {
@@ -158,15 +182,10 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         return;
       }
       setState(() => _assignedByObject = assigned);
-      final bookmarks = await loadBookmarksByObjects(
-        apiClient: widget.apiClient,
-        onAuthFailure: widget.authController.handleAuthenticationFailure,
-        objectIds: results.map((item) => item.id),
-      );
+      await _bookmarks.reconcileVisible(results.map((item) => item.id));
       if (!mounted) {
         return;
       }
-      setState(() => _bookmarksByObject = bookmarks);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -180,67 +199,6 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     }
   }
 
-  Future<void> _setBookmark(String objectId, String color) async {
-    final previous = _bookmarksByObject[objectId];
-    setState(() => _bookmarksByObject[objectId] = color);
-    try {
-      final saved = await widget.apiClient.putObjectBookmark(objectId, color);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _bookmarksByObject[objectId] = saved);
-    } on AuthenticationException {
-      widget.authController.handleAuthenticationFailure();
-    } on ApiException {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        if (previous == null) {
-          _bookmarksByObject.remove(objectId);
-        } else {
-          _bookmarksByObject[objectId] = previous;
-        }
-      });
-    }
-  }
-
-  Future<void> _clearBookmark(String objectId) async {
-    final previous = _bookmarksByObject[objectId];
-    setState(() => _bookmarksByObject.remove(objectId));
-    try {
-      await widget.apiClient.deleteObjectBookmark(objectId);
-    } on AuthenticationException {
-      widget.authController.handleAuthenticationFailure();
-    } on ApiException {
-      if (!mounted) {
-        return;
-      }
-      if (previous != null) {
-        setState(() => _bookmarksByObject[objectId] = previous);
-      }
-    }
-  }
-
-  Future<void> _refreshBookmarkFor(String objectId) async {
-    final fetched = await loadBookmarksByObjects(
-      apiClient: widget.apiClient,
-      onAuthFailure: widget.authController.handleAuthenticationFailure,
-      objectIds: [objectId],
-    );
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      final color = fetched[objectId];
-      if (color == null) {
-        _bookmarksByObject.remove(objectId);
-      } else {
-        _bookmarksByObject[objectId] = color;
-      }
-    });
-  }
-
   Future<void> _openObject(SecretaryObject object) async {
     final result = await openObjectDetail(
       context,
@@ -251,6 +209,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
       assistantController: widget.assistantController,
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
+      bookmarkController: _bookmarks,
     );
     if (!mounted) {
       return;
@@ -259,14 +218,12 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
       setState(() {
         _results =
             _results.where((row) => row.id != result.deletedObjectId).toList();
-        _bookmarksByObject.remove(result.deletedObjectId);
         if (_results.isEmpty && _loadState == SearchLoadState.ready) {
           _loadState = SearchLoadState.empty;
         }
       });
-      return;
+      _bookmarks.forget(result.deletedObjectId);
     }
-    await _refreshBookmarkFor(object.id);
   }
 
   @override
@@ -382,9 +339,10 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
                   return _SearchResultTile(
                     object: object,
                     labels: _assignedByObject[object.id] ?? const [],
-                    bookmarkColor: _bookmarksByObject[object.id],
-                    onBookmarkSelect: (color) => _setBookmark(object.id, color),
-                    onBookmarkClear: () => _clearBookmark(object.id),
+                    bookmarkColor: _bookmarks.colorFor(object.id),
+                    onBookmarkSelect: (color) =>
+                        _bookmarks.setColor(object.id, color),
+                    onBookmarkClear: () => _bookmarks.clear(object.id),
                     onTap: () => _openObject(object),
                   );
                 },
@@ -440,6 +398,12 @@ class _SearchResultTile extends StatelessWidget {
                 trailingText: dateLabel,
               ),
               ObjectLabelStrip(labels: labels),
+              if (bookmarkColor == null)
+                ObjectBookmarkControl(
+                  color: bookmarkColor,
+                  onSelect: onBookmarkSelect,
+                  onClear: onBookmarkClear,
+                ),
               if (statusLine.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(

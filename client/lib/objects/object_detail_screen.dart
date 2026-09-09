@@ -19,6 +19,7 @@ import '../ui/domain_labels.dart';
 import '../ui/linkified_text.dart';
 import '../ui/object_actions.dart';
 import '../ui/object_bookmark.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/object_dates.dart';
 import '../ui/object_visuals.dart';
 import '../ui/provider_icon.dart';
@@ -36,6 +37,7 @@ class ObjectDetailScreen extends StatefulWidget {
     this.onAskSecretary,
     this.onShowInGraph,
     this.onTaskUpdated,
+    this.bookmarkController,
   });
 
   final String objectId;
@@ -46,6 +48,7 @@ class ObjectDetailScreen extends StatefulWidget {
   final AskSecretaryHandler? onAskSecretary;
   final ShowInGraphHandler? onShowInGraph;
   final ValueChanged<SecretaryObject>? onTaskUpdated;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<ObjectDetailScreen> createState() => _ObjectDetailScreenState();
@@ -58,16 +61,43 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
   ContextResponse? _context;
   SourceActionPresentation? _sourcePresentation;
   String? _errorMessage;
-  String? _bookmarkColor;
   late final SourceNavigationService _sourceNavigation;
   late final SourceNavigationPresenter _sourcePresenter;
+  late final ObjectBookmarkController _bookmarks;
+  var _ownsBookmarks = false;
 
   @override
   void initState() {
     super.initState();
+    final provided = widget.bookmarkController;
+    if (provided != null) {
+      _bookmarks = provided;
+    } else {
+      _ownsBookmarks = true;
+      _bookmarks = ObjectBookmarkController(
+        apiClient: widget.apiClient,
+        authController: widget.authController,
+      );
+    }
+    _bookmarks.addListener(_onBookmarksChanged);
     _sourceNavigation = SourceNavigationService(apiClient: widget.apiClient);
     _sourcePresenter = SourceNavigationPresenter();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _bookmarks.removeListener(_onBookmarksChanged);
+    if (_ownsBookmarks) {
+      _bookmarks.dispose();
+    }
+    super.dispose();
+  }
+
+  void _onBookmarksChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _load() async {
@@ -115,15 +145,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         _sourcePresentation = sourcePresentation;
         _loadState = ObjectDetailLoadState.ready;
       });
-      try {
-        final bookmarks = await widget.apiClient.bookmarksByObjects([widget.objectId]);
-        if (!mounted) {
-          return;
-        }
-        setState(() => _bookmarkColor = bookmarks[widget.objectId]);
-      } on ApiException {
-        // Bookmark is optional chrome; detail still loads.
-      }
+      await _bookmarks.reconcileVisible([widget.objectId]);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
@@ -225,6 +247,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
       onTaskUpdated: widget.onTaskUpdated,
+      bookmarkController: _bookmarks,
     );
     if (!mounted || result == null) {
       return;
@@ -317,10 +340,15 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
         final object = _object!;
         final primaryDateValue = objectPrimaryDateDisplayValue(object);
         final wide = isWideLayout(context);
+        final bookmarkColor = _bookmarks.colorFor(object.id);
         return SelectionArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
+            child: ObjectBookmarkRibbon(
+              color: bookmarkColor,
+              onSelect: (color) => _bookmarks.setColor(object.id, color),
+              onClear: () => _bookmarks.clear(object.id),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Wrap(
@@ -356,30 +384,13 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                       provenanceStateLabel(object.state),
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
-                  ObjectBookmarkControl(
-                    color: _bookmarkColor,
-                    onSelect: (color) async {
-                      try {
-                        final saved = await widget.apiClient
-                            .putObjectBookmark(object.id, color);
-                        if (mounted) {
-                          setState(() => _bookmarkColor = saved);
-                        }
-                      } on ApiException {
-                        // keep previous
-                      }
-                    },
-                    onClear: () async {
-                      try {
-                        await widget.apiClient.deleteObjectBookmark(object.id);
-                        if (mounted) {
-                          setState(() => _bookmarkColor = null);
-                        }
-                      } on ApiException {
-                        // keep previous
-                      }
-                    },
-                  ),
+                  if (bookmarkColor == null)
+                    ObjectBookmarkControl(
+                      color: bookmarkColor,
+                      onSelect: (color) =>
+                          _bookmarks.setColor(object.id, color),
+                      onClear: () => _bookmarks.clear(object.id),
+                    ),
                 ],
               ),
               if (_sourcePresentation != null) ...[
@@ -520,6 +531,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   ),
                 ),
             ],
+            ),
             ),
           ),
         );

@@ -12,6 +12,7 @@ import '../graph/graph_workspace_controller.dart';
 import '../graph/graph_workspace_screen.dart';
 import '../search/search_screen.dart';
 import '../today/today_screen.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/shell_clock.dart';
 
 const double kShellWideBreakpoint = 600;
@@ -34,12 +35,14 @@ class AppShell extends StatefulWidget {
     required this.captureController,
     required this.assistantController,
     required this.graphController,
+    this.bookmarkController,
   });
 
   final AuthController authController;
   final CaptureController captureController;
   final AssistantController assistantController;
   final GraphWorkspaceController graphController;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -47,6 +50,31 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
+  late final ObjectBookmarkController _bookmarks;
+  var _ownsBookmarks = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final provided = widget.bookmarkController;
+    if (provided != null) {
+      _bookmarks = provided;
+    } else {
+      _ownsBookmarks = true;
+      _bookmarks = ObjectBookmarkController(
+        apiClient: widget.authController.apiClient,
+        authController: widget.authController,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsBookmarks) {
+      _bookmarks.dispose();
+    }
+    super.dispose();
+  }
 
   void _openCapture() {
     openCapture(
@@ -101,6 +129,7 @@ class _AppShellState extends State<AppShell> {
           authController: widget.authController,
           captureController: widget.captureController,
           assistantController: widget.assistantController,
+          bookmarkController: _bookmarks,
           onAskSecretary: _askSecretaryAbout,
           onAskSecretaryAboutNotification: _askSecretaryAboutNotification,
           onShowInGraph: _showInGraph,
@@ -111,6 +140,7 @@ class _AppShellState extends State<AppShell> {
           authController: widget.authController,
           captureController: widget.captureController,
           assistantController: widget.assistantController,
+          bookmarkController: _bookmarks,
           onAskSecretary: _askSecretaryAbout,
           onShowInGraph: _showInGraph,
         );
@@ -120,6 +150,7 @@ class _AppShellState extends State<AppShell> {
           authController: widget.authController,
           captureController: widget.captureController,
           assistantController: widget.assistantController,
+          bookmarkController: _bookmarks,
           onAskSecretary: _askSecretaryAbout,
           onShowInGraph: _showInGraph,
         );
@@ -129,6 +160,7 @@ class _AppShellState extends State<AppShell> {
           apiClient: widget.authController.apiClient,
           authController: widget.authController,
           captureController: widget.captureController,
+          bookmarkController: _bookmarks,
         );
       case ShellDestination.graph:
         return GraphWorkspaceScreen(
@@ -137,6 +169,7 @@ class _AppShellState extends State<AppShell> {
           authController: widget.authController,
           captureController: widget.captureController,
           assistantController: widget.assistantController,
+          bookmarkController: _bookmarks,
           onAskSecretary: _askSecretaryAbout,
         );
     }

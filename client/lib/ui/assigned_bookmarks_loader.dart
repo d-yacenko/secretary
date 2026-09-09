@@ -5,11 +5,7 @@ const int kBookmarksByObjectsMax = 100;
 
 typedef AuthFailure = void Function();
 
-Future<Map<String, String>> loadBookmarksByObjects({
-  required SecretaryApiClient apiClient,
-  required AuthFailure? onAuthFailure,
-  required Iterable<String> objectIds,
-}) async {
+List<String> uniqueObjectIds(Iterable<String> objectIds) {
   final unique = <String>[];
   final seen = <String>{};
   for (final id in objectIds) {
@@ -19,6 +15,15 @@ Future<Map<String, String>> loadBookmarksByObjects({
     }
     unique.add(trimmed);
   }
+  return unique;
+}
+
+Future<Map<String, String>> loadBookmarksByObjects({
+  required SecretaryApiClient apiClient,
+  required AuthFailure? onAuthFailure,
+  required Iterable<String> objectIds,
+}) async {
+  final unique = uniqueObjectIds(objectIds);
   if (unique.isEmpty) {
     return {};
   }

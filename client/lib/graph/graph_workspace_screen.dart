@@ -17,6 +17,7 @@ import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
 import '../ui/object_presentation.dart';
 import '../ui/object_visuals.dart' show providerBadge;
+import '../ui/object_bookmark_controller.dart';
 import 'graph_layout.dart';
 import 'graph_workspace_controller.dart';
 
@@ -29,6 +30,7 @@ class GraphWorkspaceScreen extends StatefulWidget {
     required this.captureController,
     required this.assistantController,
     required this.onAskSecretary,
+    this.bookmarkController,
   });
 
   final GraphWorkspaceController controller;
@@ -37,6 +39,7 @@ class GraphWorkspaceScreen extends StatefulWidget {
   final CaptureController captureController;
   final AssistantController assistantController;
   final void Function(SecretaryObject object) onAskSecretary;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<GraphWorkspaceScreen> createState() => _GraphWorkspaceScreenState();
@@ -500,6 +503,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                     onAskSecretary: widget.onAskSecretary,
                     onShowInGraph: (id) => controller.reRoot(id),
                     onTaskUpdated: controller.applyTaskMutation,
+                    bookmarkController: widget.bookmarkController,
                   );
                   if (!mounted) {
                     return;

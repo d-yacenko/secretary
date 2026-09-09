@@ -13,6 +13,7 @@ import '../capture/capture_controller.dart';
 import '../local/local_intake_actions.dart';
 import '../navigation/secretary_navigation.dart';
 import '../ui/domain_labels.dart';
+import '../ui/object_bookmark_controller.dart';
 import 'assistant_message_body.dart';
 
 class AssistantScreen extends StatefulWidget {
@@ -22,12 +23,14 @@ class AssistantScreen extends StatefulWidget {
     required this.apiClient,
     required this.authController,
     required this.captureController,
+    this.bookmarkController,
   });
 
   final AssistantController controller;
   final SecretaryApiClient apiClient;
   final AuthController authController;
   final CaptureController captureController;
+  final ObjectBookmarkController? bookmarkController;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -172,6 +175,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       onAskSecretary: (object) {
         widget.controller.setObjectContext(object);
       },
+      bookmarkController: widget.bookmarkController,
     );
   }
 
@@ -186,6 +190,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       onAskSecretary: (object) {
         widget.controller.setObjectContext(object);
       },
+      bookmarkController: widget.bookmarkController,
     );
   }
 
