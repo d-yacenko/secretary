@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.yandex.caldav_transport import (
@@ -26,6 +27,7 @@ from app.connectors.yandex.constants import (
     MAX_YANDEX_FALLBACK_RECURRENCE_CANDIDATES,
 )
 from app.connectors.yandex.errors import YandexConnectorError
+from app.db.engine import engine
 from app.db.models import Object
 from app.services.today_service import TodayService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
@@ -831,3 +833,149 @@ def test_recurring_fallback_reports_operational_coverage() -> None:
     assert result.occurrence_set_complete is True
     assert result.occurrence_coverage_min == OP_MIN
     assert result.occurrence_coverage_max == OP_MAX
+
+
+@pytest.fixture
+def autoflush_false_session():
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, autoflush=False)
+    try:
+        yield session
+    finally:
+        session.close()
+        if transaction.is_active:
+            transaction.rollback()
+        connection.close()
+
+
+def _count1_ical(uid: str) -> str:
+    return (
+        "BEGIN:VEVENT\n"
+        f"UID:{uid}\nSUMMARY:Series\n"
+        "DTSTART:20260909T100000Z\nDTEND:20260909T110000Z\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+
+
+def test_autoflush_false_supersession_not_marked_caldav_deleted(
+    autoflush_false_session, credential_key
+) -> None:
+    session = autoflush_false_session
+    _, account = _yandex_account(session, credential_key, email="af-legacy@yandex.ru")
+    href = f"{CALENDAR_HREF}af-legacy.ics"
+    uid = "af-legacy"
+    master_external = build_external_id(CALENDAR_HREF, uid)
+    session.add(
+        Object(
+            user_id=BOOTSTRAP_USER_ID,
+            kind="event",
+            provider="yandex_calendar",
+            external_id=master_external,
+            origin="source",
+            state="observed",
+            title="Legacy master",
+            start_at=datetime(2026, 9, 9, 10, 0, tzinfo=UTC),
+            metadata_={"event_href": href, "event_uid": uid},
+        )
+    )
+    stale = _seed_occurrence(
+        session,
+        href=href,
+        uid=uid,
+        recurrence_id="20260912T100000Z",
+        start_at=datetime(2026, 9, 12, 10, 0, tzinfo=UTC),
+        title="Stale",
+    )
+    session.commit()
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=None)],
+        query_events_by_calendar={
+            CALENDAR_HREF: [CalDavEvent(event_href=href, etag='"a1"', calendar_data=_count1_ical(uid))]
+        },
+    )
+    sync = _sync_service(session, credential_key, transport)
+    result = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    session.expire_all()
+    legacy = session.scalar(select(Object).where(Object.external_id == master_external))
+    assert legacy is not None
+    assert legacy.status == "deleted"
+    assert legacy.metadata_.get("recurrence_master_superseded") is True
+    assert "caldav_deleted" not in (legacy.metadata_ or {})
+    assert "deleted_at" not in (legacy.metadata_ or {})
+    stale = session.scalar(select(Object).where(Object.id == stale.id))
+    assert stale.status == "deleted"
+    assert stale.metadata_.get("caldav_deleted") is True
+    today = session.scalar(
+        select(Object).where(
+            Object.external_id == build_external_id(CALENDAR_HREF, uid, "20260909T100000Z")
+        )
+    )
+    assert today is not None
+    assert today.status != "deleted"
+    assert result["created"] == 1
+    assert result["tombstoned"] == 2
+    assert result["created"] + result["updated"] + result["tombstoned"] == 3
+
+
+def test_autoflush_false_repairs_false_caldav_deleted_on_superseded_master(
+    autoflush_false_session, credential_key
+) -> None:
+    session = autoflush_false_session
+    _, account = _yandex_account(session, credential_key, email="af-repair@yandex.ru")
+    href = f"{CALENDAR_HREF}af-repair.ics"
+    uid = "af-repair"
+    master_external = build_external_id(CALENDAR_HREF, uid)
+    session.add(
+        Object(
+            user_id=BOOTSTRAP_USER_ID,
+            kind="event",
+            provider="yandex_calendar",
+            external_id=master_external,
+            origin="source",
+            state="observed",
+            title="Legacy master",
+            start_at=datetime(2026, 9, 9, 10, 0, tzinfo=UTC),
+            status="deleted",
+            metadata_={
+                "event_href": href,
+                "event_uid": uid,
+                "recurrence_master_superseded": True,
+                "caldav_deleted": True,
+                "deleted_at": "2026-09-09T11:55:16+00:00",
+            },
+        )
+    )
+    occ = _seed_occurrence(
+        session,
+        href=href,
+        uid=uid,
+        recurrence_id="20260909T100000Z",
+        start_at=datetime(2026, 9, 9, 10, 0, tzinfo=UTC),
+        title="Today",
+    )
+    session.commit()
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=None)],
+        query_events_by_calendar={
+            CALENDAR_HREF: [CalDavEvent(event_href=href, etag='"a1"', calendar_data=_count1_ical(uid))]
+        },
+    )
+    sync = _sync_service(session, credential_key, transport)
+    first = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    session.expire_all()
+    legacy = session.scalar(select(Object).where(Object.external_id == master_external))
+    assert legacy.status == "deleted"
+    assert legacy.metadata_.get("recurrence_master_superseded") is True
+    assert "caldav_deleted" not in (legacy.metadata_ or {})
+    assert "deleted_at" not in (legacy.metadata_ or {})
+    kept = session.scalar(select(Object).where(Object.id == occ.id))
+    assert kept.status != "deleted"
+    assert first["tombstoned"] == 1
+    second = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    session.expire_all()
+    legacy = session.scalar(select(Object).where(Object.external_id == master_external))
+    assert legacy.status == "deleted"
+    assert "caldav_deleted" not in (legacy.metadata_ or {})
+    assert second["tombstoned"] == 0
+    assert session.scalar(select(Object).where(Object.id == occ.id)).status != "deleted"

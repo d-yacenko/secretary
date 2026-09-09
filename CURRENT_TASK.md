@@ -1,23 +1,21 @@
-# Current task — Temporal Correctness B-R3-R1 (exact recurrence coverage)
+# Current task — Temporal Correctness B-R3-R2 (autoflush supersession)
 
 ## Status
 
-Production remains frozen at `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`. Do **not** rollback. Do **not** deploy before Architect review.
+Production remains frozen at `4d05801cc596dfe41244bd689da9524f5ce261a7`. Do **not** rollback. Do **not** deploy before Architect review.
 
 Temporal Correctness B Google production acceptance: **PASS**.
 
-Yandex remaining production defect diagnosis: **PROVIDER_UNEXPANDED**.
+Yandex functional production acceptance: **PASS** (PROVIDER_UNEXPANDED fallback; occurrence count=3 is EXPECTED via UNTIL).
 
-B-R3 (accepted architecture): `d3410e846c462acfd9fdfacf6f1a28ada69d6d57`.
-
-B-R3-R1 (this branch): exact occurrence-coverage reconciliation, RFC5545 DURATION, fail-closed multiple RRULE. Awaiting Architect review.
+B-R3-R2 (this branch): production `autoflush=False` legacy-master supersession must not be labeled `caldav_deleted`. Awaiting Architect review.
 
 Do **not** start Inbox Workflow Controls. Do **not** start Design Quality Pass C / Graph Advanced UX.
 
 ## Production
 
-- Exact SHA (still live): `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`
-- Previous production: `10e9d2d290da37489ee7dbfa0902b587d3ca3768`
+- Exact SHA (still live): `4d05801cc596dfe41244bd689da9524f5ce261a7`
+- Previous production: `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`
 - Alembic: **`0033 / 0033`**; **no `0034`**
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval **60**

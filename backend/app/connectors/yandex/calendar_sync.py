@@ -896,6 +896,7 @@ class YandexCalendarSyncService:
             if not resource_completed:
                 completed_all_resources = False
                 break
+            recon_exclude_ids = set(returned_ids)
             if result.recurrence_master_uid:
                 if cap_occurrences and occurrence_budget <= 0:
                     completed_all_resources = False
@@ -904,6 +905,9 @@ class YandexCalendarSyncService:
                     user_id,
                     calendar_href,
                     result.recurrence_master_uid,
+                )
+                recon_exclude_ids.add(
+                    build_external_id(calendar_href, result.recurrence_master_uid)
                 )
                 if tombstoned_legacy:
                     stats.tombstoned += 1
@@ -921,7 +925,7 @@ class YandexCalendarSyncService:
                 removed, missing_complete = self._tombstone_missing_occurrences(
                     user_id=user_id,
                     event_href=raw_event.event_href,
-                    returned_external_ids=returned_ids,
+                    returned_external_ids=recon_exclude_ids,
                     time_min=result.occurrence_coverage_min,
                     time_max=result.occurrence_coverage_max,
                     max_count=occurrence_budget if cap_occurrences else None,
@@ -990,14 +994,26 @@ class YandexCalendarSyncService:
         obj = self._find_existing_event(user_id, external_id)
         if obj is None:
             return False
-        if obj.status == "deleted":
-            return False
         metadata = dict(obj.metadata_ or {})
-        metadata["recurrence_master_superseded"] = True
-        metadata["recurrence_master_superseded_at"] = self._now_factory().isoformat()
-        obj.status = "deleted"
-        obj.metadata_ = metadata
-        return True
+        changed = False
+        if obj.status != "deleted":
+            metadata["recurrence_master_superseded"] = True
+            metadata["recurrence_master_superseded_at"] = self._now_factory().isoformat()
+            metadata.pop("caldav_deleted", None)
+            metadata.pop("deleted_at", None)
+            obj.status = "deleted"
+            changed = True
+        elif metadata.get("recurrence_master_superseded") is True:
+            if metadata.get("caldav_deleted") is True or "deleted_at" in metadata:
+                metadata.pop("caldav_deleted", None)
+                metadata.pop("deleted_at", None)
+                changed = True
+        else:
+            return False
+        if changed:
+            obj.metadata_ = metadata
+            self._session.flush()
+        return changed
 
     def _merge_stats(self, totals: _BatchStats, batch: _BatchStats) -> None:
         totals.synchronized += batch.synchronized
