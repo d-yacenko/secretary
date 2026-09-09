@@ -228,7 +228,7 @@ def test_effective_history_user_a_seven_user_b_default(
     )
     service_a = _build_service(db_session, credential_key, oauth_client_file, fake_http, days_back=7)
     service_a.sync_account(account_a.id, BOOTSTRAP_USER_ID)
-    expected_a_min = FIXED_NOW - timedelta(days=7)
+    expected_a_min = FIXED_NOW - timedelta(days=1)
     assert captured[0]["timeMin"].startswith(expected_a_min.strftime("%Y-%m-%d"))
 
     captured.clear()
@@ -240,7 +240,7 @@ def test_effective_history_user_a_seven_user_b_default(
         days_back=settings.calendar_sync_days_back,
     )
     service_b.sync_account(account_b.id, user_b_id)
-    expected_b_min = FIXED_NOW - timedelta(days=settings.calendar_sync_days_back)
+    expected_b_min = FIXED_NOW - timedelta(days=1)
     assert captured[0]["timeMin"].startswith(expected_b_min.strftime("%Y-%m-%d"))
 
 

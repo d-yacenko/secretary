@@ -222,6 +222,10 @@ def normalize_caldav_events(
             continue
 
         recurrence_id = fields.get("RECURRENCE-ID")
+        # Unexpanded recurring masters (RRULE, no RECURRENCE-ID) are not
+        # occurrence Objects. Expansion must come from CalDAV c:expand.
+        if fields.get("RRULE") and not recurrence_id:
+            continue
         start_at = _parse_ical_datetime_value(fields.get("DTSTART", ""), params.get("DTSTART", {}))
         end_at = _parse_ical_datetime_value(fields.get("DTEND", ""), params.get("DTEND", {}))
         if (

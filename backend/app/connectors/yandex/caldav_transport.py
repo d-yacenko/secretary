@@ -182,6 +182,8 @@ class CalDavTransport(Protocol):
         time_min: datetime,
         time_max: datetime,
         max_results: int,
+        expand_min: datetime | None = None,
+        expand_max: datetime | None = None,
     ) -> CalDavFetchResult:
         ...
 
@@ -360,6 +362,8 @@ class CalDavHttpTransport:
         time_min: datetime,
         time_max: datetime,
         max_results: int,
+        expand_min: datetime | None = None,
+        expand_max: datetime | None = None,
     ) -> CalDavFetchResult:
         refs, sync_token, deleted, truncated = self._query_event_refs(
             calendar_href=calendar_href,
@@ -370,8 +374,8 @@ class CalDavHttpTransport:
         events = self._multiget_events(
             calendar_href=calendar_href,
             refs=refs,
-            time_min=time_min,
-            time_max=time_max,
+            time_min=expand_min or time_min,
+            time_max=expand_max or time_max,
         )
         return CalDavFetchResult(
             events=events,
@@ -667,6 +671,8 @@ class FakeCalDavTransport:
         time_min: datetime,
         time_max: datetime,
         max_results: int,
+        expand_min: datetime | None = None,
+        expand_max: datetime | None = None,
     ) -> CalDavFetchResult:
         self._check_tx()
         self.query_calls.append(calendar_href)

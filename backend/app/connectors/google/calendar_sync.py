@@ -25,6 +25,10 @@ from app.connectors.google.constants import (
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
     DEFAULT_CALENDAR_SYNC_DAYS_FORWARD,
     DEFAULT_CALENDAR_SYNC_MAX_EVENTS,
+    LIVE_CALENDAR_LOOKBACK_DAYS,
+    LIVE_CALENDAR_MAX_PAGES_PER_CALENDAR,
+    LIVE_CALENDAR_PAGE_SIZE,
+    LIVE_COVERAGE_STATE_KEY,
     MAX_CALENDAR_SYNC_CALENDARS,
     MAX_CALENDAR_SYNC_EVENTS,
 )
@@ -39,6 +43,17 @@ from app.services.job_queue_service import JobQueueService
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _cancelled_status(value: object) -> bool:
+    status = str(value or "").strip().lower()
+    return status in {"cancelled", "canceled"}
+
+
+def _fair_calendar_quota(remaining: int, calendars_left: int) -> int:
+    if remaining <= 0 or calendars_left <= 0:
+        return 0
+    return max(1, remaining // calendars_left)
 
 
 class CalendarSyncService:
@@ -104,6 +119,8 @@ class CalendarSyncService:
             )
 
         live_stats = self._run_live_pass(
+            account_id=account_id,
+            user_id=user_id,
             owner_user_id=owner_user_id,
             access_token=access_token,
             calendar_entries=calendar_entries,
@@ -132,16 +149,25 @@ class CalendarSyncService:
             "jobs_enqueued": live_stats["jobs_enqueued"],
         }
 
+    def _live_operational_window(self) -> tuple[datetime, datetime]:
+        now = utcnow()
+        return (
+            now - timedelta(days=LIVE_CALENDAR_LOOKBACK_DAYS),
+            now + timedelta(days=self._days_forward),
+        )
+
     def _run_live_pass(
         self,
         *,
+        account_id: UUID,
+        user_id: UUID,
         owner_user_id: UUID,
         access_token: str,
         calendar_entries: list[tuple[str, str | None]],
         effective_limit: int,
     ) -> dict[str, int]:
-        time_min = utcnow() - timedelta(days=self._days_back)
-        time_max = utcnow() + timedelta(days=self._days_forward)
+        time_min, time_max = self._live_operational_window()
+        window_id = f"{time_min.isoformat()}|{time_max.isoformat()}"
 
         created = 0
         updated = 0
@@ -149,31 +175,81 @@ class CalendarSyncService:
         synchronized = 0
         unchanged = 0
         remaining = effective_limit
+        calendar_state = self._account_store.get_calendar_sync_state(account_id, user_id)
+        live_state = dict(calendar_state.get(LIVE_COVERAGE_STATE_KEY) or {})
+        if not isinstance(live_state, dict):
+            live_state = {}
+        calendars_live = dict(live_state.get("calendars") or {})
+        if not isinstance(calendars_live, dict):
+            calendars_live = {}
 
-        for calendar_id, calendar_summary in calendar_entries:
-            if remaining <= 0:
-                break
+        calendar_count = len(calendar_entries)
+        for index, (calendar_id, calendar_summary) in enumerate(calendar_entries):
+            quota = _fair_calendar_quota(remaining, calendar_count - index)
+            if quota <= 0:
+                continue
             self._session.commit()
-            raw_events = self._transport.list_events(
-                access_token=access_token,
-                calendar_id=calendar_id,
-                time_min=time_min,
-                time_max=time_max,
-                max_results=remaining,
-            )
-            stats = self._materialize_calendar_events(
-                raw_events=raw_events,
-                owner_user_id=owner_user_id,
-                calendar_id=calendar_id,
-                calendar_summary=calendar_summary,
-                remaining=remaining,
-            )
-            created += stats["created"]
-            updated += stats["updated"]
-            jobs_enqueued += stats["jobs_enqueued"]
-            synchronized += stats["synchronized"]
-            unchanged += stats["unchanged"]
-            remaining -= stats["processed"]
+            stored = dict(calendars_live.get(calendar_id) or {})
+            page_token = None
+            if stored.get("window_id") == window_id:
+                raw_token = stored.get("next_page_token")
+                page_token = str(raw_token) if raw_token else None
+
+            processed_for_calendar = 0
+            pages = 0
+            next_token = page_token
+            while processed_for_calendar < quota and pages < LIVE_CALENDAR_MAX_PAGES_PER_CALENDAR:
+                page_size = min(
+                    LIVE_CALENDAR_PAGE_SIZE,
+                    quota - processed_for_calendar,
+                    remaining - processed_for_calendar,
+                )
+                if page_size <= 0:
+                    break
+                pages += 1
+                page = self._transport.list_events_page(
+                    access_token=access_token,
+                    calendar_id=calendar_id,
+                    time_min=time_min,
+                    time_max=time_max,
+                    max_results=page_size,
+                    page_token=next_token,
+                    show_deleted=True,
+                )
+                stats = self._materialize_calendar_events(
+                    raw_events=page.events,
+                    owner_user_id=owner_user_id,
+                    calendar_id=calendar_id,
+                    calendar_summary=calendar_summary,
+                    remaining=page_size,
+                )
+                created += stats["created"]
+                updated += stats["updated"]
+                jobs_enqueued += stats["jobs_enqueued"]
+                synchronized += stats["synchronized"]
+                unchanged += stats["unchanged"]
+                processed_for_calendar += stats["processed"]
+                next_token = page.next_page_token
+                if not next_token:
+                    break
+                if len(page.events) < page_size:
+                    next_token = None
+                    break
+
+            remaining -= processed_for_calendar
+            if next_token:
+                calendars_live[calendar_id] = {
+                    "window_id": window_id,
+                    "next_page_token": next_token,
+                }
+            else:
+                calendars_live.pop(calendar_id, None)
+
+        live_state["calendars"] = calendars_live
+        live_state["window_id"] = window_id
+        calendar_state[LIVE_COVERAGE_STATE_KEY] = live_state
+        self._account_store.update_calendar_sync_state(account_id, user_id, calendar_state)
+        self._session.commit()
 
         return {
             "synchronized": synchronized,
@@ -288,6 +364,8 @@ class CalendarSyncService:
         for raw_event in raw_events:
             if remaining <= 0:
                 break
+            if not str(raw_event.get("id") or "").strip():
+                continue
             normalized = normalize_calendar_event(
                 raw_event,
                 calendar_id=calendar_id,
@@ -296,10 +374,29 @@ class CalendarSyncService:
             existing = self._find_existing_calendar_object(
                 owner_user_id, normalized["external_id"]
             )
+            cancelled = _cancelled_status((normalized.get("metadata") or {}).get("status"))
 
             if existing is not None and passive_sync_should_skip_existing(existing):
                 synchronized += 1
                 unchanged += 1
+                continue
+
+            if cancelled:
+                if existing is None:
+                    continue
+                if existing.status != "deleted":
+                    self._apply_normalized_calendar_object(existing, normalized)
+                    updated += 1
+                    synchronized += 1
+                    processed += 1
+                    remaining -= 1
+                    self._session.commit()
+                else:
+                    synchronized += 1
+                    unchanged += 1
+                    processed += 1
+                    remaining -= 1
+                    self._session.commit()
                 continue
 
             if existing is None:
@@ -372,6 +469,8 @@ class CalendarSyncService:
         )
 
     def _calendar_object_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
+        if obj.status == "deleted":
+            return True
         if obj.title != normalized["title"]:
             return True
         if obj.body != normalized.get("body"):
@@ -389,6 +488,10 @@ class CalendarSyncService:
         obj.due_at = normalized.get("due_at")
         obj.occurred_at = normalized.get("occurred_at")
         obj.metadata_ = normalized["metadata"]
+        if _cancelled_status((normalized.get("metadata") or {}).get("status")):
+            obj.status = "deleted"
+        else:
+            obj.status = None
 
 
 def build_calendar_sync_service(

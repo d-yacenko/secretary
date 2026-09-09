@@ -261,7 +261,7 @@ def test_direct_endpoint_live_only_no_history_query(
         response = client.post(f"/connectors/yandex/calendar/sync?account_id={account.id}")
     app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert len(transport.query_calls) == 0
+    assert len(transport.query_calls) == 1
 
 
 def test_worker_live_before_history_query(
@@ -303,7 +303,7 @@ def test_worker_live_before_history_query(
     transport.query_events = track_query
     service = _build_service(db_session, credential_key, transport)
     service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
-    assert call_order.index("sync_collection") < call_order.index("query_events")
+    assert call_order == ["query_events", "sync_collection", "query_events"]
 
 
 def test_legacy_missing_start_incremental_then_history(
@@ -603,7 +603,7 @@ def test_history_decrease_abandons_active_before_provider(
     )
     service = _build_service(db_session, credential_key, transport, days_back=14)
     service.sync_account(account.id, BOOTSTRAP_USER_ID, include_history_pass=True)
-    assert transport.query_calls == []
+    assert transport.query_calls == [CALENDAR_HREF]
     store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
     state = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID).sync_state["calendars"][CALENDAR_HREF]
     assert state.get("history_backfill_cursor") is None

@@ -42,6 +42,7 @@ class CalendarTransport:
         time_max: datetime,
         max_results: int,
         page_token: str | None = None,
+        show_deleted: bool = False,
     ) -> CalendarEventPage:
         encoded_calendar_id = quote(calendar_id, safe="")
         params: dict[str, object] = {
@@ -51,6 +52,8 @@ class CalendarTransport:
             "singleEvents": "true",
             "orderBy": "startTime",
         }
+        if show_deleted:
+            params["showDeleted"] = "true"
         if page_token is not None:
             params["pageToken"] = page_token
         response = self._http.get(

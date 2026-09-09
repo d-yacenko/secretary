@@ -40,6 +40,7 @@ from app.connectors.yandex.constants import (
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
     DEFAULT_CALENDAR_SYNC_DAYS_FORWARD,
     DEFAULT_CALENDAR_SYNC_LIMIT,
+    LIVE_CALENDAR_LOOKBACK_DAYS,
     MAX_CALENDAR_SYNC_CALENDARS,
     MAX_CALENDAR_SYNC_DAYS_BACK,
     MAX_CALENDAR_SYNC_DAYS_FORWARD,
@@ -53,6 +54,17 @@ from app.services.job_queue_service import JobQueueService
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _cancelled_status(value: object) -> bool:
+    status = str(value or "").strip().lower()
+    return status in {"cancelled", "canceled"}
+
+
+def _fair_calendar_quota(remaining: int, calendars_left: int) -> int:
+    if remaining <= 0 or calendars_left <= 0:
+        return 0
+    return max(1, remaining // calendars_left)
 
 
 @dataclass
@@ -134,19 +146,35 @@ class YandexCalendarSyncService:
         }
 
         totals = _BatchStats()
+        calendar_count = len(calendars)
 
-        for calendar in calendars:
-            if occurrence_budget <= 0:
-                break
+        for index, calendar in enumerate(calendars):
+            allocated = _fair_calendar_quota(occurrence_budget, calendar_count - index)
+            if allocated <= 0:
+                continue
 
             calendar_href = calendar.href
             stored = dict(calendar_state.get(calendar_href, {}))
             calendar_summary = calendar.display_name or stored.get("display_name")
+            quota = allocated
+
+            batch_stats, quota, stored, _operational_hit = self._sync_operational_calendar(
+                transport=transport,
+                snapshot=snapshot,
+                calendar_href=calendar_href,
+                stored=stored,
+                calendar_summary=calendar_summary,
+                window_min=window_min,
+                window_max=window_max,
+                occurrence_budget=quota,
+            )
+            self._merge_stats(totals, batch_stats)
 
             if stored.get("sync_token"):
                 if not stored.get("covered_window_end"):
                     stored["covered_window_end"] = window_max.isoformat()
-                batch_stats, occurrence_budget, stored = self._sync_steady_state_calendar(
+                incremental_quota = quota if quota > 0 else 1
+                batch_stats, incremental_remaining, stored = self._sync_steady_state_calendar(
                     transport=transport,
                     snapshot=snapshot,
                     account_id=account_id,
@@ -158,10 +186,13 @@ class YandexCalendarSyncService:
                     calendar_summary=calendar_summary,
                     window_min=window_min,
                     window_max=window_max,
-                    occurrence_budget=occurrence_budget,
+                    occurrence_budget=incremental_quota,
                 )
-            else:
-                batch_stats, occurrence_budget, stored = self._sync_backfill_calendar(
+                self._merge_stats(totals, batch_stats)
+                if quota > 0:
+                    quota = incremental_remaining
+            elif quota > 0:
+                batch_stats, quota, stored = self._sync_backfill_calendar(
                     transport=transport,
                     snapshot=snapshot,
                     calendar=calendar,
@@ -170,10 +201,12 @@ class YandexCalendarSyncService:
                     calendar_summary=calendar_summary,
                     window_min=window_min,
                     window_max=window_max,
-                    occurrence_budget=occurrence_budget,
+                    occurrence_budget=quota,
                 )
+                self._merge_stats(totals, batch_stats)
 
-            self._merge_stats(totals, batch_stats)
+            consumed = allocated - quota
+            occurrence_budget = max(0, occurrence_budget - consumed)
             if calendar_summary:
                 stored["display_name"] = calendar_summary
             calendar_state[calendar_href] = stored
@@ -211,6 +244,49 @@ class YandexCalendarSyncService:
     def _sync_window(self) -> tuple[datetime, datetime]:
         now = self._now_factory()
         return now - timedelta(days=self._days_back), now + timedelta(days=self._days_forward)
+
+    def _operational_window(self) -> tuple[datetime, datetime]:
+        now = self._now_factory()
+        return (
+            now - timedelta(days=LIVE_CALENDAR_LOOKBACK_DAYS),
+            now + timedelta(days=self._days_forward),
+        )
+
+    def _sync_operational_calendar(
+        self,
+        transport: CalDavTransport,
+        snapshot: YandexCalendarSyncSnapshot,
+        calendar_href: str,
+        stored: dict[str, Any],
+        calendar_summary: str | None,
+        window_min: datetime,
+        window_max: datetime,
+        occurrence_budget: int,
+    ) -> tuple[_BatchStats, int, dict[str, Any], bool]:
+        op_min, op_max = self._operational_window()
+        self._session.commit()
+        fetch_result = transport.query_events(
+            calendar_href=calendar_href,
+            time_min=window_min,
+            time_max=window_max,
+            max_results=self._max_limit,
+            expand_min=op_min,
+            expand_max=op_max,
+        )
+        apply_result = self._apply_fetch_batch(
+            user_id=snapshot.user_id,
+            fetch_result=fetch_result,
+            calendar_href=calendar_href,
+            calendar_summary=calendar_summary,
+            time_min=op_min,
+            time_max=op_max,
+            cap_occurrences=True,
+            occurrence_budget=occurrence_budget,
+            reconcile_occurrences=True,
+        )
+        occurrence_budget -= apply_result.stats.budget_consumed
+        operational_hit = bool(fetch_result.events)
+        return apply_result.stats, occurrence_budget, stored, operational_hit
 
     def _persist_calendar_state(
         self,
@@ -414,26 +490,6 @@ class YandexCalendarSyncService:
         occurrence_budget: int,
     ) -> tuple[_BatchStats, int, dict[str, Any]]:
         totals = _BatchStats()
-        covered_end = self._parse_iso_datetime(stored.get("covered_window_end")) or window_max
-
-        if window_max > covered_end:
-            reconcile_start = covered_end - timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
-            reconcile_start = max(reconcile_start, window_min)
-            batch_stats, occurrence_budget, stored = self._run_bounded_reconciliation(
-                transport=transport,
-                snapshot=snapshot,
-                calendar_href=calendar_href,
-                stored=stored,
-                calendar_summary=calendar_summary,
-                range_start=reconcile_start,
-                range_end=window_max,
-                occurrence_budget=occurrence_budget,
-                establish_token_on_complete=False,
-            )
-            self._merge_stats(totals, batch_stats)
-            if not stored.get("backfill_cursor"):
-                stored["covered_window_end"] = window_max.isoformat()
-
         if occurrence_budget > 0 and stored.get("sync_token"):
             batch_stats, occurrence_budget, stored = self._sync_incremental_calendar(
                 transport=transport,
@@ -700,6 +756,8 @@ class YandexCalendarSyncService:
                 elif change == "updated":
                     stats.updated += 1
                     stats.jobs_enqueued += 1
+                elif change == "tombstoned":
+                    stats.tombstoned += 1
                 else:
                     stats.unchanged += 1
                 if change != "unchanged":
@@ -769,8 +827,17 @@ class YandexCalendarSyncService:
 
     def _upsert_event(self, user_id: UUID, normalized: dict[str, Any]) -> str:
         existing = self._find_existing_event(user_id, normalized["external_id"])
+        cancelled = _cancelled_status((normalized.get("metadata") or {}).get("status"))
         if existing is not None and passive_sync_should_skip_existing(existing):
             return "unchanged"
+        if cancelled:
+            if existing is None:
+                return "unchanged"
+            if existing.status == "deleted":
+                return "unchanged"
+            self._apply_normalized_event(existing, normalized)
+            existing.status = "deleted"
+            return "tombstoned"
         if existing is None:
             obj = Object(
                 user_id=user_id,
@@ -892,7 +959,10 @@ class YandexCalendarSyncService:
         obj.due_at = normalized.get("due_at")
         obj.occurred_at = normalized.get("occurred_at")
         obj.metadata_ = normalized["metadata"]
-        obj.status = None
+        if _cancelled_status((normalized.get("metadata") or {}).get("status")):
+            obj.status = "deleted"
+        else:
+            obj.status = None
 
     def _parse_iso_datetime(self, value: str | None) -> datetime | None:
         if not value:

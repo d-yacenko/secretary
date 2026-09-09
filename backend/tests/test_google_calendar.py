@@ -84,20 +84,22 @@ def _sample_calendar_event(
     summary: str = "Team sync",
     description: str = "Discuss roadmap",
 ) -> dict:
+    start = utcnow() + timedelta(hours=1)
+    end = start + timedelta(hours=1)
     return {
         "id": event_id,
         "status": "confirmed",
         "summary": summary,
         "description": description,
-        "start": {"dateTime": "2026-08-29T10:00:00+02:00"},
-        "end": {"dateTime": "2026-08-29T11:00:00+02:00"},
+        "start": {"dateTime": start.isoformat()},
+        "end": {"dateTime": end.isoformat()},
         "location": "Room A",
         "htmlLink": "https://calendar.google.com/event?eid=evt-1",
         "organizer": {"email": "owner@example.com"},
         "attendees": [
             {"email": "guest@example.com", "responseStatus": "accepted"},
         ],
-        "updated": "2026-08-28T08:00:00Z",
+        "updated": utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
 
