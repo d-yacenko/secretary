@@ -1,4 +1,4 @@
-# Current task — Temporal Correctness B-R3 (Yandex recurrence fallback)
+# Current task — Temporal Correctness B-R3-R1 (exact recurrence coverage)
 
 ## Status
 
@@ -6,9 +6,11 @@ Production remains frozen at `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`. Do **no
 
 Temporal Correctness B Google production acceptance: **PASS**.
 
-Yandex remaining production defect diagnosis: **PROVIDER_UNEXPANDED** (resource-specific; calendar-query/multiget/`c:expand` succeed, but this weekly resource returns an RRULE master with zero RECURRENCE-ID occurrences).
+Yandex remaining production defect diagnosis: **PROVIDER_UNEXPANDED**.
 
-B-R3 (this branch): bounded **python-dateutil** Yandex connector fallback for that shape. Awaiting Architect review.
+B-R3 (accepted architecture): `d3410e846c462acfd9fdfacf6f1a28ada69d6d57`.
+
+B-R3-R1 (this branch): exact occurrence-coverage reconciliation, RFC5545 DURATION, fail-closed multiple RRULE. Awaiting Architect review.
 
 Do **not** start Inbox Workflow Controls. Do **not** start Design Quality Pass C / Graph Advanced UX.
 

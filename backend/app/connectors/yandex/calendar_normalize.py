@@ -8,6 +8,7 @@ from app.connectors.yandex.calendar_recurrence import (
     apply_duration,
     build_rruleset,
     occurrences_in_window,
+    parse_rfc5545_duration,
     serialize_recurrence_id,
 )
 from app.connectors.yandex.constants import MAX_EVENT_BODY_CHARS
@@ -160,6 +161,18 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
         if name == "RDATE":
             rdates.append((params, value))
             continue
+        if name == "RRULE":
+            if "RRULE" in fields:
+                raise YandexConnectorError("multiple RRULE properties in one VEVENT")
+            fields[name] = value
+            property_params[name] = params
+            continue
+        if name == "DURATION":
+            if "DURATION" in fields:
+                raise YandexConnectorError("multiple DURATION properties in one VEVENT")
+            fields[name] = value
+            property_params[name] = params
+            continue
         if name in {
             "UID",
             "SUMMARY",
@@ -170,7 +183,6 @@ def _parse_vevent_block(block: str) -> dict[str, Any]:
             "STATUS",
             "LAST-MODIFIED",
             "RECURRENCE-ID",
-            "RRULE",
             "ORGANIZER",
         }:
             fields[name] = value
@@ -315,12 +327,37 @@ def _align_recurrence_datetime(value: datetime, tzid: str | None) -> datetime:
     return value.astimezone(zone)
 
 
+def _master_occurrence_duration(
+    *,
+    master_start: datetime,
+    master_end: datetime | None,
+    duration_raw: str | None,
+    all_day: bool,
+) -> timedelta:
+    has_end = master_end is not None
+    has_duration = bool(duration_raw)
+    if has_end and has_duration:
+        raise YandexConnectorError("VEVENT must not include both DTEND and DURATION")
+    if has_end:
+        duration = master_end - master_start
+        if duration.total_seconds() < 0:
+            raise YandexConnectorError("invalid DTEND before DTSTART")
+        return duration
+    if has_duration:
+        return parse_rfc5545_duration(duration_raw or "")
+    if all_day:
+        return timedelta(days=1)
+    return timedelta(0)
+
+
 @dataclass
 class CalDavNormalizeResult:
     events: list[dict[str, Any]]
     occurrence_set_complete: bool
     recurrence_master_uid: str | None = None
     used_fallback: bool = False
+    occurrence_coverage_min: datetime | None = None
+    occurrence_coverage_max: datetime | None = None
 
 
 def normalize_caldav_resource(
@@ -379,7 +416,12 @@ def normalize_caldav_resource(
                     include_rrule=False,
                 )
             )
-        return CalDavNormalizeResult(events=events, occurrence_set_complete=True)
+        return CalDavNormalizeResult(
+            events=events,
+            occurrence_set_complete=True,
+            occurrence_coverage_min=time_min,
+            occurrence_coverage_max=time_max,
+        )
 
     if len(masters) > 1:
         raise YandexConnectorError("multiple RRULE masters in one calendar resource")
@@ -410,7 +452,7 @@ def normalize_caldav_resource(
                     include_rrule=False,
                 )
             )
-        return CalDavNormalizeResult(events=events, occurrence_set_complete=True)
+        return CalDavNormalizeResult(events=events, occurrence_set_complete=False)
 
     master = masters[0]
     master_fields = master["fields"]
@@ -422,8 +464,13 @@ def normalize_caldav_resource(
     master_end = _parse_ical_datetime_value(master_fields.get("DTEND", ""), master_params.get("DTEND", {}))
     if master_start is None:
         raise YandexConnectorError("recurring master DTSTART is missing or invalid")
-    duration = (master_end - master_start) if master_end is not None else timedelta(hours=1)
     all_day, tzid, utc_dtstart = _dtstart_identity_flags(dtstart_params, dtstart_raw)
+    duration = _master_occurrence_duration(
+        master_start=master_start,
+        master_end=master_end,
+        duration_raw=master_fields.get("DURATION"),
+        all_day=all_day,
+    )
     rule_start = _align_recurrence_datetime(master_start, tzid)
     exdates = [
         _align_recurrence_datetime(item, tzid)
@@ -575,6 +622,8 @@ def normalize_caldav_resource(
         occurrence_set_complete=True,
         recurrence_master_uid=master_uid,
         used_fallback=use_fallback,
+        occurrence_coverage_min=expand_min,
+        occurrence_coverage_max=expand_max,
     )
 
 

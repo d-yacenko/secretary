@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Temporal Correctness B production `7d9adef7a79c0d926effaa9ca14dcb2bc0052965` remains live (Google production acceptance **PASS**). Yandex diagnosis **PROVIDER_UNEXPANDED**. B-R3 Yandex standards-based recurrence fallback is in review on `review/temporal-correctness-recurring-calendar-b`; **do not deploy** before Architect review. Temporal A **CLOSED / DEPLOYED**. Alembic **`0033 / 0033`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`. Inbox Workflow Controls / Design Quality Pass C / Graph **not started**. Encrypted Architect context untouched.
+Temporal Correctness B production `7d9adef7a79c0d926effaa9ca14dcb2bc0052965` remains live (Google production acceptance **PASS**). Yandex diagnosis **PROVIDER_UNEXPANDED**. B-R3 `d3410e846c462acfd9fdfacf6f1a28ada69d6d57`. B-R3-R1 exact recurrence coverage reconciliation is in review on `review/temporal-correctness-recurring-calendar-b`; **do not deploy** before Architect review. Temporal A **CLOSED / DEPLOYED**. Alembic **`0033 / 0033`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`. Inbox Workflow Controls / Design Quality Pass C / Graph **not started**. Encrypted Architect context untouched.
 
 Design Quality Pass B / B-R1: **ACCEPTED / CLOSED / PRODUCTION** at `2c88cb5f18680c699eb11c970e34e3629271a66b`. `/labels/by-objects` live. Proactive **OFF**. Real-user `auto_label_enabled=true`. Android `minSdk` 23.
 
@@ -411,7 +411,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - Production application SHA: `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B Google production **PASS** at `7d9adef7` (still live); Yandex diagnosis **PROVIDER_UNEXPANDED**; B-R3 fallback **in review, not deployed**; Inbox Workflow Controls **not started**; Design Quality Pass C **not started**; Graph Advanced UX **later**
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B Google production **PASS** at `7d9adef7` (still live); Yandex diagnosis **PROVIDER_UNEXPANDED**; B-R3 `d3410e846`; B-R3-R1 **in review, not deployed**; Inbox Workflow Controls **not started**; Design Quality Pass C **not started**; Graph Advanced UX **later**
 - Alembic on production: **`0033 / 0033`** (current/head); no `0034`
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -423,7 +423,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Design Quality Pass A/A-R1: `a5e31ab2a91e99c657f73f4dac525f961f3c9f69` (included in B production)
 - Design Quality Pass B / B-R1: `2c88cb5f18680c699eb11c970e34e3629271a66b` (**PRODUCTION**)
 - Temporal Correctness A: `10e9d2d290da37489ee7dbfa0902b587d3ca3768` (**CLOSED / DEPLOYED**; Inbox infinite scroll production-confirmed)
-- Temporal Correctness B — Recurring Calendar Materialization & Today: `7d9adef7a79c0d926effaa9ca14dcb2bc0052965` (**PRODUCTION**, Google Today PASS; Yandex PROVIDER_UNEXPANDED; B-R3 fallback on review branch, not deployed; lineage `df9ea214` → `99e03c89` → `7d9adef7`)
+- Temporal Correctness B — Recurring Calendar Materialization & Today: `7d9adef7a79c0d926effaa9ca14dcb2bc0052965` (**PRODUCTION**, Google Today PASS; Yandex PROVIDER_UNEXPANDED; B-R3 `d3410e846`; B-R3-R1 on review branch, not deployed; lineage `df9ea214` → `99e03c89` → `7d9adef7`)
 - Next after Temporal B (not implemented): Inbox Workflow Controls — Review Marker (persisted cross-device read/reviewed boundary on stable Inbox order; mouse/touch drag) & Manual Bookmarks (any Object kind; ~6–7 colors; subjective annotation only; no LLM/auto-label/Proactive meaning; separate from Labels)
 - Design Quality Pass C: **after Workflow Controls** (thin dense cards, right-edge timestamps, date balloon separators, labels density, marker/bookmark visuals, Linux/Android QA) — **not started**
 - Android minSdk: `23`
@@ -509,4 +509,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Temporal Correctness B-R3 (Yandex dateutil recurrence fallback). Production stays on `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`. Do not deploy, rollback, or start Inbox Workflow Controls, Design Quality Pass C, or Graph Advanced UX.
+Await Architect review of Temporal Correctness B-R3-R1 (exact recurrence coverage reconciliation). Production stays on `7d9adef7a79c0d926effaa9ca14dcb2bc0052965`. Do not deploy, rollback, or start Inbox Workflow Controls, Design Quality Pass C, or Graph Advanced UX.

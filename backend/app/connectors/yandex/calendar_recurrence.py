@@ -1,5 +1,6 @@
 """Bounded RFC5545 occurrence expansion via python-dateutil."""
 
+import re
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -91,3 +92,37 @@ def occurrences_in_window(
 
 def apply_duration(start: datetime, duration: timedelta) -> datetime:
     return start + duration
+
+
+_DURATION_WEEK = re.compile(r"^\+?P(\d+)W$")
+_DURATION_DATE_TIME = re.compile(
+    r"^\+?P(?:(\d+)D)?(?:T(?=\d)(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$"
+)
+
+
+def parse_rfc5545_duration(raw: str) -> timedelta:
+    value = (raw or "").strip().upper()
+    if not value or value.startswith("-"):
+        raise YandexConnectorError("malformed DURATION")
+    week_match = _DURATION_WEEK.fullmatch(value)
+    if week_match:
+        weeks = int(week_match.group(1))
+        try:
+            return timedelta(weeks=weeks)
+        except OverflowError as exc:
+            raise YandexConnectorError("malformed DURATION") from exc
+    match = _DURATION_DATE_TIME.fullmatch(value)
+    if match is None:
+        raise YandexConnectorError("malformed DURATION")
+    days, hours, minutes, seconds = match.groups()
+    if days is None and hours is None and minutes is None and seconds is None:
+        raise YandexConnectorError("malformed DURATION")
+    try:
+        return timedelta(
+            days=int(days or 0),
+            hours=int(hours or 0),
+            minutes=int(minutes or 0),
+            seconds=int(seconds or 0),
+        )
+    except OverflowError as exc:
+        raise YandexConnectorError("malformed DURATION") from exc

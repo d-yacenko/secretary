@@ -7,7 +7,12 @@ from cryptography.fernet import Fernet
 from sqlalchemy import func, select
 
 from app.connectors.google.encryption import CredentialEncryption
-from app.connectors.yandex.caldav_transport import CalDavCalendar, CalDavEvent, FakeCalDavTransport
+from app.connectors.yandex.caldav_transport import (
+    CalDavCalendar,
+    CalDavEvent,
+    CalDavFetchResult,
+    FakeCalDavTransport,
+)
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.calendar_normalize import (
     build_external_id,
@@ -16,6 +21,7 @@ from app.connectors.yandex.calendar_normalize import (
 )
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.constants import (
+    CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
     LIVE_CALENDAR_LOOKBACK_DAYS,
     MAX_YANDEX_FALLBACK_RECURRENCE_CANDIDATES,
 )
@@ -514,3 +520,314 @@ def test_unexpanded_master_without_fallback_still_skipped() -> None:
     assert normalize_caldav_events(_problem_master_ical(), CALENDAR_HREF) == []
     result = normalize_caldav_resource(_problem_master_ical(), CALENDAR_HREF, allow_fallback=False)
     assert result.events == []
+    assert result.occurrence_set_complete is False
+
+
+def _seed_occurrence(
+    db_session,
+    *,
+    href: str,
+    uid: str,
+    recurrence_id: str,
+    start_at: datetime,
+    title: str = "Seeded",
+) -> Object:
+    obj = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="event",
+        provider="yandex_calendar",
+        external_id=build_external_id(CALENDAR_HREF, uid, recurrence_id),
+        origin="source",
+        state="observed",
+        title=title,
+        start_at=start_at,
+        due_at=start_at + timedelta(hours=1),
+        occurred_at=start_at,
+        metadata_={"event_href": href, "recurrence_id": recurrence_id, "event_uid": uid},
+    )
+    db_session.add(obj)
+    return obj
+
+
+def test_incremental_fallback_does_not_tombstone_history_outside_coverage(
+    db_session, credential_key
+) -> None:
+    store, account = _yandex_account(db_session, credential_key, email="cover@yandex.ru")
+    href = f"{CALENDAR_HREF}cover.ics"
+    uid = "cover-1"
+    historical = [
+        (datetime(2026, 8, 5, 6, 55, tzinfo=UTC), "20260805T095500"),
+        (datetime(2026, 8, 20, 6, 55, tzinfo=UTC), "20260820T095500"),
+    ]
+    for start, rid in historical:
+        _seed_occurrence(db_session, href=href, uid=uid, recurrence_id=rid, start_at=start, title="History")
+    stale_in_window = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
+    _seed_occurrence(
+        db_session,
+        href=href,
+        uid=uid,
+        recurrence_id="20260912T100000Z",
+        start_at=stale_in_window,
+        title="Stale Saturday",
+    )
+    db_session.commit()
+    store.update_sync_state(
+        account,
+        {
+            "normalization_version": CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+            "calendars": {CALENDAR_HREF: {"sync_token": "token-start"}},
+        },
+    )
+    db_session.commit()
+    master = (
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\n"
+        f"UID:{uid}\nSUMMARY:Cover series\n"
+        "DTSTART;TZID=Europe/Moscow:20260909T095500\n"
+        "DTEND;TZID=Europe/Moscow:20260909T175500\n"
+        "RRULE:FREQ=WEEKLY;BYDAY=WE,TH,FR\n"
+        "END:VEVENT\nEND:VCALENDAR\n"
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-next")],
+        query_events_by_calendar={CALENDAR_HREF: []},
+        sync_tokens_by_calendar={CALENDAR_HREF: "token-next"},
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-start": CalDavFetchResult(
+                    events=[CalDavEvent(event_href=href, etag='"c1"', calendar_data=master)],
+                    sync_token="token-next",
+                )
+            }
+        },
+    )
+    sync = _sync_service(db_session, credential_key, transport, days_back=60, days_forward=90)
+    sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    for start, rid in historical:
+        obj = db_session.scalar(
+            select(Object).where(Object.external_id == build_external_id(CALENDAR_HREF, uid, rid))
+        )
+        assert obj is not None
+        assert obj.status != "deleted"
+    stale = db_session.scalar(
+        select(Object).where(
+            Object.external_id == build_external_id(CALENDAR_HREF, uid, "20260912T100000Z")
+        )
+    )
+    assert stale is not None
+    assert stale.status == "deleted"
+    today = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(CALENDAR_HREF, uid, "20260909T095500"))
+    )
+    assert today is not None
+    assert today.status != "deleted"
+    assert today.metadata_["recurrence_expansion"] == "fallback"
+
+
+def test_incremental_provider_expanded_does_not_tombstone_history_outside_coverage(
+    db_session, credential_key
+) -> None:
+    store, account = _yandex_account(db_session, credential_key, email="cover-p@yandex.ru")
+    href = f"{CALENDAR_HREF}cover-p.ics"
+    uid = "cover-p"
+    hist_start = datetime(2026, 8, 10, 10, 0, tzinfo=UTC)
+    _seed_occurrence(
+        db_session,
+        href=href,
+        uid=uid,
+        recurrence_id="20260810T100000Z",
+        start_at=hist_start,
+        title="History",
+    )
+    stale_start = datetime(2026, 9, 16, 10, 0, tzinfo=UTC)
+    _seed_occurrence(
+        db_session,
+        href=href,
+        uid=uid,
+        recurrence_id="20260916T100000Z",
+        start_at=stale_start,
+        title="Stale future",
+    )
+    db_session.commit()
+    store.update_sync_state(
+        account,
+        {
+            "normalization_version": CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+            "calendars": {CALENDAR_HREF: {"sync_token": "token-start"}},
+        },
+    )
+    db_session.commit()
+    ical = (
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\n"
+        f"UID:{uid}\nSUMMARY:Master\n"
+        "DTSTART:20260909T100000Z\nDTEND:20260909T110000Z\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+        "BEGIN:VEVENT\n"
+        f"UID:{uid}\nSUMMARY:Today occ\n"
+        "RECURRENCE-ID:20260909T100000Z\n"
+        "DTSTART:20260909T100000Z\nDTEND:20260909T110000Z\n"
+        "END:VEVENT\nEND:VCALENDAR\n"
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-next")],
+        query_events_by_calendar={CALENDAR_HREF: []},
+        sync_tokens_by_calendar={CALENDAR_HREF: "token-next"},
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-start": CalDavFetchResult(
+                    events=[CalDavEvent(event_href=href, etag='"p1"', calendar_data=ical)],
+                    sync_token="token-next",
+                )
+            }
+        },
+    )
+    sync = _sync_service(db_session, credential_key, transport, days_back=60, days_forward=90)
+    sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    hist = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(CALENDAR_HREF, uid, "20260810T100000Z"))
+    )
+    assert hist is not None
+    assert hist.status != "deleted"
+    stale = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(CALENDAR_HREF, uid, "20260916T100000Z"))
+    )
+    assert stale is not None
+    assert stale.status == "deleted"
+    today = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(CALENDAR_HREF, uid, "20260909T100000Z"))
+    )
+    assert today is not None
+    assert today.status != "deleted"
+    assert today.metadata_["recurrence_expansion"] == "provider"
+
+
+def test_timed_duration_preserved() -> None:
+    ical = (
+        "BEGIN:VEVENT\nUID:dur-1\nSUMMARY:Dur\n"
+        "DTSTART:20260909T100000Z\nDURATION:PT2H30M\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+    events = normalize_caldav_events(
+        ical, CALENDAR_HREF, time_min=OP_MIN, time_max=OP_MAX, allow_fallback=True
+    )
+    assert len(events) == 1
+    assert events[0]["start_at"] == datetime(2026, 9, 9, 10, 0, tzinfo=UTC)
+    assert events[0]["due_at"] == datetime(2026, 9, 9, 12, 30, tzinfo=UTC)
+
+
+def test_all_day_duration_preserved() -> None:
+    ical = (
+        "BEGIN:VEVENT\nUID:dur-d\nSUMMARY:Dur day\n"
+        "DTSTART;VALUE=DATE:20260909\nDURATION:P2D\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+    events = normalize_caldav_events(
+        ical, CALENDAR_HREF, time_min=OP_MIN, time_max=OP_MAX, allow_fallback=True
+    )
+    assert events[0]["due_at"] == datetime(2026, 9, 11, tzinfo=UTC)
+
+
+def test_timed_dtstart_only_zero_duration() -> None:
+    ical = (
+        "BEGIN:VEVENT\nUID:dur-z\nSUMMARY:Zero\n"
+        "DTSTART:20260909T100000Z\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+    events = normalize_caldav_events(
+        ical, CALENDAR_HREF, time_min=OP_MIN, time_max=OP_MAX, allow_fallback=True
+    )
+    assert events[0]["due_at"] == events[0]["start_at"]
+
+
+def test_date_dtstart_only_defaults_one_day() -> None:
+    ical = (
+        "BEGIN:VEVENT\nUID:dur-date\nSUMMARY:Date\n"
+        "DTSTART;VALUE=DATE:20260909\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+    events = normalize_caldav_events(
+        ical, CALENDAR_HREF, time_min=OP_MIN, time_max=OP_MAX, allow_fallback=True
+    )
+    assert events[0]["due_at"] == datetime(2026, 9, 10, tzinfo=UTC)
+
+
+def test_malformed_duration_fails_closed() -> None:
+    ical = (
+        "BEGIN:VEVENT\nUID:dur-bad\nSUMMARY:Bad\n"
+        "DTSTART:20260909T100000Z\nDURATION:P1Y\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+    with pytest.raises(YandexConnectorError, match="DURATION"):
+        normalize_caldav_events(
+            ical, CALENDAR_HREF, time_min=OP_MIN, time_max=OP_MAX, allow_fallback=True
+        )
+
+
+def test_dtend_and_duration_rejected() -> None:
+    ical = (
+        "BEGIN:VEVENT\nUID:dur-both\nSUMMARY:Both\n"
+        "DTSTART:20260909T100000Z\nDTEND:20260909T110000Z\nDURATION:PT1H\n"
+        "RRULE:FREQ=DAILY;COUNT=1\nEND:VEVENT\n"
+    )
+    with pytest.raises(YandexConnectorError, match="DTEND and DURATION"):
+        normalize_caldav_events(
+            ical, CALENDAR_HREF, time_min=OP_MIN, time_max=OP_MAX, allow_fallback=True
+        )
+
+
+def test_multiple_rrule_fails_closed_without_legacy_cleanup(db_session, credential_key) -> None:
+    _, account = _yandex_account(db_session, credential_key, email="multirrule@yandex.ru")
+    href = f"{CALENDAR_HREF}multi.ics"
+    master_external = build_external_id(CALENDAR_HREF, "multi-1")
+    stale = _seed_occurrence(
+        db_session,
+        href=href,
+        uid="multi-1",
+        recurrence_id="20260909T100000Z",
+        start_at=datetime(2026, 9, 9, 10, 0, tzinfo=UTC),
+        title="Keep",
+    )
+    db_session.add(
+        Object(
+            user_id=BOOTSTRAP_USER_ID,
+            kind="event",
+            provider="yandex_calendar",
+            external_id=master_external,
+            origin="source",
+            state="observed",
+            title="Legacy",
+            start_at=FIXED_NOW,
+            metadata_={"event_href": href},
+        )
+    )
+    db_session.commit()
+    ical = (
+        "BEGIN:VEVENT\nUID:multi-1\nSUMMARY:Multi\n"
+        "DTSTART:20260909T100000Z\nDTEND:20260909T110000Z\n"
+        "RRULE:FREQ=WEEKLY;BYDAY=WE\n"
+        "RRULE:FREQ=WEEKLY;BYDAY=FR\nEND:VEVENT\n"
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=None)],
+        query_events_by_calendar={CALENDAR_HREF: [CalDavEvent(event_href=href, etag='"m"', calendar_data=ical)]},
+    )
+    sync = _sync_service(db_session, credential_key, transport)
+    with pytest.raises(YandexConnectorError, match="multiple RRULE"):
+        sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    legacy = db_session.scalar(select(Object).where(Object.external_id == master_external))
+    assert legacy is not None
+    assert legacy.status != "deleted"
+    kept = db_session.scalar(select(Object).where(Object.id == stale.id))
+    assert kept.status != "deleted"
+
+
+def test_recurring_fallback_reports_operational_coverage() -> None:
+    result = normalize_caldav_resource(
+        _problem_master_ical(),
+        CALENDAR_HREF,
+        time_min=OP_MIN,
+        time_max=OP_MAX,
+        allow_fallback=True,
+    )
+    assert result.occurrence_set_complete is True
+    assert result.occurrence_coverage_min == OP_MIN
+    assert result.occurrence_coverage_max == OP_MAX

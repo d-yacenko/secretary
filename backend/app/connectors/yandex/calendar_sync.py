@@ -914,14 +914,16 @@ class YandexCalendarSyncService:
             if (
                 reconcile_occurrences
                 and result.occurrence_set_complete
+                and result.occurrence_coverage_min is not None
+                and result.occurrence_coverage_max is not None
                 and (returned_ids or result.recurrence_master_uid)
             ):
                 removed, missing_complete = self._tombstone_missing_occurrences(
                     user_id=user_id,
                     event_href=raw_event.event_href,
                     returned_external_ids=returned_ids,
-                    time_min=time_min,
-                    time_max=time_max,
+                    time_min=result.occurrence_coverage_min,
+                    time_max=result.occurrence_coverage_max,
                     max_count=occurrence_budget if cap_occurrences else None,
                 )
                 stats.tombstoned += removed
