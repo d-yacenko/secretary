@@ -259,9 +259,6 @@ class CalendarSyncService:
                 next_token = page.next_page_token
                 if not next_token:
                     break
-                if len(page.events) < page_size:
-                    next_token = None
-                    break
 
             remaining -= processed_for_calendar
             if next_token:

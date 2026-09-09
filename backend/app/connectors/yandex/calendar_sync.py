@@ -36,6 +36,7 @@ from app.connectors.yandex.constants import (
     CALENDAR_BACKFILL_MIN_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_DAYS,
     CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS,
+    CALENDAR_OPERATIONAL_QUERY_MAX_ITERATIONS,
     CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
     DEFAULT_CALENDAR_SYNC_DAYS_BACK,
     DEFAULT_CALENDAR_SYNC_DAYS_FORWARD,
@@ -158,16 +159,23 @@ class YandexCalendarSyncService:
             calendar_summary = calendar.display_name or stored.get("display_name")
             quota = allocated
 
-            batch_stats, quota, stored, _operational_hit = self._sync_operational_calendar(
-                transport=transport,
-                snapshot=snapshot,
-                calendar_href=calendar_href,
-                stored=stored,
-                calendar_summary=calendar_summary,
-                window_min=window_min,
-                window_max=window_max,
-                occurrence_budget=quota,
-            )
+            try:
+                batch_stats, quota, stored, _operational_hit = self._sync_operational_calendar(
+                    transport=transport,
+                    snapshot=snapshot,
+                    calendar_href=calendar_href,
+                    stored=stored,
+                    calendar_summary=calendar_summary,
+                    window_min=window_min,
+                    window_max=window_max,
+                    occurrence_budget=quota,
+                )
+            except YandexConnectorError:
+                if calendar_summary:
+                    stored["display_name"] = calendar_summary
+                calendar_state[calendar_href] = stored
+                self._persist_calendar_state(account_id, user_id, sync_state_root, calendar_state)
+                raise
             self._merge_stats(totals, batch_stats)
 
             if stored.get("sync_token") and quota > 0:
@@ -249,6 +257,26 @@ class YandexCalendarSyncService:
             now + timedelta(days=self._days_forward),
         )
 
+    def _clear_operational_continuation(self, stored: dict[str, Any]) -> None:
+        stored.pop("operational_href_cursor", None)
+        stored.pop("operational_query_start", None)
+        stored.pop("operational_query_end", None)
+        stored.pop("operational_slice_start", None)
+        stored.pop("operational_slice_end", None)
+
+    def _persist_operational_query_range(
+        self,
+        stored: dict[str, Any],
+        range_start: datetime,
+        range_end: datetime,
+        leaf_start: datetime,
+        leaf_end: datetime,
+    ) -> None:
+        stored["operational_query_start"] = range_start.isoformat()
+        stored["operational_query_end"] = range_end.isoformat()
+        stored["operational_slice_start"] = leaf_start.isoformat()
+        stored["operational_slice_end"] = leaf_end.isoformat()
+
     def _sync_operational_calendar(
         self,
         transport: CalDavTransport,
@@ -261,41 +289,107 @@ class YandexCalendarSyncService:
         occurrence_budget: int,
     ) -> tuple[_BatchStats, int, dict[str, Any], bool]:
         op_min, op_max = self._operational_window()
-        after_href = stored.get("operational_href_cursor")
-        if after_href is not None:
-            after_href = str(after_href)
-        self._session.commit()
-        fetch_result = transport.query_events(
-            calendar_href=calendar_href,
-            time_min=window_min,
-            time_max=window_max,
-            max_results=self._max_limit,
-            expand_min=op_min,
-            expand_max=op_max,
-            after_href=after_href,
-        )
-        apply_result = self._apply_fetch_batch(
-            user_id=snapshot.user_id,
-            fetch_result=fetch_result,
-            calendar_href=calendar_href,
-            calendar_summary=calendar_summary,
-            time_min=op_min,
-            time_max=op_max,
-            cap_occurrences=True,
-            occurrence_budget=occurrence_budget,
-            reconcile_occurrences=True,
-        )
-        occurrence_budget -= apply_result.stats.budget_consumed
-        if fetch_result.truncated or not apply_result.completed_all_resources:
-            cursor = apply_result.last_processed_href
-            if cursor is None and fetch_result.events:
-                cursor = fetch_result.events[-1].event_href
-            if cursor:
-                stored["operational_href_cursor"] = cursor
+        totals = _BatchStats()
+        min_slice = timedelta(days=CALENDAR_BACKFILL_MIN_SLICE_DAYS)
+        overlap = timedelta(days=CALENDAR_BACKFILL_SLICE_OVERLAP_DAYS)
+        frozen_start = self._parse_iso_datetime(stored.get("operational_query_start"))
+        frozen_end = self._parse_iso_datetime(stored.get("operational_query_end"))
+        if frozen_start is not None and frozen_end is not None and frozen_start < frozen_end:
+            range_start, range_end = frozen_start, frozen_end
         else:
+            range_start, range_end = window_min, window_max
+        leaf_start = self._parse_iso_datetime(stored.get("operational_slice_start")) or range_start
+        leaf_end = self._parse_iso_datetime(stored.get("operational_slice_end")) or range_end
+        leaf_start = max(leaf_start, range_start)
+        leaf_end = min(leaf_end, range_end)
+        if leaf_end <= leaf_start:
+            leaf_start, leaf_end = range_start, range_end
+
+        operational_hit = False
+        iterations = 0
+        while occurrence_budget > 0:
+            iterations += 1
+            if iterations > CALENDAR_OPERATIONAL_QUERY_MAX_ITERATIONS:
+                raise YandexConnectorError("operational calendar query exceeded iteration limit")
+
+            after_href = stored.get("operational_href_cursor")
+            if after_href is not None:
+                after_href = str(after_href)
+            self._session.commit()
+            fetch_result = transport.query_events(
+                calendar_href=calendar_href,
+                time_min=leaf_start,
+                time_max=leaf_end,
+                max_results=self._max_limit,
+                expand_min=op_min,
+                expand_max=op_max,
+                after_href=after_href,
+            )
+            operational_hit = operational_hit or bool(
+                fetch_result.events or fetch_result.selected_ref_hrefs
+            )
+
+            if fetch_result.provider_truncated:
+                stored.pop("operational_href_cursor", None)
+                duration = leaf_end - leaf_start
+                if duration <= min_slice:
+                    self._persist_operational_query_range(
+                        stored, range_start, range_end, leaf_start, leaf_end
+                    )
+                    raise YandexConnectorError(
+                        "operational calendar-query truncated at minimum time slice"
+                    )
+                leaf_end = leaf_start + duration / 2
+                self._persist_operational_query_range(
+                    stored, range_start, range_end, leaf_start, leaf_end
+                )
+                continue
+
+            apply_result = self._apply_fetch_batch(
+                user_id=snapshot.user_id,
+                fetch_result=fetch_result,
+                calendar_href=calendar_href,
+                calendar_summary=calendar_summary,
+                time_min=op_min,
+                time_max=op_max,
+                cap_occurrences=True,
+                occurrence_budget=occurrence_budget,
+                reconcile_occurrences=True,
+            )
+            self._merge_stats(totals, apply_result.stats)
+            occurrence_budget -= apply_result.stats.budget_consumed
+
+            if fetch_result.local_truncated or not apply_result.completed_all_resources:
+                if fetch_result.local_truncated and apply_result.completed_all_resources:
+                    cursor = fetch_result.last_selected_href
+                else:
+                    cursor = apply_result.last_processed_href or fetch_result.last_selected_href
+                if cursor:
+                    stored["operational_href_cursor"] = cursor
+                if stored.get("operational_slice_end"):
+                    self._persist_operational_query_range(
+                        stored, range_start, range_end, leaf_start, leaf_end
+                    )
+                return totals, occurrence_budget, stored, operational_hit
+
             stored.pop("operational_href_cursor", None)
-        operational_hit = bool(fetch_result.events)
-        return apply_result.stats, occurrence_budget, stored, operational_hit
+            if stored.get("operational_slice_end"):
+                next_start = leaf_end - overlap
+                if next_start <= leaf_start:
+                    next_start = leaf_end
+                if next_start >= range_end:
+                    self._clear_operational_continuation(stored)
+                    break
+                leaf_start = next_start
+                leaf_end = range_end
+                self._persist_operational_query_range(
+                    stored, range_start, range_end, leaf_start, leaf_end
+                )
+                continue
+            self._clear_operational_continuation(stored)
+            break
+
+        return totals, occurrence_budget, stored, operational_hit
 
     def _persist_calendar_state(
         self,
@@ -829,16 +923,21 @@ class YandexCalendarSyncService:
         time_max: datetime,
         max_count: int | None = None,
     ) -> tuple[int, bool]:
-        tombstoned = 0
+        fetch_limit = None if max_count is None else max_count + 1
+        candidates = self._find_active_by_event_href_in_window(
+            user_id,
+            event_href,
+            time_min,
+            time_max,
+            exclude_external_ids=returned_external_ids,
+            limit=fetch_limit,
+        )
         complete = True
-        for obj in self._find_active_by_event_href_in_window(
-            user_id, event_href, time_min, time_max
-        ):
-            if obj.external_id in returned_external_ids:
-                continue
-            if max_count is not None and tombstoned >= max_count:
-                complete = False
-                break
+        if max_count is not None and len(candidates) > max_count:
+            complete = False
+            candidates = candidates[:max_count]
+        tombstoned = 0
+        for obj in candidates:
             metadata = dict(obj.metadata_ or {})
             metadata["caldav_deleted"] = True
             metadata["deleted_at"] = self._now_factory().isoformat()
@@ -909,14 +1008,19 @@ class YandexCalendarSyncService:
         event_href: str,
         max_count: int | None = None,
     ) -> tuple[int, bool]:
-        tombstoned = 0
+        fetch_limit = None if max_count is None else max_count + 1
+        candidates = self._find_all_by_event_href(
+            user_id,
+            event_href,
+            limit=fetch_limit,
+            active_only=True,
+        )
         complete = True
-        for obj in self._find_all_by_event_href(user_id, event_href):
-            if obj.status == "deleted":
-                continue
-            if max_count is not None and tombstoned >= max_count:
-                complete = False
-                break
+        if max_count is not None and len(candidates) > max_count:
+            complete = False
+            candidates = candidates[:max_count]
+        tombstoned = 0
+        for obj in candidates:
             metadata = dict(obj.metadata_ or {})
             metadata["caldav_deleted"] = True
             metadata["deleted_at"] = self._now_factory().isoformat()
@@ -945,17 +1049,25 @@ class YandexCalendarSyncService:
             )
         )
 
-    def _find_all_by_event_href(self, user_id: UUID, event_href: str) -> list[Object]:
-        return list(
-            self._session.scalars(
-                select(Object).where(
-                    Object.user_id == user_id,
-                    Object.provider == "yandex_calendar",
-                    Object.kind == "event",
-                    Object.metadata_["event_href"].as_string() == event_href,
-                )
-            ).all()
-        )
+    def _find_all_by_event_href(
+        self,
+        user_id: UUID,
+        event_href: str,
+        limit: int | None = None,
+        active_only: bool = False,
+    ) -> list[Object]:
+        conditions = [
+            Object.user_id == user_id,
+            Object.provider == "yandex_calendar",
+            Object.kind == "event",
+            Object.metadata_["event_href"].as_string() == event_href,
+        ]
+        if active_only:
+            conditions.append(or_(Object.status.is_(None), Object.status != "deleted"))
+        stmt = select(Object).where(*conditions).order_by(Object.id)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(self._session.scalars(stmt).all())
 
     def _find_active_by_event_href_in_window(
         self,
@@ -963,21 +1075,25 @@ class YandexCalendarSyncService:
         event_href: str,
         time_min: datetime,
         time_max: datetime,
+        exclude_external_ids: set[str] | None = None,
+        limit: int | None = None,
     ) -> list[Object]:
-        return list(
-            self._session.scalars(
-                select(Object).where(
-                    Object.user_id == user_id,
-                    Object.provider == "yandex_calendar",
-                    Object.kind == "event",
-                    Object.metadata_["event_href"].as_string() == event_href,
-                    or_(Object.status.is_(None), Object.status != "deleted"),
-                    Object.start_at.is_not(None),
-                    Object.start_at >= time_min,
-                    Object.start_at <= time_max,
-                )
-            ).all()
-        )
+        conditions = [
+            Object.user_id == user_id,
+            Object.provider == "yandex_calendar",
+            Object.kind == "event",
+            Object.metadata_["event_href"].as_string() == event_href,
+            or_(Object.status.is_(None), Object.status != "deleted"),
+            Object.start_at.is_not(None),
+            Object.start_at >= time_min,
+            Object.start_at <= time_max,
+        ]
+        if exclude_external_ids:
+            conditions.append(Object.external_id.notin_(list(exclude_external_ids)))
+        stmt = select(Object).where(*conditions).order_by(Object.id)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(self._session.scalars(stmt).all())
 
     def _event_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
         if obj.status == "deleted":

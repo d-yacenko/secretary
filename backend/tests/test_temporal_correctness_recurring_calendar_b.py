@@ -126,6 +126,9 @@ def _google_occurrence(
 def _google_handlers(
     events_by_calendar: dict[str, list[dict]],
     captured: dict | None = None,
+    *,
+    chunk_size: int | None = None,
+    empty_first_page: bool = False,
 ) -> dict:
     calendars = [
         {"id": calendar_id, "summary": calendar_id, "primary": calendar_id == "primary"}
@@ -158,12 +161,16 @@ def _google_handlers(
                         in_window.append(item)
                 page_token = (params or {}).get("pageToken")
                 max_results = int((params or {}).get("maxResults") or 100)
+                if empty_first_page and not page_token:
+                    payload = {"items": [], "nextPageToken": "p0"}
+                    return httpx.Response(200, json=payload)
                 start = 0
                 if page_token:
                     start = int(str(page_token).removeprefix("p"))
-                page = in_window[start : start + max_results]
+                take = chunk_size if chunk_size is not None else max_results
+                page = in_window[start : start + take]
                 payload = {"items": page}
-                nxt = start + max_results
+                nxt = start + take
                 if nxt < len(in_window):
                     payload["nextPageToken"] = f"p{nxt}"
                 return httpx.Response(200, json=payload)
@@ -832,6 +839,76 @@ def test_google_malformed_live_continuation_resets_to_fresh_window(
     assert captured["event_calls"][0].get("pageToken") in (None, "")
 
 
+def test_google_short_page_with_next_token_materializes_later_occurrence(
+    db_session,
+    oauth_client_file,
+    credential_key,
+    freeze_google_now,
+) -> None:
+    account = _google_account(db_session, credential_key)
+    occurrence_id = "weekly-master_20260909T100000Z"
+    events = [
+        _google_occurrence(
+            event_id=f"short-{index}",
+            start=TODAY_OCCURRENCE_START + timedelta(minutes=index),
+            recurring_event_id="short",
+        )
+        for index in range(3)
+    ]
+    events.append(
+        _google_occurrence(
+            event_id=occurrence_id,
+            start=TODAY_OCCURRENCE_START + timedelta(minutes=3),
+        )
+    )
+    captured: dict = {}
+    fake_http = FakeHttpClient(
+        _google_handlers({"primary": events}, captured, chunk_size=1)
+    )
+    sync = _build_google_sync(db_session, credential_key, oauth_client_file, fake_http)
+    result = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    assert result["created"] >= 4
+    first = captured["event_calls"][0]
+    assert int(first["maxResults"]) == LIVE_CALENDAR_PAGE_SIZE
+    assert first.get("pageToken") in (None, "")
+    assert any(call.get("pageToken") for call in captured["event_calls"][1:])
+    obj = db_session.scalar(select(Object).where(Object.external_id == f"primary:{occurrence_id}"))
+    assert obj is not None
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    live = store.get_calendar_sync_state(account.id, BOOTSTRAP_USER_ID)[LIVE_COVERAGE_STATE_KEY]
+    assert live.get("calendars", {}).get("primary") is None
+
+
+def test_google_empty_page_with_next_token_continues_bounded(
+    db_session,
+    oauth_client_file,
+    credential_key,
+    freeze_google_now,
+) -> None:
+    account = _google_account(db_session, credential_key)
+    occurrence_id = "weekly-master_20260909T100000Z"
+    events = [
+        _google_occurrence(
+            event_id=occurrence_id,
+            start=TODAY_OCCURRENCE_START,
+        )
+    ]
+    captured: dict = {}
+    fake_http = FakeHttpClient(
+        _google_handlers({"primary": events}, captured, empty_first_page=True)
+    )
+    sync = _build_google_sync(db_session, credential_key, oauth_client_file, fake_http)
+    sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    assert len(captured["event_calls"]) >= 2
+    assert len(captured["event_calls"]) <= LIVE_CALENDAR_MAX_PAGES_PER_CALENDAR
+    assert captured["event_calls"][1].get("pageToken") == "p0"
+    obj = db_session.scalar(select(Object).where(Object.external_id == f"primary:{occurrence_id}"))
+    assert obj is not None
+    store = GoogleAccountStore(db_session, CredentialEncryption(credential_key))
+    live = store.get_calendar_sync_state(account.id, BOOTSTRAP_USER_ID)[LIVE_COVERAGE_STATE_KEY]
+    assert live.get("calendars", {}).get("primary") is None
+
+
 def test_yandex_query_local_slice_sets_truncated() -> None:
     events = [
         CalDavEvent(
@@ -858,6 +935,13 @@ def test_yandex_query_local_slice_sets_truncated() -> None:
         max_results=2,
     )
     assert result.truncated is True
+    assert result.local_truncated is True
+    assert result.provider_truncated is False
+    assert result.last_selected_href == f"{CALENDAR_HREF}evt-001.ics"
+    assert result.selected_ref_hrefs == (
+        f"{CALENDAR_HREF}evt-000.ics",
+        f"{CALENDAR_HREF}evt-001.ics",
+    )
     assert len(result.events) == 2
 
 
@@ -922,7 +1006,7 @@ def test_yandex_same_calendar_truncation_reaches_later_recurring_resource(
     store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
     cursor = account.sync_state["calendars"][CALENDAR_HREF].get("operational_href_cursor")
-    assert cursor
+    assert cursor == f"{CALENDAR_HREF}aaa-099.ics"
     external_id = build_external_id(CALENDAR_HREF, WEEKLY_UID, "20260909T100000Z")
     assert db_session.scalar(select(Object).where(Object.external_id == external_id)) is None
 
@@ -933,6 +1017,89 @@ def test_yandex_same_calendar_truncation_reaches_later_recurring_resource(
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
     assert "operational_href_cursor" not in account.sync_state["calendars"][CALENDAR_HREF]
     assert second["created"] >= 1
+
+
+def test_yandex_provider_truncation_subdivides_range_to_reach_recurring_resource(
+    db_session, credential_key
+) -> None:
+    _, account = _yandex_account(db_session, credential_key, email="provider-trunc@yandex.ru")
+    store = YandexCalendarAccountStore(db_session, CredentialEncryption(credential_key))
+    store.update_sync_state(
+        account,
+        {
+            "normalization_version": CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+            "calendars": {CALENDAR_HREF: {"sync_token": "token-1"}},
+        },
+    )
+    db_session.commit()
+    dense_events = []
+    dense_start = datetime(2026, 7, 12, 10, 0, tzinfo=UTC)
+    for index in range(20):
+        start = dense_start + timedelta(days=index)
+        uid = f"aaa-{index:03d}"
+        ical = (
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\n"
+            f"UID:{uid}\nSUMMARY:Dense {index}\n"
+            f"DTSTART:{start.strftime('%Y%m%dT%H%M%SZ')}\n"
+            f"DTEND:{(start + timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ')}\n"
+            "END:VEVENT\nEND:VCALENDAR\n"
+        )
+        dense_events.append(
+            CalDavEvent(
+                event_href=f"{CALENDAR_HREF}{uid}.ics",
+                etag=f'"{uid}"',
+                calendar_data=ical,
+            )
+        )
+    href_weekly = f"{CALENDAR_HREF}zzz-weekly.ics"
+    master = CalDavEvent(event_href=href_weekly, etag='"w"', calendar_data=_yandex_master_ical())
+    expanded = CalDavEvent(
+        event_href=href_weekly,
+        etag='"w"',
+        calendar_data=_yandex_weekly_expanded(include_today=True),
+    )
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token=None)],
+        query_events_by_calendar={CALENDAR_HREF: [*dense_events, master]},
+        multiget_events_by_calendar={CALENDAR_HREF: {href_weekly: expanded}},
+        sync_tokens_by_calendar={CALENDAR_HREF: "token-1"},
+        provider_ref_cap=5,
+    )
+    sync = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: FIXED_NOW,
+    )
+    created = 0
+    found = None
+    external_id = build_external_id(CALENDAR_HREF, WEEKLY_UID, "20260909T100000Z")
+    for _ in range(20):
+        result = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+        created += result["created"]
+        found = db_session.scalar(select(Object).where(Object.external_id == external_id))
+        if found is not None:
+            break
+    assert found is not None
+    assert "20260909T100000Z" in (found.external_id or "")
+    assert external_id in _today_event_ids(db_session)
+    assert len(transport.query_windows) >= 2
+    assert len(transport.query_windows) < 500
+    first_start, first_end, _ = transport.query_windows[0]
+    later_progress = False
+    for start, end, after in transport.query_windows[1:]:
+        if (end - start) < (first_end - first_start) or start > first_start:
+            later_progress = True
+        if after:
+            assert (start, end) != (first_start, first_end)
+    assert later_progress
+    hrefs_seen = [href for _, refs in transport.multiget_calls for href in refs]
+    assert href_weekly in hrefs_seen
 
 
 def test_yandex_incremental_does_not_advance_token_past_unprocessed_budget(
@@ -1017,6 +1184,142 @@ def test_yandex_incremental_does_not_advance_token_past_unprocessed_budget(
     assert count == 5
     account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
     assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-done"
+
+
+def test_yandex_tombstone_db_reads_are_bounded(db_session, credential_key) -> None:
+    store, account = _yandex_account(db_session, credential_key, email="tombstone@yandex.ru")
+    deleted_href = f"{CALENDAR_HREF}series.ics"
+    missing_href = f"{CALENDAR_HREF}missing.ics"
+    for index in range(12):
+        start = TODAY_OCCURRENCE_START + timedelta(minutes=index)
+        recid = start.strftime("%Y%m%dT%H%M%SZ")
+        db_session.add(
+            Object(
+                user_id=BOOTSTRAP_USER_ID,
+                kind="event",
+                provider="yandex_calendar",
+                external_id=build_external_id(CALENDAR_HREF, "series-uid", recid),
+                origin="source",
+                state="observed",
+                title=f"Series {index}",
+                start_at=start,
+                due_at=start + timedelta(hours=1),
+                occurred_at=start,
+                metadata_={"event_href": deleted_href},
+            )
+        )
+    kept_id = build_external_id(CALENDAR_HREF, "miss-uid", "20260909T100000Z")
+    for index in range(8):
+        start = TODAY_OCCURRENCE_START + timedelta(hours=index)
+        recid = start.strftime("%Y%m%dT%H%M%SZ")
+        db_session.add(
+            Object(
+                user_id=BOOTSTRAP_USER_ID,
+                kind="event",
+                provider="yandex_calendar",
+                external_id=build_external_id(CALENDAR_HREF, "miss-uid", recid),
+                origin="source",
+                state="observed",
+                title=f"Miss {index}",
+                start_at=start,
+                due_at=start + timedelta(hours=1),
+                occurred_at=start,
+                metadata_={"event_href": missing_href},
+            )
+        )
+    store.update_sync_state(
+        account,
+        {
+            "normalization_version": CURRENT_YANDEX_CALENDAR_NORMALIZATION_VERSION,
+            "calendars": {
+                CALENDAR_HREF: {
+                    "sync_token": "token-start",
+                    "covered_window_end": (FIXED_NOW + timedelta(days=90)).isoformat(),
+                }
+            },
+        },
+    )
+    db_session.commit()
+    transport = FakeCalDavTransport(
+        calendars=[CalDavCalendar(href=CALENDAR_HREF, display_name="Work", sync_token="token-start")],
+        query_events_by_calendar={CALENDAR_HREF: []},
+        sync_batches_by_calendar={
+            CALENDAR_HREF: {
+                "token-start": CalDavFetchResult(
+                    events=[],
+                    sync_token="token-done",
+                    deleted_hrefs=[deleted_href],
+                )
+            }
+        },
+    )
+    sync = build_yandex_calendar_sync_service(
+        session=db_session,
+        credential_key=credential_key,
+        days_back=60,
+        days_forward=90,
+        default_limit=100,
+        max_limit=100,
+        max_calendars=10,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: FIXED_NOW,
+    )
+    first = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=3)
+    assert first["tombstoned"] == 3
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-start"
+    series_deleted = db_session.scalars(
+        select(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.metadata_["event_href"].as_string() == deleted_href,
+            Object.status == "deleted",
+        )
+    ).all()
+    assert len(series_deleted) == 3
+
+    second = sync.sync_account(account.id, BOOTSTRAP_USER_ID, limit=100)
+    assert second["tombstoned"] == 9
+    account = store.get_by_id_for_user(account.id, BOOTSTRAP_USER_ID)
+    assert account.sync_state["calendars"][CALENDAR_HREF]["sync_token"] == "token-done"
+    series_all = db_session.scalars(
+        select(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.metadata_["event_href"].as_string() == deleted_href,
+        )
+    ).all()
+    assert len(series_all) == 12
+    assert all(obj.status == "deleted" for obj in series_all)
+
+    removed, complete = sync._tombstone_missing_occurrences(
+        user_id=BOOTSTRAP_USER_ID,
+        event_href=missing_href,
+        returned_external_ids={kept_id},
+        time_min=TODAY_OCCURRENCE_START - timedelta(days=1),
+        time_max=TODAY_OCCURRENCE_START + timedelta(days=2),
+        max_count=3,
+    )
+    assert removed == 3
+    assert complete is False
+    removed_two, complete_two = sync._tombstone_missing_occurrences(
+        user_id=BOOTSTRAP_USER_ID,
+        event_href=missing_href,
+        returned_external_ids={kept_id},
+        time_min=TODAY_OCCURRENCE_START - timedelta(days=1),
+        time_max=TODAY_OCCURRENCE_START + timedelta(days=2),
+        max_count=10,
+    )
+    assert complete_two is True
+    assert removed + removed_two == 7
+    missing_rows = db_session.scalars(
+        select(Object).where(
+            Object.user_id == BOOTSTRAP_USER_ID,
+            Object.metadata_["event_href"].as_string() == missing_href,
+        )
+    ).all()
+    assert len(missing_rows) == 8
+    kept = db_session.scalar(select(Object).where(Object.external_id == kept_id))
+    assert kept is not None
+    assert kept.status != "deleted"
 
 
 def test_today_service_still_only_queries_event_objects(db_session) -> None:

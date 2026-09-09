@@ -170,6 +170,10 @@ class CalDavFetchResult:
     sync_token: str | None
     deleted_hrefs: list[str] = field(default_factory=list)
     truncated: bool = False
+    provider_truncated: bool = False
+    local_truncated: bool = False
+    last_selected_href: str | None = None
+    selected_ref_hrefs: tuple[str, ...] = ()
 
 
 class CalDavTransport(Protocol):
@@ -367,12 +371,14 @@ class CalDavHttpTransport:
         expand_max: datetime | None = None,
         after_href: str | None = None,
     ) -> CalDavFetchResult:
-        refs, sync_token, deleted, truncated = self._query_event_refs(
-            calendar_href=calendar_href,
-            time_min=time_min,
-            time_max=time_max,
-            max_results=max_results,
-            after_href=after_href,
+        refs, sync_token, deleted, provider_truncated, local_truncated, last_selected = (
+            self._query_event_refs(
+                calendar_href=calendar_href,
+                time_min=time_min,
+                time_max=time_max,
+                max_results=max_results,
+                after_href=after_href,
+            )
         )
         events = self._multiget_events(
             calendar_href=calendar_href,
@@ -384,7 +390,11 @@ class CalDavHttpTransport:
             events=events,
             sync_token=sync_token,
             deleted_hrefs=deleted,
-            truncated=truncated,
+            truncated=provider_truncated or local_truncated,
+            provider_truncated=provider_truncated,
+            local_truncated=local_truncated,
+            last_selected_href=last_selected,
+            selected_ref_hrefs=tuple(ref.event_href for ref in refs),
         )
 
     def _query_event_refs(
@@ -394,7 +404,7 @@ class CalDavHttpTransport:
         time_max: datetime,
         max_results: int,
         after_href: str | None = None,
-    ) -> tuple[list[CalDavEventRef], str | None, list[str], bool]:
+    ) -> tuple[list[CalDavEventRef], str | None, list[str], bool, bool, str | None]:
         start = _format_caldav_time(time_min)
         end = _format_caldav_time(time_max)
         # Yandex CalDAV rejects calendar-query with c:expand (400).
@@ -409,14 +419,17 @@ class CalDavHttpTransport:
             "</c:calendar-query>"
         )
         xml = self._request("REPORT", calendar_href, body, depth="1")
-        refs, sync_token, deleted, truncated = self._parse_href_multistatus(xml)
+        refs, sync_token, deleted, provider_truncated = self._parse_href_multistatus(xml)
         refs = sorted(refs, key=lambda item: item.event_href)
+        if provider_truncated:
+            return refs, sync_token, deleted, True, False, None
         if after_href:
             refs = [ref for ref in refs if ref.event_href > after_href]
-        if len(refs) > max_results:
+        local_truncated = len(refs) > max_results
+        if local_truncated:
             refs = refs[:max_results]
-            truncated = True
-        return refs, sync_token, deleted, truncated
+        last_selected = refs[-1].event_href if refs else None
+        return refs, sync_token, deleted, False, local_truncated, last_selected
 
     def _multiget_events(
         self,
@@ -631,6 +644,7 @@ class FakeCalDavTransport:
         stale_sync_tokens: set[str] | None = None,
         tx_checker: object | None = None,
         calendar_order: list[str] | None = None,
+        provider_ref_cap: int | None = None,
     ) -> None:
         self._calendars = calendars or []
         self._query_events = query_events_by_calendar or {}
@@ -639,8 +653,10 @@ class FakeCalDavTransport:
         self._sync_tokens = sync_tokens_by_calendar or {}
         self._stale_sync_tokens = stale_sync_tokens or set()
         self._calendar_order = calendar_order
+        self._provider_ref_cap = provider_ref_cap
         self.sync_collection_calls: list[tuple[str, str, int]] = []
         self.query_calls: list[str] = []
+        self.query_windows: list[tuple[datetime, datetime, str | None]] = []
         self.multiget_calls: list[tuple[str, list[str]]] = []
         self.discover_calls = 0
         self.discover_max_results: list[int] = []
@@ -685,6 +701,7 @@ class FakeCalDavTransport:
     ) -> CalDavFetchResult:
         self._check_tx()
         self.query_calls.append(calendar_href)
+        self.query_windows.append((time_min, time_max, after_href))
         source_events = sorted(
             self._query_events.get(calendar_href, []), key=lambda item: item.event_href
         )
@@ -693,17 +710,29 @@ class FakeCalDavTransport:
             for event in source_events
             if self._event_in_time_range(event, time_min, time_max)
         ]
-        if after_href:
-            refs = [ref for ref in refs if ref.event_href > after_href]
-        truncated = len(refs) > max_results
-        if truncated:
-            refs = refs[:max_results]
+        provider_truncated = False
+        if self._provider_ref_cap is not None and len(refs) > self._provider_ref_cap:
+            refs = refs[: self._provider_ref_cap]
+            provider_truncated = True
+        local_truncated = False
+        last_selected: str | None = None
+        if not provider_truncated:
+            if after_href:
+                refs = [ref for ref in refs if ref.event_href > after_href]
+            local_truncated = len(refs) > max_results
+            if local_truncated:
+                refs = refs[:max_results]
+            last_selected = refs[-1].event_href if refs else None
         expanded_events = self._multiget_from_refs(calendar_href, refs)
         token = self._sync_tokens.get(calendar_href)
         return CalDavFetchResult(
             events=expanded_events,
             sync_token=token,
-            truncated=truncated,
+            truncated=provider_truncated or local_truncated,
+            provider_truncated=provider_truncated,
+            local_truncated=local_truncated,
+            last_selected_href=last_selected,
+            selected_ref_hrefs=tuple(ref.event_href for ref in refs),
         )
 
     def _multiget_from_refs(
