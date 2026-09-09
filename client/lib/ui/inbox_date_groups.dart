@@ -47,7 +47,9 @@ class InboxReviewMarkerEntry extends InboxSourceListEntry {
 }
 
 /// Inserts a review marker before the object at [insertBeforeObjectIndex].
-/// Date separators stay attached to their objects.
+///
+/// A date separator belongs to the first Object of its date group, so a
+/// boundary between dates sits above the next group's separator.
 List<InboxSourceListEntry> insertReviewMarkerEntry({
   required List<InboxSourceListEntry> entries,
   required int insertBeforeObjectIndex,
@@ -55,23 +57,25 @@ List<InboxSourceListEntry> insertReviewMarkerEntry({
   if (insertBeforeObjectIndex <= 0) {
     return [const InboxReviewMarkerEntry(), ...entries];
   }
-  var seen = 0;
-  final out = <InboxSourceListEntry>[];
-  var inserted = false;
-  for (final entry in entries) {
-    if (entry is InboxSourceObjectEntry) {
-      if (!inserted && seen == insertBeforeObjectIndex) {
-        out.add(const InboxReviewMarkerEntry());
-        inserted = true;
+  var objectCount = 0;
+  var insertAt = entries.length;
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i] is InboxSourceObjectEntry) {
+      if (objectCount == insertBeforeObjectIndex) {
+        insertAt = i;
+        break;
       }
-      seen += 1;
+      objectCount += 1;
     }
-    out.add(entry);
   }
-  if (!inserted) {
-    out.add(const InboxReviewMarkerEntry());
+  while (insertAt > 0 && entries[insertAt - 1] is InboxDateSeparatorEntry) {
+    insertAt -= 1;
   }
-  return out;
+  return [
+    ...entries.sublist(0, insertAt),
+    const InboxReviewMarkerEntry(),
+    ...entries.sublist(insertAt),
+  ];
 }
 
 /// Inserts date separators into an already-ordered list without re-sorting.

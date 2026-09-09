@@ -180,6 +180,67 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     }
   }
 
+  Future<void> _setBookmark(String objectId, String color) async {
+    final previous = _bookmarksByObject[objectId];
+    setState(() => _bookmarksByObject[objectId] = color);
+    try {
+      final saved = await widget.apiClient.putObjectBookmark(objectId, color);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _bookmarksByObject[objectId] = saved);
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (previous == null) {
+          _bookmarksByObject.remove(objectId);
+        } else {
+          _bookmarksByObject[objectId] = previous;
+        }
+      });
+    }
+  }
+
+  Future<void> _clearBookmark(String objectId) async {
+    final previous = _bookmarksByObject[objectId];
+    setState(() => _bookmarksByObject.remove(objectId));
+    try {
+      await widget.apiClient.deleteObjectBookmark(objectId);
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException {
+      if (!mounted) {
+        return;
+      }
+      if (previous != null) {
+        setState(() => _bookmarksByObject[objectId] = previous);
+      }
+    }
+  }
+
+  Future<void> _refreshBookmarkFor(String objectId) async {
+    final fetched = await loadBookmarksByObjects(
+      apiClient: widget.apiClient,
+      onAuthFailure: widget.authController.handleAuthenticationFailure,
+      objectIds: [objectId],
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      final color = fetched[objectId];
+      if (color == null) {
+        _bookmarksByObject.remove(objectId);
+      } else {
+        _bookmarksByObject[objectId] = color;
+      }
+    });
+  }
+
   Future<void> _openObject(SecretaryObject object) async {
     final result = await openObjectDetail(
       context,
@@ -191,16 +252,21 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
     );
-    if (!mounted || result == null) {
+    if (!mounted) {
       return;
     }
-    setState(() {
-      _results =
-          _results.where((row) => row.id != result.deletedObjectId).toList();
-      if (_results.isEmpty && _loadState == SearchLoadState.ready) {
-        _loadState = SearchLoadState.empty;
-      }
-    });
+    if (result != null) {
+      setState(() {
+        _results =
+            _results.where((row) => row.id != result.deletedObjectId).toList();
+        _bookmarksByObject.remove(result.deletedObjectId);
+        if (_results.isEmpty && _loadState == SearchLoadState.ready) {
+          _loadState = SearchLoadState.empty;
+        }
+      });
+      return;
+    }
+    await _refreshBookmarkFor(object.id);
   }
 
   @override
@@ -317,6 +383,8 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
                     object: object,
                     labels: _assignedByObject[object.id] ?? const [],
                     bookmarkColor: _bookmarksByObject[object.id],
+                    onBookmarkSelect: (color) => _setBookmark(object.id, color),
+                    onBookmarkClear: () => _clearBookmark(object.id),
                     onTap: () => _openObject(object),
                   );
                 },
@@ -333,12 +401,16 @@ class _SearchResultTile extends StatelessWidget {
     required this.object,
     required this.labels,
     this.bookmarkColor,
+    required this.onBookmarkSelect,
+    required this.onBookmarkClear,
     required this.onTap,
   });
 
   final SecretaryObject object;
   final List<LabelItem> labels;
   final String? bookmarkColor;
+  final ValueChanged<String> onBookmarkSelect;
+  final VoidCallback onBookmarkClear;
   final VoidCallback onTap;
 
   @override
@@ -352,6 +424,8 @@ class _SearchResultTile extends StatelessWidget {
       cursor: SystemMouseCursors.click,
       child: ObjectBookmarkRibbon(
         color: bookmarkColor,
+        onSelect: onBookmarkSelect,
+        onClear: onBookmarkClear,
         child: InkWell(
         onTap: onTap,
         child: Padding(

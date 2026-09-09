@@ -1,8 +1,10 @@
-# Current task — Inbox Workflow Controls A
+# Current task — Inbox Workflow Controls A-R1
 
 ## Status
 
-Inbox Workflow Controls A (Review Marker & Manual Colored Bookmarks) is **implemented on `review/inbox-workflow-controls-a`**, awaiting Architect review.
+Inbox Workflow Controls A is implemented at `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`.
+
+A-R1 (marker interaction & bookmark coherence) is **awaiting Architect review** on `review/inbox-workflow-controls-a`.
 
 Do **not** deploy. Do **not** start Design Quality Pass C. Do **not** start Graph Advanced UX.
 

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
@@ -28,6 +30,60 @@ InboxSourceObjectOut obj({
     excerpt: 'x',
     feedAt: feedAt,
   );
+}
+
+List<String> entryTags(List<InboxSourceListEntry> entries) {
+  return [
+    for (final entry in entries)
+      switch (entry) {
+        InboxDateSeparatorEntry() => 'sep',
+        InboxSourceObjectEntry(:final sourceObject) => 'obj:${sourceObject.id}',
+        InboxReviewMarkerEntry() => 'marker',
+      },
+  ];
+}
+
+Map<String, dynamic> objectDetailJson({
+  required String id,
+  required String title,
+}) {
+  return {
+    'id': id,
+    'kind': 'email',
+    'title': title,
+    'body': 'body',
+    'provider': 'gmail',
+    'external_id': 'ext-1',
+    'canonical_uri': null,
+    'status': null,
+    'start_at': null,
+    'due_at': null,
+    'metadata': {},
+    'origin': 'source',
+    'state': 'observed',
+    'confidence': null,
+    'created_at': '2026-09-09T12:00:00Z',
+    'updated_at': '2026-09-09T12:00:00Z',
+  };
+}
+
+Future<void> dragHandleToGap(
+  WidgetTester tester, {
+  required String gapId,
+  bool longPress = false,
+}) async {
+  final handle = find.byKey(const Key('inbox_review_marker_handle'));
+  final gap = find.byKey(Key('inbox_review_marker_gap_$gapId'));
+  final gesture = await tester.startGesture(tester.getCenter(handle));
+  if (longPress) {
+    await tester.pump(kLongPressTimeout + kPressTimeout);
+  } else {
+    await tester.pump();
+  }
+  await gesture.moveTo(tester.getCenter(gap));
+  await tester.pump();
+  await gesture.up();
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -161,7 +217,83 @@ void main() {
     expect(next, ['c']);
   });
 
-  testWidgets('moving marker persists without clearing feed', (tester) async {
+  testWidgets('desktop drag persists marker at known gap without clearing feed',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var inboxCalls = 0;
+    var putCalls = 0;
+    String? putAfter;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxCalls++;
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          putAfter = (jsonDecode(request.body) as Map)['after_object_id'] as String;
+          return jsonRes({
+            'anchor_feed_at': '2026-09-09T12:00:00Z',
+            'anchor_object_id': 'a',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.byWidgetPredicate((widget) => widget is LongPressDraggable),
+        findsNothing);
+    expect(find.byKey(const Key('inbox_review_marker_unplaced')), findsOneWidget);
+
+    await dragHandleToGap(tester, gapId: 'a');
+    expect(putCalls, 1);
+    expect(putAfter, 'a');
+    expect(inboxCalls, 1);
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    expect(find.text('Card A'), findsOneWidget);
+    expect(find.text('Card B'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('android long-press drag persists marker at known gap',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
     tester.view.physicalSize = const Size(800, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -196,8 +328,10 @@ void main() {
         if (request.method == 'PUT' &&
             request.url.path == '/inbox/review-marker') {
           putCalls++;
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['after_object_id'], 'a');
+          expect(
+            (jsonDecode(request.body) as Map)['after_object_id'],
+            'a',
+          );
           return jsonRes({
             'anchor_feed_at': '2026-09-09T12:00:00Z',
             'anchor_object_id': 'a',
@@ -210,34 +344,114 @@ void main() {
     apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
     await tester.pumpWidget(pumpInbox(apiClient));
     await tester.pumpAndSettle();
-    expect(find.text('Card A'), findsOneWidget);
-    expect(find.text('Card B'), findsOneWidget);
-    expect(find.byKey(const Key('inbox_review_marker_unplaced')), findsOneWidget);
+    expect(find.byWidgetPredicate((widget) => widget is LongPressDraggable),
+        findsWidgets);
 
-    final handle = find.byKey(const Key('inbox_review_marker_handle'));
-    final gaps = find.byType(DragTarget<String>);
-    expect(gaps, findsWidgets);
-    await tester.drag(handle, const Offset(0, 80));
-    await tester.pumpAndSettle();
-    final drop = tester.getCenter(gaps.at(1));
-    await tester.timedDrag(handle, drop - tester.getCenter(handle), const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
-    expect(putCalls, greaterThanOrEqualTo(0));
+    await dragHandleToGap(tester, gapId: 'a', longPress: true);
+    expect(putCalls, 1);
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
     expect(find.text('Card A'), findsOneWidget);
     expect(find.text('Card B'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
-  test('insertReviewMarkerEntry keeps date grouping', () {
+  test('marker between dates sits above the next date separator', () {
     final grouped = groupInboxSourceEntries([
       obj(id: 'a', feedAt: '2026-09-09T12:00:00Z'),
       obj(id: 'b', feedAt: '2026-09-08T12:00:00Z'),
     ]);
-    final withMarker = insertReviewMarkerEntry(
-      entries: grouped,
-      insertBeforeObjectIndex: 1,
+    expect(
+      entryTags(
+        insertReviewMarkerEntry(
+          entries: grouped,
+          insertBeforeObjectIndex: 1,
+        ),
+      ),
+      ['sep', 'obj:a', 'marker', 'sep', 'obj:b'],
     );
-    expect(withMarker.whereType<InboxReviewMarkerEntry>(), hasLength(1));
-    expect(withMarker.whereType<InboxDateSeparatorEntry>(), isNotEmpty);
+  });
+
+  test('marker within the same date sits between objects', () {
+    final grouped = groupInboxSourceEntries([
+      obj(id: 'a', feedAt: '2026-09-09T12:00:00Z'),
+      obj(id: 'b', feedAt: '2026-09-09T11:00:00Z'),
+    ]);
+    expect(
+      entryTags(
+        insertReviewMarkerEntry(
+          entries: grouped,
+          insertBeforeObjectIndex: 1,
+        ),
+      ),
+      ['sep', 'obj:a', 'marker', 'obj:b'],
+    );
+  });
+
+  test('marker before the first object precedes its date separator', () {
+    final grouped = groupInboxSourceEntries([
+      obj(id: 'a', feedAt: '2026-09-09T12:00:00Z'),
+    ]);
+    expect(
+      entryTags(
+        insertReviewMarkerEntry(
+          entries: grouped,
+          insertBeforeObjectIndex: 0,
+        ),
+      ),
+      ['marker', 'sep', 'obj:a'],
+    );
+  });
+
+  test('marker after the loaded tail follows the final object', () {
+    final grouped = groupInboxSourceEntries([
+      obj(id: 'a', feedAt: '2026-09-09T12:00:00Z'),
+      obj(id: 'b', feedAt: '2026-09-08T12:00:00Z'),
+    ]);
+    expect(
+      entryTags(
+        insertReviewMarkerEntry(
+          entries: grouped,
+          insertBeforeObjectIndex: 2,
+        ),
+      ),
+      ['sep', 'obj:a', 'sep', 'obj:b', 'marker'],
+    );
+  });
+
+  testWidgets('bookmark tab opens shared palette to recolor and clear',
+      (tester) async {
+    String? color = 'red';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              return ObjectBookmarkRibbon(
+                color: color,
+                onSelect: (value) => setState(() => color = value),
+                onClear: () => setState(() => color = null),
+                child: const SizedBox(
+                  width: 240,
+                  height: 80,
+                  child: Text('card'),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('object_bookmark_tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('blue'));
+    await tester.pumpAndSettle();
+    expect(color, 'blue');
+    await tester.tap(find.byKey(const Key('object_bookmark_tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Убрать закладку'));
+    await tester.pumpAndSettle();
+    expect(color, isNull);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
   });
 
   testWidgets('bookmark control can change color and clear', (tester) async {
@@ -267,5 +481,89 @@ void main() {
     await tester.tap(find.text('Убрать закладку'));
     await tester.pumpAndSettle();
     expect(color, isNull);
+  });
+
+  testWidgets('detail bookmark edit is reflected on inbox return',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var inboxCalls = 0;
+    String? storedColor;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          inboxCalls++;
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          final ids =
+              (jsonDecode(request.body) as Map)['object_ids'] as List<dynamic>;
+          final objects = <String, Map<String, String>>{};
+          if (storedColor != null && ids.contains('a')) {
+            objects['a'] = {'color': storedColor!};
+          }
+          return jsonRes({'objects': objects});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/object-bookmarks/a') {
+          storedColor =
+              (jsonDecode(request.body) as Map)['color'] as String;
+          return jsonRes({
+            'object_id': 'a',
+            'color': storedColor,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.url.path == '/objects/a') {
+          return jsonRes(objectDetailJson(id: 'a', title: 'Card A'));
+        }
+        if (request.url.path == '/objects/a/neighbors') {
+          return jsonRes({'object_id': 'a', 'neighbors': []});
+        }
+        if (request.url.path == '/objects/a/context') {
+          return jsonRes({
+            'object': objectDetailJson(id: 'a', title: 'Card A'),
+            'edges': [],
+            'neighbors': [],
+          });
+        }
+        if (request.url.path == '/objects/a/labels') {
+          return jsonRes({'labels': []});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+    await tester.tap(find.text('Card A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('object_bookmark_control')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('red'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(inboxCalls, 1);
+    expect(find.text('Card A'), findsOneWidget);
+    expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
   });
 }

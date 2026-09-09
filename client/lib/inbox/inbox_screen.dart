@@ -659,6 +659,25 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
+  Future<void> _refreshBookmarkFor(String objectId) async {
+    final fetched = await loadBookmarksByObjects(
+      apiClient: widget.apiClient,
+      onAuthFailure: widget.authController.handleAuthenticationFailure,
+      objectIds: [objectId],
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      final color = fetched[objectId];
+      if (color == null) {
+        _bookmarksByObject.remove(objectId);
+      } else {
+        _bookmarksByObject[objectId] = color;
+      }
+    });
+  }
+
   Future<void> _openSourceObject(InboxSourceObjectOut sourceObject) async {
     final result = await openObjectDetail(
       context,
@@ -670,28 +689,33 @@ class InboxScreenState extends State<InboxScreen> {
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
     );
-    if (!mounted || result == null) {
+    if (!mounted) {
       return;
     }
-    final inbox = _inbox;
-    if (inbox == null) {
-      return;
-    }
-    setState(() {
-      _inbox = InboxOut(
-        unresolvedNotifications: inbox.unresolvedNotifications,
-        recentSourceObjects: inbox.recentSourceObjects
+    if (result != null) {
+      final inbox = _inbox;
+      if (inbox == null) {
+        return;
+      }
+      setState(() {
+        _inbox = InboxOut(
+          unresolvedNotifications: inbox.unresolvedNotifications,
+          recentSourceObjects: inbox.recentSourceObjects
+              .where((row) => row.id != result.deletedObjectId)
+              .toList(),
+          sourceSyncStatus: inbox.sourceSyncStatus,
+          recentNextCursor: inbox.recentNextCursor,
+          recentHasMore: inbox.recentHasMore,
+          reviewMarker: inbox.reviewMarker,
+        );
+        _feedObjects = _feedObjects
             .where((row) => row.id != result.deletedObjectId)
-            .toList(),
-        sourceSyncStatus: inbox.sourceSyncStatus,
-        recentNextCursor: inbox.recentNextCursor,
-        recentHasMore: inbox.recentHasMore,
-        reviewMarker: inbox.reviewMarker,
-      );
-      _feedObjects = _feedObjects
-          .where((row) => row.id != result.deletedObjectId)
-          .toList();
-    });
+            .toList();
+        _bookmarksByObject.remove(result.deletedObjectId);
+      });
+      return;
+    }
+    await _refreshBookmarkFor(sourceObject.id);
   }
 
   List<Widget> _inboxFeedChildren(
@@ -723,11 +747,7 @@ class InboxScreenState extends State<InboxScreen> {
           );
         case InboxSourceObjectEntry(:final sourceObject):
           widgets.add(
-            Padding(
-              padding: EdgeInsets.only(
-                bottom: isWideLayout(context) ? AppSpacing.xs : AppSpacing.sm,
-              ),
-              child: _SourceObjectCard(
+            _SourceObjectCard(
                 sourceObject: sourceObject,
                 labels: _labelsByObject[sourceObject.id] ?? const [],
                 bookmarkColor: _bookmarksByObject[sourceObject.id],
@@ -765,7 +785,6 @@ class InboxScreenState extends State<InboxScreen> {
                 onShowInGraph: widget.onShowInGraph == null
                     ? null
                     : () => widget.onShowInGraph!(sourceObject.id),
-              ),
             ),
           );
           widgets.add(
@@ -1336,7 +1355,8 @@ class _SourceObjectCard extends StatelessWidget {
     final wide = isWideLayout(context);
     return ObjectBookmarkRibbon(
       color: bookmarkColor,
-      onTapTab: null,
+      onSelect: onBookmarkSelect,
+      onClear: onBookmarkClear,
       child: Card(
       margin: EdgeInsets.zero,
       child: InkWell(
@@ -1482,18 +1502,33 @@ class _InboxMarkerDropGap extends StatelessWidget {
   final String? afterObjectId;
   final VoidCallback onAccept;
 
+  static const double _hitHeight = 10;
+  static const double _activeHeight = 14;
+
   @override
   Widget build(BuildContext context) {
     return DragTarget<String>(
+      key: Key('inbox_review_marker_gap_${afterObjectId ?? 'top'}'),
       onWillAcceptWithDetails: (details) => details.data == 'inbox-review-marker',
       onAcceptWithDetails: (_) => onAccept(),
       builder: (context, candidate, rejected) {
+        final hovering = candidate.isNotEmpty;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          height: candidate.isEmpty ? 2 : 10,
-          color: candidate.isEmpty
-              ? Colors.transparent
-              : Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.25),
+          height: hovering ? _activeHeight : _hitHeight,
+          width: double.infinity,
+          alignment: Alignment.center,
+          color: hovering
+              ? Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.25)
+              : Colors.transparent,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            height: hovering ? 4 : 2,
+            width: double.infinity,
+            color: hovering
+                ? Theme.of(context).colorScheme.tertiary
+                : Colors.transparent,
+          ),
         );
       },
     );

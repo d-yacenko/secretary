@@ -202,6 +202,67 @@ class _TodayScreenState extends State<TodayScreen> {
     }
   }
 
+  Future<void> _setBookmark(String objectId, String color) async {
+    final previous = _bookmarksByObject[objectId];
+    setState(() => _bookmarksByObject[objectId] = color);
+    try {
+      final saved = await widget.apiClient.putObjectBookmark(objectId, color);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _bookmarksByObject[objectId] = saved);
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (previous == null) {
+          _bookmarksByObject.remove(objectId);
+        } else {
+          _bookmarksByObject[objectId] = previous;
+        }
+      });
+    }
+  }
+
+  Future<void> _clearBookmark(String objectId) async {
+    final previous = _bookmarksByObject[objectId];
+    setState(() => _bookmarksByObject.remove(objectId));
+    try {
+      await widget.apiClient.deleteObjectBookmark(objectId);
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException {
+      if (!mounted) {
+        return;
+      }
+      if (previous != null) {
+        setState(() => _bookmarksByObject[objectId] = previous);
+      }
+    }
+  }
+
+  Future<void> _refreshBookmarkFor(String objectId) async {
+    final fetched = await loadBookmarksByObjects(
+      apiClient: widget.apiClient,
+      onAuthFailure: widget.authController.handleAuthenticationFailure,
+      objectIds: [objectId],
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      final color = fetched[objectId];
+      if (color == null) {
+        _bookmarksByObject.remove(objectId);
+      } else {
+        _bookmarksByObject[objectId] = color;
+      }
+    });
+  }
+
   Future<void> _openObjectDetail(String objectId) async {
     final result = await openObjectDetail(
       context,
@@ -213,27 +274,32 @@ class _TodayScreenState extends State<TodayScreen> {
       onAskSecretary: widget.onAskSecretary,
       onShowInGraph: widget.onShowInGraph,
     );
-    if (!mounted || result == null) {
+    if (!mounted) {
       return;
     }
-    final today = _today;
-    if (today == null) {
+    if (result != null) {
+      final today = _today;
+      if (today == null) {
+        return;
+      }
+      setState(() {
+        _today = TodayOut(
+          date: today.date,
+          timezone: today.timezone,
+          dayStart: today.dayStart,
+          tasks: today.tasks
+              .where((task) => task.id != result.deletedObjectId)
+              .toList(),
+          calendarEvents: today.calendarEvents
+              .where((event) => event.id != result.deletedObjectId)
+              .toList(),
+          notifications: today.notifications,
+        );
+        _bookmarksByObject.remove(result.deletedObjectId);
+      });
       return;
     }
-    setState(() {
-      _today = TodayOut(
-        date: today.date,
-        timezone: today.timezone,
-        dayStart: today.dayStart,
-        tasks: today.tasks
-            .where((task) => task.id != result.deletedObjectId)
-            .toList(),
-        calendarEvents: today.calendarEvents
-            .where((event) => event.id != result.deletedObjectId)
-            .toList(),
-        notifications: today.notifications,
-      );
-    });
+    await _refreshBookmarkFor(objectId);
   }
 
   @override
@@ -298,6 +364,8 @@ class _TodayScreenState extends State<TodayScreen> {
                     today: today,
                     labels: _labelsByObject[task.id] ?? const [],
                     bookmarkColor: _bookmarksByObject[task.id],
+                    onBookmarkSelect: (color) => _setBookmark(task.id, color),
+                    onBookmarkClear: () => _clearBookmark(task.id),
                     onTap: () => _openObjectDetail(task.id),
                   )),
             const SizedBox(height: 16),
@@ -310,6 +378,8 @@ class _TodayScreenState extends State<TodayScreen> {
                     emphasis: todayEventEmphasis(event, now: _now),
                     labels: _labelsByObject[event.id] ?? const [],
                     bookmarkColor: _bookmarksByObject[event.id],
+                    onBookmarkSelect: (color) => _setBookmark(event.id, color),
+                    onBookmarkClear: () => _clearBookmark(event.id),
                     onTap: () => _openObjectDetail(event.id),
                   )),
             const SizedBox(height: 16),
@@ -370,6 +440,8 @@ class _TaskRow extends StatelessWidget {
     required this.today,
     required this.labels,
     this.bookmarkColor,
+    required this.onBookmarkSelect,
+    required this.onBookmarkClear,
     required this.onTap,
   });
 
@@ -377,6 +449,8 @@ class _TaskRow extends StatelessWidget {
   final TodayOut today;
   final List<LabelItem> labels;
   final String? bookmarkColor;
+  final ValueChanged<String> onBookmarkSelect;
+  final VoidCallback onBookmarkClear;
   final VoidCallback onTap;
 
   @override
@@ -387,6 +461,8 @@ class _TaskRow extends StatelessWidget {
     final trailing = overdue ? 'Просрочено • $when' : when;
     return ObjectBookmarkRibbon(
       color: bookmarkColor,
+      onSelect: onBookmarkSelect,
+      onClear: onBookmarkClear,
       child: ListTile(
       title: ObjectCompactHeaderRow(
         title: task.title,
@@ -418,6 +494,8 @@ class _EventRow extends StatelessWidget {
     required this.emphasis,
     required this.labels,
     this.bookmarkColor,
+    required this.onBookmarkSelect,
+    required this.onBookmarkClear,
     required this.onTap,
   });
 
@@ -425,6 +503,8 @@ class _EventRow extends StatelessWidget {
   final TodayEventEmphasis emphasis;
   final List<LabelItem> labels;
   final String? bookmarkColor;
+  final ValueChanged<String> onBookmarkSelect;
+  final VoidCallback onBookmarkClear;
   final VoidCallback onTap;
 
   @override
@@ -453,6 +533,8 @@ class _EventRow extends StatelessWidget {
       ),
       child: ObjectBookmarkRibbon(
         color: bookmarkColor,
+        onSelect: onBookmarkSelect,
+        onClear: onBookmarkClear,
         child: ListTile(
         title: ObjectCompactHeaderRow(
           title: event.title,
