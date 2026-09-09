@@ -6,9 +6,9 @@ Inbox Workflow Controls A is **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `d82
 
 Current corrective:
 
-**Inbox Workflow Controls A-R3 — Universal Bookmarks & Forgiving Review Marker** is implemented (incl. Today uniform subtitle bookmark alignment) and **awaiting Architect review** on `review/inbox-workflow-controls-a`.
+**Inbox Workflow Controls A-R3-R1 — Bookmark reconcile ABSENT vs READ FAILURE** is implemented and **awaiting Architect review** on `review/inbox-workflow-controls-a`.
 
-Production identity diagnosis: **ACCEPTED** (`EXPECTED_RECURRENCE_MATERIALIZATION`). No calendar/backend identity changes.
+A-R3 (universal bookmarks, forgiving marker, Today subtitle alignment) remains on this branch. Production identity diagnosis: **ACCEPTED** (`EXPECTED_RECURRENCE_MATERIALIZATION`). No calendar/backend identity changes.
 
 Do **not** deploy. Do **not** start Design Quality Pass C. Do **not** start Graph Advanced UX / Graph bookmark visualization.
 

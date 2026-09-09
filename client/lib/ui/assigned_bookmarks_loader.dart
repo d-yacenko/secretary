@@ -5,6 +5,16 @@ const int kBookmarksByObjectsMax = 100;
 
 typedef AuthFailure = void Function();
 
+class BookmarkBatchLoadResult {
+  const BookmarkBatchLoadResult({
+    required this.succeeded,
+    required this.bookmarks,
+  });
+
+  final bool succeeded;
+  final Map<String, String> bookmarks;
+}
+
 List<String> uniqueObjectIds(Iterable<String> objectIds) {
   final unique = <String>[];
   final seen = <String>{};
@@ -18,14 +28,14 @@ List<String> uniqueObjectIds(Iterable<String> objectIds) {
   return unique;
 }
 
-Future<Map<String, String>> loadBookmarksByObjects({
+Future<BookmarkBatchLoadResult> loadBookmarksByObjects({
   required SecretaryApiClient apiClient,
   required AuthFailure? onAuthFailure,
   required Iterable<String> objectIds,
 }) async {
   final unique = uniqueObjectIds(objectIds);
   if (unique.isEmpty) {
-    return {};
+    return const BookmarkBatchLoadResult(succeeded: true, bookmarks: {});
   }
   final merged = <String, String>{};
   try {
@@ -38,11 +48,11 @@ Future<Map<String, String>> loadBookmarksByObjects({
       );
       merged.addAll(await apiClient.bookmarksByObjects(chunk));
     }
-    return merged;
+    return BookmarkBatchLoadResult(succeeded: true, bookmarks: merged);
   } on AuthenticationException {
     onAuthFailure?.call();
-    return {};
+    return const BookmarkBatchLoadResult(succeeded: false, bookmarks: {});
   } on ApiException {
-    return {};
+    return const BookmarkBatchLoadResult(succeeded: false, bookmarks: {});
   }
 }

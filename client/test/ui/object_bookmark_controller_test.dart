@@ -108,4 +108,89 @@ void main() {
     await reconcile;
     expect(controller.colorFor('a'), 'red');
   });
+
+  test('failed batch read preserves cache; successful absence removes it',
+      () async {
+    var batchCalls = 0;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          batchCalls++;
+          if (batchCalls == 1) {
+            return jsonRes({'detail': 'unavailable'}, 500);
+          }
+          return jsonRes({
+            'objects': {
+              'b': {'color': 'green'},
+            },
+          });
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.startsWith('/object-bookmarks/')) {
+          final color = (jsonDecode(request.body) as Map)['color'] as String;
+          final id = request.url.path.split('/').last;
+          return jsonRes({
+            'object_id': id,
+            'color': color,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    final controller = buildController(apiClient);
+    await controller.setColor('a', 'red');
+    await controller.setColor('b', 'blue');
+    var notifies = 0;
+    controller.addListener(() => notifies++);
+    await controller.reconcileVisible(['a', 'b']);
+    expect(batchCalls, 1);
+    expect(controller.colorFor('a'), 'red');
+    expect(controller.colorFor('b'), 'blue');
+    expect(notifies, 0);
+    await controller.reconcileVisible(['a', 'b']);
+    expect(batchCalls, 2);
+    expect(controller.colorFor('a'), isNull);
+    expect(controller.colorFor('b'), 'green');
+    expect(notifies, 1);
+  });
+
+  test('auth failure on batch read does not treat bookmarks as absent', () async {
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'detail': 'invalid token'}, 401);
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.startsWith('/object-bookmarks/')) {
+          final color = (jsonDecode(request.body) as Map)['color'] as String;
+          final id = request.url.path.split('/').last;
+          return jsonRes({
+            'object_id': id,
+            'color': color,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    final controller = ObjectBookmarkController(
+      apiClient: apiClient,
+      authController: auth,
+    );
+    await controller.setColor('a', 'red');
+    var notifies = 0;
+    controller.addListener(() => notifies++);
+    await controller.reconcileVisible(['a']);
+    expect(auth.status, AuthStatus.needsAuth);
+    expect(controller.colorFor('a'), 'red');
+    expect(notifies, 0);
+  });
 }

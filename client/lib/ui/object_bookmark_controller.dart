@@ -35,11 +35,15 @@ class ObjectBookmarkController extends ChangeNotifier {
     final snapshot = <String, int>{
       for (final id in unique) id: _generations[id] ?? 0,
     };
-    final fetched = await loadBookmarksByObjects(
+    final loaded = await loadBookmarksByObjects(
       apiClient: _apiClient,
       onAuthFailure: _authController.handleAuthenticationFailure,
       objectIds: unique,
     );
+    if (!loaded.succeeded) {
+      return;
+    }
+    final fetched = loaded.bookmarks;
     var changed = false;
     for (final id in unique) {
       if ((_generations[id] ?? 0) != snapshot[id]) {
