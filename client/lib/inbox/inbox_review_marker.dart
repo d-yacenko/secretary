@@ -1,11 +1,8 @@
 import '../api/api_models.dart';
 import 'inbox_feed_merge.dart';
 
-bool inboxItemIsAtOrAboveMarker(
-  InboxSourceObjectOut item,
-  InboxReviewMarker marker,
-) {
-  final synthetic = InboxSourceObjectOut(
+InboxSourceObjectOut _markerAnchorItem(InboxReviewMarker marker) {
+  return InboxSourceObjectOut(
     id: marker.anchorObjectId,
     title: '',
     kind: 'email',
@@ -17,7 +14,20 @@ bool inboxItemIsAtOrAboveMarker(
     excerpt: null,
     feedAt: marker.anchorFeedAt,
   );
-  return compareInboxFeedOrder(item, synthetic) <= 0;
+}
+
+bool inboxItemIsExactAnchor(
+  InboxSourceObjectOut item,
+  InboxReviewMarker marker,
+) {
+  return compareInboxFeedOrder(item, _markerAnchorItem(marker)) == 0;
+}
+
+bool inboxItemIsAtOrAboveMarker(
+  InboxSourceObjectOut item,
+  InboxReviewMarker marker,
+) {
+  return compareInboxFeedOrder(item, _markerAnchorItem(marker)) <= 0;
 }
 
 /// Object-list index where the marker should be inserted, or null if it is
@@ -31,6 +41,9 @@ int? reviewMarkerInsertIndex({
     return null;
   }
   for (var i = 0; i < objects.length; i++) {
+    if (inboxItemIsExactAnchor(objects[i], marker)) {
+      return i + 1;
+    }
     if (!inboxItemIsAtOrAboveMarker(objects[i], marker)) {
       return i;
     }

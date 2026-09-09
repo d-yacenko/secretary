@@ -175,6 +175,47 @@ void main() {
       ),
       1,
     );
+    expect(
+      reviewMarkerInsertIndex(
+        objects: [high, low],
+        marker: marker,
+        hasMore: true,
+      ),
+      1,
+    );
+  });
+
+  test('exact loaded-tail anchor stays visible when hasMore', () {
+    final items = [
+      obj(id: 'a', feedAt: '2026-09-09T12:00:00Z'),
+      obj(id: 'b', feedAt: '2026-09-08T12:00:00Z'),
+      obj(id: 'c', feedAt: '2026-09-07T12:00:00Z'),
+    ];
+    final marker = InboxReviewMarker(
+      anchorFeedAt: '2026-09-07T12:00:00Z',
+      anchorObjectId: 'c',
+      updatedAt: '2026-09-09T00:00:00Z',
+    );
+    expect(
+      reviewMarkerInsertIndex(objects: items, marker: marker, hasMore: true),
+      3,
+    );
+  });
+
+  test('missing anchor between loaded tuples still places by boundary', () {
+    final marker = InboxReviewMarker(
+      anchorFeedAt: '2026-09-08T12:00:00Z',
+      anchorObjectId: 'missing',
+      updatedAt: '2026-09-09T00:00:00Z',
+    );
+    final items = [
+      obj(id: 'newer', feedAt: '2026-09-09T12:00:00Z'),
+      obj(id: 'older', feedAt: '2026-09-07T12:00:00Z'),
+    ];
+    expect(
+      reviewMarkerInsertIndex(objects: items, marker: marker, hasMore: true),
+      1,
+    );
   });
 
   test('load-more eventually reveals older marker', () {
@@ -281,6 +322,78 @@ void main() {
     expect(putCalls, 1);
     expect(putAfter, 'a');
     expect(inboxCalls, 1);
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    expect(find.text('Card A'), findsOneWidget);
+    expect(find.text('Card B'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('tail-anchor marker stays visible when inbox hasMore',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    var feedCalls = 0;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+              hasMore: true,
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/inbox/feed')) {
+          feedCalls++;
+          return jsonRes({}, 404);
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          expect(
+            (jsonDecode(request.body) as Map)['after_object_id'],
+            'b',
+          );
+          return jsonRes({
+            'anchor_feed_at': '2026-09-08T12:00:00Z',
+            'anchor_object_id': 'b',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    await dragHandleToGap(tester, gapId: 'b');
+    expect(putCalls, 1);
+    expect(feedCalls, 0);
     expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
     expect(find.text('Просмотрено досюда'), findsOneWidget);
     expect(find.text('Card A'), findsOneWidget);

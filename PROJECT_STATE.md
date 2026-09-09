@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **A** at `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`; **A-R1 awaiting Architect review** on `review/inbox-workflow-controls-a`. Exact production/base: `71e6573f349a7f6c045c762337252a56d1993d00`. No production deploy. Design Quality Pass C **not started**. Graph Advanced UX **not started**. Encrypted Architect context untouched.
+Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **A** at `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`; **A-R1** at `d9d20c24ec0e2c4bbe21e1e024f0f2791ac443ee`; **A-R2 awaiting Architect review** on `review/inbox-workflow-controls-a`. Exact production/base: `71e6573f349a7f6c045c762337252a56d1993d00`. No production deploy. Design Quality Pass C **not started**. Graph Advanced UX **not started**. Encrypted Architect context untouched.
 
 Temporal Correctness B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `71e6573f349a7f6c045c762337252a56d1993d00` (parent `4d05801cc596dfe41244bd689da9524f5ce261a7`). Google recurring production **PASS**. Yandex recurring fallback production **PASS**. Temporal A **CLOSED / DEPLOYED**. Alembic production **`0033 / 0033`**. This branch introduces Alembic **`0034`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`.
 
@@ -413,7 +413,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - Production application SHA: `71e6573f349a7f6c045c762337252a56d1993d00`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A **A-R1 in review, not deployed**; Design Quality Pass C **not started**; Graph Advanced UX **later**
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A **A-R2 in review, not deployed**; Design Quality Pass C **not started**; Graph Advanced UX **later**
 - Alembic on production: **`0033 / 0033`** (current/head); branch `review/inbox-workflow-controls-a` adds **`0034`**
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -426,7 +426,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Design Quality Pass B / B-R1: `2c88cb5f18680c699eb11c970e34e3629271a66b` (**PRODUCTION**)
 - Temporal Correctness A: `10e9d2d290da37489ee7dbfa0902b587d3ca3768` (**CLOSED / DEPLOYED**; Inbox infinite scroll production-confirmed)
 - Temporal Correctness B — Recurring Calendar Materialization & Today: `71e6573f349a7f6c045c762337252a56d1993d00` (**CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Google Today PASS; Yandex fallback PASS; lineage `df9ea214` → `99e03c89` → `7d9adef7` → `d3410e846` → `4d05801` → `71e6573`)
-- Inbox Workflow Controls A: **A** `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`; **A-R1 in review** on `review/inbox-workflow-controls-a` (marker hit targets, date-separator order, bookmark tab + Detail coherence; Alembic `0034`; no LLM/Proactive/Label semantics)
+- Inbox Workflow Controls A: **A** `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`; **A-R1** `d9d20c24ec0e2c4bbe21e1e024f0f2791ac443ee`; **A-R2 in review** on `review/inbox-workflow-controls-a` (loaded-tail marker visible when exact anchor is loaded even if `hasMore`; Alembic `0034`)
 - Recorded debt (not fixed in Workflow Controls): Yandex attendee canonicalization / passive-sync metadata churn
 - Design Quality Pass C: **after Workflow Controls** (thin dense cards, right-edge timestamps, date balloon separators, labels density, marker/bookmark visuals, Linux/Android QA) — **not started**
 - Android minSdk: `23`

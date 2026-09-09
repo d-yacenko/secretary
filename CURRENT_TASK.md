@@ -1,10 +1,12 @@
-# Current task — Inbox Workflow Controls A-R1
+# Current task — Inbox Workflow Controls A-R2
 
 ## Status
 
 Inbox Workflow Controls A is implemented at `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`.
 
-A-R1 (marker interaction & bookmark coherence) is **awaiting Architect review** on `review/inbox-workflow-controls-a`.
+A-R1 is at `d9d20c24ec0e2c4bbe21e1e024f0f2791ac443ee`.
+
+A-R2 (loaded-tail marker visibility) is **awaiting Architect review** on `review/inbox-workflow-controls-a`.
 
 Do **not** deploy. Do **not** start Design Quality Pass C. Do **not** start Graph Advanced UX.
 
