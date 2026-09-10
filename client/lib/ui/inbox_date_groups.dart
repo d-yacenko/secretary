@@ -113,6 +113,48 @@ List<InboxSourceListEntry> groupInboxSourceEntries(
   return entries;
 }
 
+/// Compact navigation pill for an Inbox date separator label.
+class InboxDateSeparatorPill extends StatelessWidget {
+  const InboxDateSeparatorPill({super.key, required this.entry});
+
+  final InboxDateSeparatorEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final weekend = entry.isWeekend;
+    final background =
+        weekend ? scheme.tertiaryContainer : scheme.secondaryContainer;
+    final foreground =
+        weekend ? scheme.onTertiaryContainer : scheme.onSecondaryContainer;
+    return DecoratedBox(
+      key: const Key('inbox_date_separator_pill'),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 22, maxHeight: 24),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Align(
+            alignment: Alignment.center,
+            child: Text(
+              entry.label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: foreground,
+                    fontWeight: weekend ? FontWeight.w600 : FontWeight.w500,
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class InboxDateSeparator extends StatelessWidget {
   const InboxDateSeparator({super.key, required this.entry});
 
@@ -120,14 +162,7 @@ class InboxDateSeparator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final style = Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: entry.isWeekend
-              ? scheme.tertiary
-              : scheme.onSurfaceVariant,
-          fontWeight: entry.isWeekend ? FontWeight.w600 : FontWeight.w500,
-        );
-    final lineColor = scheme.outlineVariant;
+    final lineColor = Theme.of(context).colorScheme.outlineVariant;
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 6, 0, 2),
       child: Row(
@@ -141,15 +176,11 @@ class InboxDateSeparator extends StatelessWidget {
               color: lineColor,
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(
-              entry.label,
-              style: style,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: InboxDateSeparatorPill(entry: entry),
           ),
+          const SizedBox(width: 8),
           Expanded(
             child: Divider(
               key: const Key('inbox_date_separator_line_end'),

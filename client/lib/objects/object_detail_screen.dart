@@ -348,7 +348,11 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
               color: bookmarkColor,
               onSelect: (color) => _bookmarks.setColor(object.id, color),
               onClear: () => _bookmarks.clear(object.id),
-              child: Column(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  right: bookmarkColor != null ? kBookmarkRibbonReserve : 0,
+                ),
+                child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Wrap(
@@ -531,7 +535,8 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   ),
                 ),
             ],
-            ),
+                ),
+              ),
             ),
           ),
         );

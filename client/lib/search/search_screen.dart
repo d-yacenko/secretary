@@ -396,6 +396,8 @@ class _SearchResultTile extends StatelessWidget {
                 kind: object.kind,
                 provider: object.provider,
                 trailingText: dateLabel,
+                trailingReserve:
+                    bookmarkColor != null ? kBookmarkRibbonReserve : 0,
               ),
               if (statusLine.isNotEmpty)
                 Padding(

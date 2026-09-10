@@ -452,6 +452,7 @@ class _TaskRow extends StatelessWidget {
         kind: task.kind,
         provider: task.provider,
         trailingText: trailing,
+        trailingReserve: bookmarkColor != null ? kBookmarkRibbonReserve : 0,
         trailingBadges: task.state == 'proposed'
             ? [
                 Padding(
@@ -529,6 +530,7 @@ class _EventRow extends StatelessWidget {
           kind: event.kind,
           provider: event.provider,
           trailingText: time.isEmpty ? 'Нет времени' : time,
+          trailingReserve: bookmarkColor != null ? kBookmarkRibbonReserve : 0,
         ),
         subtitle: _todayBookmarkSubtitle(
           labels: labels,

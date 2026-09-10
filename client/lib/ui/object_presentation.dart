@@ -138,6 +138,7 @@ class ObjectCompactHeaderRow extends StatelessWidget {
     this.trailingTooltip,
     this.onProviderTap,
     this.titleMaxLines,
+    this.trailingReserve = 0,
   });
 
   final String title;
@@ -149,6 +150,9 @@ class ObjectCompactHeaderRow extends StatelessWidget {
   final String? trailingTooltip;
   final VoidCallback? onProviderTap;
   final int? titleMaxLines;
+
+  /// Extra space after trailing metadata so an overlay bookmark does not cover it.
+  final double trailingReserve;
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +214,7 @@ class ObjectCompactHeaderRow extends StatelessWidget {
               ),
             ),
           ],
+          if (trailingReserve > 0) SizedBox(width: trailingReserve),
         ],
       ),
     );

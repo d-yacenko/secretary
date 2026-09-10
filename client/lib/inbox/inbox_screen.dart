@@ -1365,6 +1365,8 @@ class _SourceObjectCard extends StatelessWidget {
                   trailingText: when,
                   trailingTooltip: trailingTooltip,
                   onProviderTap: onOpenSource,
+                  trailingReserve:
+                      bookmarkColor != null ? kBookmarkRibbonReserve : 0,
                 ),
                 if (sourceObject.excerpt != null)
                   Padding(

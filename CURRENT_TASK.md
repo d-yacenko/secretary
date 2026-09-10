@@ -1,40 +1,47 @@
-# Current task — Design Quality Pass C-R1 — Bookmark Hit Target + Graph Reconcile Failure Recovery
+# Current task — Design Quality Pass C-R2 — Full-width bookmark overlay + stronger date separator
 
 ## Status
 
-Pass C architecture/presentation direction **ACCEPTED**. C-R1 corrective is implemented on `review/design-quality-pass-c` and **awaiting Architect review**.
+Pass C / C-R1 is **deployed**. Broad human visual QA **passed**.
 
-Do **not** deploy. Do **not** start Graph Advanced UX. Do **not** redesign Pass C.
+C-R2 corrective is implemented on `review/design-quality-pass-c` and **awaiting Architect review**.
+
+Do **not** redeploy until Architect accepts C-R2. Do **not** start Graph Advanced UX.
 
 ## Production / lineage
 
-- Canonical production/base: `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`
-- Pass C SHA / exact C-R1 parent: `b0cf7c9d63dcf19b2b4933d6b81395e5ae06b3a1`
-- Temporal Correctness C / C-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
-- Inbox Workflow Controls A / A-R3: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
-- Temporal A: **CLOSED / DEPLOYED**
-- Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
-- Alembic: **`0034 / 0034`** (no migration in this phase)
+- Production before R2 / C-R1 SHA: `0ea5b8358418d1c3dec85fbc694c0489b6f1153f`
+- Exact C-R2 parent: `0ea5b8358418d1c3dec85fbc694c0489b6f1153f`
+- Pass C: `b0cf7c9d63dcf19b2b4933d6b81395e5ae06b3a1` (accepted)
+- Alembic: **`0034 / 0034`** (no migration)
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval 60
 - Real-user `auto_label_enabled`: **true**
-- Graph Bookmark Presentation: **IN SCOPE for Pass C only**
 - Graph Advanced UX: **NOT STARTED / later**
 - Encrypted Architect context: untouched
 
-## C-R1 scope
+## Remaining human visual findings (C-R2)
 
-Two focused client-only fixes:
+- full-width bookmark overlay (active bookmark must not shrink the card)
+- stronger date pill on Inbox separators
 
-- active `ObjectBookmarkRibbon` keeps the small swallow-tail glyph (`kBookmarkTabSize` 16×20) and adds a transparent ~36×36 hit target (`kBookmarkTabHitSize`); Graph node overlay stays non-interactive
-- `ObjectBookmarkController.reconcileVisible` returns `Future<bool>`; Graph commits `_reconciledVisibleIds` only after a successful reconcile of the current visible set
+Accepted and frozen: Inbox density, compact labels, actions+labels row, timestamp alignment, Review Marker, bookmark grammar, LCD, Today alignment, Search, Object Detail, Graph bookmark presentation/propagation, Android/narrow usability, C-R1 hit target.
 
-No backend/schema/API/migration/recurrence changes.
+## C-R2 scope
 
-## Technical debt (record only, not fixed here)
+Client-only presentation:
+
+- `ObjectBookmarkRibbon` overlays the tab; no whole-card trailing reservation
+- timestamp/title protected with **internal** header `trailingReserve`
+- Inbox date separator keeps left/right lines; date/`Без даты` sit in the same compact pill
+
+## Deferred (validated, NOT in R2)
+
+- **Inbox Quick Actions — Swipe to Remove**: right-to-left swipe, red delete affordance, existing confirmation (`Удалить из Секретаря`), no immediate full-swipe delete. Conflicts with vertical scroll and Review Marker drag; implement later.
+
+## Technical debt (record only)
 
 - Yandex attendee canonicalization / passive-sync metadata churn
 - Provider brand assets: deferred
-- Two pre-existing Graph delete text-finder tests (not in C-R1 scope)
 
 Do not read, decrypt, modify, recreate, re-encrypt, or commit `secretary_architect_context_encrypted.md`.

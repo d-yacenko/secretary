@@ -27,6 +27,9 @@ const Map<String, String> kBookmarkColorLabels = {
 const Size kBookmarkGlyphSize = Size(14, 18);
 const Size kBookmarkTabSize = Size(16, 20);
 const Size kBookmarkTabHitSize = Size(36, 36);
+
+/// Internal header inset so an overlaid tab does not cover timestamp/title.
+/// Never applied outside the card: bookmark presence must not change card width.
 const double kBookmarkRibbonReserve = 18;
 
 Color bookmarkTokenColor(String token, ColorScheme scheme) {
@@ -252,15 +255,10 @@ class ObjectBookmarkRibbon extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Padding(
-          padding: EdgeInsets.only(
-            right: reserveTrailingSpace ? kBookmarkRibbonReserve : 0,
-          ),
-          child: child,
-        ),
+        child,
         Positioned(
           top: -2,
-          right: reserveTrailingSpace ? 2 : -2,
+          right: reserveTrailingSpace ? 0 : -2,
           child: canEdit
               ? ObjectBookmarkPaletteButton(
                   color: color,

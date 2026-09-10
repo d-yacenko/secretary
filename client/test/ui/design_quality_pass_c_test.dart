@@ -16,6 +16,7 @@ import 'package:personal_secretary/ui/inbox_date_groups.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
 import 'package:personal_secretary/ui/object_bookmark_controller.dart';
 import 'package:personal_secretary/ui/object_label_strip.dart';
+import 'package:personal_secretary/ui/object_presentation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../graph/graph_test_harness.dart';
@@ -313,6 +314,25 @@ void main() {
       );
       expect(find.text('09 сентября · среда'), findsOneWidget);
       expect(find.text('Без даты'), findsOneWidget);
+      expect(find.byType(InboxDateSeparatorPill), findsNWidgets(2));
+      expect(
+        find.descendant(
+          of: find.byType(InboxDateSeparatorPill).first,
+          matching: find.text('09 сентября · среда'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(InboxDateSeparatorPill).at(1),
+          matching: find.text('Без даты'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('inbox_date_separator_pill')),
+        findsNWidgets(2),
+      );
       expect(
         find.byKey(const Key('inbox_date_separator_line_start')),
         findsNWidgets(2),
@@ -320,6 +340,43 @@ void main() {
       expect(
         find.byKey(const Key('inbox_date_separator_line_end')),
         findsNWidgets(2),
+      );
+      final datedPill = tester.getSize(find.byType(InboxDateSeparatorPill).first);
+      expect(datedPill.height, greaterThanOrEqualTo(22));
+      expect(datedPill.height, lessThanOrEqualTo(24));
+    });
+
+    testWidgets('date pill stays usable on a narrow long label', (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              child: InboxDateSeparator(
+                entry: InboxDateSeparatorEntry(
+                  date: DateTime(2026, 9, 9),
+                  label:
+                      '09 сентября · среда · очень длинная локализованная подпись',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byType(InboxDateSeparatorPill), findsOneWidget);
+      expect(
+        find.byKey(const Key('inbox_date_separator_line_start')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('inbox_date_separator_line_end')),
+        findsOneWidget,
       );
     });
   });
@@ -474,6 +531,155 @@ void main() {
       expect(color, isNull);
       expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
       expect(find.byKey(const Key('object_bookmark_tab_hit')), findsNothing);
+    });
+
+    testWidgets('bookmarked card keeps full width with overlay tab',
+        (tester) async {
+      Future<void> pumpAt(Size size) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+      }
+
+      await pumpAt(const Size(1280, 768));
+      final colors = <String, String?>{'A': 'red', 'B': null};
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                Widget sampleCard(String title) {
+                  final color = colors[title];
+                  return ObjectBookmarkRibbon(
+                    color: color,
+                    onSelect: (value) => setState(() => colors[title] = value),
+                    onClear: () => setState(() => colors[title] = null),
+                    child: Card(
+                      key: Key('sample_card_$title'),
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ObjectCompactHeaderRow(
+                              title: 'Card $title',
+                              kind: 'email',
+                              trailingText: '12:00',
+                              trailingReserve: color != null
+                                  ? kBookmarkRibbonReserve
+                                  : 0,
+                            ),
+                            if (color == null)
+                              ObjectBookmarkControl(
+                                color: color,
+                                onSelect: (value) =>
+                                    setState(() => colors[title] = value),
+                                onClear: () =>
+                                    setState(() => colors[title] = null),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                return ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: Column(
+                    children: [
+                      sampleCard('A'),
+                      const SizedBox(height: 8),
+                      sampleCard('B'),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      final bookmarked = tester.getRect(find.byKey(const Key('sample_card_A')));
+      final plain = tester.getRect(find.byKey(const Key('sample_card_B')));
+      expect(bookmarked.width, closeTo(plain.width, 0.5));
+      expect(bookmarked.left, closeTo(plain.left, 0.5));
+      expect(bookmarked.right, closeTo(plain.right, 0.5));
+      expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('sample_card_A')),
+          matching: find.byKey(const Key('object_bookmark_tab')),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('sample_card_B')),
+          matching: find.byKey(const Key('object_bookmark_tab')),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(ObjectBookmarkGlyph), findsNWidgets(2));
+
+      final tab = tester.getRect(find.byKey(const Key('object_bookmark_tab')));
+      expect(tab.right, closeTo(bookmarked.right, 2));
+      expect(tab.top, lessThan(bookmarked.top + 6));
+      final stamp = tester.getRect(
+        find.descendant(
+          of: find.byKey(const Key('sample_card_A')),
+          matching: find.byKey(const Key('object_compact_header_timestamp')),
+        ),
+      );
+      expect(stamp.right, lessThanOrEqualTo(tab.left + 1));
+      final hit = tester.getSize(find.byKey(const Key('object_bookmark_tab_hit')));
+      expect(hit.width, greaterThanOrEqualTo(36));
+      expect(hit.height, greaterThanOrEqualTo(36));
+
+      tester.view.physicalSize = const Size(360, 760);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getRect(find.byKey(const Key('sample_card_A'))).right,
+        closeTo(
+          tester.getRect(find.byKey(const Key('sample_card_B'))).right,
+          0.5,
+        ),
+      );
+      expect(find.byKey(const Key('object_compact_header_timestamp')), findsNWidgets(2));
+      tester.view.physicalSize = const Size(1280, 768);
+      await tester.pump();
+
+      final hitRect = tester.getRect(find.byKey(const Key('object_bookmark_tab_hit')));
+      await tester.tapAt(Offset(hitRect.left + 4, hitRect.bottom - 4));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Синий'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+      expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('object_bookmark_tab_hit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Убрать закладку'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+      expect(find.byKey(const Key('object_bookmark_control')), findsNWidgets(2));
+      expect(find.byType(ObjectBookmarkGlyph), findsNWidgets(2));
+      expect(
+        tester.getRect(find.byKey(const Key('sample_card_A'))).right,
+        closeTo(tester.getRect(find.byKey(const Key('sample_card_B'))).right, 0.5),
+      );
+
+      tester.view.physicalSize = const Size(360, 760);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('object_compact_header_timestamp')), findsNWidgets(2));
+      expect(find.byKey(const Key('object_bookmark_control')), findsNWidgets(2));
     });
   });
 
