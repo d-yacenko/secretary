@@ -4,7 +4,7 @@
 
 Unified Week A / A-R1: **CODE ACCEPTED / DEPLOYED / HUMAN UX NOT ACCEPTED** at `eeb3ab4b49b3bdc1e2f6c2e5c6c90bddfc244d4a`.
 
-Unified Week B: **in progress** on `review/unified-week-b`.
+Unified Week B: **implemented, awaiting Architect review** on `review/unified-week-b` (not deployed).
 
 Do **not** deploy Week B until Architect accepts.
 Do **not** begin Availability A.
