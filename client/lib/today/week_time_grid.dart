@@ -8,6 +8,8 @@ import '../ui/object_bookmark.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/object_presentation.dart';
 import 'week_kalender_events.dart';
+import 'week_overlap.dart';
+import 'week_overlap_layout.dart';
 
 final _readOnlyInteraction = CalendarInteraction(
   allowResizing: false,
@@ -94,7 +96,8 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final initialTime = widget.week.isCurrentWeek
         ? TimeOfDay(hour: now.hour, minute: now.minute)
         : const TimeOfDay(hour: 8, minute: 0);
-    final compact = MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
+    final compact =
+        MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
     if (compact) {
       return MultiDayViewConfiguration.singleDay(
         initialDateTime: initial,
@@ -170,7 +173,8 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
             body: CalendarBody(
               interaction: _readOnlyInteraction,
               multiDayBodyConfiguration: MultiDayBodyConfiguration(
-                eventLayoutStrategy: EventLayoutStrategy.overlap(),
+                eventLayoutStrategy:
+                    const SecretaryDenseOverlapLayoutStrategy(),
                 pageScrollPhysics: compact
                     ? null
                     : const NeverScrollableScrollPhysics(),
@@ -190,6 +194,18 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   ) {
     final secretary = event is SecretaryWeekEvent ? event : null;
     final dayIso = formatCalendarDate(tileRange.start);
+    final compact =
+        MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
+    var depth = 0;
+    if (!event.isAllDay) {
+      final date = InternalDateTime.fromDateTime(tileRange.start);
+      final depths = weekOverlapDepthsOnDate(
+        events: _events.events,
+        date: date,
+        location: KalenderScope.locationOf(context),
+      );
+      depth = depths[event.id] ?? 0;
+    }
     return WeekKalenderEventTile(
       key: Key('week_event_${dayIso}_${event.id}'),
       objectId: event.id,
@@ -197,15 +213,14 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       provider: secretary?.provider,
       allDay: event.isAllDay,
       bookmarkColor: widget.bookmarks.colorFor(event.id),
+      depth: depth,
+      compact: compact,
     );
   }
 }
 
 class _WeekDayHeader extends StatelessWidget {
-  const _WeekDayHeader({
-    required this.date,
-    required this.todayDate,
-  });
+  const _WeekDayHeader({required this.date, required this.todayDate});
 
   final DateTime date;
   final String todayDate;
@@ -225,9 +240,9 @@ class _WeekDayHeader extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: isToday ? scheme.primary : null,
-              fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
-            ),
+          color: isToday ? scheme.primary : null,
+          fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
+        ),
       ),
     );
   }
@@ -241,6 +256,8 @@ class WeekKalenderEventTile extends StatelessWidget {
     required this.provider,
     required this.allDay,
     this.bookmarkColor,
+    this.depth = 0,
+    this.compact = false,
   });
 
   final String objectId;
@@ -248,16 +265,25 @@ class WeekKalenderEventTile extends StatelessWidget {
   final String? provider;
   final bool allDay;
   final String? bookmarkColor;
+  final int depth;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final glyph = compactProviderGlyphWidget(provider, size: 11);
+    final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
+    final denseTitle = !compact && !allDay;
+    final glyph = compactProviderGlyphWidget(
+      provider,
+      size: denseTitle
+          ? kWeekWideProviderGlyphSize
+          : kWeekPhoneProviderGlyphSize,
+    );
     final tokenColor = bookmarkColor == null
         ? null
         : bookmarkTokenColor(bookmarkColor!, scheme);
     return Material(
-      color: scheme.primaryContainer.withValues(alpha: 0.78),
+      color: tone.fill.withValues(alpha: 0.92),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(4),
         side: BorderSide(
@@ -272,18 +298,17 @@ class WeekKalenderEventTile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
             child: Row(
               children: [
-                if (glyph != null) ...[
-                  glyph,
-                  const SizedBox(width: 4),
-                ],
+                if (glyph != null) ...[glyph, const SizedBox(width: 4)],
                 Expanded(
                   child: Text(
                     title,
                     maxLines: allDay ? 1 : 3,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onPrimaryContainer,
-                        ),
+                    style: weekEventTitleStyle(
+                      Theme.of(context).textTheme,
+                      color: tone.foreground,
+                      compact: !denseTitle,
+                    ),
                   ),
                 ),
                 if (allDay)
@@ -292,9 +317,8 @@ class WeekKalenderEventTile extends StatelessWidget {
                     child: Text(
                       'Весь день',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color:
-                                scheme.onPrimaryContainer.withValues(alpha: 0.8),
-                          ),
+                        color: tone.foreground.withValues(alpha: 0.8),
+                      ),
                     ),
                   ),
               ],
@@ -305,10 +329,22 @@ class WeekKalenderEventTile extends StatelessWidget {
               top: 0,
               right: 0,
               child: IgnorePointer(
-                child: ObjectBookmarkGlyph(
-                  key: Key('week_bookmark_$objectId'),
-                  fillColor: tokenColor,
-                  size: kBookmarkTabSize,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    ObjectBookmarkGlyph(
+                      fillColor: scheme.surface,
+                      size: Size(
+                        kBookmarkTabSize.width + 2,
+                        kBookmarkTabSize.height + 2,
+                      ),
+                    ),
+                    ObjectBookmarkGlyph(
+                      key: Key('week_bookmark_$objectId'),
+                      fillColor: tokenColor,
+                      size: kBookmarkTabSize,
+                    ),
+                  ],
                 ),
               ),
             ),

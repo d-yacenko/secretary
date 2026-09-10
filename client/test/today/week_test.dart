@@ -15,6 +15,8 @@ import 'package:personal_secretary/today/temporal_area.dart';
 import 'package:personal_secretary/today/today_screen.dart';
 import 'package:personal_secretary/today/week_event_time_label.dart';
 import 'package:personal_secretary/today/week_kalender_events.dart';
+import 'package:personal_secretary/today/week_overlap.dart';
+import 'package:personal_secretary/today/week_overlap_layout.dart';
 import 'package:personal_secretary/today/week_screen.dart';
 import 'package:personal_secretary/ui/date_format.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
@@ -78,8 +80,7 @@ void main() {
           {
             'date': shiftCalendarDate(weekStart, i),
             'is_today': shiftCalendarDate(weekStart, i) == todayDate,
-            'events': eventsByDate[shiftCalendarDate(weekStart, i)] ??
-                const [],
+            'events': eventsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
           },
       ],
     };
@@ -113,8 +114,11 @@ void main() {
     };
   }
 
-  http.Response jsonOk(Object body) =>
-      http.Response(jsonEncode(body), 200, headers: {'content-type': 'application/json'});
+  http.Response jsonOk(Object body) => http.Response(
+    jsonEncode(body),
+    200,
+    headers: {'content-type': 'application/json'},
+  );
 
   Widget harness({
     required Widget child,
@@ -138,8 +142,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture =
-        CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     return (auth, capture);
   }
 
@@ -254,8 +260,10 @@ void main() {
   test('calendar-date arithmetic is DST-safe around fall-back', () {
     expect(shiftCalendarDate('2026-10-19', 7), '2026-10-26');
     expect(shiftCalendarDate('2026-10-26', -7), '2026-10-19');
-    expect(addCalendarDays(parseCalendarDate('2026-10-19'), 7),
-        DateTime.utc(2026, 10, 26));
+    expect(
+      addCalendarDays(parseCalendarDate('2026-10-19'), 7),
+      DateTime.utc(2026, 10, 26),
+    );
     expect(parseCalendarDate('2026-10-19').isUtc, isTrue);
     expect(
       parseCalendarDate('2026-10-19').add(const Duration(days: 7)),
@@ -367,11 +375,21 @@ void main() {
         ),
       ),
     );
-    expect(events.map((e) => e.objectId).toSet(), {'holiday', 'overnight', 'trip'});
+    expect(events.map((e) => e.objectId).toSet(), {
+      'holiday',
+      'overnight',
+      'trip',
+    });
     expect(events.singleWhere((e) => e.objectId == 'holiday').isAllDay, isTrue);
-    expect(events.singleWhere((e) => e.objectId == 'overnight').isAllDay, isFalse);
     expect(
-      events.singleWhere((e) => e.objectId == 'overnight').dateTimeRange.duration,
+      events.singleWhere((e) => e.objectId == 'overnight').isAllDay,
+      isFalse,
+    );
+    expect(
+      events
+          .singleWhere((e) => e.objectId == 'overnight')
+          .dateTimeRange
+          .duration,
       const Duration(hours: 2),
     );
     expect(
@@ -407,8 +425,9 @@ void main() {
     expect(copy.interaction.allowRescheduling, isFalse);
   });
 
-  testWidgets('Сегодня | Неделя switch keeps Today and loads Week',
-      (tester) async {
+  testWidgets('Сегодня | Неделя switch keeps Today and loads Week', (
+    tester,
+  ) async {
     var todayCalls = 0;
     var weekCalls = 0;
     final mock = MockClient((request) async {
@@ -451,8 +470,9 @@ void main() {
     expect(todayCalls, 1);
   });
 
-  testWidgets('desktop week shows seven columns, overlap, providers, all-day',
-      (tester) async {
+  testWidgets('desktop week shows seven columns, overlap, providers, all-day', (
+    tester,
+  ) async {
     tester.view.physicalSize = desktopSize;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -507,25 +527,36 @@ void main() {
     for (var i = 1; i < dates.length; i++) {
       expect(
         tester.getTopLeft(find.byKey(Key('week_day_${dates[i]}'))).dx,
-        greaterThan(tester.getTopLeft(find.byKey(Key('week_day_${dates[i - 1]}'))).dx),
+        greaterThan(
+          tester.getTopLeft(find.byKey(Key('week_day_${dates[i - 1]}'))).dx,
+        ),
       );
     }
     expect(find.text('Пн 7 сентября'), findsOneWidget);
     expect(find.text('Вс 13 сентября'), findsOneWidget);
     expect(
-      tester.getTopLeft(find.byKey(const Key('week_event_2026-09-07_all-day'))).dy,
-      lessThan(tester.getTopLeft(find.byKey(const Key('week_event_2026-09-07_yandex'))).dy),
+      tester
+          .getTopLeft(find.byKey(const Key('week_event_2026-09-07_all-day')))
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(find.byKey(const Key('week_event_2026-09-07_yandex')))
+            .dy,
+      ),
     );
-    final review = tester.getRect(find.byKey(const Key('week_event_2026-09-07_google')));
-    final overlap =
-        tester.getRect(find.byKey(const Key('week_event_2026-09-07_google-overlap')));
+    final review = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_google')),
+    );
+    final overlap = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_google-overlap')),
+    );
     expect((review.top - overlap.top).abs(), lessThan(80));
     expect((review.left - overlap.left).abs(), greaterThan(8));
     expect((review.width - overlap.width).abs(), greaterThan(4));
     final body = tester.widget<CalendarBody>(find.byType(CalendarBody));
     expect(
       body.multiDayBodyConfiguration?.eventLayoutStrategy,
-      isA<OverlapLayoutStrategy>(),
+      isA<SecretaryDenseOverlapLayoutStrategy>(),
     );
     expect(
       body.multiDayBodyConfiguration?.eventLayoutStrategy,
@@ -664,8 +695,9 @@ void main() {
     expect(find.text('Использовать как контекст задачи'), findsOneWidget);
   });
 
-  testWidgets('Week API error shows retry and Today stays usable',
-      (tester) async {
+  testWidgets('Week API error shows retry and Today stays usable', (
+    tester,
+  ) async {
     var weekShouldFail = true;
     var todayCalls = 0;
     final mock = MockClient((request) async {
@@ -704,74 +736,86 @@ void main() {
     expect(find.text('На этой неделе событий нет'), findsOneWidget);
   });
 
-  testWidgets('cross-midnight continues on the next day; multi-day is in header',
-      (tester) async {
-    tester.view.physicalSize = desktopSize;
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    String iso(int y, int m, int d, int h, int min) =>
-        DateTime(y, m, d, h, min).toIso8601String();
-    final overnight = secretaryObjectJson(
-      id: 'overnight',
-      title: 'Night shift',
-      startAt: iso(2026, 9, 7, 23, 0),
-      dueAt: iso(2026, 9, 8, 1, 0),
-    );
-    final trip = secretaryObjectJson(
-      id: 'trip',
-      title: 'Trip',
-      startAt: iso(2026, 9, 7, 18, 0),
-      dueAt: iso(2026, 9, 10, 10, 0),
-    );
-    final sameDay = secretaryObjectJson(
-      id: 'office',
-      title: 'Office',
-      startAt: iso(2026, 9, 7, 9, 0),
-      dueAt: iso(2026, 9, 7, 10, 0),
-    );
-    final holiday = secretaryObjectJson(
-      id: 'holiday',
-      title: 'Holiday',
-      allDay: true,
-      startAt: iso(2026, 9, 7, 0, 0),
-      dueAt: iso(2026, 9, 8, 0, 0),
-    );
-    await tester.pumpWidget(
-      buildWeek(
-        weekClient(
-          week: (_) => weekPayload(
-            eventsByDate: {
-              '2026-09-07': [holiday, sameDay, overnight, trip],
-              '2026-09-08': [overnight, trip],
-              '2026-09-09': [trip],
-              '2026-09-10': [trip],
-            },
+  testWidgets(
+    'cross-midnight continues on the next day; multi-day is in header',
+    (tester) async {
+      tester.view.physicalSize = desktopSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      String iso(int y, int m, int d, int h, int min) =>
+          DateTime(y, m, d, h, min).toIso8601String();
+      final overnight = secretaryObjectJson(
+        id: 'overnight',
+        title: 'Night shift',
+        startAt: iso(2026, 9, 7, 23, 0),
+        dueAt: iso(2026, 9, 8, 1, 0),
+      );
+      final trip = secretaryObjectJson(
+        id: 'trip',
+        title: 'Trip',
+        startAt: iso(2026, 9, 7, 18, 0),
+        dueAt: iso(2026, 9, 10, 10, 0),
+      );
+      final sameDay = secretaryObjectJson(
+        id: 'office',
+        title: 'Office',
+        startAt: iso(2026, 9, 7, 9, 0),
+        dueAt: iso(2026, 9, 7, 10, 0),
+      );
+      final holiday = secretaryObjectJson(
+        id: 'holiday',
+        title: 'Holiday',
+        allDay: true,
+        startAt: iso(2026, 9, 7, 0, 0),
+        dueAt: iso(2026, 9, 8, 0, 0),
+      );
+      await tester.pumpWidget(
+        buildWeek(
+          weekClient(
+            week: (_) => weekPayload(
+              eventsByDate: {
+                '2026-09-07': [holiday, sameDay, overnight, trip],
+                '2026-09-08': [overnight, trip],
+                '2026-09-09': [trip],
+                '2026-09-10': [trip],
+              },
+            ),
           ),
+          size: desktopSize,
+          now: () => DateTime(2026, 9, 10, 0, 20),
         ),
-        size: desktopSize,
-        now: () => DateTime(2026, 9, 10, 0, 20),
-      ),
-    );
-    await pumpCalendar(tester);
+      );
+      await pumpCalendar(tester);
 
-    expect(find.byKey(const Key('week_event_2026-09-07_holiday')), findsOneWidget);
-    expect(find.text('Trip'), findsOneWidget);
-    expect(find.byKey(const Key('week_event_2026-09-08_overnight')), findsOneWidget);
+      expect(
+        find.byKey(const Key('week_event_2026-09-07_holiday')),
+        findsOneWidget,
+      );
+      expect(find.text('Trip'), findsOneWidget);
+      expect(
+        find.byKey(const Key('week_event_2026-09-08_overnight')),
+        findsOneWidget,
+      );
 
-    final bodyScrollable = find.descendant(
-      of: find.byKey(const Key('week_time_grid')),
-      matching: find.byType(Scrollable),
-    );
-    await tester.fling(bodyScrollable.first, const Offset(0, -2500), 2000);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(find.byKey(const Key('week_event_2026-09-07_overnight')), findsOneWidget);
-    expect(find.text('Night shift'), findsWidgets);
-  });
+      final bodyScrollable = find.descendant(
+        of: find.byKey(const Key('week_time_grid')),
+        matching: find.byType(Scrollable),
+      );
+      await tester.fling(bodyScrollable.first, const Offset(0, -2500), 2000);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        find.byKey(const Key('week_event_2026-09-07_overnight')),
+        findsOneWidget,
+      );
+      expect(find.text('Night shift'), findsWidgets);
+    },
+  );
 
-  testWidgets('failed next/previous week retry repeats the same week_start',
-      (tester) async {
+  testWidgets('failed next/previous week retry repeats the same week_start', (
+    tester,
+  ) async {
     final requested = <String?>[];
     final failFor = <String>{};
     await tester.pumpWidget(
@@ -823,7 +867,10 @@ void main() {
 
     await tester.tap(find.text('Повторить'));
     await pumpCalendar(tester);
-    expect(requested.sublist(requested.length - 2), ['2026-09-14', '2026-09-14']);
+    expect(requested.sublist(requested.length - 2), [
+      '2026-09-14',
+      '2026-09-14',
+    ]);
     expect(find.text('Повторить'), findsOneWidget);
 
     failFor.remove('2026-09-14');
@@ -843,13 +890,10 @@ void main() {
     expect(requested.last, '2026-09-07');
   });
 
-  for (final size in const [
-    Size(360, 760),
-    Size(800, 1280),
-    Size(1280, 768),
-  ]) {
-    testWidgets('week grid does not overflow at ${size.width}x${size.height}',
-        (tester) async {
+  for (final size in const [Size(360, 760), Size(800, 1280), Size(1280, 768)]) {
+    testWidgets('week grid does not overflow at ${size.width}x${size.height}', (
+      tester,
+    ) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -926,8 +970,9 @@ void main() {
     expect(find.text('Масштабируемая встреча'), findsOneWidget);
   });
 
-  testWidgets('three overlapping events cascade and stay tappable',
-      (tester) async {
+  testWidgets('three overlapping events cascade and stay tappable', (
+    tester,
+  ) async {
     tester.view.physicalSize = desktopSize;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -972,7 +1017,7 @@ void main() {
     final body = tester.widget<CalendarBody>(find.byType(CalendarBody));
     expect(
       body.multiDayBodyConfiguration?.eventLayoutStrategy,
-      isA<OverlapLayoutStrategy>(),
+      isA<SecretaryDenseOverlapLayoutStrategy>(),
     );
     expect(
       body.multiDayBodyConfiguration?.eventLayoutStrategy,
@@ -981,14 +1026,29 @@ void main() {
     expect(find.text('Block A'), findsOneWidget);
     expect(find.text('Block B'), findsOneWidget);
     expect(find.text('Block C'), findsOneWidget);
-    expect(find.byKey(const Key('week_event_2026-09-07_evt-a')), findsOneWidget);
-    expect(find.byKey(const Key('week_event_2026-09-07_evt-b')), findsOneWidget);
-    expect(find.byKey(const Key('week_event_2026-09-07_evt-c')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_event_2026-09-07_evt-a')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_event_2026-09-07_evt-b')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_event_2026-09-07_evt-c')),
+      findsOneWidget,
+    );
 
     final widths = [
-      tester.getSize(find.byKey(const Key('week_event_2026-09-07_evt-a'))).width,
-      tester.getSize(find.byKey(const Key('week_event_2026-09-07_evt-b'))).width,
-      tester.getSize(find.byKey(const Key('week_event_2026-09-07_evt-c'))).width,
+      tester
+          .getSize(find.byKey(const Key('week_event_2026-09-07_evt-a')))
+          .width,
+      tester
+          .getSize(find.byKey(const Key('week_event_2026-09-07_evt-b')))
+          .width,
+      tester
+          .getSize(find.byKey(const Key('week_event_2026-09-07_evt-c')))
+          .width,
     ];
     expect(widths.toSet().length, greaterThan(1));
     expect(tester.takeException(), isNull);
@@ -1011,8 +1071,9 @@ void main() {
     expect(openedId, 'evt-b');
   });
 
-  testWidgets('bookmarked week event shows token marker without writes',
-      (tester) async {
+  testWidgets('bookmarked week event shows token marker without writes', (
+    tester,
+  ) async {
     tester.view.physicalSize = desktopSize;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1046,10 +1107,7 @@ void main() {
               ],
             },
           ),
-          bookmarks: {
-            'marked': 'blue',
-            'overlap-marked': 'green',
-          },
+          bookmarks: {'marked': 'blue', 'overlap-marked': 'green'},
           onRequest: (request) {
             if (request.method == 'PUT' || request.method == 'DELETE') {
               mutationPaths.add('${request.method} ${request.url.path}');
@@ -1085,5 +1143,219 @@ void main() {
     expect(openedId, 'marked');
     expect(find.byType(ObjectDetailScreen), findsOneWidget);
     expect(mutationPaths, isEmpty);
+  });
+
+  testWidgets('nested shorter event stays 80-92% of the day column', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(
+          week: (_) => weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'long',
+                  title: 'Long block',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T18:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'short',
+                  title: 'Nested hour',
+                  startAt: '2026-09-07T13:00:00+02:00',
+                  dueAt: '2026-09-07T14:00:00+02:00',
+                ),
+              ],
+            },
+          ),
+        ),
+        size: desktopSize,
+      ),
+    );
+    await pumpCalendar(tester);
+
+    final long = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_long')),
+    );
+    final nested = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_short')),
+    );
+    final ratio = nested.width / long.width;
+    expect(ratio, inInclusiveRange(0.80, 0.92));
+    expect(ratio, isNot(inInclusiveRange(0.50, 0.60)));
+    expect(nested.left, greaterThan(long.left + 4));
+    expect(nested.right, closeTo(long.right, 1.5));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('four nested events keep dense width and stay tappable', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    String? openedId;
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(
+          week: (_) => weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'nest-a',
+                  title: 'Nest A',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T18:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'nest-b',
+                  title: 'Nest B',
+                  startAt: '2026-09-07T11:00:00+02:00',
+                  dueAt: '2026-09-07T16:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'nest-c',
+                  title: 'Nest C',
+                  startAt: '2026-09-07T12:00:00+02:00',
+                  dueAt: '2026-09-07T14:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'nest-d',
+                  title: 'Nest D',
+                  startAt: '2026-09-07T12:30:00+02:00',
+                  dueAt: '2026-09-07T13:30:00+02:00',
+                ),
+              ],
+            },
+          ),
+          onRequest: (request) {
+            final path = request.url.path;
+            if (path == '/objects/nest-a' ||
+                path == '/objects/nest-b' ||
+                path == '/objects/nest-c' ||
+                path == '/objects/nest-d') {
+              openedId = path.split('/').last;
+            }
+          },
+        ),
+        size: desktopSize,
+      ),
+    );
+    await pumpCalendar(tester);
+
+    final a = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_nest-a')),
+    );
+    final b = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_nest-b')),
+    );
+    final c = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_nest-c')),
+    );
+    final d = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_nest-d')),
+    );
+    expect(find.text('Nest A'), findsOneWidget);
+    expect(find.text('Nest B'), findsOneWidget);
+    expect(find.text('Nest C'), findsOneWidget);
+    expect(find.text('Nest D'), findsOneWidget);
+    expect({a.width, b.width, c.width, d.width}.length, greaterThan(1));
+    expect(b.width / a.width, inInclusiveRange(0.78, 0.92));
+    expect(c.width / a.width, inInclusiveRange(0.78, 0.92));
+    expect(d.width / a.width, inInclusiveRange(0.78, 0.92));
+    expect(d.left - a.left, lessThan(a.width * 0.24));
+    expect(tester.takeException(), isNull);
+
+    Future<void> tapExposed(Rect tile) async {
+      await tester.tapAt(Offset(tile.left + 2, tile.top + 6));
+      await pumpCalendar(tester);
+    }
+
+    await tapExposed(d);
+    expect(openedId, 'nest-d');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+    await tester.pageBack();
+    await pumpCalendar(tester);
+
+    await tapExposed(c);
+    expect(openedId, 'nest-c');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+    await tester.pageBack();
+    await pumpCalendar(tester);
+
+    await tapExposed(b);
+    expect(openedId, 'nest-b');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+    await tester.pageBack();
+    await pumpCalendar(tester);
+
+    await tapExposed(a);
+    expect(openedId, 'nest-a');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('wide and tablet event titles are denser than phone', (
+    tester,
+  ) async {
+    TextStyle titleStyle(Key key) {
+      return tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(key),
+              matching: find.text('Dense title'),
+            ),
+          )
+          .style!;
+    }
+
+    Future<void> pumpAt(Size size) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        buildWeek(
+          weekClient(
+            week: (_) => weekPayload(
+              eventsByDate: {
+                '2026-09-07': [
+                  secretaryObjectJson(
+                    id: 'dense',
+                    title: 'Dense title',
+                    startAt: '2026-09-07T10:00:00+02:00',
+                    dueAt: '2026-09-07T11:00:00+02:00',
+                  ),
+                ],
+              },
+            ),
+          ),
+          size: size,
+        ),
+      );
+      await pumpCalendar(tester);
+    }
+
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpAt(desktopSize);
+    final desktop = titleStyle(const Key('week_event_2026-09-07_dense'));
+    expect(desktop.fontSize, kWeekWideEventTitleSize);
+    expect(desktop.height, kWeekWideEventTitleHeight);
+    expect(tester.takeException(), isNull);
+
+    await pumpAt(const Size(800, 768));
+    final tablet = titleStyle(const Key('week_event_2026-09-07_dense'));
+    expect(tablet.fontSize, kWeekWideEventTitleSize);
+    expect(tester.takeException(), isNull);
+
+    await pumpAt(const Size(360, 760));
+    final phone = titleStyle(const Key('week_event_2026-09-07_dense'));
+    expect(phone.fontSize, greaterThan(kWeekWideEventTitleSize));
+    expect(tester.takeException(), isNull);
   });
 }
