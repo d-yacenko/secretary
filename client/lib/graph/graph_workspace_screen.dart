@@ -55,6 +55,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   SearchFacetsOut? _searchFacets;
   Size? _canvasViewportSize;
   Set<String> _reconciledVisibleIds = {};
+  Set<String>? _inFlightReconcileIds;
   var _bookmarkReconcileScheduled = false;
 
   @override
@@ -131,7 +132,7 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     });
   }
 
-  void _reconcileVisibleBookmarks() {
+  Future<void> _reconcileVisibleBookmarks() async {
     final bookmarks = widget.bookmarkController;
     if (bookmarks == null) {
       return;
@@ -140,8 +141,32 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
     if (setEquals(ids, _reconciledVisibleIds)) {
       return;
     }
-    _reconciledVisibleIds = Set<String>.from(ids);
-    bookmarks.reconcileVisible(ids);
+    if (_inFlightReconcileIds != null) {
+      return;
+    }
+    final requested = Set<String>.from(ids);
+    _inFlightReconcileIds = requested;
+    try {
+      final ok = await bookmarks.reconcileVisible(requested);
+      if (!mounted) {
+        return;
+      }
+      final current =
+          widget.controller.visibleNodes.map((node) => node.id).toSet();
+      if (!ok) {
+        if (!setEquals(current, requested)) {
+          _scheduleVisibleBookmarkReconcile();
+        }
+        return;
+      }
+      if (!setEquals(current, requested)) {
+        _scheduleVisibleBookmarkReconcile();
+        return;
+      }
+      _reconciledVisibleIds = requested;
+    } finally {
+      _inFlightReconcileIds = null;
+    }
   }
 
   Future<void> _runSearch(String query) async {

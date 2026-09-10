@@ -26,6 +26,7 @@ const Map<String, String> kBookmarkColorLabels = {
 
 const Size kBookmarkGlyphSize = Size(14, 18);
 const Size kBookmarkTabSize = Size(16, 20);
+const Size kBookmarkTabHitSize = Size(36, 36);
 const double kBookmarkRibbonReserve = 18;
 
 Color bookmarkTokenColor(String token, ColorScheme scheme) {
@@ -266,7 +267,18 @@ class ObjectBookmarkRibbon extends StatelessWidget {
                   onSelect: onSelect!,
                   onClear: onClear!,
                   tooltip: 'Закладка',
-                  child: tab,
+                  child: SizedBox(
+                    key: const Key('object_bookmark_tab_hit'),
+                    width: kBookmarkTabHitSize.width,
+                    height: kBookmarkTabHitSize.height,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      child: Align(
+                        alignment: Alignment.topRight,
+                        child: tab,
+                      ),
+                    ),
+                  ),
                 )
               : tab,
         ),

@@ -27,10 +27,14 @@ class ObjectBookmarkController extends ChangeNotifier {
     return next;
   }
 
-  Future<void> reconcileVisible(Iterable<String> objectIds) async {
+  /// Returns whether the visible-id batch read succeeded.
+  ///
+  /// An empty ID set is success. Auth/API/network failure returns false and
+  /// leaves the existing cache unchanged.
+  Future<bool> reconcileVisible(Iterable<String> objectIds) async {
     final unique = uniqueObjectIds(objectIds);
     if (unique.isEmpty) {
-      return;
+      return true;
     }
     final snapshot = <String, int>{
       for (final id in unique) id: _generations[id] ?? 0,
@@ -41,7 +45,7 @@ class ObjectBookmarkController extends ChangeNotifier {
       objectIds: unique,
     );
     if (!loaded.succeeded) {
-      return;
+      return false;
     }
     final fetched = loaded.bookmarks;
     var changed = false;
@@ -62,6 +66,7 @@ class ObjectBookmarkController extends ChangeNotifier {
     if (changed) {
       notifyListeners();
     }
+    return true;
   }
 
   Future<void> setColor(String objectId, String color) async {

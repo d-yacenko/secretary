@@ -389,6 +389,7 @@ void main() {
       expect(find.byKey(const Key('object_bookmark_control')), findsNothing);
       expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
       expect(find.byType(ObjectBookmarkGlyph), findsOneWidget);
+      expect(find.byKey(const Key('object_bookmark_tab_hit')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('object_bookmark_tab')));
       await tester.pumpAndSettle();
@@ -402,7 +403,77 @@ void main() {
       await tester.tap(find.text('Убрать закладку'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+      expect(find.byKey(const Key('object_bookmark_tab_hit')), findsNothing);
       expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+    });
+
+    testWidgets('active ribbon keeps small tab and 36 hit target',
+        (tester) async {
+      tester.view.physicalSize = const Size(400, 400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String? color = 'red';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  return SizedBox(
+                    width: 240,
+                    height: 80,
+                    child: ObjectBookmarkRibbon(
+                      color: color,
+                      onSelect: (value) => setState(() => color = value),
+                      onClear: () => setState(() => color = null),
+                      child: const ColoredBox(
+                        color: Color(0x00000000),
+                        child: Text('card'),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+      expect(find.byKey(const Key('object_bookmark_tab_hit')), findsOneWidget);
+      expect(find.byKey(const Key('object_bookmark_control')), findsNothing);
+      expect(find.byType(ObjectBookmarkGlyph), findsOneWidget);
+
+      final glyph = tester.getSize(find.byKey(const Key('object_bookmark_tab')));
+      expect(glyph.width, kBookmarkTabSize.width);
+      expect(glyph.height, kBookmarkTabSize.height);
+      final hit = tester.getSize(find.byKey(const Key('object_bookmark_tab_hit')));
+      expect(hit.width, greaterThanOrEqualTo(kBookmarkTabHitSize.width));
+      expect(hit.height, greaterThanOrEqualTo(kBookmarkTabHitSize.height));
+      expect(hit.width, lessThan(80));
+      expect(hit.height, lessThan(80));
+
+      final hitRect = tester.getRect(find.byKey(const Key('object_bookmark_tab_hit')));
+      final glyphRect = tester.getRect(find.byKey(const Key('object_bookmark_tab')));
+      expect(glyphRect.right, closeTo(hitRect.right, 0.5));
+      expect(glyphRect.top, closeTo(hitRect.top, 0.5));
+      await tester.tapAt(Offset(hitRect.left + 4, hitRect.bottom - 4));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Синий'));
+      await tester.pumpAndSettle();
+      expect(color, 'blue');
+      expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+      expect(find.byType(ObjectBookmarkGlyph), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('object_bookmark_tab_hit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Убрать закладку'));
+      await tester.pumpAndSettle();
+      expect(color, isNull);
+      expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
+      expect(find.byKey(const Key('object_bookmark_tab_hit')), findsNothing);
     });
   });
 
@@ -800,6 +871,13 @@ void main() {
       expect(nodeTab('task-2'), findsNothing);
       expect(nodeControl('task-1'), findsNothing);
       expect(nodeControl('task-2'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('graph_node_task-1')),
+          matching: find.byKey(const Key('object_bookmark_tab_hit')),
+        ),
+        findsNothing,
+      );
 
       harness.graph.selectObject('task-2');
       await tester.pumpAndSettle();
@@ -846,6 +924,134 @@ void main() {
       harness.graph.selectObject('task-1');
       await tester.pumpAndSettle();
       expect(batchCalls, batchesAfterLoad);
+      expect(workspaceCalls, 1);
+    });
+
+    testWidgets('failed bookmark batch can retry the same visible ids',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      var workspaceCalls = 0;
+      var batchCalls = 0;
+      final stored = <String, String>{};
+      final mock = MockClient((request) async {
+        if (request.url.path == '/notifications') {
+          return jsonUtf8Response({'notifications': []});
+        }
+        if (request.url.path == '/today') {
+          return jsonUtf8Response({
+            'date': '2026-08-28',
+            'timezone': 'Europe/Amsterdam',
+            'day_start': '2026-08-28T00:00:00+02:00',
+            'tasks': [],
+            'calendar_events': [],
+            'notifications': [],
+          });
+        }
+        if (request.url.path == '/search/facets') {
+          return jsonUtf8Response({'kinds': [], 'providers': []});
+        }
+        if (request.url.path == '/graph/workspace') {
+          workspaceCalls++;
+          return jsonUtf8Response(
+            graphWorkspaceJson(
+              nodes: [
+                graphObjectJson(id: 'task-1', title: 'Graph task'),
+                graphObjectJson(id: 'task-2', title: 'Other task'),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/object-bookmarks/by-objects') {
+          batchCalls++;
+          if (batchCalls == 1) {
+            return jsonUtf8Response({'detail': 'unavailable'}, statusCode: 500);
+          }
+          final ids =
+              (jsonDecode(request.body) as Map)['object_ids'] as List<dynamic>;
+          expect(ids.length, lessThanOrEqualTo(100));
+          final objects = <String, Map<String, String>>{};
+          for (final rawId in ids) {
+            final id = rawId as String;
+            final color = stored[id];
+            if (color != null) {
+              objects[id] = {'color': color};
+            }
+          }
+          return jsonUtf8Response({'objects': objects});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.startsWith('/object-bookmarks/')) {
+          final id = request.url.path.split('/').last;
+          stored[id] = (jsonDecode(request.body) as Map)['color'] as String;
+          return jsonUtf8Response({
+            'object_id': id,
+            'color': stored[id],
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonUtf8Response({}, statusCode: 404);
+      });
+      final harness = GraphTestHarness(mock);
+      harness.configure();
+      final bookmarks = ObjectBookmarkController(
+        apiClient: harness.auth.apiClient,
+        authController: harness.auth,
+      );
+      await bookmarks.setColor('task-1', 'orange');
+      stored['task-1'] = 'red';
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: GraphWorkspaceScreen(
+              controller: harness.graph,
+              apiClient: harness.auth.apiClient,
+              authController: harness.auth,
+              captureController: harness.capture,
+              assistantController: harness.assistant,
+              onAskSecretary: (_) {},
+              bookmarkController: bookmarks,
+            ),
+          ),
+        ),
+      );
+      await harness.graph.loadOverview();
+      await tester.pumpAndSettle();
+
+      expect(workspaceCalls, 1);
+      expect(batchCalls, 1);
+      expect(tester.takeException(), isNull);
+      expect(bookmarks.colorFor('task-1'), 'orange');
+      expect(nodeTab('task-1'), findsOneWidget);
+      expect(nodeTab('task-2'), findsNothing);
+      expect(nodeControl('task-1'), findsNothing);
+      expect(nodeControl('task-2'), findsNothing);
+
+      harness.graph.selectObject('task-2');
+      await tester.pumpAndSettle();
+      expect(batchCalls, 2);
+      expect(bookmarks.colorFor('task-1'), 'red');
+      expect(nodeTab('task-1'), findsOneWidget);
+      expect(nodeTab('task-2'), findsNothing);
+      expect(nodeControl('task-2'), findsNothing);
+      expect(find.byKey(const Key('object_bookmark_control')), findsOneWidget);
+
+      final batchesAfterSuccess = batchCalls;
+      harness.graph.selectObject('task-1');
+      await tester.pumpAndSettle();
+      harness.graph.selectObject('task-2');
+      await tester.pumpAndSettle();
+      expect(batchCalls, batchesAfterSuccess);
+      expect(workspaceCalls, 1);
+
+      await bookmarks.setColor('task-2', 'violet');
+      await tester.pumpAndSettle();
+      expect(nodeTab('task-2'), findsOneWidget);
+      expect(nodeControl('task-2'), findsNothing);
       expect(workspaceCalls, 1);
     });
   });

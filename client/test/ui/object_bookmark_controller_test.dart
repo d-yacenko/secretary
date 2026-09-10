@@ -62,9 +62,11 @@ void main() {
       }),
     );
     final controller = buildController(apiClient);
+    expect(await controller.reconcileVisible([]), isTrue);
+    expect(batchCalls, 0);
     await controller.setColor('x', 'gray');
     await controller.setColor('a', 'red');
-    await controller.reconcileVisible(['a', 'a', 'b']);
+    expect(await controller.reconcileVisible(['a', 'a', 'b']), isTrue);
     expect(batchCalls, 1);
     expect(lastIds, ['a', 'b']);
     expect(controller.colorFor('a'), isNull);
@@ -105,7 +107,7 @@ void main() {
     await controller.setColor('a', 'red');
     expect(controller.colorFor('a'), 'red');
     batchGate.complete();
-    await reconcile;
+    expect(await reconcile, isTrue);
     expect(controller.colorFor('a'), 'red');
   });
 
@@ -143,12 +145,12 @@ void main() {
     await controller.setColor('b', 'blue');
     var notifies = 0;
     controller.addListener(() => notifies++);
-    await controller.reconcileVisible(['a', 'b']);
+    expect(await controller.reconcileVisible(['a', 'b']), isFalse);
     expect(batchCalls, 1);
     expect(controller.colorFor('a'), 'red');
     expect(controller.colorFor('b'), 'blue');
     expect(notifies, 0);
-    await controller.reconcileVisible(['a', 'b']);
+    expect(await controller.reconcileVisible(['a', 'b']), isTrue);
     expect(batchCalls, 2);
     expect(controller.colorFor('a'), isNull);
     expect(controller.colorFor('b'), 'green');
@@ -188,7 +190,7 @@ void main() {
     await controller.setColor('a', 'red');
     var notifies = 0;
     controller.addListener(() => notifies++);
-    await controller.reconcileVisible(['a']);
+    expect(await controller.reconcileVisible(['a']), isFalse);
     expect(auth.status, AuthStatus.needsAuth);
     expect(controller.colorFor('a'), 'red');
     expect(notifies, 0);
