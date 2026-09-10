@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Inbox Quick Actions — Swipe to Remove A: **implemented, awaiting Architect review** on `review/inbox-quick-actions-swipe-remove-a`. Exact parent / production base: `4d9391e65d7c3251fe854903b83f60fe4d395779`. Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Swipe is **touch only** (Android/iOS, endToStart), gated by existing confirmation (`confirmAndDeleteObject`); Remove from Secretary only; local Inbox row removal after successful DELETE; bookmark cache forget; Review Marker preserved when its anchor Object is removed. Graph Advanced UX **NOT STARTED**. Unified Week + Availability: later. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred.
+Inbox Quick Actions — Swipe to Remove A-R1: **implemented, awaiting Architect review** on `review/inbox-quick-actions-swipe-remove-a`. Production remains `4d9391e65d7c3251fe854903b83f60fe4d395779`. A `16e1ac0d48327e97eca259735ad270e95772d415` is **CODE ACCEPTED / not production accepted**. A-R1 parent is that A SHA. Product rule: EXTERNAL / explicitly provider-backed source + deliberate armed full swipe = confirmation itself; Secretary-native / unknown keeps the modal. No Undo. Review Marker unchanged. Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Swipe is **touch only** (Android/iOS, endToStart). Object Detail still uses `confirmAndDeleteObject`. Remove from Secretary only; local Inbox row removal after successful DELETE; bookmark cache forget; Review Marker preserved when its anchor Object is removed. Graph Advanced UX **NOT STARTED**. Unified Week + Availability: later. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred.
 
 Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4d9391e65d7c3251fe854903b83f60fe4d395779`. Touch card spacing, warm date pill, and Today event separators are production. Do not reopen Pass C.
 
@@ -419,7 +419,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
 - Production application SHA: `4d9391e65d7c3251fe854903b83f60fe4d395779`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**; **Inbox Quick Actions — Swipe to Remove A** in review (not deployed)
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**; **Inbox Quick Actions — Swipe to Remove A-R1** in review (not deployed; A CODE ACCEPTED / not production accepted)
 - Alembic on production: **`0034 / 0034`** (current/head)
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -435,7 +435,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Inbox Workflow Controls A: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (A `e779bc9`; A-R1 `d9d20c2`; A-R3/A-R3-R1 included; Alembic `0034`)
 - Temporal Correctness C — Recurring-Series Inbox Projection: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b` (parent `8db3c58b2ec1998f428750abc460e4fce292d7c0`)
 - Recorded debt (not fixed in Workflow Controls / Temporal C / Pass C): Yandex attendee canonicalization / passive-sync metadata churn
-- Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4d9391e65d7c3251fe854903b83f60fe4d395779`. Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**. **Inbox Quick Actions — Swipe to Remove A** is in review on `review/inbox-quick-actions-swipe-remove-a` (not deployed).
+- Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4d9391e65d7c3251fe854903b83f60fe4d395779`. Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**. **Inbox Quick Actions — Swipe to Remove A-R1** is in review on `review/inbox-quick-actions-swipe-remove-a` (not deployed). A `16e1ac0d48327e97eca259735ad270e95772d415` is **CODE ACCEPTED / not production accepted**.
 - Provider brand assets: deferred
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
@@ -520,4 +520,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Inbox Quick Actions — Swipe to Remove A. Production is `4d9391e65d7c3251fe854903b83f60fe4d395779`. Do not deploy until accepted. Do not start Graph Advanced UX. Do not reopen Design Quality Pass C.
+Await Architect review of Inbox Quick Actions — Swipe to Remove A-R1. Production remains `4d9391e65d7c3251fe854903b83f60fe4d395779`. Do not deploy A-R1 until accepted. Do not start Graph Advanced UX. Do not reopen Design Quality Pass C.

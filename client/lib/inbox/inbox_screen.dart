@@ -800,6 +800,9 @@ class InboxScreenState extends State<InboxScreen> {
         case InboxSourceObjectEntry(:final sourceObject):
           final card = _sourceObjectCard(sourceObject);
           if (touch) {
+            final object = _secretaryObjectFromInboxSource(sourceObject);
+            final direct =
+                objectSupportsDeliberateSwipeDeleteWithoutDialog(object);
             widgets.add(
               _InboxTouchRailGutter(
                 cardGap: kInboxTouchSourceCardGap,
@@ -809,12 +812,20 @@ class InboxScreenState extends State<InboxScreen> {
                 ),
                 child: InboxSwipeToRemove(
                   objectId: sourceObject.id,
-                  onConfirmRemove: () => confirmAndDeleteObject(
-                    context,
-                    object: _secretaryObjectFromInboxSource(sourceObject),
-                    apiClient: widget.apiClient,
-                    authController: widget.authController,
-                  ),
+                  directDelete: direct,
+                  onConfirmRemove: () => direct
+                      ? deleteObjectFromSecretary(
+                          context,
+                          object: object,
+                          apiClient: widget.apiClient,
+                          authController: widget.authController,
+                        )
+                      : confirmAndDeleteObject(
+                          context,
+                          object: object,
+                          apiClient: widget.apiClient,
+                          authController: widget.authController,
+                        ),
                   onRemoved: () {
                     if (!mounted) {
                       return;

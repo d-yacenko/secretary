@@ -237,9 +237,20 @@ Future<void> swipeEndToStart(
   await tester.pumpAndSettle();
 }
 
-Future<void> confirmDelete(WidgetTester tester) async {
-  await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
-  await tester.pumpAndSettle();
+Future<TestGesture> dragHold(
+  WidgetTester tester,
+  Finder finder,
+  Offset total, {
+  int steps = 16,
+}) async {
+  final gesture = await tester.startGesture(tester.getCenter(finder));
+  await tester.pump();
+  final step = Offset(total.dx / steps, total.dy / steps);
+  for (var i = 0; i < steps; i++) {
+    await gesture.moveBy(step);
+    await tester.pump();
+  }
+  return gesture;
 }
 
 Future<void> cancelDelete(WidgetTester tester) async {
@@ -270,6 +281,26 @@ void main() {
     expect(inboxSwipeRemoveDismissThreshold(764), 0.18);
     expect(inboxSwipeRemoveDismissThreshold(764) * 764, closeTo(137.5, 0.2));
     expect(inboxSwipeRemoveDismissThreshold(360), lessThan(0.4));
+  });
+
+  test('direct-delete threshold is ~180px on phone and tablet', () {
+    expect(
+      inboxSwipeDirectDeleteThreshold(308),
+      closeTo(180 / 308, 0.001),
+    );
+    expect(inboxSwipeDirectDeleteThreshold(308) * 308, closeTo(180, 0.5));
+    expect(inboxSwipeDirectDeleteThreshold(324), closeTo(180 / 324, 0.001));
+    expect(
+      inboxSwipeDirectDeleteThreshold(748),
+      closeTo(180 / 748, 0.001),
+    );
+    expect(inboxSwipeDirectDeleteThreshold(748) * 748, closeTo(180, 0.5));
+    expect(inboxSwipeDirectDeleteThreshold(764), 0.24);
+    expect(inboxSwipeDirectDeleteThreshold(764) * 764, closeTo(183.4, 0.5));
+    expect(
+      inboxSwipeDirectDeleteThreshold(308),
+      greaterThan(inboxSwipeRemoveDismissThreshold(308)),
+    );
   });
 
   test('missing anchor still interpolates after neighbor deletion', () {
@@ -314,7 +345,8 @@ void main() {
     );
   });
 
-  testWidgets('A: RTL swipe reveals remove; LTR does not delete', (tester) async {
+  testWidgets('A: below armed threshold restores with no dialog or DELETE',
+      (tester) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -332,25 +364,15 @@ void main() {
         expect(harness.deleteCalls, 0);
         expect(find.text('Card A'), findsOneWidget);
 
-        await swipeEndToStart(tester, find.text('Card A'));
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(
-          find.byKey(const Key('inbox_swipe_remove_background_a')),
-          findsOneWidget,
-        );
-        expect(find.byIcon(Icons.delete_outline), findsOneWidget);
-        expect(
-          find.descendant(of: swipeCard('a'), matching: find.text('Удалить')),
-          findsOneWidget,
-        );
+        await swipeEndToStart(tester, find.text('Card A'), dx: -100);
+        expect(find.byType(AlertDialog), findsNothing);
         expect(harness.deleteCalls, 0);
-        await cancelDelete(tester);
         expect(find.text('Card A'), findsOneWidget);
       },
     );
   });
 
-  testWidgets('B: swipe past threshold opens existing confirmation, no DELETE yet',
+  testWidgets('B: armed visual appears after crossing the direct threshold',
       (tester) async {
     await withPlatform(
       tester,
@@ -360,44 +382,55 @@ void main() {
         await tester.pumpWidget(pumpHarness(harness));
         await tester.pumpAndSettle();
 
-        await swipeEndToStart(tester, find.text('Card B'));
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(find.text('Удалить из Секретаря?'), findsWidgets);
-        expect(
-          find.textContaining('Письмо останется в почтовом ящике.'),
-          findsOneWidget,
+        final gesture = await dragHold(
+          tester,
+          find.text('Card B'),
+          const Offset(-240, 0),
         );
-        expect(find.text('Отмена'), findsOneWidget);
-        expect(find.widgetWithText(FilledButton, 'Удалить'), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('Отпустите, чтобы удалить'), findsOneWidget);
         expect(harness.deleteCalls, 0);
-        expect(harness.inboxCalls, 1);
-      },
-    );
-  });
-
-  testWidgets('C: cancel restores the card and sends no Object DELETE',
-      (tester) async {
-    await withPlatform(
-      tester,
-      platform: TargetPlatform.android,
-      body: () async {
-        final harness = InboxHarness();
-        await tester.pumpWidget(pumpHarness(harness));
+        await gesture.moveBy(const Offset(200, 0));
+        await tester.pump();
+        expect(find.text('Отпустите, чтобы удалить'), findsNothing);
+        await gesture.up();
         await tester.pumpAndSettle();
-
-        await swipeEndToStart(tester, find.text('Card B'));
-        await cancelDelete(tester);
         expect(harness.deleteCalls, 0);
         expect(find.text('Card B'), findsOneWidget);
-        expect(find.text('Card A'), findsOneWidget);
-        expect(find.text('Card C'), findsOneWidget);
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(swipeCard('b'), findsOneWidget);
       },
     );
   });
 
-  testWidgets('D: confirm deletes locally without Inbox reload', (tester) async {
+  testWidgets('C: dragging back below armed threshold does not delete',
+      (tester) async {
+    await withPlatform(
+      tester,
+      platform: TargetPlatform.android,
+      body: () async {
+        final harness = InboxHarness();
+        await tester.pumpWidget(pumpHarness(harness));
+        await tester.pumpAndSettle();
+
+        final gesture = await dragHold(
+          tester,
+          find.text('Card B'),
+          const Offset(-240, 0),
+        );
+        expect(find.text('Отпустите, чтобы удалить'), findsOneWidget);
+        await gesture.moveBy(const Offset(200, 0));
+        await tester.pump();
+        expect(find.text('Отпустите, чтобы удалить'), findsNothing);
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(harness.deleteCalls, 0);
+        expect(find.text('Card B'), findsOneWidget);
+      },
+    );
+  });
+
+  testWidgets('D: armed full swipe deletes without a dialog or Inbox reload',
+      (tester) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -428,9 +461,7 @@ void main() {
         expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
 
         await swipeEndToStart(tester, find.text('Card B'));
-        expect(harness.deleteCalls, 0);
-        await confirmDelete(tester);
-
+        expect(find.byType(AlertDialog), findsNothing);
         expect(harness.deleteCalls, 1);
         expect(harness.deletedIds, ['b']);
         expect(harness.inboxCalls, inboxBefore);
@@ -444,7 +475,8 @@ void main() {
     );
   });
 
-  testWidgets('E: API failure restores the card and keeps retry', (tester) async {
+  testWidgets('E: direct swipe API failure restores the card without a modal',
+      (tester) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -457,7 +489,7 @@ void main() {
         await tester.pumpAndSettle();
 
         await swipeEndToStart(tester, find.text('Card B'));
-        await confirmDelete(tester);
+        expect(find.byType(AlertDialog), findsNothing);
         expect(harness.deleteCalls, 1);
         expect(find.text('Card B'), findsOneWidget);
         expect(find.text('не удалось удалить'), findsOneWidget);
@@ -465,7 +497,6 @@ void main() {
 
         harness.deleteStatus = 200;
         await swipeEndToStart(tester, find.text('Card B'));
-        await confirmDelete(tester);
         expect(harness.deleteCalls, 2);
         expect(find.text('Card B'), findsNothing);
         expect(find.text('Card A'), findsOneWidget);
@@ -524,17 +555,15 @@ void main() {
 
         final markerY =
             tester.getTopLeft(find.byKey(const Key('inbox_review_marker'))).dy;
-        await swipeEndToStart(tester, find.text('Card A'));
-        expect(find.byType(AlertDialog), findsOneWidget);
+        await swipeEndToStart(tester, find.text('Card A'), dx: -100);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(harness.deleteCalls, 0);
         expect(harness.markerPutCalls, 1);
         expect(harness.markerDeleteCalls, 0);
-        await cancelDelete(tester);
         expect(
           tester.getTopLeft(find.byKey(const Key('inbox_review_marker'))).dy,
           closeTo(markerY, 1),
         );
-        expect(harness.markerPutCalls, 1);
-        expect(harness.markerDeleteCalls, 0);
       },
     );
   });
@@ -557,8 +586,7 @@ void main() {
         expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
 
         await swipeEndToStart(tester, find.text('Card B'));
-        await confirmDelete(tester);
-
+        expect(find.byType(AlertDialog), findsNothing);
         expect(find.text('Card B'), findsNothing);
         expect(find.text('Card A'), findsOneWidget);
         expect(find.text('Card C'), findsOneWidget);
@@ -612,7 +640,7 @@ void main() {
         expect(bookmarks.colorFor('b'), 'blue');
 
         await swipeEndToStart(tester, find.text('Card B'));
-        await confirmDelete(tester);
+        expect(find.byType(AlertDialog), findsNothing);
         expect(find.text('Card B'), findsNothing);
         expect(find.byKey(const Key('object_bookmark_tab')), findsNothing);
         expect(bookmarks.colorFor('b'), isNull);
@@ -638,14 +666,96 @@ void main() {
         expect(card.left, closeTo(rail.right, 0.5));
         expect(card.right, lessThanOrEqualTo(list.right + 0.5));
         expect(card.width, greaterThan(600));
-        expect(inboxSwipeRemoveDismissThreshold(card.width), 0.18);
+        expect(
+          inboxSwipeDirectDeleteThreshold(card.width),
+          closeTo(
+            (180 / card.width).clamp(0.24, 0.60),
+            0.001,
+          ),
+        );
+        expect(
+          inboxSwipeDirectDeleteThreshold(card.width) * card.width,
+          closeTo(
+            card.width <= 180 / 0.24 ? 180 : 0.24 * card.width,
+            1,
+          ),
+        );
 
         await swipeEndToStart(tester, find.text('Card B'), dx: -220);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        expect(harness.deleteCalls, 1);
+        expect(find.text('Card B'), findsNothing);
+        expect(find.text('Card A'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  testWidgets('note swipe keeps the existing confirmation dialog', (tester) async {
+    await withPlatform(
+      tester,
+      platform: TargetPlatform.android,
+      body: () async {
+        final harness = InboxHarness(
+          sources: [
+            sourceRow(
+              id: 'n',
+              title: 'Note N',
+              kind: 'note',
+              provider: 'gmail',
+              feedAt: '2026-09-09T12:00:00Z',
+            ),
+            sourceRow(
+              id: 'a',
+              title: 'Card A',
+              feedAt: '2026-09-09T11:00:00Z',
+            ),
+          ],
+        );
+        await tester.pumpWidget(pumpHarness(harness));
+        await tester.pumpAndSettle();
+
+        await swipeEndToStart(tester, find.text('Note N'));
         expect(find.byType(AlertDialog), findsOneWidget);
-        expect(tester.takeException(), isNull);
+        expect(find.text('Удалить из Секретаря?'), findsWidgets);
+        expect(find.textContaining('Письмо останется'), findsNothing);
+        expect(harness.deleteCalls, 0);
         await cancelDelete(tester);
-        expect(find.text('Card B'), findsOneWidget);
-        expect(tester.takeException(), isNull);
+        expect(harness.deleteCalls, 0);
+        expect(find.text('Note N'), findsOneWidget);
+        expect(find.text('Card A'), findsOneWidget);
+      },
+    );
+  });
+
+  testWidgets('unknown provider swipe is fail-closed to the dialog',
+      (tester) async {
+    await withPlatform(
+      tester,
+      platform: TargetPlatform.android,
+      body: () async {
+        final harness = InboxHarness(
+          sources: [
+            sourceRow(
+              id: 'u',
+              title: 'Mystery',
+              kind: 'chat_message',
+              provider: 'telegram',
+              feedAt: '2026-09-09T12:00:00Z',
+            ),
+          ],
+        );
+        await tester.pumpWidget(pumpHarness(harness));
+        await tester.pumpAndSettle();
+
+        await swipeEndToStart(tester, find.text('Mystery'));
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.text('Удалить из Секретаря?'), findsWidgets);
+        expect(harness.deleteCalls, 0);
+        await cancelDelete(tester);
+        expect(find.text('Mystery'), findsOneWidget);
+        expect(harness.deleteCalls, 0);
       },
     );
   });
