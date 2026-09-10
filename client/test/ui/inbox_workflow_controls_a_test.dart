@@ -544,6 +544,101 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('android reset rail is only the left 36px hit target',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    var deleteCalls = 0;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          return jsonRes({
+            'anchor_feed_at': '2026-09-09T12:00:00Z',
+            'anchor_object_id': 'a',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/inbox/review-marker') {
+          deleteCalls++;
+          return jsonRes({});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+
+    final reset = tester.getRect(find.byKey(const Key('inbox_review_rail_reset')));
+    final objectRail = tester.getRect(find.byKey(const Key('inbox_review_rail_a')));
+    expect(reset.width, greaterThanOrEqualTo(36));
+    expect(reset.width, lessThanOrEqualTo(44));
+    expect(reset.left, closeTo(objectRail.left, 0.5));
+    expect(reset.left, lessThan(24));
+    expect(
+      tester.getTopLeft(find.text('Требует внимания')).dx,
+      closeTo(16, 1),
+    );
+    expect(
+      reset.left,
+      lessThan(tester.getTopLeft(find.text('Требует внимания')).dx),
+    );
+
+    await tester.tap(find.byKey(const Key('inbox_review_rail_a')));
+    await tester.pumpAndSettle();
+    expect(putCalls, 1);
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+
+    final resetAfterPlace =
+        tester.getRect(find.byKey(const Key('inbox_review_rail_reset')));
+    await tester.tapAt(
+      Offset(resetAfterPlace.right + 80, resetAfterPlace.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(deleteCalls, 0);
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+
+    await tester.tapAt(resetAfterPlace.center);
+    await tester.pumpAndSettle();
+    expect(deleteCalls, 1);
+    expect(find.byKey(const Key('inbox_review_marker')), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('android rail vertical swipe scrolls and writes no marker',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;

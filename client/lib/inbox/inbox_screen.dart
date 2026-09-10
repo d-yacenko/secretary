@@ -373,6 +373,16 @@ class InboxScreenState extends State<InboxScreen> {
 
   bool get _touchReviewRail => inboxUsesTouchReviewRail();
 
+  Widget _touchContentInset(Widget child) {
+    if (!_touchReviewRail) {
+      return child;
+    }
+    return Padding(
+      padding: const EdgeInsets.only(left: AppSpacing.lg),
+      child: child,
+    );
+  }
+
   void _onTouchRailTap(String? afterObjectId) {
     HapticFeedback.selectionClick();
     _persistReviewMarker(afterObjectId);
@@ -732,11 +742,17 @@ class InboxScreenState extends State<InboxScreen> {
     if (touch) {
       widgets.add(
         SizedBox(
-          width: kInboxReviewRailHitWidth,
           height: kInboxReviewRailHitWidth,
-          child: _InboxReviewRailSegment(
-            segmentKey: const Key('inbox_review_rail_reset'),
-            onTap: () => _onTouchRailTap(null),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: kInboxReviewRailHitWidth,
+              height: kInboxReviewRailHitWidth,
+              child: _InboxReviewRailSegment(
+                segmentKey: const Key('inbox_review_rail_reset'),
+                onTap: () => _onTouchRailTap(null),
+              ),
+            ),
           ),
         ),
       );
@@ -1135,22 +1151,27 @@ class InboxScreenState extends State<InboxScreen> {
           ),
           children: [
             if (_refreshStatusMessage != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(_refreshStatusMessage!),
+              _touchContentInset(
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(_refreshStatusMessage!),
+                ),
               ),
-            SourceSyncErrorList(errorRows: syncErrorRows),
-            const _SectionHeader(title: 'Требует внимания'),
+            _touchContentInset(SourceSyncErrorList(errorRows: syncErrorRows)),
+            _touchContentInset(const _SectionHeader(title: 'Требует внимания')),
             if (!hasNotifications)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text('Нет уведомлений'),
+              _touchContentInset(
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text('Нет уведомлений'),
+                ),
               )
             else
               ...inbox.unresolvedNotifications.map(
-                (notification) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _NotificationCard(
+                (notification) => _touchContentInset(
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _NotificationCard(
                     notification: notification,
                     isMutating: _mutatingNotificationId == notification.id,
                     onAccept: () => _accept(notification),
@@ -1171,49 +1192,60 @@ class InboxScreenState extends State<InboxScreen> {
                   ),
                 ),
               ),
+            ),
             const SizedBox(height: 16),
-            const _SectionHeader(title: 'Последние входящие'),
+            _touchContentInset(
+              const _SectionHeader(title: 'Последние входящие'),
+            ),
             if (_markerError != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  _markerError!,
-                  style: Theme.of(context).textTheme.bodySmall,
+              _touchContentInset(
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    _markerError!,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ),
               ),
             if (!hasSources)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text('Нет недавних входящих объектов'),
+              _touchContentInset(
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text('Нет недавних входящих объектов'),
+                ),
               )
             else
               ..._inboxFeedChildren(context, groupedSources),
             if (_isLoadingMore)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+              _touchContentInset(
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
                 ),
               ),
             if (_loadMoreError != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  children: [
-                    Text(
-                      _loadMoreError!,
-                      textAlign: TextAlign.center,
-                    ),
-                    TextButton(
-                      key: const Key('inbox_load_more_retry'),
-                      onPressed: _loadMore,
-                      child: const Text('Повторить'),
-                    ),
-                  ],
+              _touchContentInset(
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    children: [
+                      Text(
+                        _loadMoreError!,
+                        textAlign: TextAlign.center,
+                      ),
+                      TextButton(
+                        key: const Key('inbox_load_more_retry'),
+                        onPressed: _loadMore,
+                        child: const Text('Повторить'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],
