@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api/api_error.dart';
 import '../api/api_models.dart';
@@ -33,6 +34,14 @@ import 'inbox_review_marker.dart';
 import 'notification_labels.dart';
 
 enum InboxLoadState { loading, ready, error }
+
+/// Touch Review Rail hit width. Visible guide is 1–2 px inside this area.
+const double kInboxReviewRailHitWidth = 36;
+
+bool inboxUsesTouchReviewRail([TargetPlatform? platform]) {
+  final resolved = platform ?? defaultTargetPlatform;
+  return resolved == TargetPlatform.android || resolved == TargetPlatform.iOS;
+}
 
 class InboxScreen extends StatefulWidget {
   const InboxScreen({
@@ -362,6 +371,13 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
+  bool get _touchReviewRail => inboxUsesTouchReviewRail();
+
+  void _onTouchRailTap(String? afterObjectId) {
+    HapticFeedback.selectionClick();
+    _persistReviewMarker(afterObjectId);
+  }
+
   Future<void> _persistReviewMarker(String? afterObjectId) async {
     final previous = _reviewMarker;
     try {
@@ -665,110 +681,139 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
+  Widget _sourceObjectCard(InboxSourceObjectOut sourceObject) {
+    return _SourceObjectCard(
+      sourceObject: sourceObject,
+      labels: _labelsByObject[sourceObject.id] ?? const [],
+      bookmarkColor: _bookmarks.colorFor(sourceObject.id),
+      onBookmarkSelect: (color) => _bookmarks.setColor(sourceObject.id, color),
+      onBookmarkClear: () => _bookmarks.clear(sourceObject.id),
+      onTap: () => _openSourceObject(sourceObject),
+      onOpenSource: providerHasIdentity(sourceObject.provider)
+          ? () => _openInboxSource(sourceObject)
+          : null,
+      onAskSecretary: widget.onAskSecretary == null
+          ? null
+          : () {
+              widget.onAskSecretary!(
+                SecretaryObject(
+                  id: sourceObject.id,
+                  kind: sourceObject.kind,
+                  title: sourceObject.title,
+                  body: sourceObject.excerpt,
+                  provider: sourceObject.provider,
+                  externalId: null,
+                  canonicalUri: null,
+                  status: sourceObject.status,
+                  startAt: null,
+                  dueAt: null,
+                  occurredAt: sourceObject.primaryAt,
+                  metadata: const {},
+                  origin: sourceObject.origin,
+                  state: sourceObject.state,
+                  confidence: null,
+                  createdAt: sourceObject.primaryAt ?? '',
+                  updatedAt: sourceObject.primaryAt ?? '',
+                ),
+              );
+            },
+      onShowInGraph: widget.onShowInGraph == null
+          ? null
+          : () => widget.onShowInGraph!(sourceObject.id),
+    );
+  }
+
   List<Widget> _inboxFeedChildren(
     BuildContext context,
     List<InboxSourceListEntry> groupedSources,
   ) {
-    final widgets = <Widget>[
-      _InboxMarkerDropGap(
-        afterObjectId: null,
-        onAccept: () => _persistReviewMarker(null),
-      ),
-    ];
-    if (_reviewMarker == null) {
+    final touch = _touchReviewRail;
+    final widgets = <Widget>[];
+    if (touch) {
       widgets.add(
-        _InboxReviewMarkerBar(
-          unplaced: true,
+        SizedBox(
+          width: kInboxReviewRailHitWidth,
+          height: kInboxReviewRailHitWidth,
+          child: _InboxReviewRailSegment(
+            segmentKey: const Key('inbox_review_rail_reset'),
+            onTap: () => _onTouchRailTap(null),
+          ),
         ),
       );
+    } else {
+      widgets.add(
+        _InboxMarkerDropGap(
+          afterObjectId: null,
+          onAccept: () => _persistReviewMarker(null),
+        ),
+      );
+      if (_reviewMarker == null) {
+        widgets.add(const _InboxReviewMarkerBar(unplaced: true));
+      }
     }
     for (final entry in groupedSources) {
       switch (entry) {
         case InboxDateSeparatorEntry():
-          widgets.add(InboxDateSeparator(entry: entry));
+          widgets.add(
+            touch
+                ? _InboxTouchRailGutter(child: InboxDateSeparator(entry: entry))
+                : InboxDateSeparator(entry: entry),
+          );
         case InboxReviewMarkerEntry():
-          widgets.add(
-            _InboxReviewMarkerBar(
-              unplaced: false,
-            ),
-          );
+          widgets.add(const _InboxReviewMarkerBar(unplaced: false));
         case InboxSourceObjectEntry(:final sourceObject):
-          widgets.add(
-            _InboxMarkerCardTarget(
-              objectId: sourceObject.id,
-              onHoverChanged: (hovering) {
-                final next = hovering ? sourceObject.id : null;
-                if (_markerHoverObjectId == next) {
-                  return;
-                }
-                if (!hovering && _markerHoverObjectId != sourceObject.id) {
-                  return;
-                }
-                setState(() => _markerHoverObjectId = next);
-              },
-              onAccept: () {
-                setState(() => _markerHoverObjectId = null);
-                _persistReviewMarker(sourceObject.id);
-              },
-              child: _SourceObjectCard(
-                sourceObject: sourceObject,
-                labels: _labelsByObject[sourceObject.id] ?? const [],
-                bookmarkColor: _bookmarks.colorFor(sourceObject.id),
-                onBookmarkSelect: (color) =>
-                    _bookmarks.setColor(sourceObject.id, color),
-                onBookmarkClear: () => _bookmarks.clear(sourceObject.id),
-                onTap: () => _openSourceObject(sourceObject),
-                onOpenSource: providerHasIdentity(sourceObject.provider)
-                    ? () => _openInboxSource(sourceObject)
-                    : null,
-                onAskSecretary: widget.onAskSecretary == null
-                    ? null
-                    : () {
-                        widget.onAskSecretary!(
-                          SecretaryObject(
-                            id: sourceObject.id,
-                            kind: sourceObject.kind,
-                            title: sourceObject.title,
-                            body: sourceObject.excerpt,
-                            provider: sourceObject.provider,
-                            externalId: null,
-                            canonicalUri: null,
-                            status: sourceObject.status,
-                            startAt: null,
-                            dueAt: null,
-                            occurredAt: sourceObject.primaryAt,
-                            metadata: const {},
-                            origin: sourceObject.origin,
-                            state: sourceObject.state,
-                            confidence: null,
-                            createdAt: sourceObject.primaryAt ?? '',
-                            updatedAt: sourceObject.primaryAt ?? '',
-                          ),
-                        );
-                      },
-                onShowInGraph: widget.onShowInGraph == null
-                    ? null
-                    : () => widget.onShowInGraph!(sourceObject.id),
-              ),
-            ),
-          );
-          if (_markerHoverObjectId == sourceObject.id) {
+          final card = _sourceObjectCard(sourceObject);
+          if (touch) {
             widgets.add(
-              Container(
-                key: Key('inbox_review_marker_card_preview_${sourceObject.id}'),
-                height: 2,
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 2),
-                color: Theme.of(context).colorScheme.outline,
+              _InboxTouchRailGutter(
+                rail: _InboxReviewRailSegment(
+                  segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
+                  onTap: () => _onTouchRailTap(sourceObject.id),
+                ),
+                child: card,
+              ),
+            );
+          } else {
+            widgets.add(
+              _InboxMarkerCardTarget(
+                objectId: sourceObject.id,
+                onHoverChanged: (hovering) {
+                  final next = hovering ? sourceObject.id : null;
+                  if (_markerHoverObjectId == next) {
+                    return;
+                  }
+                  if (!hovering && _markerHoverObjectId != sourceObject.id) {
+                    return;
+                  }
+                  setState(() => _markerHoverObjectId = next);
+                },
+                onAccept: () {
+                  setState(() => _markerHoverObjectId = null);
+                  _persistReviewMarker(sourceObject.id);
+                },
+                child: card,
+              ),
+            );
+            if (_markerHoverObjectId == sourceObject.id) {
+              widgets.add(
+                Container(
+                  key: Key(
+                    'inbox_review_marker_card_preview_${sourceObject.id}',
+                  ),
+                  height: 2,
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 2),
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              );
+            }
+            widgets.add(
+              _InboxMarkerDropGap(
+                afterObjectId: sourceObject.id,
+                onAccept: () => _persistReviewMarker(sourceObject.id),
               ),
             );
           }
-          widgets.add(
-            _InboxMarkerDropGap(
-              afterObjectId: sourceObject.id,
-              onAccept: () => _persistReviewMarker(sourceObject.id),
-            ),
-          );
       }
     }
     return widgets;
@@ -1082,7 +1127,12 @@ class InboxScreenState extends State<InboxScreen> {
           key: const Key('inbox_feed_list'),
           controller: _feedScrollController,
           cacheExtent: 1200,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          padding: EdgeInsets.fromLTRB(
+            _touchReviewRail ? 0 : AppSpacing.lg,
+            0,
+            AppSpacing.lg,
+            0,
+          ),
           children: [
             if (_refreshStatusMessage != null)
               Padding(
@@ -1421,6 +1471,111 @@ class _InboxMarkerCardTarget extends StatelessWidget {
   }
 }
 
+class _InboxTouchRailGutter extends StatelessWidget {
+  const _InboxTouchRailGutter({
+    required this.child,
+    this.rail,
+  });
+
+  final Widget child;
+  final Widget? rail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: kInboxReviewRailHitWidth),
+          child: child,
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: kInboxReviewRailHitWidth,
+          child: rail ?? const IgnorePointer(child: _ReviewRailGuide()),
+        ),
+      ],
+    );
+  }
+}
+
+class _InboxReviewRailSegment extends StatelessWidget {
+  const _InboxReviewRailSegment({
+    required this.segmentKey,
+    required this.onTap,
+  });
+
+  final Key segmentKey;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      key: segmentKey,
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: const _ReviewRailGuide(),
+    );
+  }
+}
+
+class _ReviewRailGuide extends StatelessWidget {
+  const _ReviewRailGuide({this.notch = false});
+
+  final bool notch;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return CustomPaint(
+      painter: _ReviewRailGuidePainter(
+        color: scheme.outlineVariant,
+        notchColor: scheme.outline,
+        notch: notch,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _ReviewRailGuidePainter extends CustomPainter {
+  _ReviewRailGuidePainter({
+    required this.color,
+    required this.notchColor,
+    required this.notch,
+  });
+
+  final Color color;
+  final Color notchColor;
+  final bool notch;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final x = size.width / 2;
+    final line = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(x, 2), Offset(x, size.height - 2), line);
+    if (!notch) {
+      return;
+    }
+    canvas.drawCircle(
+      Offset(x, size.height / 2),
+      4,
+      Paint()..color = notchColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ReviewRailGuidePainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.notchColor != notchColor ||
+        oldDelegate.notch != notch;
+  }
+}
+
 class _InboxReviewMarkerBar extends StatelessWidget {
   const _InboxReviewMarkerBar({
     required this.unplaced,
@@ -1431,25 +1586,66 @@ class _InboxReviewMarkerBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final mobile = defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS;
+    final touch = inboxUsesTouchReviewRail();
+    final lines = Expanded(
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: scheme.outline,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              unplaced ? 'Маркер просмотра' : 'Просмотрено досюда',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: scheme.outline,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (touch) {
+      return SizedBox(
+        key: Key(
+          unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker',
+        ),
+        height: 28,
+        child: Row(
+          children: [
+            SizedBox(
+              key: unplaced ? null : const Key('inbox_review_rail_notch'),
+              width: kInboxReviewRailHitWidth,
+              height: 28,
+              child: IgnorePointer(
+                child: _ReviewRailGuide(notch: !unplaced),
+              ),
+            ),
+            lines,
+          ],
+        ),
+      );
+    }
     final handle = _markerHandle(context);
-    final draggable = mobile
-        ? LongPressDraggable<String>(
-            data: 'inbox-review-marker',
-            axis: Axis.vertical,
-            hapticFeedbackOnStart: true,
-            feedback: _dragFeedback(context),
-            childWhenDragging: Opacity(opacity: 0.3, child: handle),
-            child: handle,
-          )
-        : Draggable<String>(
-            data: 'inbox-review-marker',
-            axis: Axis.vertical,
-            feedback: _dragFeedback(context),
-            childWhenDragging: Opacity(opacity: 0.3, child: handle),
-            child: handle,
-          );
+    final draggable = Draggable<String>(
+      data: 'inbox-review-marker',
+      axis: Axis.vertical,
+      feedback: _dragFeedback(context),
+      childWhenDragging: Opacity(opacity: 0.3, child: handle),
+      child: handle,
+    );
     return SizedBox(
       key: Key(unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker'),
       height: 28,
@@ -1460,36 +1656,7 @@ class _InboxReviewMarkerBar extends StatelessWidget {
             child: draggable,
           ),
           const SizedBox(width: 6),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Divider(
-                    height: 1,
-                    thickness: 1,
-                    color: scheme.outline,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(
-                    unplaced ? 'Маркер просмотра' : 'Просмотрено досюда',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
-                        ),
-                  ),
-                ),
-                Expanded(
-                  child: Divider(
-                    height: 1,
-                    thickness: 1,
-                    color: scheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          lines,
         ],
       ),
     );

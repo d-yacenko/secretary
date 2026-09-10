@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
@@ -231,6 +232,10 @@ void main() {
     });
 
     testWidgets('narrow long title and labels do not overflow', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
       tester.view.physicalSize = const Size(360, 760);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -286,6 +291,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('+1'), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('date separators wrap the label with left and right lines',
@@ -686,6 +692,10 @@ void main() {
   group('review marker presentation', () {
     testWidgets('placed marker keeps forgiving handle and thin line copy',
         (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
       tester.view.physicalSize = const Size(800, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -732,6 +742,7 @@ void main() {
         tester.getSize(find.byKey(const Key('inbox_review_marker_gap_a'))).height,
         10,
       );
+      debugDefaultTargetPlatformOverride = null;
     });
   });
 

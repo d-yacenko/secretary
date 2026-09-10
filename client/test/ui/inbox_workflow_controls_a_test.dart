@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_models.dart';
@@ -428,18 +429,37 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('android long-press drag persists marker at known gap',
+  testWidgets('android touch rail places marker after object without dragging',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() {
       debugDefaultTargetPlatformOverride = null;
     });
-    tester.view.physicalSize = const Size(800, 900);
+    tester.view.physicalSize = const Size(360, 760);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
     var putCalls = 0;
+    var deleteCalls = 0;
+    String? putAfter;
+    final haptics = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add('${call.arguments}');
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+
     final apiClient = SecretaryApiClient(
       httpClient: MockClient((request) async {
         if (request.url.path == '/inbox' &&
@@ -468,15 +488,19 @@ void main() {
         if (request.method == 'PUT' &&
             request.url.path == '/inbox/review-marker') {
           putCalls++;
-          expect(
-            (jsonDecode(request.body) as Map)['after_object_id'],
-            'a',
-          );
+          putAfter =
+              (jsonDecode(request.body) as Map)['after_object_id'] as String;
           return jsonRes({
-            'anchor_feed_at': '2026-09-09T12:00:00Z',
-            'anchor_object_id': 'a',
+            'anchor_feed_at':
+                putAfter == 'b' ? '2026-09-08T12:00:00Z' : '2026-09-09T12:00:00Z',
+            'anchor_object_id': putAfter,
             'updated_at': '2026-09-09T13:00:00Z',
           });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/inbox/review-marker') {
+          deleteCalls++;
+          return jsonRes({});
         }
         return jsonRes({}, 404);
       }),
@@ -484,14 +508,108 @@ void main() {
     apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
     await tester.pumpWidget(pumpInbox(apiClient));
     await tester.pumpAndSettle();
-    expect(find.byWidgetPredicate((widget) => widget is LongPressDraggable),
-        findsWidgets);
 
-    await dragHandleToGap(tester, gapId: 'a', longPress: true);
+    expect(find.byWidgetPredicate((widget) => widget is LongPressDraggable),
+        findsNothing);
+    expect(find.byWidgetPredicate((widget) => widget is Draggable), findsNothing);
+    expect(find.byKey(const Key('inbox_review_marker_card_a')), findsNothing);
+    expect(find.byKey(const Key('inbox_review_marker_gap_a')), findsNothing);
+    expect(find.byKey(const Key('inbox_review_rail_reset')), findsOneWidget);
+
+    final railB = tester.getSize(find.byKey(const Key('inbox_review_rail_b')));
+    expect(railB.width, greaterThanOrEqualTo(36));
+    expect(railB.width, lessThanOrEqualTo(44));
+    expect(railB.height, greaterThanOrEqualTo(36));
+
+    await tester.tap(find.byKey(const Key('inbox_review_rail_b')));
+    await tester.pumpAndSettle();
     expect(putCalls, 1);
+    expect(putAfter, 'b');
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
     expect(find.text('Просмотрено досюда'), findsOneWidget);
-    expect(find.text('Card A'), findsOneWidget);
-    expect(find.text('Card B'), findsOneWidget);
+    expect(find.byKey(const Key('inbox_review_rail_notch')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('inbox_review_marker'))).dy,
+      greaterThan(tester.getTopLeft(find.text('Card B')).dy),
+    );
+    expect(haptics, isNotEmpty);
+    expect(haptics.length, 1);
+
+    await tester.tap(find.byKey(const Key('inbox_review_rail_reset')));
+    await tester.pumpAndSettle();
+    expect(deleteCalls, 1);
+    expect(putCalls, 1);
+    expect(find.byKey(const Key('inbox_review_marker')), findsNothing);
+    expect(haptics.length, 2);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('android rail vertical swipe scrolls and writes no marker',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(360, 420);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    var deleteCalls = 0;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                for (var i = 0; i < 6; i++)
+                  sourceRow(
+                    id: 'n$i',
+                    title: 'Card $i',
+                    feedAt:
+                        '2026-09-09T${(12 - i).toString().padLeft(2, '0')}:00:00Z',
+                  ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          return jsonRes({
+            'anchor_feed_at': '2026-09-09T12:00:00Z',
+            'anchor_object_id': 'n0',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/inbox/review-marker') {
+          deleteCalls++;
+          return jsonRes({});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+
+    final before = inboxFeedPosition(tester).pixels;
+    await tester.timedDrag(
+      find.byKey(const Key('inbox_review_rail_n0')),
+      const Offset(0, -180),
+      const Duration(milliseconds: 350),
+    );
+    await tester.pumpAndSettle();
+    expect(putCalls, 0);
+    expect(deleteCalls, 0);
+    expect(inboxFeedPosition(tester).pixels, greaterThan(before));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -1466,7 +1584,170 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('android long-press drop on card center persists marker',
+  testWidgets('android tablet rail tap places marker after object',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 1280);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    String? putAfter;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          putAfter =
+              (jsonDecode(request.body) as Map)['after_object_id'] as String;
+          return jsonRes({
+            'anchor_feed_at': '2026-09-08T12:00:00Z',
+            'anchor_object_id': 'b',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.byWidgetPredicate((widget) => widget is LongPressDraggable),
+        findsNothing);
+    final railB = tester.getSize(find.byKey(const Key('inbox_review_rail_b')));
+    expect(railB.width, greaterThanOrEqualTo(36));
+    await tester.tap(find.byKey(const Key('inbox_review_rail_b')));
+    await tester.pumpAndSettle();
+    expect(putCalls, 1);
+    expect(putAfter, 'b');
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('android rail tap on continuation object issues one PUT',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(360, 400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    var feedCalls = 0;
+    String? putAfter;
+    final firstPage = [
+      for (var index = 0; index < 8; index++)
+        sourceRow(
+          id: 'p1-$index',
+          title: 'First page $index',
+          feedAt: '2026-09-08T${(18 - index).toString().padLeft(2, '0')}:00:00Z',
+        ),
+    ];
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: firstPage,
+              cursor: 'cursor-1',
+              hasMore: true,
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/inbox/feed')) {
+          feedCalls++;
+          return jsonRes({
+            'items': [
+              sourceRow(
+                id: 'far',
+                title: 'Far object',
+                feedAt: '2026-09-07T10:00:00Z',
+              ),
+            ],
+            'next_cursor': null,
+            'has_more': false,
+          });
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          putAfter =
+              (jsonDecode(request.body) as Map)['after_object_id'] as String;
+          return jsonRes({
+            'anchor_feed_at': '2026-09-07T10:00:00Z',
+            'anchor_object_id': 'far',
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.text('First page 0'), findsOneWidget);
+
+    inboxFeedPosition(tester).jumpTo(inboxFeedPosition(tester).maxScrollExtent);
+    await tester.pumpAndSettle();
+    if (find.text('Far object').evaluate().isEmpty) {
+      inboxFeedPosition(tester).jumpTo(inboxFeedPosition(tester).maxScrollExtent);
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Far object'), findsOneWidget);
+    expect(feedCalls, 1);
+
+    await tester.ensureVisible(find.byKey(const Key('inbox_review_rail_far')));
+    await tester.tap(find.byKey(const Key('inbox_review_rail_far')));
+    await tester.pumpAndSettle();
+    expect(putCalls, 1);
+    expect(putAfter, 'far');
+    final placedMarker = find.byKey(
+      const Key('inbox_review_marker'),
+      skipOffstage: false,
+    );
+    expect(placedMarker, findsOneWidget);
+    await tester.ensureVisible(placedMarker);
+    await tester.pumpAndSettle();
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('android card tap still opens detail without marker write',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() {
@@ -1503,13 +1784,25 @@ void main() {
             request.url.path == '/object-bookmarks/by-objects') {
           return jsonRes({'objects': {}});
         }
+        if (request.url.path == '/objects/a') {
+          return jsonRes(objectDetailJson(id: 'a', title: 'Card A'));
+        }
+        if (request.url.path == '/objects/a/neighbors') {
+          return jsonRes({'object_id': 'a', 'neighbors': []});
+        }
+        if (request.url.path == '/objects/a/context') {
+          return jsonRes({
+            'object': objectDetailJson(id: 'a', title: 'Card A'),
+            'edges': [],
+            'neighbors': [],
+          });
+        }
+        if (request.url.path == '/objects/a/labels') {
+          return jsonRes({'labels': []});
+        }
         if (request.method == 'PUT' &&
             request.url.path == '/inbox/review-marker') {
           putCalls++;
-          expect(
-            (jsonDecode(request.body) as Map)['after_object_id'],
-            'a',
-          );
           return jsonRes({
             'anchor_feed_at': '2026-09-09T12:00:00Z',
             'anchor_object_id': 'a',
@@ -1522,9 +1815,10 @@ void main() {
     apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
     await tester.pumpWidget(pumpInbox(apiClient));
     await tester.pumpAndSettle();
-    await dragHandleToCard(tester, title: 'Card A', longPress: true);
-    expect(putCalls, 1);
-    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    await tester.tap(find.text('Card A'));
+    await tester.pumpAndSettle();
+    expect(putCalls, 0);
+    expect(find.text('Card A'), findsWidgets);
     debugDefaultTargetPlatformOverride = null;
   });
 
