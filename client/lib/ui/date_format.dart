@@ -84,3 +84,39 @@ String formatRussianDayMonth(DateTime local, {bool padDay = false}) {
 
 String formatRussianWeekday(DateTime local) => _weekdays[local.weekday - 1];
 
+const _weekdaysShort = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+String formatRussianWeekdayShort(DateTime local) =>
+    _weekdaysShort[local.weekday - 1];
+
+DateTime parseCalendarDate(String value) {
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value.trim());
+  if (match == null) {
+    throw FormatException('invalid calendar date: $value');
+  }
+  return DateTime(
+    int.parse(match.group(1)!),
+    int.parse(match.group(2)!),
+    int.parse(match.group(3)!),
+  );
+}
+
+String formatCalendarDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+String formatWeekRange(String weekStartIso) {
+  final start = parseCalendarDate(weekStartIso);
+  final end = start.add(const Duration(days: 6));
+  if (start.year == end.year && start.month == end.month) {
+    return '${start.day}–${formatRussianDayMonth(end)}';
+  }
+  if (start.year == end.year) {
+    return '${formatRussianDayMonth(start)} – ${formatRussianDayMonth(end)}';
+  }
+  return '${formatRussianDayMonth(start)} ${start.year} – ${formatRussianDayMonth(end)} ${end.year}';
+}
+

@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Inbox Quick Actions — Swipe to Remove A-R1: **implemented, awaiting Architect review** on `review/inbox-quick-actions-swipe-remove-a`. Production remains `4d9391e65d7c3251fe854903b83f60fe4d395779`. A `16e1ac0d48327e97eca259735ad270e95772d415` is **CODE ACCEPTED / not production accepted**. A-R1 parent is that A SHA. Product rule: EXTERNAL / explicitly provider-backed source + deliberate armed full swipe = confirmation itself; Secretary-native / unknown keeps the modal. No Undo. Review Marker unchanged. Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Swipe is **touch only** (Android/iOS, endToStart). Object Detail still uses `confirmAndDeleteObject`. Remove from Secretary only; local Inbox row removal after successful DELETE; bookmark cache forget; Review Marker preserved when its anchor Object is removed. Graph Advanced UX **NOT STARTED**. Unified Week + Availability: later. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred.
+Unified Week A — Read-only unified calendar projection: **implemented / awaiting Architect review** on `review/unified-week-a`. Role-boundary hygiene base `a62d204c9fc3b08bbb6b6c3cb5e53aa123828012`. Production application remains `4945f19e6f6c134b435066d099d9b84d21612ce2`. Inbox Quick Actions — Swipe to Remove A / A-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Week A is a read-only Monday–Sunday projection of materialized Google Calendar + Yandex Calendar event Objects. Availability / free-busy is **NOT** in this phase. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred. Graph Advanced UX **NOT STARTED**.
 
 Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4d9391e65d7c3251fe854903b83f60fe4d395779`. Touch card spacing, warm date pill, and Today event separators are production. Do not reopen Pass C.
 
@@ -418,8 +418,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `4d9391e65d7c3251fe854903b83f60fe4d395779`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**; **Inbox Quick Actions — Swipe to Remove A-R1** in review (not deployed; A CODE ACCEPTED / not production accepted)
+- Production application SHA: `4945f19e6f6c134b435066d099d9b84d21612ce2`
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Quick Actions — Swipe to Remove A / A-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**; **Unified Week A** in review on `review/unified-week-a` (not deployed; Availability **NOT** in this phase)
 - Alembic on production: **`0034 / 0034`** (current/head)
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -435,7 +435,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Inbox Workflow Controls A: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (A `e779bc9`; A-R1 `d9d20c2`; A-R3/A-R3-R1 included; Alembic `0034`)
 - Temporal Correctness C — Recurring-Series Inbox Projection: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b` (parent `8db3c58b2ec1998f428750abc460e4fce292d7c0`)
 - Recorded debt (not fixed in Workflow Controls / Temporal C / Pass C): Yandex attendee canonicalization / passive-sync metadata churn
-- Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4d9391e65d7c3251fe854903b83f60fe4d395779`. Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**. **Inbox Quick Actions — Swipe to Remove A-R1** is in review on `review/inbox-quick-actions-swipe-remove-a` (not deployed). A `16e1ac0d48327e97eca259735ad270e95772d415` is **CODE ACCEPTED / not production accepted**.
+- Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4d9391e65d7c3251fe854903b83f60fe4d395779`. Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**. Inbox Quick Actions — Swipe to Remove A / A-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `4945f19e6f6c134b435066d099d9b84d21612ce2`. **Unified Week A** is in review on `review/unified-week-a` (not deployed).
 - Provider brand assets: deferred
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
@@ -520,4 +520,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Inbox Quick Actions — Swipe to Remove A-R1. Production remains `4d9391e65d7c3251fe854903b83f60fe4d395779`. Do not deploy A-R1 until accepted. Do not start Graph Advanced UX. Do not reopen Design Quality Pass C.
+Await Architect review of Unified Week A on `review/unified-week-a`. Production remains `4945f19e6f6c134b435066d099d9b84d21612ce2`. Do not deploy Unified Week A until accepted. Do not begin Availability A. Do not start Graph Advanced UX. Do not reopen Design Quality Pass C.

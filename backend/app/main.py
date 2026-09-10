@@ -26,6 +26,7 @@ from app.api.routes.tasks import router as tasks_router
 from app.api.source_preferences import router as source_preferences_router
 from app.api.sources import router as sources_router
 from app.api.today import router as today_router
+from app.api.week import router as week_router
 from app.api.yandex import router as yandex_router
 from app.core.config import settings
 from app.db.engine import engine
@@ -97,6 +98,7 @@ app.include_router(sources_router)
 app.include_router(yandex_router)
 app.include_router(mattermost_router)
 app.include_router(today_router)
+app.include_router(week_router)
 
 
 if settings.mcp_enabled:

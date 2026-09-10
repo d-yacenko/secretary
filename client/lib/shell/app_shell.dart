@@ -11,7 +11,7 @@ import '../navigation/secretary_navigation.dart';
 import '../graph/graph_workspace_controller.dart';
 import '../graph/graph_workspace_screen.dart';
 import '../search/search_screen.dart';
-import '../today/today_screen.dart';
+import '../today/temporal_area.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/shell_clock.dart';
 
@@ -135,7 +135,7 @@ class _AppShellState extends State<AppShell> {
           onShowInGraph: _showInGraph,
         );
       case ShellDestination.today:
-        return TodayScreen(
+        return TemporalArea(
           apiClient: widget.authController.apiClient,
           authController: widget.authController,
           captureController: widget.captureController,

@@ -257,6 +257,34 @@ class TodayOut(BaseModel):
     notifications: list[NotificationOut]
 
 
+class WeekEventOut(ObjectOut):
+    all_day: bool
+
+    @classmethod
+    def from_event(cls, obj: Any) -> "WeekEventOut":
+        from app.services.calendar_event_query import event_is_all_day
+
+        base = ObjectOut.from_model(obj)
+        return cls(**base.model_dump(), all_day=event_is_all_day(obj))
+
+
+class WeekDayOut(BaseModel):
+    date: str
+    is_today: bool
+    events: list[WeekEventOut]
+
+
+class WeekOut(BaseModel):
+    week_start: str
+    week_end: str
+    timezone: str
+    window_start: datetime
+    window_end: datetime
+    today_date: str
+    is_current_week: bool
+    days: list[WeekDayOut]
+
+
 class InboxSourceObjectOut(BaseModel):
     id: UUID
     title: str

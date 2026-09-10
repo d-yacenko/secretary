@@ -408,6 +408,20 @@ class SecretaryApiClient {
     return TodayOut.fromJson(body);
   }
 
+  Future<WeekOut> getWeek({String? weekStart}) async {
+    final timezone = await _timezoneProvider.current();
+    final query = timezone.queryParameters();
+    if (weekStart != null && weekStart.isNotEmpty) {
+      query['week_start'] = weekStart;
+    }
+    final body = await _request(
+      'GET',
+      '/week',
+      queryParameters: query,
+    );
+    return WeekOut.fromJson(body);
+  }
+
   Future<SecretaryObject> getObject(String objectId) async {
     final body = await _request('GET', '/objects/$objectId');
     return SecretaryObject.fromJson(body);

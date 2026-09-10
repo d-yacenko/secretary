@@ -11,6 +11,10 @@ from app.notifications.constants import (
     NOTIFICATION_STATUS_NEW,
     NOTIFICATION_STATUS_READ,
 )
+from app.services.calendar_event_query import (
+    active_event_predicates,
+    event_overlaps_window,
+)
 
 TODAY_MAX_TASKS = 100
 TODAY_MAX_EVENTS = 100
@@ -84,24 +88,8 @@ class TodayService:
         stmt = (
             select(Object)
             .where(
-                Object.user_id == self._user_id,
-                Object.kind == "event",
-                Object.state != "rejected",
-                Object.deleted_at.is_(None),
-                or_(Object.status.is_(None), Object.status != "deleted"),
-                Object.start_at.is_not(None),
-                or_(
-                    and_(
-                        Object.due_at.is_(None),
-                        Object.start_at >= day_start,
-                        Object.start_at < day_end,
-                    ),
-                    and_(
-                        Object.due_at.is_not(None),
-                        Object.start_at < day_end,
-                        Object.due_at > day_start,
-                    ),
-                ),
+                *active_event_predicates(self._user_id),
+                event_overlaps_window(day_start, day_end),
             )
             .order_by(Object.start_at.asc())
             .limit(TODAY_MAX_EVENTS)

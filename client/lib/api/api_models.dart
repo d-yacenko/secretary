@@ -799,6 +799,82 @@ class TodayOut {
   }
 }
 
+class WeekEvent {
+  WeekEvent({
+    required this.object,
+    required this.allDay,
+  });
+
+  final SecretaryObject object;
+  final bool allDay;
+
+  factory WeekEvent.fromJson(Map<String, dynamic> json) {
+    return WeekEvent(
+      object: SecretaryObject.fromJson(json),
+      allDay: json['all_day'] as bool? ?? false,
+    );
+  }
+}
+
+class WeekDay {
+  WeekDay({
+    required this.date,
+    required this.isToday,
+    required this.events,
+  });
+
+  final String date;
+  final bool isToday;
+  final List<WeekEvent> events;
+
+  factory WeekDay.fromJson(Map<String, dynamic> json) {
+    return WeekDay(
+      date: json['date'] as String,
+      isToday: json['is_today'] as bool? ?? false,
+      events: (json['events'] as List<dynamic>)
+          .map((e) => WeekEvent.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class WeekOut {
+  WeekOut({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.timezone,
+    required this.windowStart,
+    required this.windowEnd,
+    required this.todayDate,
+    required this.isCurrentWeek,
+    required this.days,
+  });
+
+  final String weekStart;
+  final String weekEnd;
+  final String timezone;
+  final String windowStart;
+  final String windowEnd;
+  final String todayDate;
+  final bool isCurrentWeek;
+  final List<WeekDay> days;
+
+  factory WeekOut.fromJson(Map<String, dynamic> json) {
+    return WeekOut(
+      weekStart: json['week_start'] as String,
+      weekEnd: json['week_end'] as String,
+      timezone: json['timezone'] as String,
+      windowStart: json['window_start'] as String,
+      windowEnd: json['window_end'] as String,
+      todayDate: json['today_date'] as String,
+      isCurrentWeek: json['is_current_week'] as bool? ?? false,
+      days: (json['days'] as List<dynamic>)
+          .map((e) => WeekDay.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 class CaptureContextRef {
   const CaptureContextRef({
     required this.id,
