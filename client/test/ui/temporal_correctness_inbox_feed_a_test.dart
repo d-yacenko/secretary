@@ -186,7 +186,9 @@ void main() {
     expect(weekday.style?.color, isNotNull);
     final weekend = tester.widget<Text>(find.textContaining('суббот'));
     expect(weekend.style?.color, isNotNull);
-    expect(weekend.style?.color, isNot(weekday.style?.color));
+    expect(weekend.style?.color, weekday.style?.color);
+    expect(weekday.style?.fontWeight, FontWeight.w500);
+    expect(weekend.style?.fontWeight, FontWeight.w600);
 
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1.0;

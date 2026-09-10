@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Design Quality Pass C-R4 — Touch Review Rail reset geometry + padding hygiene: **implemented, awaiting Architect review** on `review/design-quality-pass-c`. Production SHA: `0ea5b8358418d1c3dec85fbc694c0489b6f1153f`. C-R2 `7b2fdb3af673e027bf6c2bc39799547982624474` **CODE ACCEPTED, not yet deployed**. C-R3 `c139ba23ff17f87216388ae87f8308c1d76ae56b` **direction ACCEPTED** (exact C-R4 parent). Pass C / C-R1 **DEPLOYED**. Linux desktop Review Marker drag remains. Android/iOS uses Touch Review Rail; reset hit target is rail-width only. Combined R2–R4 deploy only after Architect accepts C-R4. **Inbox Quick Actions — Swipe to Remove** validated as future work, **not implemented**. Graph Advanced UX **NOT STARTED**. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred.
+Design Quality Pass C-R5 — Touch card spacing + warm date pill + Today event separators: **implemented, awaiting Architect review** on `review/design-quality-pass-c`. Production SHA: `03bbc621265a390aed10aa14094ff65f63c9d7ba` (C-R4; exact C-R5 parent). C-R2/R3/R4 **DEPLOYED** and human-smoked; prior Pass C functionality **passed**. Remaining visual findings: touch Inbox inter-card gap; warm/distinct date pill; Today calendar separators. **Inbox Quick Actions — Swipe to Remove** validated as next task, **not implemented**. Graph Advanced UX **NOT STARTED**. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred.
 
 Temporal Correctness C — Recurring-Series Inbox Projection: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`. Inbox Workflow Controls A-R3 / A-R3-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal A: **CLOSED / DEPLOYED**. Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**.
 
@@ -416,8 +416,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `0ea5b8358418d1c3dec85fbc694c0489b6f1153f`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C / C-R1 **DEPLOYED**; C-R2 **CODE ACCEPTED, not yet deployed** (`7b2fdb3af673e027bf6c2bc39799547982624474`); C-R3 Touch Review Rail **direction ACCEPTED** (`c139ba23ff17f87216388ae87f8308c1d76ae56b`); C-R4 reset geometry + padding hygiene **in review**; Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**; **Inbox Quick Actions — Swipe to Remove** deferred
+- Production application SHA: `03bbc621265a390aed10aa14094ff65f63c9d7ba`
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C / C-R2 / C-R3 / C-R4 **DEPLOYED** (human-smoked); C-R5 **in review** (touch card gap, warm date pill, Today event separators); Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**; **Inbox Quick Actions — Swipe to Remove** deferred
 - Alembic on production: **`0034 / 0034`** (current/head)
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -433,7 +433,7 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Inbox Workflow Controls A: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (A `e779bc9`; A-R1 `d9d20c2`; A-R3/A-R3-R1 included; Alembic `0034`)
 - Temporal Correctness C — Recurring-Series Inbox Projection: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b` (parent `8db3c58b2ec1998f428750abc460e4fce292d7c0`)
 - Recorded debt (not fixed in Workflow Controls / Temporal C / Pass C): Yandex attendee canonicalization / passive-sync metadata churn
-- Design Quality Pass C / C-R1: **DEPLOYED** at `0ea5b8358418d1c3dec85fbc694c0489b6f1153f`; broad human visual QA **passed**. C-R2 **CODE ACCEPTED, not yet deployed** (`7b2fdb3af673e027bf6c2bc39799547982624474`). C-R3 Touch Review Rail **direction ACCEPTED** (`c139ba23ff17f87216388ae87f8308c1d76ae56b`). C-R4 **in review** (reset hit target rail-width only; non-source touch inset). Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**. **Inbox Quick Actions — Swipe to Remove** is a validated future task (not in R4).
+- Design Quality Pass C / C-R1–C-R4: **DEPLOYED** at `03bbc621265a390aed10aa14094ff65f63c9d7ba`; prior human smoke **passed**. C-R5 **in review** (touch Inbox inter-card spacing; warm/distinct date pill; Today calendar event separators). Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**. **Inbox Quick Actions — Swipe to Remove** is a validated next task (not in R5).
 - Provider brand assets: deferred
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
@@ -518,4 +518,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Design Quality Pass C-R4 (Touch Review Rail reset geometry + padding hygiene). Production remains `0ea5b8358418d1c3dec85fbc694c0489b6f1153f`. C-R2/C-R3 are code-accepted and must not be deployed separately; deploy combined R2–R4 only after C-R4 is accepted. Do not start Graph Advanced UX. Do not implement Inbox Quick Actions — Swipe to Remove in this phase.
+Await Architect review of Design Quality Pass C-R5 (touch Inbox card spacing, warm date pill, Today event separators). Production is `03bbc621265a390aed10aa14094ff65f63c9d7ba`. Do not deploy C-R5 until accepted. Do not start Graph Advanced UX. Do not implement Inbox Quick Actions — Swipe to Remove in this phase.

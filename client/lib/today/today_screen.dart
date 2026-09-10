@@ -331,7 +331,10 @@ class _TodayScreenState extends State<TodayScreen> {
             if (today.calendarEvents.isEmpty)
               const _EmptySection(message: 'Нет событий в календаре')
             else
-              ...today.calendarEvents.map((event) => _EventRow(
+              ...today.calendarEvents.indexed.expand((indexed) {
+                final (i, event) = indexed;
+                return [
+                  _EventRow(
                     event: event,
                     emphasis: todayEventEmphasis(event, now: _now),
                     labels: _labelsByObject[event.id] ?? const [],
@@ -340,7 +343,16 @@ class _TodayScreenState extends State<TodayScreen> {
                         _bookmarks.setColor(event.id, color),
                     onBookmarkClear: () => _bookmarks.clear(event.id),
                     onTap: () => _openObjectDetail(event.id),
-                  )),
+                  ),
+                  if (i < today.calendarEvents.length - 1)
+                    Divider(
+                      key: Key('today_event_separator_${event.id}'),
+                      height: 1,
+                      thickness: 1,
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                ];
+              }),
             const SizedBox(height: 16),
             _SectionHeader(title: 'Важные уведомления'),
             if (today.notifications.isEmpty)

@@ -123,14 +123,10 @@ class InboxDateSeparatorPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final weekend = entry.isWeekend;
-    final background =
-        weekend ? scheme.tertiaryContainer : scheme.secondaryContainer;
-    final foreground =
-        weekend ? scheme.onTertiaryContainer : scheme.onSecondaryContainer;
     return DecoratedBox(
       key: const Key('inbox_date_separator_pill'),
       decoration: BoxDecoration(
-        color: background,
+        color: scheme.tertiaryContainer,
         borderRadius: BorderRadius.circular(8),
       ),
       child: ConstrainedBox(
@@ -142,7 +138,7 @@ class InboxDateSeparatorPill extends StatelessWidget {
             child: Text(
               entry.label,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: foreground,
+                    color: scheme.onTertiaryContainer,
                     fontWeight: weekend ? FontWeight.w600 : FontWeight.w500,
                   ),
               maxLines: 1,

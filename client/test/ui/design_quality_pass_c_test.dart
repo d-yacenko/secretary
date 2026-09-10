@@ -11,6 +11,7 @@ import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/graph/graph_workspace_screen.dart';
+import 'package:personal_secretary/objects/object_detail_screen.dart';
 import 'package:personal_secretary/search/search_screen.dart';
 import 'package:personal_secretary/today/today_screen.dart';
 import 'package:personal_secretary/ui/inbox_date_groups.dart';
@@ -350,6 +351,31 @@ void main() {
       final datedPill = tester.getSize(find.byType(InboxDateSeparatorPill).first);
       expect(datedPill.height, greaterThanOrEqualTo(22));
       expect(datedPill.height, lessThanOrEqualTo(24));
+      final scheme = Theme.of(
+        tester.element(find.byType(InboxDateSeparatorPill).first),
+      ).colorScheme;
+      Color pillColor(Finder finder) {
+        final box = tester.widget<DecoratedBox>(
+          find.descendant(
+            of: finder,
+            matching: find.byKey(const Key('inbox_date_separator_pill')),
+          ),
+        );
+        return (box.decoration as BoxDecoration).color!;
+      }
+
+      expect(
+        pillColor(find.byType(InboxDateSeparatorPill).first),
+        scheme.tertiaryContainer,
+      );
+      expect(
+        pillColor(find.byType(InboxDateSeparatorPill).first),
+        isNot(scheme.secondaryContainer),
+      );
+      expect(
+        pillColor(find.byType(InboxDateSeparatorPill).at(1)),
+        scheme.tertiaryContainer,
+      );
     });
 
     testWidgets('date pill stays usable on a narrow long label', (tester) async {
@@ -874,6 +900,208 @@ void main() {
         lessThanOrEqualTo(1),
       );
       expect(find.text('Work'), findsOneWidget);
+    });
+
+    testWidgets('calendar events keep compact separators', (tester) async {
+      final now = DateTime.parse('2026-09-08T12:00:00+03:00');
+      Map<String, dynamic> eventJson({
+        required String id,
+        required String title,
+        required String start,
+        String? due,
+      }) {
+        return {
+          'id': id,
+          'kind': 'event',
+          'title': title,
+          'body': null,
+          'provider': 'google_calendar',
+          'external_id': null,
+          'canonical_uri': null,
+          'status': null,
+          'start_at': start,
+          'due_at': due,
+          'metadata': {},
+          'origin': 'source',
+          'state': 'observed',
+          'confidence': null,
+          'created_at': '2026-09-08T08:00:00Z',
+          'updated_at': '2026-09-08T08:00:00Z',
+        };
+      }
+
+      final events = [
+        eventJson(
+          id: 'current',
+          title: 'Current meeting',
+          start: '2026-09-08T11:30:00+03:00',
+          due: '2026-09-08T12:30:00+03:00',
+        ),
+        eventJson(
+          id: 'soon',
+          title: 'Soon standup',
+          start: '2026-09-08T12:40:00+03:00',
+        ),
+        eventJson(
+          id: 'later',
+          title: 'Later review',
+          start: '2026-09-08T15:00:00+03:00',
+        ),
+      ];
+
+      Finder separators() {
+        return find.byWidgetPredicate(
+          (widget) =>
+              widget.key is ValueKey<String> &&
+              (widget.key as ValueKey<String>)
+                  .value
+                  .startsWith('today_event_separator_'),
+        );
+      }
+
+      Future<void> pumpAt(Size size) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final apiClient = SecretaryApiClient(
+          httpClient: MockClient((request) async {
+            if (request.url.path == '/today') {
+              return jsonRes({
+                'date': '2026-09-08',
+                'timezone': 'Europe/Amsterdam',
+                'day_start': '2026-09-08T00:00:00+03:00',
+                'tasks': [],
+                'calendar_events': events,
+                'notifications': [],
+              });
+            }
+            if (request.url.path == '/labels/by-objects') {
+              return jsonRes({
+                'objects': {
+                  'soon': [
+                    {'id': 'lab-1', 'title': 'Work'},
+                  ],
+                },
+              });
+            }
+            if (request.url.path == '/object-bookmarks/by-objects') {
+              return jsonRes({
+                'objects': {
+                  'current': {'color': 'red'},
+                },
+              });
+            }
+            final objectMatch = RegExp(r'^/objects/([^/]+)$')
+                .firstMatch(request.url.path);
+            if (objectMatch != null) {
+              final id = objectMatch.group(1)!;
+              final row = events.firstWhere((item) => item['id'] == id);
+              return jsonRes(row);
+            }
+            if (request.url.path.endsWith('/neighbors')) {
+              final id = request.url.path.split('/')[2];
+              return jsonRes({'object_id': id, 'neighbors': []});
+            }
+            if (request.url.path.endsWith('/context')) {
+              final id = request.url.path.split('/')[2];
+              final row = events.firstWhere((item) => item['id'] == id);
+              return jsonRes({
+                'object': row,
+                'edges': [],
+                'neighbors': [],
+              });
+            }
+            if (request.url.path.endsWith('/labels')) {
+              return jsonRes({'labels': []});
+            }
+            return jsonRes({}, 404);
+          }),
+        );
+        apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+        final auth = AuthController(
+          apiClient: apiClient,
+          tokenStore: FakeTokenStore(),
+          serverUrlStore: FakeServerUrlStore(),
+        );
+        auth.status = AuthStatus.authenticated;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: TodayScreen(
+                apiClient: apiClient,
+                authController: auth,
+                captureController: CaptureController(
+                  apiClient: apiClient,
+                  authController: auth,
+                ),
+                now: () => now,
+                clockTick: const Duration(days: 1),
+                passiveRefreshInterval: const Duration(days: 1),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await pumpAt(const Size(1280, 900));
+      expect(tester.takeException(), isNull);
+      expect(find.text('Current meeting'), findsOneWidget);
+      expect(find.text('Soon standup'), findsOneWidget);
+      expect(find.text('Later review'), findsOneWidget);
+      expect(separators(), findsNWidgets(2));
+      expect(
+        tester.getTopLeft(find.text('Current meeting')).dy,
+        lessThan(tester.getTopLeft(find.text('Soon standup')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('Soon standup')).dy,
+        lessThan(tester.getTopLeft(find.text('Later review')).dy),
+      );
+      expect(find.byKey(const Key('today_event_current_current')), findsOneWidget);
+      expect(find.byKey(const Key('today_event_soon_soon')), findsOneWidget);
+      expect(find.byKey(const Key('today_event_none_later')), findsOneWidget);
+      final currentDeco = tester.widget<DecoratedBox>(
+        find.byKey(const Key('today_event_current_current')),
+      ).decoration as BoxDecoration;
+      final soonDeco = tester.widget<DecoratedBox>(
+        find.byKey(const Key('today_event_soon_soon')),
+      ).decoration as BoxDecoration;
+      final laterDeco = tester.widget<DecoratedBox>(
+        find.byKey(const Key('today_event_none_later')),
+      ).decoration as BoxDecoration;
+      expect(currentDeco.color, isNotNull);
+      expect(currentDeco.border, isNotNull);
+      expect(soonDeco.color, isNotNull);
+      expect(soonDeco.border, isNotNull);
+      expect(laterDeco.color, isNull);
+      expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
+      expect(find.text('Work'), findsOneWidget);
+
+      await tester.tap(find.text('Current meeting'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ObjectDetailScreen), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Soon standup'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ObjectDetailScreen), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Later review'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ObjectDetailScreen), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(separators(), findsNWidgets(2));
+
+      await pumpAt(const Size(360, 800));
+      expect(tester.takeException(), isNull);
+      expect(separators(), findsNWidgets(2));
+      expect(find.text('Current meeting'), findsOneWidget);
+      expect(find.byKey(const Key('today_event_current_current')), findsOneWidget);
+      expect(find.byKey(const Key('today_event_soon_soon')), findsOneWidget);
     });
 
     testWidgets('search task result is bookmarkable', (tester) async {

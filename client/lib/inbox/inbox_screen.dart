@@ -38,6 +38,10 @@ enum InboxLoadState { loading, ready, error }
 /// Touch Review Rail hit width. Visible guide is 1–2 px inside this area.
 const double kInboxReviewRailHitWidth = 36;
 
+/// Compact vertical gap between touch Inbox source cards. The rail continues
+/// through this strip; a tap there still means AFTER that object.
+const double kInboxTouchSourceCardGap = 4;
+
 bool inboxUsesTouchReviewRail([TargetPlatform? platform]) {
   final resolved = platform ?? defaultTargetPlatform;
   return resolved == TargetPlatform.android || resolved == TargetPlatform.iOS;
@@ -782,6 +786,7 @@ class InboxScreenState extends State<InboxScreen> {
           if (touch) {
             widgets.add(
               _InboxTouchRailGutter(
+                cardGap: kInboxTouchSourceCardGap,
                 rail: _InboxReviewRailSegment(
                   segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
                   onTap: () => _onTouchRailTap(sourceObject.id),
@@ -1507,17 +1512,22 @@ class _InboxTouchRailGutter extends StatelessWidget {
   const _InboxTouchRailGutter({
     required this.child,
     this.rail,
+    this.cardGap = 0,
   });
 
   final Widget child;
   final Widget? rail;
+  final double cardGap;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: kInboxReviewRailHitWidth),
+          padding: EdgeInsets.only(
+            left: kInboxReviewRailHitWidth,
+            bottom: cardGap,
+          ),
           child: child,
         ),
         Positioned(

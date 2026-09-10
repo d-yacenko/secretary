@@ -639,6 +639,122 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('android source cards have compact vertical gap', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    var deleteCalls = 0;
+    final putAfter = <String>[];
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-09T11:00:00Z',
+                ),
+              ],
+            ),
+          );
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          putAfter.add(
+            (jsonDecode(request.body) as Map)['after_object_id'] as String,
+          );
+          return jsonRes({
+            'anchor_feed_at': '2026-09-09T12:00:00Z',
+            'anchor_object_id': putAfter.last,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/inbox/review-marker') {
+          deleteCalls++;
+          return jsonRes({});
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+
+    Finder cardOf(String title) {
+      return find.ancestor(
+        of: find.text(title),
+        matching: find.byType(Card),
+      );
+    }
+
+    Future<void> assertCompactGap() async {
+      expect(find.text('Card A'), findsOneWidget);
+      expect(find.text('Card B'), findsOneWidget);
+      final first = tester.getRect(cardOf('Card A'));
+      final second = tester.getRect(cardOf('Card B'));
+      expect(second.top, greaterThan(first.bottom));
+      final gap = second.top - first.bottom;
+      expect(gap, greaterThanOrEqualTo(4));
+      expect(gap, lessThanOrEqualTo(8));
+      final railA = tester.getSize(find.byKey(const Key('inbox_review_rail_a')));
+      expect(railA.width, greaterThanOrEqualTo(36));
+      expect(railA.width, lessThanOrEqualTo(44));
+      expect(find.byWidgetPredicate((widget) => widget is LongPressDraggable),
+          findsNothing);
+      expect(find.byKey(const Key('inbox_review_marker_card_a')), findsNothing);
+      expect(find.byKey(const Key('inbox_review_marker_gap_a')), findsNothing);
+      expect(find.byWidgetPredicate((widget) => widget is DragTarget),
+          findsNothing);
+    }
+
+    tester.view.physicalSize = const Size(360, 760);
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    await assertCompactGap();
+
+    final before = inboxFeedPosition(tester).pixels;
+    await tester.timedDrag(
+      find.byKey(const Key('inbox_review_rail_a')),
+      const Offset(0, -80),
+      const Duration(milliseconds: 350),
+    );
+    await tester.pumpAndSettle();
+    expect(putCalls, 0);
+    expect(deleteCalls, 0);
+    expect(inboxFeedPosition(tester).pixels, greaterThanOrEqualTo(before));
+
+    await tester.tap(find.byKey(const Key('inbox_review_rail_a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('inbox_review_rail_b')));
+    await tester.pumpAndSettle();
+    expect(putCalls, 2);
+    expect(putAfter, ['a', 'b']);
+    expect(deleteCalls, 0);
+
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+    await assertCompactGap();
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('android rail vertical swipe scrolls and writes no marker',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
