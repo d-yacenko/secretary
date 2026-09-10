@@ -1,19 +1,22 @@
-# Current task — Unified Week A — Read-only unified calendar projection
+# Current task — Unified Week A / A-R1
 
 ## Status
 
-Unified Week A-R1: **implemented / awaiting Architect review** on `review/unified-week-a`.
+Unified Week A / A-R1:
 
-Client-only temporal correctness: day-local timed-event labels, DST-safe calendar-date arithmetic, failed-week retry. Backend Week projection unchanged.
+**CODE ACCEPTED / DEPLOYED / AWAITING HUMAN PRODUCT/UX ACCEPTANCE**
 
-Do **not** deploy Unified Week A until Architect accepts.
+Do **not** mark PRODUCTION ACCEPTED from technical smoke.
 Do **not** begin Availability A.
 
 ## Production / lineage
 
-- Production application remains: `4945f19e6f6c134b435066d099d9b84d21612ce2`
-- Implementation branch: `review/unified-week-a`
-- Role-boundary hygiene base: `a62d204c9fc3b08bbb6b6c3cb5e53aa123828012`
+- Production application SHA: `eeb3ab4b49b3bdc1e2f6c2e5c6c90bddfc244d4a`
+- Before this deploy: `4945f19e6f6c134b435066d099d9b84d21612ce2`
+- Unified Week A: `e7d1b2086009840ca654a6b920e780220bdf2d58`
+- Unified Week A-R1 parent: `e7d1b2086009840ca654a6b920e780220bdf2d58`
+- Branch: `review/unified-week-a`
+- Role-boundary hygiene included in this production advance
 - Inbox Quick Actions — Swipe to Remove A / A-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
 - Design Quality Pass C: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
 - Alembic: **0034 / 0034** (no migration)
