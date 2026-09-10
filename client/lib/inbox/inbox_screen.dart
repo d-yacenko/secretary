@@ -28,9 +28,11 @@ import '../ui/object_presentation.dart';
 import '../ui/passive_snapshot_refresh.dart';
 import '../ui/provider_icon.dart';
 import '../voice/voice_transcription_controller.dart';
+import '../objects/object_delete_actions.dart';
 import 'inbox_feed_merge.dart';
 import 'inbox_intake_url.dart';
 import 'inbox_review_marker.dart';
+import 'inbox_swipe_to_remove.dart';
 import 'notification_labels.dart';
 
 enum InboxLoadState { loading, ready, error }
@@ -45,6 +47,12 @@ const double kInboxTouchSourceCardGap = 4;
 bool inboxUsesTouchReviewRail([TargetPlatform? platform]) {
   final resolved = platform ?? defaultTargetPlatform;
   return resolved == TargetPlatform.android || resolved == TargetPlatform.iOS;
+}
+
+/// Swipe-to-Remove is gated to the same touch platforms as the Review Rail.
+/// Linux/desktop keeps the existing card-wide DragTarget and is unchanged.
+bool inboxUsesSwipeToRemove([TargetPlatform? platform]) {
+  return inboxUsesTouchReviewRail(platform);
 }
 
 class InboxScreen extends StatefulWidget {
@@ -671,28 +679,54 @@ class InboxScreenState extends State<InboxScreen> {
       return;
     }
     if (result != null) {
-      final inbox = _inbox;
-      if (inbox == null) {
-        return;
-      }
-      setState(() {
+      _removeDeletedInboxObject(result.deletedObjectId);
+    }
+  }
+
+  void _removeDeletedInboxObject(String deletedObjectId) {
+    final inbox = _inbox;
+    setState(() {
+      if (inbox != null) {
         _inbox = InboxOut(
           unresolvedNotifications: inbox.unresolvedNotifications,
           recentSourceObjects: inbox.recentSourceObjects
-              .where((row) => row.id != result.deletedObjectId)
+              .where((row) => row.id != deletedObjectId)
               .toList(),
           sourceSyncStatus: inbox.sourceSyncStatus,
           recentNextCursor: inbox.recentNextCursor,
           recentHasMore: inbox.recentHasMore,
           reviewMarker: inbox.reviewMarker,
         );
-        _feedObjects = _feedObjects
-            .where((row) => row.id != result.deletedObjectId)
-            .toList();
-        _bookmarks.forget(result.deletedObjectId);
-      });
-      return;
-    }
+      }
+      _feedObjects = _feedObjects
+          .where((row) => row.id != deletedObjectId)
+          .toList();
+      _bookmarks.forget(deletedObjectId);
+    });
+  }
+
+  SecretaryObject _secretaryObjectFromInboxSource(
+    InboxSourceObjectOut sourceObject,
+  ) {
+    return SecretaryObject(
+      id: sourceObject.id,
+      kind: sourceObject.kind,
+      title: sourceObject.title,
+      body: sourceObject.excerpt,
+      provider: sourceObject.provider,
+      externalId: null,
+      canonicalUri: null,
+      status: sourceObject.status,
+      startAt: null,
+      dueAt: null,
+      occurredAt: sourceObject.primaryAt,
+      metadata: const {},
+      origin: sourceObject.origin,
+      state: sourceObject.state,
+      confidence: null,
+      createdAt: sourceObject.primaryAt ?? '',
+      updatedAt: sourceObject.primaryAt ?? '',
+    );
   }
 
   Widget _sourceObjectCard(InboxSourceObjectOut sourceObject) {
@@ -710,25 +744,7 @@ class InboxScreenState extends State<InboxScreen> {
           ? null
           : () {
               widget.onAskSecretary!(
-                SecretaryObject(
-                  id: sourceObject.id,
-                  kind: sourceObject.kind,
-                  title: sourceObject.title,
-                  body: sourceObject.excerpt,
-                  provider: sourceObject.provider,
-                  externalId: null,
-                  canonicalUri: null,
-                  status: sourceObject.status,
-                  startAt: null,
-                  dueAt: null,
-                  occurredAt: sourceObject.primaryAt,
-                  metadata: const {},
-                  origin: sourceObject.origin,
-                  state: sourceObject.state,
-                  confidence: null,
-                  createdAt: sourceObject.primaryAt ?? '',
-                  updatedAt: sourceObject.primaryAt ?? '',
-                ),
+                _secretaryObjectFromInboxSource(sourceObject),
               );
             },
       onShowInGraph: widget.onShowInGraph == null
@@ -791,7 +807,22 @@ class InboxScreenState extends State<InboxScreen> {
                   segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
                   onTap: () => _onTouchRailTap(sourceObject.id),
                 ),
-                child: card,
+                child: InboxSwipeToRemove(
+                  objectId: sourceObject.id,
+                  onConfirmRemove: () => confirmAndDeleteObject(
+                    context,
+                    object: _secretaryObjectFromInboxSource(sourceObject),
+                    apiClient: widget.apiClient,
+                    authController: widget.authController,
+                  ),
+                  onRemoved: () {
+                    if (!mounted) {
+                      return;
+                    }
+                    _removeDeletedInboxObject(sourceObject.id);
+                  },
+                  child: card,
+                ),
               ),
             );
           } else {
