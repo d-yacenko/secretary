@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:kalender/kalender.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
@@ -16,6 +17,7 @@ import 'package:personal_secretary/today/week_event_time_label.dart';
 import 'package:personal_secretary/today/week_kalender_events.dart';
 import 'package:personal_secretary/today/week_screen.dart';
 import 'package:personal_secretary/ui/date_format.dart';
+import 'package:personal_secretary/ui/object_bookmark.dart';
 
 import '../test_secretary_api_client.dart';
 
@@ -175,17 +177,27 @@ void main() {
 
   MockClient weekClient({
     required Map<String, dynamic> Function(String? weekStart) week,
+    Map<String, String> bookmarks = const {},
+    void Function(http.Request request)? onRequest,
   }) {
     return MockClient((request) async {
+      onRequest?.call(request);
       if (request.url.path == '/week') {
         return jsonOk(week(request.url.queryParameters['week_start']));
       }
       if (request.url.path == '/today') {
         return jsonOk(todayPayload());
       }
-      if (request.url.path == '/labels/by-objects' ||
-          request.url.path == '/object-bookmarks/by-objects') {
+      if (request.url.path == '/labels/by-objects') {
         return jsonOk({'objects': {}});
+      }
+      if (request.url.path == '/object-bookmarks/by-objects') {
+        return jsonOk({
+          'objects': {
+            for (final entry in bookmarks.entries)
+              entry.key: {'color': entry.value},
+          },
+        });
       }
       if (request.url.path.startsWith('/objects/') &&
           request.url.path.endsWith('/neighbors')) {
@@ -206,6 +218,10 @@ void main() {
           'edges': [],
           'neighbors': [],
         });
+      }
+      if (request.url.path.startsWith('/objects/') &&
+          request.url.path.endsWith('/labels')) {
+        return jsonOk({'labels': []});
       }
       if (request.url.path.startsWith('/objects/')) {
         final id = request.url.path.split('/').last;
@@ -364,6 +380,33 @@ void main() {
     );
   });
 
+  test('copyWithData preserves isAllDay and identity fields', () {
+    final original = SecretaryWeekEvent(
+      objectId: 'holiday',
+      dateTimeRange: DateTimeRange(
+        start: DateTime(2026, 9, 7),
+        end: DateTime(2026, 9, 8),
+      ),
+      title: 'Holiday',
+      provider: 'google_calendar',
+      isAllDay: true,
+    );
+    final copy = original.copyWithData(
+      dateTimeRange: DateTimeRange(
+        start: DateTime(2026, 9, 8),
+        end: DateTime(2026, 9, 9),
+      ),
+    );
+    expect(copy, isA<SecretaryWeekEvent>());
+    expect(copy.objectId, 'holiday');
+    expect(copy.title, 'Holiday');
+    expect(copy.provider, 'google_calendar');
+    expect(copy.isAllDay, isTrue);
+    expect(copy.interaction.allowStartResize, isFalse);
+    expect(copy.interaction.allowEndResize, isFalse);
+    expect(copy.interaction.allowRescheduling, isFalse);
+  });
+
   testWidgets('Сегодня | Неделя switch keeps Today and loads Week',
       (tester) async {
     var todayCalls = 0;
@@ -478,6 +521,16 @@ void main() {
         tester.getRect(find.byKey(const Key('week_event_2026-09-07_google-overlap')));
     expect((review.top - overlap.top).abs(), lessThan(80));
     expect((review.left - overlap.left).abs(), greaterThan(8));
+    expect((review.width - overlap.width).abs(), greaterThan(4));
+    final body = tester.widget<CalendarBody>(find.byType(CalendarBody));
+    expect(
+      body.multiDayBodyConfiguration?.eventLayoutStrategy,
+      isA<OverlapLayoutStrategy>(),
+    );
+    expect(
+      body.multiDayBodyConfiguration?.eventLayoutStrategy,
+      isNot(isA<SideBySideLayoutStrategy>()),
+    );
     expect(find.text('Holiday'), findsOneWidget);
     expect(find.text('Весь день'), findsOneWidget);
     expect(find.text('Yandex standup'), findsOneWidget);
@@ -871,5 +924,166 @@ void main() {
     await pumpCalendar(tester);
     expect(tester.takeException(), isNull);
     expect(find.text('Масштабируемая встреча'), findsOneWidget);
+  });
+
+  testWidgets('three overlapping events cascade and stay tappable',
+      (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    String? openedId;
+    final mock = weekClient(
+      week: (_) => weekPayload(
+        eventsByDate: {
+          '2026-09-07': [
+            secretaryObjectJson(
+              id: 'evt-a',
+              title: 'Block A',
+              startAt: '2026-09-07T10:00:00+02:00',
+              dueAt: '2026-09-07T14:00:00+02:00',
+            ),
+            secretaryObjectJson(
+              id: 'evt-b',
+              title: 'Block B',
+              startAt: '2026-09-07T11:00:00+02:00',
+              dueAt: '2026-09-07T13:00:00+02:00',
+            ),
+            secretaryObjectJson(
+              id: 'evt-c',
+              title: 'Block C',
+              startAt: '2026-09-07T11:30:00+02:00',
+              dueAt: '2026-09-07T12:30:00+02:00',
+            ),
+          ],
+        },
+      ),
+      onRequest: (request) {
+        if (request.url.path == '/objects/evt-a' ||
+            request.url.path == '/objects/evt-b' ||
+            request.url.path == '/objects/evt-c') {
+          openedId = request.url.path.split('/').last;
+        }
+      },
+    );
+    await tester.pumpWidget(buildWeek(mock, size: desktopSize));
+    await pumpCalendar(tester);
+
+    final body = tester.widget<CalendarBody>(find.byType(CalendarBody));
+    expect(
+      body.multiDayBodyConfiguration?.eventLayoutStrategy,
+      isA<OverlapLayoutStrategy>(),
+    );
+    expect(
+      body.multiDayBodyConfiguration?.eventLayoutStrategy,
+      isNot(isA<SideBySideLayoutStrategy>()),
+    );
+    expect(find.text('Block A'), findsOneWidget);
+    expect(find.text('Block B'), findsOneWidget);
+    expect(find.text('Block C'), findsOneWidget);
+    expect(find.byKey(const Key('week_event_2026-09-07_evt-a')), findsOneWidget);
+    expect(find.byKey(const Key('week_event_2026-09-07_evt-b')), findsOneWidget);
+    expect(find.byKey(const Key('week_event_2026-09-07_evt-c')), findsOneWidget);
+
+    final widths = [
+      tester.getSize(find.byKey(const Key('week_event_2026-09-07_evt-a'))).width,
+      tester.getSize(find.byKey(const Key('week_event_2026-09-07_evt-b'))).width,
+      tester.getSize(find.byKey(const Key('week_event_2026-09-07_evt-c'))).width,
+    ];
+    expect(widths.toSet().length, greaterThan(1));
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Block C'));
+    await pumpCalendar(tester);
+    expect(openedId, 'evt-c');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+    await tester.pageBack();
+    await pumpCalendar(tester);
+
+    await tester.tap(find.text('Block A'));
+    await pumpCalendar(tester);
+    expect(openedId, 'evt-a');
+    await tester.pageBack();
+    await pumpCalendar(tester);
+
+    await tester.tap(find.text('Block B'));
+    await pumpCalendar(tester);
+    expect(openedId, 'evt-b');
+  });
+
+  testWidgets('bookmarked week event shows token marker without writes',
+      (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final mutationPaths = <String>[];
+    String? openedId;
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(
+          week: (_) => weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'marked',
+                  title: 'Marked',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'plain',
+                  title: 'Plain',
+                  startAt: '2026-09-07T12:00:00+02:00',
+                  dueAt: '2026-09-07T13:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'overlap-marked',
+                  title: 'Overlap marked',
+                  startAt: '2026-09-07T10:30:00+02:00',
+                  dueAt: '2026-09-07T11:30:00+02:00',
+                ),
+              ],
+            },
+          ),
+          bookmarks: {
+            'marked': 'blue',
+            'overlap-marked': 'green',
+          },
+          onRequest: (request) {
+            if (request.method == 'PUT' || request.method == 'DELETE') {
+              mutationPaths.add('${request.method} ${request.url.path}');
+            }
+            if (request.url.path == '/objects/marked') {
+              openedId = 'marked';
+            }
+          },
+        ),
+        size: desktopSize,
+      ),
+    );
+    await pumpCalendar(tester);
+
+    expect(find.byKey(const Key('week_bookmark_marked')), findsOneWidget);
+    expect(find.byKey(const Key('week_bookmark_plain')), findsNothing);
+    expect(
+      find.byKey(const Key('week_bookmark_overlap-marked')),
+      findsOneWidget,
+    );
+    final markedGlyph = tester.widget<ObjectBookmarkGlyph>(
+      find.byKey(const Key('week_bookmark_marked')),
+    );
+    expect(
+      markedGlyph.fillColor,
+      bookmarkTokenColor('blue', ThemeData.light().colorScheme),
+    );
+    expect(find.byType(ObjectBookmarkPaletteButton), findsNothing);
+    expect(mutationPaths, isEmpty);
+
+    await tester.tap(find.text('Marked'));
+    await pumpCalendar(tester);
+    expect(openedId, 'marked');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+    expect(mutationPaths, isEmpty);
   });
 }

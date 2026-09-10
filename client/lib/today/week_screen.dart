@@ -197,6 +197,7 @@ class _WeekScreenState extends State<WeekScreen> {
           onRequestWeekStart: (weekStart) =>
               _loadWeek(weekStart: weekStart, showFullLoader: false),
           now: widget.now,
+          bookmarks: _bookmarks,
         );
     }
   }

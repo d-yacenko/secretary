@@ -4,6 +4,8 @@ import 'package:kalender/kalender.dart';
 import '../api/api_models.dart';
 import '../ui/app_spacing.dart';
 import '../ui/date_format.dart';
+import '../ui/object_bookmark.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/object_presentation.dart';
 import 'week_kalender_events.dart';
 
@@ -19,6 +21,7 @@ class WeekTimeGrid extends StatefulWidget {
     super.key,
     required this.week,
     required this.onOpen,
+    required this.bookmarks,
     this.onRequestWeekStart,
     this.now,
   });
@@ -27,6 +30,7 @@ class WeekTimeGrid extends StatefulWidget {
   final ValueChanged<String> onOpen;
   final ValueChanged<String>? onRequestWeekStart;
   final DateTime Function()? now;
+  final ObjectBookmarkController bookmarks;
 
   @override
   State<WeekTimeGrid> createState() => _WeekTimeGridState();
@@ -42,12 +46,17 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   void initState() {
     super.initState();
     _now = widget.now ?? DateTime.now;
+    widget.bookmarks.addListener(_onBookmarksChanged);
     _events.replaceEvents(weekOutToKalenderEvents(widget.week));
   }
 
   @override
   void didUpdateWidget(covariant WeekTimeGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.bookmarks != widget.bookmarks) {
+      oldWidget.bookmarks.removeListener(_onBookmarksChanged);
+      widget.bookmarks.addListener(_onBookmarksChanged);
+    }
     _now = widget.now ?? DateTime.now;
     _events.replaceEvents(weekOutToKalenderEvents(widget.week));
     if (oldWidget.week.weekStart != widget.week.weekStart) {
@@ -62,9 +71,16 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
 
   @override
   void dispose() {
+    widget.bookmarks.removeListener(_onBookmarksChanged);
     _calendar.dispose();
     _events.dispose();
     super.dispose();
+  }
+
+  void _onBookmarksChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   DateTime _civilLocal(String iso) {
@@ -154,7 +170,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
             body: CalendarBody(
               interaction: _readOnlyInteraction,
               multiDayBodyConfiguration: MultiDayBodyConfiguration(
-                eventLayoutStrategy: EventLayoutStrategy.sideBySide(),
+                eventLayoutStrategy: EventLayoutStrategy.overlap(),
                 pageScrollPhysics: compact
                     ? null
                     : const NeverScrollableScrollPhysics(),
@@ -176,9 +192,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final dayIso = formatCalendarDate(tileRange.start);
     return WeekKalenderEventTile(
       key: Key('week_event_${dayIso}_${event.id}'),
+      objectId: event.id,
       title: secretary?.title ?? '',
       provider: secretary?.provider,
       allDay: event.isAllDay,
+      bookmarkColor: widget.bookmarks.colorFor(event.id),
     );
   }
 }
@@ -218,51 +236,83 @@ class _WeekDayHeader extends StatelessWidget {
 class WeekKalenderEventTile extends StatelessWidget {
   const WeekKalenderEventTile({
     super.key,
+    required this.objectId,
     required this.title,
     required this.provider,
     required this.allDay,
+    this.bookmarkColor,
   });
 
+  final String objectId;
   final String title;
   final String? provider;
   final bool allDay;
+  final String? bookmarkColor;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final glyph = compactProviderGlyphWidget(provider, size: 11);
+    final tokenColor = bookmarkColor == null
+        ? null
+        : bookmarkTokenColor(bookmarkColor!, scheme);
     return Material(
-      color: scheme.primaryContainer.withValues(alpha: 0.72),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Row(
-          children: [
-            if (glyph != null) ...[
-              glyph,
-              const SizedBox(width: 4),
-            ],
-            Expanded(
-              child: Text(
-                title,
-                maxLines: allDay ? 1 : 3,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.onPrimaryContainer,
+      color: scheme.primaryContainer.withValues(alpha: 0.78),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4),
+        side: BorderSide(
+          color: scheme.outline.withValues(alpha: 0.42),
+          width: 0.8,
+        ),
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
+            child: Row(
+              children: [
+                if (glyph != null) ...[
+                  glyph,
+                  const SizedBox(width: 4),
+                ],
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: allDay ? 1 : 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onPrimaryContainer,
+                        ),
+                  ),
+                ),
+                if (allDay)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Text(
+                      'Весь день',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color:
+                                scheme.onPrimaryContainer.withValues(alpha: 0.8),
+                          ),
                     ),
-              ),
+                  ),
+              ],
             ),
-            if (allDay)
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: Text(
-                  'Весь день',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onPrimaryContainer.withValues(alpha: 0.8),
-                      ),
+          ),
+          if (tokenColor != null)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: ObjectBookmarkGlyph(
+                  key: Key('week_bookmark_$objectId'),
+                  fillColor: tokenColor,
+                  size: kBookmarkTabSize,
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

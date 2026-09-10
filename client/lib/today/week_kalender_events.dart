@@ -28,6 +28,7 @@ class SecretaryWeekEvent extends CalendarEvent {
       dateTimeRange: dateTimeRange,
       title: title,
       provider: provider,
+      isAllDay: isAllDay,
     );
   }
 

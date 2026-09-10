@@ -1,54 +1,35 @@
-# Current task — Unified Week B — Calendar time-grid
+# Current task — Unified Week B-R1 — Overlap, bookmarks, copy contract
 
 ## Status
 
 Unified Week A / A-R1: **CODE ACCEPTED / DEPLOYED / HUMAN UX NOT ACCEPTED** at `eeb3ab4b49b3bdc1e2f6c2e5c6c90bddfc244d4a`.
 
-Unified Week B: **implemented, awaiting Architect review** on `review/unified-week-b` (not deployed).
+Unified Week B: code at `14cd6b86f5fddb7c0d5fc669950afe9453e069f5`.
 
-Do **not** deploy Week B until Architect accepts.
+Unified Week B-R1: **implemented / awaiting Architect review** on `review/unified-week-b` (not deployed).
+
+Do **not** deploy Week B / B-R1 until Architect accepts.
 Do **not** begin Availability A.
-Do **not** mark Week A PRODUCTION ACCEPTED.
+Do **not** mark Week A or Week B PRODUCTION ACCEPTED.
 
 ## Production / lineage
 
 - Production application SHA: `eeb3ab4b49b3bdc1e2f6c2e5c6c90bddfc244d4a`
 - Branch: `review/unified-week-b`
+- Parent of B-R1: `860076de012a5911e84ce9eb86bd3fdf129ba3d1`
 - Alembic: **0034 / 0034** (no migration)
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval 60
 - real-user `auto_label_enabled=true`
 - Encrypted Architect context: untouched
+- kalender pin: **0.29.1** (exact)
 
-## Spike (before UI)
+## What B-R1 is
 
-Checked `kalender` 0.29.1, `calendar_view`, and Syncfusion as commercial reference.
+Read-only visual/correctness corrective on the kalender week grid: overlap layout, display-only bookmark markers, copyWithData isAllDay.
 
-**Chosen package: `kalender` 0.29.1 (MIT, pinned exact version).**
-
-- 7-day week, Monday start
-- start/end positioning, height by duration
-- `EventLayoutStrategy.sideBySide()`
-- all-day / multi-day header; overnight `<24h` stays on the timeline
-- current-time indicator + `initialTimeOfDay`
-- phone: `singleDay` + horizontal paging
-- tap → existing Object Detail
-- provider glyph via custom `tileBuilder` (no library fork)
-- read-only: `CalendarInteraction` all false + `EventInteraction.allowNone()`
-
-`calendar_view`: weaker overnight/date handling — not used.
-`syncfusion_flutter_calendar`: commercial/community license — not used in this OSS repo.
-
-Adapter: `/week` repeats an Object on every overlapping local day. Feed kalender each Object **once** with original `startAt`/`dueAt`.
-
-## What B is
-
-Read-only week **calendar time-grid** over the existing `/week` projection. Not a new calendar store. Not Availability.
+Depth hue variation is **deferred**: kalender 0.29.1 does not expose stable overlap depth to tileBuilder.
 
 ## Out of this phase
 
-Availability / free-busy, calendar/provider mutation, swipe-delete, new capture/editing flows, custom time-grid engine.
-
-## After this cycle
-
-**Do not deploy.** Stop for Architect review of Week B.
+Availability / free-busy, calendar/provider mutation, custom overlap engine, label strips on tiles, deploy.
