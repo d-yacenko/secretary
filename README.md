@@ -13,4 +13,4 @@ Single-user first. PostgreSQL is the source of truth.
 
 ## Development
 
-See `AGENTS.md` for agent workflow and `PROJECT_STATE.md` for current phase.
+See `AGENTS.md` for the Executor role boundary and `CURRENT_TASK.md` for the active authorized work. `PROJECT_STATE.md` and `DECISIONS.md` are reference/status documents, not sources of new work.
