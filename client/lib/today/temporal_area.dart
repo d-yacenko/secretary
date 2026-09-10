@@ -112,6 +112,7 @@ class _TemporalAreaState extends State<TemporalArea> {
                       onAskSecretary: widget.onAskSecretary,
                       onShowInGraph: widget.onShowInGraph,
                       bookmarkController: widget.bookmarkController,
+                      now: widget.now,
                     )
                   : const SizedBox.shrink(),
             ],

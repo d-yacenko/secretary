@@ -7,13 +7,9 @@ import '../assistant/assistant_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
-import '../ui/assigned_labels_loader.dart';
 import '../ui/date_format.dart';
-import '../ui/object_bookmark.dart';
 import '../ui/object_bookmark_controller.dart';
-import '../ui/object_label_strip.dart';
-import '../ui/object_presentation.dart';
-import 'week_event_time_label.dart';
+import 'week_time_grid.dart';
 
 enum WeekLoadState { loading, ready, error }
 
@@ -27,6 +23,7 @@ class WeekScreen extends StatefulWidget {
     this.onAskSecretary,
     this.onShowInGraph,
     this.bookmarkController,
+    this.now,
   });
 
   final SecretaryApiClient apiClient;
@@ -36,6 +33,7 @@ class WeekScreen extends StatefulWidget {
   final AskSecretaryHandler? onAskSecretary;
   final ShowInGraphHandler? onShowInGraph;
   final ObjectBookmarkController? bookmarkController;
+  final DateTime Function()? now;
 
   @override
   State<WeekScreen> createState() => _WeekScreenState();
@@ -45,7 +43,6 @@ class _WeekScreenState extends State<WeekScreen> {
   WeekLoadState _loadState = WeekLoadState.loading;
   WeekOut? _week;
   String? _activeWeekStart;
-  Map<String, List<LabelItem>> _labelsByObject = {};
   String? _errorMessage;
   late final ObjectBookmarkController _bookmarks;
   var _ownsBookmarks = false;
@@ -63,23 +60,15 @@ class _WeekScreenState extends State<WeekScreen> {
         authController: widget.authController,
       );
     }
-    _bookmarks.addListener(_onBookmarksChanged);
     _loadWeek();
   }
 
   @override
   void dispose() {
-    _bookmarks.removeListener(_onBookmarksChanged);
     if (_ownsBookmarks) {
       _bookmarks.dispose();
     }
     super.dispose();
-  }
-
-  void _onBookmarksChanged() {
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   Future<void> _loadWeek({String? weekStart, bool showFullLoader = true}) async {
@@ -106,15 +95,6 @@ class _WeekScreenState extends State<WeekScreen> {
         for (final day in snapshot.days)
           for (final event in day.events) event.object.id,
       ];
-      final labels = await loadAssignedLabelsByObjects(
-        apiClient: widget.apiClient,
-        onAuthFailure: widget.authController.handleAuthenticationFailure,
-        objectIds: ids,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() => _labelsByObject = labels);
       await _bookmarks.reconcileVisible(ids);
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
@@ -211,24 +191,12 @@ class _WeekScreenState extends State<WeekScreen> {
           ),
         );
       case WeekLoadState.ready:
-        final week = _week!;
-        final empty = week.days.every((day) => day.events.isEmpty);
-        return ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          children: [
-            if (empty)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 12),
-                child: Text('На этой неделе событий нет'),
-              ),
-            for (final day in week.days)
-              _WeekDaySection(
-                day: day,
-                labelsByObject: _labelsByObject,
-                bookmarks: _bookmarks,
-                onOpen: _openObjectDetail,
-              ),
-          ],
+        return WeekTimeGrid(
+          week: _week!,
+          onOpen: _openObjectDetail,
+          onRequestWeekStart: (weekStart) =>
+              _loadWeek(weekStart: weekStart, showFullLoader: false),
+          now: widget.now,
         );
     }
   }
@@ -288,147 +256,4 @@ class _WeekNavigationBar extends StatelessWidget {
       ),
     );
   }
-}
-
-class _WeekDaySection extends StatelessWidget {
-  const _WeekDaySection({
-    required this.day,
-    required this.labelsByObject,
-    required this.bookmarks,
-    required this.onOpen,
-  });
-
-  final WeekDay day;
-  final Map<String, List<LabelItem>> labelsByObject;
-  final ObjectBookmarkController bookmarks;
-  final ValueChanged<String> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final date = parseCalendarDate(day.date);
-    final header = '${formatRussianWeekdayShort(date)} ${formatRussianDayMonth(date)}';
-    final scheme = Theme.of(context).colorScheme;
-    final headerStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: day.isToday ? scheme.primary : null,
-          fontWeight: day.isToday ? FontWeight.w600 : FontWeight.w500,
-        );
-    return Padding(
-      key: Key('week_day_${day.date}'),
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: day.isToday
-                  ? scheme.primaryContainer.withValues(alpha: 0.45)
-                  : null,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Text(
-                key: Key(day.isToday
-                    ? 'week_day_today_${day.date}'
-                    : 'week_day_header_${day.date}'),
-                header,
-                style: headerStyle,
-              ),
-            ),
-          ),
-          if (day.events.isEmpty)
-            const SizedBox(height: 4)
-          else
-            for (final event in day.events)
-              _WeekEventRow(
-                dayDate: day.date,
-                event: event,
-                labels: labelsByObject[event.object.id] ?? const [],
-                bookmarkColor: bookmarks.colorFor(event.object.id),
-                onBookmarkSelect: (color) =>
-                    bookmarks.setColor(event.object.id, color),
-                onBookmarkClear: () => bookmarks.clear(event.object.id),
-                onTap: () => onOpen(event.object.id),
-              ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeekEventRow extends StatelessWidget {
-  const _WeekEventRow({
-    required this.dayDate,
-    required this.event,
-    required this.labels,
-    required this.bookmarkColor,
-    required this.onBookmarkSelect,
-    required this.onBookmarkClear,
-    required this.onTap,
-  });
-
-  final String dayDate;
-  final WeekEvent event;
-  final List<LabelItem> labels;
-  final String? bookmarkColor;
-  final ValueChanged<String> onBookmarkSelect;
-  final VoidCallback onBookmarkClear;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final time = weekEventTimeLabel(
-      dayDate: dayDate,
-      allDay: event.allDay,
-      startAt: event.object.startAt,
-      dueAt: event.object.dueAt,
-    );
-    return ObjectBookmarkRibbon(
-      color: bookmarkColor,
-      onSelect: onBookmarkSelect,
-      onClear: onBookmarkClear,
-      child: ListTile(
-        key: Key('week_event_${dayDate}_${event.object.id}'),
-        dense: true,
-        contentPadding: EdgeInsets.zero,
-        title: ObjectCompactHeaderRow(
-          title: event.object.title,
-          kind: event.object.kind,
-          provider: event.object.provider,
-          trailingText: time.isEmpty ? 'Нет времени' : time,
-          trailingReserve: bookmarkColor != null ? kBookmarkRibbonReserve : 0,
-        ),
-        subtitle: _weekBookmarkSubtitle(
-          labels: labels,
-          bookmarkColor: bookmarkColor,
-          onSelect: onBookmarkSelect,
-          onClear: onBookmarkClear,
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-}
-
-Widget? _weekBookmarkSubtitle({
-  required List<LabelItem> labels,
-  required String? bookmarkColor,
-  required ValueChanged<String> onSelect,
-  required VoidCallback onClear,
-}) {
-  final actions = <Widget>[
-    if (bookmarkColor == null)
-      ObjectBookmarkControl(
-        color: bookmarkColor,
-        onSelect: onSelect,
-        onClear: onClear,
-      ),
-  ];
-  if (actions.isEmpty && labels.isEmpty) {
-    return null;
-  }
-  return ObjectMetaActionRow(
-    actions: actions,
-    labels: labels,
-  );
 }

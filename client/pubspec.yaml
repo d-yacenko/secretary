@@ -35,6 +35,7 @@ dependencies:
   xml: ^6.5.0
   dart_duckdb: ^1.4.4
   pdfrx: ^2.2.24
+  kalender: 0.29.1
 
 dev_dependencies:
   flutter_test:
