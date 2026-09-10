@@ -59,9 +59,15 @@ def oauth_client_file(tmp_path) -> str:
     return str(path)
 
 
+def _freeze_google_token_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    # GoogleTokenManager.get_valid_access_token compares expiry to this clock.
+    monkeypatch.setattr("app.connectors.google.gmail_transport.utcnow", lambda: FIXED_NOW)
+
+
 @pytest.fixture
 def freeze_google_now(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.connectors.google.calendar_sync.utcnow", lambda: FIXED_NOW)
+    _freeze_google_token_clock(monkeypatch)
 
 
 def _parse_rfc3339(value: object) -> datetime:
@@ -758,6 +764,7 @@ def test_google_live_continuation_survives_now_drift(
         "app.connectors.google.calendar_sync.utcnow",
         lambda: current_now["value"],
     )
+    _freeze_google_token_clock(monkeypatch)
     account = _google_account(db_session, credential_key)
     occurrence_id = "weekly-master_20260909T121000Z"
     events = [

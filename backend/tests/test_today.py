@@ -414,8 +414,8 @@ def test_http_unresolved_notifications(db_session, auth_client, notification_ser
 
 
 def test_http_task_accept_and_today(db_session, auth_client) -> None:
-    now = datetime.now(AMSTERDAM)
-    due_at = now + timedelta(hours=1)
+    day_start, _ = _local_day_bounds(datetime.now(AMSTERDAM))
+    due_at = day_start + timedelta(hours=12)
 
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     email = graph.create_object(
