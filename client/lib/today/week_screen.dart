@@ -13,6 +13,7 @@ import '../ui/object_bookmark.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/object_label_strip.dart';
 import '../ui/object_presentation.dart';
+import 'week_event_time_label.dart';
 
 enum WeekLoadState { loading, ready, error }
 
@@ -43,7 +44,7 @@ class WeekScreen extends StatefulWidget {
 class _WeekScreenState extends State<WeekScreen> {
   WeekLoadState _loadState = WeekLoadState.loading;
   WeekOut? _week;
-  String? _requestedWeekStart;
+  String? _activeWeekStart;
   Map<String, List<LabelItem>> _labelsByObject = {};
   String? _errorMessage;
   late final ObjectBookmarkController _bookmarks;
@@ -85,6 +86,7 @@ class _WeekScreenState extends State<WeekScreen> {
     if (!mounted) {
       return;
     }
+    _activeWeekStart = weekStart;
     if (showFullLoader) {
       setState(() {
         _loadState = WeekLoadState.loading;
@@ -98,7 +100,6 @@ class _WeekScreenState extends State<WeekScreen> {
       }
       setState(() {
         _week = snapshot;
-        _requestedWeekStart = snapshot.weekStart;
         _loadState = WeekLoadState.ready;
       });
       final ids = [
@@ -168,12 +169,11 @@ class _WeekScreenState extends State<WeekScreen> {
   }
 
   void _goRelative(int days) {
-    final current = _week?.weekStart ?? _requestedWeekStart;
+    final current = _week?.weekStart;
     if (current == null) {
       return;
     }
-    final next = parseCalendarDate(current).add(Duration(days: days));
-    _loadWeek(weekStart: formatCalendarDate(next));
+    _loadWeek(weekStart: shiftCalendarDate(current, days));
   }
 
   @override
@@ -204,7 +204,7 @@ class _WeekScreenState extends State<WeekScreen> {
               Text(_errorMessage ?? 'Не удалось загрузить неделю'),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: () => _loadWeek(weekStart: _requestedWeekStart),
+                onPressed: () => _loadWeek(weekStart: _activeWeekStart),
                 child: const Text('Повторить'),
               ),
             ],
@@ -341,6 +341,7 @@ class _WeekDaySection extends StatelessWidget {
           else
             for (final event in day.events)
               _WeekEventRow(
+                dayDate: day.date,
                 event: event,
                 labels: labelsByObject[event.object.id] ?? const [],
                 bookmarkColor: bookmarks.colorFor(event.object.id),
@@ -357,6 +358,7 @@ class _WeekDaySection extends StatelessWidget {
 
 class _WeekEventRow extends StatelessWidget {
   const _WeekEventRow({
+    required this.dayDate,
     required this.event,
     required this.labels,
     required this.bookmarkColor,
@@ -365,6 +367,7 @@ class _WeekEventRow extends StatelessWidget {
     required this.onTap,
   });
 
+  final String dayDate;
   final WeekEvent event;
   final List<LabelItem> labels;
   final String? bookmarkColor;
@@ -374,15 +377,18 @@ class _WeekEventRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final time = event.allDay
-        ? 'Весь день'
-        : formatUserTime(event.object.startAt);
+    final time = weekEventTimeLabel(
+      dayDate: dayDate,
+      allDay: event.allDay,
+      startAt: event.object.startAt,
+      dueAt: event.object.dueAt,
+    );
     return ObjectBookmarkRibbon(
       color: bookmarkColor,
       onSelect: onBookmarkSelect,
       onClear: onBookmarkClear,
       child: ListTile(
-        key: Key('week_event_${event.object.id}'),
+        key: Key('week_event_${dayDate}_${event.object.id}'),
         dense: true,
         contentPadding: EdgeInsets.zero,
         title: ObjectCompactHeaderRow(

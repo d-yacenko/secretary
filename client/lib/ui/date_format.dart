@@ -94,11 +94,19 @@ DateTime parseCalendarDate(String value) {
   if (match == null) {
     throw FormatException('invalid calendar date: $value');
   }
-  return DateTime(
+  return DateTime.utc(
     int.parse(match.group(1)!),
     int.parse(match.group(2)!),
     int.parse(match.group(3)!),
   );
+}
+
+DateTime addCalendarDays(DateTime date, int days) {
+  return DateTime.utc(date.year, date.month, date.day + days);
+}
+
+String shiftCalendarDate(String value, int days) {
+  return formatCalendarDate(addCalendarDays(parseCalendarDate(value), days));
 }
 
 String formatCalendarDate(DateTime value) {
@@ -110,7 +118,7 @@ String formatCalendarDate(DateTime value) {
 
 String formatWeekRange(String weekStartIso) {
   final start = parseCalendarDate(weekStartIso);
-  final end = start.add(const Duration(days: 6));
+  final end = addCalendarDays(start, 6);
   if (start.year == end.year && start.month == end.month) {
     return '${start.day}–${formatRussianDayMonth(end)}';
   }

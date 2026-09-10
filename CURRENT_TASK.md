@@ -2,7 +2,9 @@
 
 ## Status
 
-Unified Week A: **implemented / awaiting Architect review** on `review/unified-week-a`.
+Unified Week A-R1: **implemented / awaiting Architect review** on `review/unified-week-a`.
+
+Client-only temporal correctness: day-local timed-event labels, DST-safe calendar-date arithmetic, failed-week retry. Backend Week projection unchanged.
 
 Do **not** deploy Unified Week A until Architect accepts.
 Do **not** begin Availability A.

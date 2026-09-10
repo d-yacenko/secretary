@@ -12,6 +12,7 @@ import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/objects/object_detail_screen.dart';
 import 'package:personal_secretary/today/temporal_area.dart';
 import 'package:personal_secretary/today/today_screen.dart';
+import 'package:personal_secretary/today/week_event_time_label.dart';
 import 'package:personal_secretary/today/week_screen.dart';
 import 'package:personal_secretary/ui/date_format.dart';
 
@@ -57,24 +58,20 @@ void main() {
     String todayDate = '2026-09-10',
     Map<String, List<Map<String, dynamic>>> eventsByDate = const {},
   }) {
-    final start = parseCalendarDate(weekStart);
     return {
       'week_start': weekStart,
-      'week_end': formatCalendarDate(start.add(const Duration(days: 7))),
+      'week_end': shiftCalendarDate(weekStart, 7),
       'timezone': 'Europe/Amsterdam',
       'window_start': '${weekStart}T00:00:00+02:00',
-      'window_end':
-          '${formatCalendarDate(start.add(const Duration(days: 7)))}T00:00:00+02:00',
+      'window_end': '${shiftCalendarDate(weekStart, 7)}T00:00:00+02:00',
       'today_date': todayDate,
       'is_current_week': isCurrentWeek,
       'days': [
         for (var i = 0; i < 7; i++)
           {
-            'date': formatCalendarDate(start.add(Duration(days: i))),
-            'is_today': formatCalendarDate(start.add(Duration(days: i))) ==
-                todayDate,
-            'events': eventsByDate[
-                    formatCalendarDate(start.add(Duration(days: i)))] ??
+            'date': shiftCalendarDate(weekStart, i),
+            'is_today': shiftCalendarDate(weekStart, i) == todayDate,
+            'events': eventsByDate[shiftCalendarDate(weekStart, i)] ??
                 const [],
           },
       ],
@@ -220,6 +217,88 @@ void main() {
     expect(formatWeekRange('2026-08-31'), '31 августа – 6 сентября');
   });
 
+  test('calendar-date arithmetic is DST-safe around fall-back', () {
+    expect(shiftCalendarDate('2026-10-19', 7), '2026-10-26');
+    expect(shiftCalendarDate('2026-10-26', -7), '2026-10-19');
+    expect(addCalendarDays(parseCalendarDate('2026-10-19'), 7),
+        DateTime.utc(2026, 10, 26));
+    expect(parseCalendarDate('2026-10-19').isUtc, isTrue);
+    expect(
+      parseCalendarDate('2026-10-19').add(const Duration(days: 7)),
+      DateTime.utc(2026, 10, 26),
+    );
+  });
+
+  test('weekEventTimeLabel is day-local for timed spans', () {
+    String iso(int year, int month, int day, int hour, int minute) {
+      return DateTime(year, month, day, hour, minute).toIso8601String();
+    }
+
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-07',
+        allDay: false,
+        startAt: iso(2026, 9, 7, 9, 0),
+        dueAt: iso(2026, 9, 7, 10, 0),
+      ),
+      '09:00',
+    );
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-07',
+        allDay: false,
+        startAt: iso(2026, 9, 7, 23, 0),
+        dueAt: iso(2026, 9, 8, 1, 0),
+      ),
+      'с 23:00',
+    );
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-08',
+        allDay: false,
+        startAt: iso(2026, 9, 7, 23, 0),
+        dueAt: iso(2026, 9, 8, 1, 0),
+      ),
+      'до 01:00',
+    );
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-08',
+        allDay: false,
+        startAt: iso(2026, 9, 7, 18, 0),
+        dueAt: iso(2026, 9, 10, 10, 0),
+      ),
+      'Продолжается',
+    );
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-09',
+        allDay: false,
+        startAt: iso(2026, 9, 7, 18, 0),
+        dueAt: iso(2026, 9, 10, 10, 0),
+      ),
+      'Продолжается',
+    );
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-10',
+        allDay: false,
+        startAt: iso(2026, 9, 7, 18, 0),
+        dueAt: iso(2026, 9, 10, 10, 0),
+      ),
+      'до 10:00',
+    );
+    expect(
+      weekEventTimeLabel(
+        dayDate: '2026-09-07',
+        allDay: true,
+        startAt: iso(2026, 9, 7, 0, 0),
+        dueAt: iso(2026, 9, 8, 0, 0),
+      ),
+      'Весь день',
+    );
+  });
+
   testWidgets('Сегодня | Неделя switch keeps Today and loads Week',
       (tester) async {
     var todayCalls = 0;
@@ -328,12 +407,12 @@ void main() {
     expect(find.text('Пн 7 сентября'), findsOneWidget);
     expect(find.text('Вс 13 сентября'), findsOneWidget);
     expect(
-      tester.getTopLeft(find.byKey(const Key('week_event_all-day'))).dy,
-      lessThan(tester.getTopLeft(find.byKey(const Key('week_event_yandex'))).dy),
+      tester.getTopLeft(find.byKey(const Key('week_event_2026-09-07_all-day'))).dy,
+      lessThan(tester.getTopLeft(find.byKey(const Key('week_event_2026-09-07_yandex'))).dy),
     );
     expect(
-      tester.getTopLeft(find.byKey(const Key('week_event_yandex'))).dy,
-      lessThan(tester.getTopLeft(find.byKey(const Key('week_event_google'))).dy),
+      tester.getTopLeft(find.byKey(const Key('week_event_2026-09-07_yandex'))).dy,
+      lessThan(tester.getTopLeft(find.byKey(const Key('week_event_2026-09-07_google'))).dy),
     );
     expect(find.text('Holiday'), findsOneWidget);
     expect(find.text('Весь день'), findsOneWidget);
@@ -491,6 +570,189 @@ void main() {
     await tester.tap(find.text('Повторить'));
     await tester.pumpAndSettle();
     expect(find.text('На этой неделе событий нет'), findsOneWidget);
+  });
+
+  testWidgets('cross-midnight and multi-day rows use day-local time labels',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    String iso(int y, int m, int d, int h, int min) =>
+        DateTime(y, m, d, h, min).toIso8601String();
+    final overnight = secretaryObjectJson(
+      id: 'overnight',
+      title: 'Night shift',
+      startAt: iso(2026, 9, 7, 23, 0),
+      dueAt: iso(2026, 9, 8, 1, 0),
+    );
+    final trip = secretaryObjectJson(
+      id: 'trip',
+      title: 'Trip',
+      startAt: iso(2026, 9, 7, 18, 0),
+      dueAt: iso(2026, 9, 10, 10, 0),
+    );
+    final sameDay = secretaryObjectJson(
+      id: 'office',
+      title: 'Office',
+      startAt: iso(2026, 9, 7, 9, 0),
+      dueAt: iso(2026, 9, 7, 10, 0),
+    );
+    final holiday = secretaryObjectJson(
+      id: 'holiday',
+      title: 'Holiday',
+      allDay: true,
+      startAt: iso(2026, 9, 7, 0, 0),
+      dueAt: iso(2026, 9, 8, 0, 0),
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(
+          week: (_) => weekPayload(
+            eventsByDate: {
+              '2026-09-07': [holiday, sameDay, overnight, trip],
+              '2026-09-08': [overnight, trip],
+              '2026-09-09': [trip],
+              '2026-09-10': [trip],
+            },
+          ),
+        ),
+        size: const Size(360, 2000),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-07_holiday')),
+        matching: find.text('Весь день'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-07_office')),
+        matching: find.text('09:00'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-07_overnight')),
+        matching: find.text('с 23:00'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-07_trip')),
+        matching: find.text('с 18:00'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('23:00'), findsNothing);
+    expect(find.text('18:00'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-08_overnight')),
+        matching: find.text('до 01:00'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-08_trip')),
+        matching: find.text('Продолжается'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-09_trip')),
+        matching: find.text('Продолжается'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_event_2026-09-10_trip')),
+        matching: find.text('до 10:00'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('failed next/previous week retry repeats the same week_start',
+      (tester) async {
+    final requested = <String?>[];
+    final failFor = <String>{};
+    await tester.pumpWidget(
+      buildWeek(
+        MockClient((request) async {
+          if (request.url.path == '/week') {
+            final weekStart = request.url.queryParameters['week_start'];
+            requested.add(weekStart);
+            if (weekStart != null && failFor.contains(weekStart)) {
+              return http.Response('{"detail":"boom"}', 500);
+            }
+            if (weekStart == '2026-08-31') {
+              return jsonOk(
+                weekPayload(
+                  weekStart: '2026-08-31',
+                  isCurrentWeek: false,
+                  todayDate: '2026-09-10',
+                ),
+              );
+            }
+            if (weekStart == '2026-09-14') {
+              return jsonOk(
+                weekPayload(
+                  weekStart: '2026-09-14',
+                  isCurrentWeek: false,
+                  todayDate: '2026-09-10',
+                ),
+              );
+            }
+            return jsonOk(weekPayload());
+          }
+          if (request.url.path == '/labels/by-objects' ||
+              request.url.path == '/object-bookmarks/by-objects') {
+            return jsonOk({'objects': {}});
+          }
+          return http.Response('{}', 404);
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requested, [null]);
+    expect(find.text('7–13 сентября'), findsOneWidget);
+
+    failFor.add('2026-09-14');
+    await tester.tap(find.byKey(const Key('week_nav_next')));
+    await tester.pumpAndSettle();
+    expect(requested.last, '2026-09-14');
+    expect(find.text('Повторить'), findsOneWidget);
+
+    await tester.tap(find.text('Повторить'));
+    await tester.pumpAndSettle();
+    expect(requested.sublist(requested.length - 2), ['2026-09-14', '2026-09-14']);
+    expect(find.text('Повторить'), findsOneWidget);
+
+    failFor.remove('2026-09-14');
+    await tester.tap(find.text('Повторить'));
+    await tester.pumpAndSettle();
+    expect(requested.last, '2026-09-14');
+    expect(find.text('14–20 сентября'), findsOneWidget);
+
+    failFor.add('2026-09-07');
+    await tester.tap(find.byKey(const Key('week_nav_prev')));
+    await tester.pumpAndSettle();
+    expect(requested.last, '2026-09-07');
+    expect(find.text('Повторить'), findsOneWidget);
+
+    await tester.tap(find.text('Повторить'));
+    await tester.pumpAndSettle();
+    expect(requested.last, '2026-09-07');
   });
 
   for (final size in const [
