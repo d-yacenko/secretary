@@ -387,7 +387,7 @@ class _SearchResultTile extends StatelessWidget {
         child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -397,22 +397,27 @@ class _SearchResultTile extends StatelessWidget {
                 provider: object.provider,
                 trailingText: dateLabel,
               ),
-              ObjectLabelStrip(labels: labels),
-              if (bookmarkColor == null)
-                ObjectBookmarkControl(
-                  color: bookmarkColor,
-                  onSelect: onBookmarkSelect,
-                  onClear: onBookmarkClear,
+              if (statusLine.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    statusLine,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ),
-              if (statusLine.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  statusLine,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
+              ObjectMetaActionRow(
+                actions: [
+                  if (bookmarkColor == null)
+                    ObjectBookmarkControl(
+                      color: bookmarkColor,
+                      onSelect: onBookmarkSelect,
+                      onClear: onBookmarkClear,
+                    ),
+                ],
+                labels: labels,
+              ),
             ],
           ),
         ),

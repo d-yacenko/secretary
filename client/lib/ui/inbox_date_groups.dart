@@ -121,15 +121,28 @@ class InboxDateSeparator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final style = Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: entry.isWeekend ? scheme.error : scheme.primary,
-          fontWeight: FontWeight.w700,
+    final style = Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: entry.isWeekend
+              ? scheme.tertiary
+              : scheme.onSurfaceVariant,
+          fontWeight: entry.isWeekend ? FontWeight.w600 : FontWeight.w500,
         );
+    final lineColor = scheme.outlineVariant;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+      padding: const EdgeInsets.fromLTRB(0, 6, 0, 2),
       child: Row(
         children: [
-          Flexible(
+          SizedBox(
+            width: 28,
+            child: Divider(
+              key: const Key('inbox_date_separator_line_start'),
+              height: 1,
+              thickness: 1,
+              color: lineColor,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(
               entry.label,
               style: style,
@@ -137,12 +150,12 @@ class InboxDateSeparator extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 8),
           Expanded(
             child: Divider(
+              key: const Key('inbox_date_separator_line_end'),
               height: 1,
               thickness: 1,
-              color: scheme.outlineVariant,
+              color: lineColor,
             ),
           ),
         ],

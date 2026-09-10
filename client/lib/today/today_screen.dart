@@ -400,8 +400,7 @@ Widget? _todayBookmarkSubtitle({
   required ValueChanged<String> onSelect,
   required VoidCallback onClear,
 }) {
-  final children = <Widget>[
-    if (labels.isNotEmpty) ObjectLabelStrip(labels: labels),
+  final actions = <Widget>[
     if (bookmarkColor == null)
       ObjectBookmarkControl(
         color: bookmarkColor,
@@ -409,13 +408,12 @@ Widget? _todayBookmarkSubtitle({
         onClear: onClear,
       ),
   ];
-  if (children.isEmpty) {
+  if (actions.isEmpty && labels.isEmpty) {
     return null;
   }
-  return Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: children,
+  return ObjectMetaActionRow(
+    actions: actions,
+    labels: labels,
   );
 }
 

@@ -2,7 +2,9 @@
 
 ## Current phase
 
-Temporal Correctness C — Recurring-Series Inbox Projection: **implemented, awaiting Architect review** on `review/temporal-correctness-recurring-inbox-c`. Exact production/base/parent: `8db3c58b2ec1998f428750abc460e4fce292d7c0`. Inbox Workflow Controls A-R3 / A-R3-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal A: **CLOSED / DEPLOYED**. Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Design Quality Pass C **NOT STARTED**. Graph Bookmark Presentation **deferred to Design Quality Pass C**. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn.
+Design Quality Pass C — Labels, Object Presentation & Graph Bookmark Presentation: **implemented, awaiting Architect code + visual review** on `review/design-quality-pass-c`. Exact production/base/parent: `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`. Temporal Correctness C / C-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Inbox Workflow Controls A / A-R3: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal A: **CLOSED / DEPLOYED**. Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Graph Bookmark Presentation **IN SCOPE for Pass C only**. Graph Advanced UX **NOT STARTED / later**. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn. Provider brand assets: deferred.
+
+Temporal Correctness C — Recurring-Series Inbox Projection: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`. Inbox Workflow Controls A-R3 / A-R3-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal A: **CLOSED / DEPLOYED**. Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**.
 
 Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (lineage includes A-R3 universal bookmarks and A-R3-R1 bookmark reconcile). Production recurrence identity diagnosis **ACCEPTED** (`EXPECTED_RECURRENCE_MATERIALIZATION`); no calendar identity mutation.
 
@@ -414,8 +416,8 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `8db3c58b2ec1998f428750abc460e4fce292d7c0`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C **in review, not deployed**; Design Quality Pass C **not started**; Graph Bookmark Presentation **deferred to Design Quality Pass C**; Graph Advanced UX **later**
+- Production application SHA: `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C / C-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Design Quality Pass C **in review, not deployed**; Graph Bookmark Presentation **in Pass C only**; Graph Advanced UX **later**
 - Alembic on production: **`0034 / 0034`** (current/head)
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
@@ -429,9 +431,10 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Temporal Correctness A: `10e9d2d290da37489ee7dbfa0902b587d3ca3768` (**CLOSED / DEPLOYED**; Inbox infinite scroll production-confirmed)
 - Temporal Correctness B — Recurring Calendar Materialization & Today: `71e6573f349a7f6c045c762337252a56d1993d00` (**CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Google Today PASS; Yandex fallback PASS; lineage `df9ea214` → `99e03c89` → `7d9adef7` → `d3410e846` → `4d05801` → `71e6573`)
 - Inbox Workflow Controls A: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (A `e779bc9`; A-R1 `d9d20c2`; A-R3/A-R3-R1 included; Alembic `0034`)
-- Temporal Correctness C — Recurring-Series Inbox Projection: **in review** on `review/temporal-correctness-recurring-inbox-c` (parent `8db3c58b2ec1998f428750abc460e4fce292d7c0`)
-- Recorded debt (not fixed in Workflow Controls / Temporal C): Yandex attendee canonicalization / passive-sync metadata churn
-- Design Quality Pass C: **after Temporal C** (thin dense cards, right-edge timestamps, date balloon separators, labels density, marker/bookmark visuals, Linux/Android QA) — **not started**
+- Temporal Correctness C — Recurring-Series Inbox Projection: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b` (parent `8db3c58b2ec1998f428750abc460e4fce292d7c0`)
+- Recorded debt (not fixed in Workflow Controls / Temporal C / Pass C): Yandex attendee canonicalization / passive-sync metadata churn
+- Design Quality Pass C — Labels, Object Presentation & Graph Bookmark Presentation: **in review** on `review/design-quality-pass-c` (parent `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`); Graph Bookmark Presentation **in scope for Pass C only**; Graph Advanced UX **later**
+- Provider brand assets: deferred
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -515,4 +518,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Temporal Correctness C — Recurring-Series Inbox Projection. Production stays on `8db3c58b2ec1998f428750abc460e4fce292d7c0`. Do not deploy. Do not start Design Quality Pass C or Graph Advanced UX.
+Await Architect code + visual review of Design Quality Pass C — Labels, Object Presentation & Graph Bookmark Presentation. Production stays on `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`. Do not deploy. Do not start Graph Advanced UX.

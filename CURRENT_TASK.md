@@ -1,35 +1,41 @@
-# Current task — Temporal Correctness C — Recurring-Series Inbox Projection
+# Current task — Design Quality Pass C — Labels, Object Presentation & Graph Bookmark Presentation
 
 ## Status
 
-Temporal Correctness C is implemented on `review/temporal-correctness-recurring-inbox-c` and **awaiting Architect review**.
+Design Quality Pass C is implemented on `review/design-quality-pass-c` and **awaiting Architect code + visual review**.
 
-Do **not** deploy. Do **not** start Design Quality Pass C. Do **not** start Graph Advanced UX / Graph bookmark visualization.
-
-Inbox Workflow Controls A-R3 / A-R3-R1 remain **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal A/B remain **CLOSED / DEPLOYED**.
+Do **not** deploy. Do **not** start Graph Advanced UX.
 
 ## Production / lineage
 
-- Canonical production/base/parent: `8db3c58b2ec1998f428750abc460e4fce292d7c0`
-- Inbox Workflow Controls A-R3 / A-R3-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
+- Canonical production/base/parent: `9f0abe0d44cb91dbf0a555f2ae79aa5e2b21d25b`
+- Temporal Correctness C / C-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
+- Inbox Workflow Controls A / A-R3: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
 - Temporal A: **CLOSED / DEPLOYED**
 - Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**
 - Alembic: **`0034 / 0034`** (no migration in this phase)
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval 60
 - Real-user `auto_label_enabled`: **true**
-- Design Quality Pass C: **NOT STARTED**
-- Graph Bookmark Presentation: **deferred to Design Quality Pass C**
+- Graph Bookmark Presentation: **IN SCOPE for Pass C only**
+- Graph Advanced UX: **NOT STARTED / later**
 - Encrypted Architect context: untouched
 
 ## Scope
 
-Inbox-only projection: within a canonical provider recurring series, expose one Inbox representative for occurrences that were future at their own materialization time (`start_at > created_at`). Recurrence storage identity is unchanged. Today, Search, Object Detail, Graph, bookmarks, and occurrence Objects stay intact.
+Client-side visual/presentation quality pass only:
 
-Do not group by title. Do not use `now()` for representative choice. Do not change Temporal A `feed_at` semantics or cursor format.
+- quieter compact Labels (`ObjectLabelStrip`) with no taxonomy parsing;
+- shared Inbox/Today/Search object presentation primitives;
+- Review Marker and bookmark physical visual language;
+- Graph node bookmark overlay via the shared session controller;
+- date separator and desktop LCD clock polish.
+
+No backend/schema/API/migration/recurrence changes.
 
 ## Technical debt (record only, not fixed here)
 
-Yandex attendee canonicalization / passive-sync metadata churn.
+- Yandex attendee canonicalization / passive-sync metadata churn
+- Provider brand assets: deferred
 
 Do not read, decrypt, modify, recreate, re-encrypt, or commit `secretary_architect_context_encrypted.md`.

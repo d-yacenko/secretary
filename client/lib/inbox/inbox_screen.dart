@@ -756,10 +756,10 @@ class InboxScreenState extends State<InboxScreen> {
             widgets.add(
               Container(
                 key: Key('inbox_review_marker_card_preview_${sourceObject.id}'),
-                height: 4,
+                height: 2,
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 2),
-                color: Theme.of(context).colorScheme.tertiary,
+                color: Theme.of(context).colorScheme.outline,
               ),
             );
           }
@@ -1028,11 +1028,9 @@ class InboxScreenState extends State<InboxScreen> {
           return;
         }
         setState(() => _isDragHovering = false);
-        final paths = detail.files
-            .map((file) => file.path)
-            .where((path) => path != null)
-            .cast<String>()
-            .toList();
+        final paths = [
+          for (final file in detail.files) file.path,
+        ];
         handleDroppedPaths(paths);
       },
       child: child,
@@ -1349,49 +1347,43 @@ class _SourceObjectCard extends StatelessWidget {
       onSelect: onBookmarkSelect,
       onClear: onBookmarkClear,
       child: Card(
-      margin: EdgeInsets.zero,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: wide ? AppSpacing.md : AppSpacing.md,
-            vertical: wide ? AppSpacing.xs : AppSpacing.sm,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ObjectCompactHeaderRow(
-                title: sourceObject.title,
-                kind: sourceObject.kind,
-                provider: sourceObject.provider,
-                trailingText: when,
-                trailingTooltip: trailingTooltip,
-                onProviderTap: onOpenSource,
-              ),
-              if (sourceObject.excerpt != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xs),
-                  child: Text(
-                    sourceObject.excerpt!,
-                    maxLines: wide ? 1 : 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: wide ? AppSpacing.xs : AppSpacing.sm,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ObjectCompactHeaderRow(
+                  title: sourceObject.title,
+                  kind: sourceObject.kind,
+                  provider: sourceObject.provider,
+                  trailingText: when,
+                  trailingTooltip: trailingTooltip,
+                  onProviderTap: onOpenSource,
                 ),
-              ObjectLabelStrip(labels: labels),
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.xs),
-                child: wide
-                    ? Row(children: actionChildren)
-                    : Wrap(
-                        spacing: AppSpacing.xs,
-                        children: actionChildren,
-                      ),
-              ),
-            ],
+                if (sourceObject.excerpt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      sourceObject.excerpt!,
+                      maxLines: wide ? 1 : 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ObjectMetaActionRow(
+                  actions: actionChildren,
+                  labels: labels,
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 }
@@ -1456,28 +1448,44 @@ class _InboxReviewMarkerBar extends StatelessWidget {
             childWhenDragging: Opacity(opacity: 0.3, child: handle),
             child: handle,
           );
-    return Container(
+    return SizedBox(
       key: Key(unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker'),
-      height: unplaced ? 28 : 18,
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: scheme.tertiary, width: 2),
-        ),
-      ),
+      height: 28,
       child: Row(
         children: [
           MouseRegion(
             cursor: SystemMouseCursors.grab,
             child: draggable,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              unplaced ? 'Маркер просмотра' : 'Просмотрено досюда',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: scheme.tertiary,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: scheme.outline,
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    unplaced ? 'Маркер просмотра' : 'Просмотрено досюда',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                ),
+                Expanded(
+                  child: Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: scheme.outline,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1487,13 +1495,15 @@ class _InboxReviewMarkerBar extends StatelessWidget {
 
   Widget _markerHandle(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
+    return SizedBox(
       key: const Key('inbox_review_marker_handle'),
-      width: 18,
-      height: 18,
-      decoration: BoxDecoration(
-        color: scheme.tertiary,
-        shape: BoxShape.circle,
+      width: 32,
+      height: 28,
+      child: Center(
+        child: CustomPaint(
+          size: const Size(12, 16),
+          painter: _ReviewMarkerGrabPainter(color: scheme.outline),
+        ),
       ),
     );
   }
@@ -1501,8 +1511,44 @@ class _InboxReviewMarkerBar extends StatelessWidget {
   Widget _dragFeedback(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: SizedBox(width: 24, height: 24, child: _markerHandle(context)),
+      child: SizedBox(width: 32, height: 28, child: _markerHandle(context)),
     );
+  }
+}
+
+class _ReviewMarkerGrabPainter extends CustomPainter {
+  _ReviewMarkerGrabPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fill = Paint()
+      ..color = color.withValues(alpha: 0.18)
+      ..style = PaintingStyle.fill;
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final rect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(rect, fill);
+    canvas.drawRRect(rect, stroke);
+    final grip = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..strokeCap = StrokeCap.round;
+    final x1 = size.width * 0.38;
+    final x2 = size.width * 0.62;
+    canvas.drawLine(Offset(x1, 4), Offset(x1, size.height - 4), grip);
+    canvas.drawLine(Offset(x2, 4), Offset(x2, size.height - 4), grip);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ReviewMarkerGrabPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 

@@ -672,7 +672,7 @@ void main() {
       ),
     );
     final time = tester.widget<Text>(find.text('14:05'));
-    expect(time.style?.fontSize, 21);
+    expect(time.style?.fontSize, 27);
     expect(time.style?.fontWeight, FontWeight.w800);
     expect(find.text('08.09.26'), findsOneWidget);
     expect(find.text('вторник'), findsOneWidget);

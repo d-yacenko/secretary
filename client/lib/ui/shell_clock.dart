@@ -75,11 +75,11 @@ class _ShellClockState extends State<ShellClock> {
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontFeatures: [FontFeature.tabularFigures()],
-                    fontSize: 21,
+                    fontSize: 27,
                     fontWeight: FontWeight.w800,
                     color: ink,
-                    height: 1.05,
-                    letterSpacing: 0.6,
+                    height: 1.0,
+                    letterSpacing: 0.4,
                   ),
                 ),
               ),
@@ -91,7 +91,8 @@ class _ShellClockState extends State<ShellClock> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 10.5,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                    fontSize: 11,
                     height: 1.1,
                     color: ink,
                   ),
@@ -104,7 +105,7 @@ class _ShellClockState extends State<ShellClock> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 9.5,
+                    fontSize: 9,
                     height: 1.1,
                     color: ink,
                   ),

@@ -200,15 +200,13 @@ class ObjectCompactHeaderRow extends StatelessWidget {
           ),
           if (trailingText.isNotEmpty) ...[
             const SizedBox(width: AppSpacing.sm),
-            Flexible(
-              child: Tooltip(
-                message: trailingTooltip ?? trailingText,
-                child: Text(
-                  trailingText,
-                  style: metadataStyle,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
+            Tooltip(
+              message: trailingTooltip ?? trailingText,
+              child: Text(
+                key: const Key('object_compact_header_timestamp'),
+                trailingText,
+                style: metadataStyle,
+                maxLines: 1,
               ),
             ),
           ],

@@ -21,7 +21,7 @@ import '../ui/object_actions.dart';
 import '../ui/object_bookmark.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/object_dates.dart';
-import '../ui/object_visuals.dart';
+import '../ui/object_presentation.dart';
 import '../ui/provider_icon.dart';
 
 enum ObjectDetailLoadState { loading, ready, error }

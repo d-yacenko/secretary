@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 const List<String> kBookmarkColorTokens = [
@@ -21,6 +23,10 @@ const Map<String, String> kBookmarkColorLabels = {
   'violet': 'Фиолетовый',
   'gray': 'Серый',
 };
+
+const Size kBookmarkGlyphSize = Size(14, 18);
+const Size kBookmarkTabSize = Size(16, 20);
+const double kBookmarkRibbonReserve = 18;
 
 Color bookmarkTokenColor(String token, ColorScheme scheme) {
   switch (token) {
@@ -123,11 +129,76 @@ class ObjectBookmarkPaletteButton extends StatelessWidget {
   }
 }
 
+/// Physical page-tab / swallow-tail silhouette used for both outline and fill.
+class BookmarkSilhouettePainter extends CustomPainter {
+  BookmarkSilhouettePainter({
+    required this.color,
+    required this.filled,
+    this.strokeWidth = 1.5,
+  });
+
+  final Color color;
+  final bool filled;
+  final double strokeWidth;
+
+  static Path silhouette(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final notch = h * 0.30;
+    final topRadius = (w * 0.12).clamp(0.8, 1.6);
+    return Path()
+      ..moveTo(topRadius, 0)
+      ..lineTo(w - topRadius, 0)
+      ..quadraticBezierTo(w, 0, w, topRadius)
+      ..lineTo(w, h)
+      ..lineTo(w / 2, h - notch)
+      ..lineTo(0, h)
+      ..lineTo(0, topRadius)
+      ..quadraticBezierTo(0, 0, topRadius, 0)
+      ..close();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inset = filled ? 0.0 : strokeWidth / 2;
+    final drawSize = Size(
+      math.max(1, size.width - inset * 2),
+      math.max(1, size.height - inset * 2),
+    );
+    final path = silhouette(drawSize).shift(Offset(inset, inset));
+    if (filled) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.fill,
+      );
+    } else {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant BookmarkSilhouettePainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.filled != filled ||
+        oldDelegate.strokeWidth != strokeWidth;
+  }
+}
+
 class ObjectBookmarkGlyph extends StatelessWidget {
   const ObjectBookmarkGlyph({
     super.key,
     this.fillColor,
-    this.size = const Size(18, 18),
+    this.size = kBookmarkGlyphSize,
   });
 
   final Color? fillColor;
@@ -136,10 +207,15 @@ class ObjectBookmarkGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final outline = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Icon(
-      fillColor == null ? Icons.bookmark_border : Icons.bookmark,
-      size: size.height,
-      color: fillColor ?? outline,
+    return SizedBox(
+      width: size.width,
+      height: size.height,
+      child: CustomPaint(
+        painter: BookmarkSilhouettePainter(
+          color: fillColor ?? outline,
+          filled: fillColor != null,
+        ),
+      ),
     );
   }
 }
@@ -151,12 +227,14 @@ class ObjectBookmarkRibbon extends StatelessWidget {
     this.color,
     this.onSelect,
     this.onClear,
+    this.reserveTrailingSpace = true,
   });
 
   final Widget child;
   final String? color;
   final ValueChanged<String>? onSelect;
   final VoidCallback? onClear;
+  final bool reserveTrailingSpace;
 
   @override
   Widget build(BuildContext context) {
@@ -167,15 +245,21 @@ class ObjectBookmarkRibbon extends StatelessWidget {
     final tab = ObjectBookmarkGlyph(
       key: const Key('object_bookmark_tab'),
       fillColor: tokenColor,
+      size: kBookmarkTabSize,
     );
     final canEdit = onSelect != null && onClear != null;
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        child,
+        Padding(
+          padding: EdgeInsets.only(
+            right: reserveTrailingSpace ? kBookmarkRibbonReserve : 0,
+          ),
+          child: child,
+        ),
         Positioned(
-          top: 0,
-          right: 8,
+          top: -2,
+          right: reserveTrailingSpace ? 2 : -2,
           child: canEdit
               ? ObjectBookmarkPaletteButton(
                   color: color,
@@ -211,7 +295,55 @@ class ObjectBookmarkControl extends StatelessWidget {
       onSelect: onSelect,
       onClear: onClear,
       tooltip: 'поставить закладку',
-      child: const ObjectBookmarkGlyph(),
+      child: const SizedBox(
+        width: 36,
+        height: 36,
+        child: Center(
+          child: ObjectBookmarkGlyph(),
+        ),
+      ),
+    );
+  }
+}
+
+class ObjectBookmarkEditor extends StatelessWidget {
+  const ObjectBookmarkEditor({
+    super.key,
+    required this.color,
+    required this.onSelect,
+    required this.onClear,
+  });
+
+  final String? color;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    if (color == null) {
+      return ObjectBookmarkControl(
+        color: color,
+        onSelect: onSelect,
+        onClear: onClear,
+      );
+    }
+    final tokenColor = bookmarkTokenColor(color!, Theme.of(context).colorScheme);
+    return ObjectBookmarkPaletteButton(
+      color: color,
+      onSelect: onSelect,
+      onClear: onClear,
+      tooltip: 'Закладка',
+      child: SizedBox(
+        width: 36,
+        height: 36,
+        child: Center(
+          child: ObjectBookmarkGlyph(
+            key: const Key('object_bookmark_tab'),
+            fillColor: tokenColor,
+            size: kBookmarkTabSize,
+          ),
+        ),
+      ),
     );
   }
 }

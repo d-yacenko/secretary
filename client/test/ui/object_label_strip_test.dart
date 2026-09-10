@@ -77,4 +77,36 @@ void main() {
     );
     expect(find.byTooltip('Work\nофис и встречи'), findsOneWidget);
   });
+
+  testWidgets('unicode prefixed titles render as opaque text', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        ObjectLabelStrip(
+          labels: [
+            item('1', '⚙ Personal Secretary'),
+            item('2', '◎ Личное'),
+          ],
+        ),
+      ),
+    );
+    expect(find.text('⚙ Personal Secretary'), findsOneWidget);
+    expect(find.text('◎ Личное'), findsOneWidget);
+    expect(find.textContaining('Проект'), findsNothing);
+  });
+
+  testWidgets('hidden overflow titles stay in +N tooltip', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        ObjectLabelStrip(
+          labels: [
+            item('1', 'Alpha'),
+            item('2', 'Beta'),
+            item('3', '🎭 Gamma'),
+            item('4', '🏭 Delta'),
+          ],
+        ),
+      ),
+    );
+    expect(find.byTooltip('🎭 Gamma, 🏭 Delta'), findsOneWidget);
+  });
 }

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../api/api_error.dart';
@@ -15,9 +16,10 @@ import '../tasks/task_management_actions.dart';
 import '../ui/compact_object_filters.dart';
 import '../ui/domain_labels.dart';
 import '../ui/object_dates.dart';
+import '../ui/object_bookmark.dart';
+import '../ui/object_bookmark_controller.dart';
 import '../ui/object_presentation.dart';
 import '../ui/object_visuals.dart' show providerBadge;
-import '../ui/object_bookmark_controller.dart';
 import 'graph_layout.dart';
 import 'graph_workspace_controller.dart';
 
@@ -52,12 +54,16 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   bool _searching = false;
   SearchFacetsOut? _searchFacets;
   Size? _canvasViewportSize;
+  Set<String> _reconciledVisibleIds = {};
+  var _bookmarkReconcileScheduled = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
+    widget.bookmarkController?.addListener(_onBookmarksChanged);
     _loadFacets();
+    _scheduleVisibleBookmarkReconcile();
   }
 
   Future<void> _loadFacets() async {
@@ -70,17 +76,72 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant GraphWorkspaceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+      _reconciledVisibleIds = {};
+      _scheduleVisibleBookmarkReconcile();
+    }
+    if (oldWidget.bookmarkController != widget.bookmarkController) {
+      oldWidget.bookmarkController?.removeListener(_onBookmarksChanged);
+      widget.bookmarkController?.addListener(_onBookmarksChanged);
+      _reconciledVisibleIds = {};
+      _scheduleVisibleBookmarkReconcile();
+    }
+  }
+
+  @override
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
+    widget.bookmarkController?.removeListener(_onBookmarksChanged);
     _searchController.dispose();
     _transform.dispose();
     super.dispose();
+  }
+
+  void _onBookmarksChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _onControllerChanged() {
     if (mounted) {
       setState(() {});
     }
+    _scheduleVisibleBookmarkReconcile();
+  }
+
+  void _scheduleVisibleBookmarkReconcile() {
+    if (widget.bookmarkController == null) {
+      return;
+    }
+    if (_bookmarkReconcileScheduled) {
+      return;
+    }
+    _bookmarkReconcileScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bookmarkReconcileScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      _reconcileVisibleBookmarks();
+    });
+  }
+
+  void _reconcileVisibleBookmarks() {
+    final bookmarks = widget.bookmarkController;
+    if (bookmarks == null) {
+      return;
+    }
+    final ids = widget.controller.visibleNodes.map((node) => node.id).toSet();
+    if (setEquals(ids, _reconciledVisibleIds)) {
+      return;
+    }
+    _reconciledVisibleIds = Set<String>.from(ids);
+    bookmarks.reconcileVisible(ids);
   }
 
   Future<void> _runSearch(String query) async {
@@ -372,6 +433,8 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
                       object: node,
                       selected: selected,
                       focusDimmed: focusMode && !emphasized,
+                      bookmarkColor:
+                          widget.bookmarkController?.colorFor(node.id),
                       onTap: () => widget.controller.selectObject(node.id),
                     ),
                   );
@@ -416,6 +479,13 @@ class _GraphWorkspaceScreenState extends State<GraphWorkspaceScreen> {
             Expanded(
               child: Text(object.title, style: Theme.of(context).textTheme.titleMedium),
             ),
+            if (widget.bookmarkController != null)
+              ObjectBookmarkEditor(
+                color: widget.bookmarkController!.colorFor(object.id),
+                onSelect: (color) =>
+                    widget.bookmarkController!.setColor(object.id, color),
+                onClear: () => widget.bookmarkController!.clear(object.id),
+              ),
             if (object.kind == 'task' && !object.isDeletedTask)
               IconButton(
                 tooltip: 'Удалить задачу',
@@ -876,12 +946,14 @@ class _GraphNodeCard extends StatelessWidget {
     required this.selected,
     required this.focusDimmed,
     required this.onTap,
+    this.bookmarkColor,
   });
 
   final SecretaryObject object;
   final bool selected;
   final bool focusDimmed;
   final VoidCallback onTap;
+  final String? bookmarkColor;
 
   @override
   Widget build(BuildContext context) {
@@ -966,7 +1038,11 @@ class _GraphNodeCard extends StatelessWidget {
         cursor: SystemMouseCursors.click,
         child: KeyedSubtree(
           key: Key('graph_node_${object.id}'),
-          child: card,
+          child: ObjectBookmarkRibbon(
+            color: bookmarkColor,
+            reserveTrailingSpace: false,
+            child: card,
+          ),
         ),
       ),
     );

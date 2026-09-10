@@ -155,7 +155,7 @@ void main() {
     expect(merged.map((item) => item.id).toList(), ['new', 'now', 'old']);
   });
 
-  testWidgets('separator uses accent weekday and error weekend with divider',
+  testWidgets('separator uses left and right lines around the date label',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -179,11 +179,14 @@ void main() {
         ),
       ),
     );
-    expect(find.byType(Divider), findsNWidgets(2));
+    expect(find.byType(Divider), findsNWidgets(4));
+    expect(find.byKey(const Key('inbox_date_separator_line_start')), findsNWidgets(2));
+    expect(find.byKey(const Key('inbox_date_separator_line_end')), findsNWidgets(2));
     final weekday = tester.widget<Text>(find.textContaining('вторник'));
     expect(weekday.style?.color, isNotNull);
     final weekend = tester.widget<Text>(find.textContaining('суббот'));
     expect(weekend.style?.color, isNotNull);
+    expect(weekend.style?.color, isNot(weekday.style?.color));
 
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1.0;
@@ -369,7 +372,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('08 сентября'), findsOneWidget);
     expect(find.textContaining('07.12.2026'), findsOneWidget);
-    expect(find.byType(Divider), findsOneWidget);
+    expect(find.byKey(const Key('inbox_date_separator_line_start')), findsOneWidget);
+    expect(find.byKey(const Key('inbox_date_separator_line_end')), findsOneWidget);
   });
 
   testWidgets('manual source refresh keeps continuation tail and scroll',
