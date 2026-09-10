@@ -2,7 +2,9 @@
 
 ## Current phase
 
-Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `d824bdfca17bae652e3f3e19042b299475372e08`. **A-R3-R1 Bookmark reconcile ABSENT vs READ FAILURE awaiting Architect review** on `review/inbox-workflow-controls-a` (A-R3 universal bookmarks, marker, Today alignment included). Production recurrence identity diagnosis **ACCEPTED** (`EXPECTED_RECURRENCE_MATERIALIZATION`); no calendar identity mutation. Exact production/base: `d824bdfca17bae652e3f3e19042b299475372e08`. No new production deploy for A-R3. Design Quality Pass C **NOT STARTED**. Graph bookmark visualization **DEFERRED** (must use the same shared bookmark controller). Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**.
+Temporal Correctness C — Recurring-Series Inbox Projection: **implemented, awaiting Architect review** on `review/temporal-correctness-recurring-inbox-c`. Exact production/base/parent: `8db3c58b2ec1998f428750abc460e4fce292d7c0`. Inbox Workflow Controls A-R3 / A-R3-R1: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal A: **CLOSED / DEPLOYED**. Temporal B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**. Design Quality Pass C **NOT STARTED**. Graph Bookmark Presentation **deferred to Design Quality Pass C**. Encrypted Architect context untouched. Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**, interval 60. Real-user `auto_label_enabled=true`. Retained technical debt: Yandex attendee canonicalization / passive-sync metadata churn.
+
+Inbox Workflow Controls A — Review Marker & Manual Colored Bookmarks: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (lineage includes A-R3 universal bookmarks and A-R3-R1 bookmark reconcile). Production recurrence identity diagnosis **ACCEPTED** (`EXPECTED_RECURRENCE_MATERIALIZATION`); no calendar identity mutation.
 
 Temporal Correctness B: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `71e6573f349a7f6c045c762337252a56d1993d00` (parent `4d05801cc596dfe41244bd689da9524f5ce261a7`). Google recurring production **PASS**. Yandex recurring fallback production **PASS**. Temporal A **CLOSED / DEPLOYED**. Production Alembic **`0034 / 0034`**. Android **minSdk 23**. Proactive **OFF**. Real-user `auto_label_enabled=true`.
 
@@ -412,9 +414,9 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 
 - Host: `185.233.107.66` (`web-itx.duckdns.org`)
 - Path: `/opt/secretary`
-- Production application SHA: `71e6573f349a7f6c045c762337252a56d1993d00`
-- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A **A-R2 in review, not deployed**; Design Quality Pass C **not started**; Graph Advanced UX **later**
-- Alembic on production: **`0033 / 0033`** (current/head); branch `review/inbox-workflow-controls-a` adds **`0034`**
+- Production application SHA: `8db3c58b2ec1998f428750abc460e4fce292d7c0`
+- Production phase: Design Quality Pass A/B **CLOSED**; Temporal Correctness A **CLOSED / DEPLOYED**; Temporal Correctness B **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Inbox Workflow Controls A-R3 / A-R3-R1 **CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Temporal Correctness C **in review, not deployed**; Design Quality Pass C **not started**; Graph Bookmark Presentation **deferred to Design Quality Pass C**; Graph Advanced UX **later**
+- Alembic on production: **`0034 / 0034`** (current/head)
 - Auto-labeling on production: real-user **`auto_label_enabled=true`** (pre-existing; Pass A does not change it)
 - Proactive: **OFF** (`proactive_enabled=false`, interval 60)
 - Pass E-A: **ACCEPTED / CLOSED / PRODUCTION E2E ACCEPTED** at `fac292e7bb82fa95549f96ef83206fa2e55a5084`
@@ -426,9 +428,10 @@ Manual Graph node drag; persisted personal Graph layout; final desktop/mobile po
 - Design Quality Pass B / B-R1: `2c88cb5f18680c699eb11c970e34e3629271a66b` (**PRODUCTION**)
 - Temporal Correctness A: `10e9d2d290da37489ee7dbfa0902b587d3ca3768` (**CLOSED / DEPLOYED**; Inbox infinite scroll production-confirmed)
 - Temporal Correctness B — Recurring Calendar Materialization & Today: `71e6573f349a7f6c045c762337252a56d1993d00` (**CLOSED / DEPLOYED / PRODUCTION ACCEPTED**; Google Today PASS; Yandex fallback PASS; lineage `df9ea214` → `99e03c89` → `7d9adef7` → `d3410e846` → `4d05801` → `71e6573`)
-- Inbox Workflow Controls A: **A** `e779bc9a9834def7f2e6288e8dba85e83bbc33f3`; **A-R1** `d9d20c24ec0e2c4bbe21e1e024f0f2791ac443ee`; **A-R2 in review** on `review/inbox-workflow-controls-a` (loaded-tail marker visible when exact anchor is loaded even if `hasMore`; Alembic `0034`)
-- Recorded debt (not fixed in Workflow Controls): Yandex attendee canonicalization / passive-sync metadata churn
-- Design Quality Pass C: **after Workflow Controls** (thin dense cards, right-edge timestamps, date balloon separators, labels density, marker/bookmark visuals, Linux/Android QA) — **not started**
+- Inbox Workflow Controls A: **CLOSED / DEPLOYED / PRODUCTION ACCEPTED** at `8db3c58b2ec1998f428750abc460e4fce292d7c0` (A `e779bc9`; A-R1 `d9d20c2`; A-R3/A-R3-R1 included; Alembic `0034`)
+- Temporal Correctness C — Recurring-Series Inbox Projection: **in review** on `review/temporal-correctness-recurring-inbox-c` (parent `8db3c58b2ec1998f428750abc460e4fce292d7c0`)
+- Recorded debt (not fixed in Workflow Controls / Temporal C): Yandex attendee canonicalization / passive-sync metadata churn
+- Design Quality Pass C: **after Temporal C** (thin dense cards, right-edge timestamps, date balloon separators, labels density, marker/bookmark visuals, Linux/Android QA) — **not started**
 - Android minSdk: `23`
 - Encrypted architect context: do not modify; `origin/main` blob is authoritative
 - Health: `{"status":"ok"}` at `http://127.0.0.1:18080/health`
@@ -512,4 +515,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Await Architect review of Inbox Workflow Controls A. Production stays on `71e6573f349a7f6c045c762337252a56d1993d00`. Do not deploy. Do not start Design Quality Pass C or Graph Advanced UX.
+Await Architect review of Temporal Correctness C — Recurring-Series Inbox Projection. Production stays on `8db3c58b2ec1998f428750abc460e4fce292d7c0`. Do not deploy. Do not start Design Quality Pass C or Graph Advanced UX.

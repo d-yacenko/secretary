@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, String, and_, case, func, or_, select
+from sqlalchemy import ColumnElement, String, and_, case, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, array
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models import Object
 from app.services.inbox_feed_cursor import decode_inbox_feed_cursor, encode_inbox_feed_cursor
@@ -85,6 +85,76 @@ def inbox_feed_at_sql() -> ColumnElement[datetime]:
     )
 
 
+def _metadata_text(model, key: str):
+    return func.nullif(func.btrim(model.metadata_[key].as_string()), "")
+
+
+def _future_at_materialization(model):
+    return and_(model.start_at.is_not(None), model.start_at > model.created_at)
+
+
+def _yandex_calendar_identity(model):
+    return func.coalesce(
+        _metadata_text(model, "calendar_id"),
+        _metadata_text(model, "calendar_href"),
+    )
+
+
+def _google_series_addressable(model):
+    return and_(
+        model.provider == "google_calendar",
+        model.kind.in_(_SOURCE_EVENT_KINDS),
+        _metadata_text(model, "calendar_id").is_not(None),
+        _metadata_text(model, "recurring_event_id").is_not(None),
+    )
+
+
+def _yandex_series_addressable(model):
+    return and_(
+        model.provider == "yandex_calendar",
+        model.kind.in_(_SOURCE_EVENT_KINDS),
+        _metadata_text(model, "event_uid").is_not(None),
+        _metadata_text(model, "recurrence_id").is_not(None),
+        _yandex_calendar_identity(model).is_not(None),
+    )
+
+
+def _is_series_addressable(model):
+    return or_(_google_series_addressable(model), _yandex_series_addressable(model))
+
+
+def _same_recurring_series(left, right):
+    google = and_(
+        _google_series_addressable(left),
+        _google_series_addressable(right),
+        _metadata_text(left, "calendar_id") == _metadata_text(right, "calendar_id"),
+        _metadata_text(left, "recurring_event_id")
+        == _metadata_text(right, "recurring_event_id"),
+    )
+    yandex = and_(
+        _yandex_series_addressable(left),
+        _yandex_series_addressable(right),
+        _yandex_calendar_identity(left) == _yandex_calendar_identity(right),
+        _metadata_text(left, "event_uid") == _metadata_text(right, "event_uid"),
+    )
+    return or_(google, yandex)
+
+
+def _earlier_series_representative(candidate, current):
+    return or_(
+        candidate.start_at < current.start_at,
+        and_(
+            candidate.start_at == current.start_at,
+            candidate.created_at < current.created_at,
+        ),
+        and_(
+            candidate.start_at == current.start_at,
+            candidate.created_at == current.created_at,
+            candidate.id < current.id,
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class InboxFeedPage:
     items: list[Object]
@@ -98,49 +168,73 @@ class RecentSourceService:
         self._user_id = user_id
 
     @staticmethod
-    def _gmail_feed_eligible_clause() -> object:
-        labels = Object.metadata_["labels"]
+    def _gmail_feed_eligible_clause(model=Object) -> object:
+        labels = model.metadata_["labels"]
         noise_any = labels.op("?|")(
             array(GMAIL_NOISE_LABELS, type_=ARRAY(String)),
         )
         return or_(
-            Object.provider != "gmail",
+            model.provider != "gmail",
             labels.is_(None),
             ~noise_any,
         )
 
     @staticmethod
-    def _not_child_email_attachment_clause() -> object:
-        parent_email_id = Object.metadata_["parent_email_id"].as_string()
+    def _not_child_email_attachment_clause(model=Object) -> object:
+        parent_email_id = model.metadata_["parent_email_id"].as_string()
         return ~and_(
-            Object.origin == "source",
-            Object.kind == "file",
+            model.origin == "source",
+            model.kind == "file",
             parent_email_id.is_not(None),
             parent_email_id != "",
         )
 
-    def _source_feed_clause(self) -> object:
+    def _source_feed_clause(self, model=Object) -> object:
         return and_(
-            Object.origin == "source",
-            Object.kind.in_(tuple(RECENT_SOURCE_KINDS)),
+            model.origin == "source",
+            model.kind.in_(tuple(RECENT_SOURCE_KINDS)),
         )
 
-    def _intake_feed_clause(self) -> object:
+    def _intake_feed_clause(self, model=Object) -> object:
         return and_(
-            or_(Object.origin == "explicit", Object.origin == "user"),
-            Object.kind.in_(tuple(RECENT_INTAKE_KINDS)),
-            Object.kind != "task",
+            or_(model.origin == "explicit", model.origin == "user"),
+            model.kind.in_(tuple(RECENT_INTAKE_KINDS)),
+            model.kind != "task",
+        )
+
+    def _base_eligible_filters(self, model=Object) -> object:
+        return and_(
+            model.user_id == self._user_id,
+            or_(self._source_feed_clause(model), self._intake_feed_clause(model)),
+            model.state != "rejected",
+            model.deleted_at.is_(None),
+            or_(model.status.is_(None), model.status != "deleted"),
+            self._gmail_feed_eligible_clause(model),
+            self._not_child_email_attachment_clause(model),
+        )
+
+    def _not_suppressed_future_recurrence_sibling(self) -> object:
+        sibling = aliased(Object)
+        earlier_sibling = exists(
+            select(sibling.id).where(
+                self._base_eligible_filters(sibling),
+                sibling.id != Object.id,
+                _is_series_addressable(sibling),
+                _future_at_materialization(sibling),
+                _same_recurring_series(Object, sibling),
+                _earlier_series_representative(sibling, Object),
+            )
+        )
+        return ~and_(
+            _is_series_addressable(Object),
+            _future_at_materialization(Object),
+            earlier_sibling,
         )
 
     def _eligible_filters(self) -> object:
         return and_(
-            Object.user_id == self._user_id,
-            or_(self._source_feed_clause(), self._intake_feed_clause()),
-            Object.state != "rejected",
-            Object.deleted_at.is_(None),
-            or_(Object.status.is_(None), Object.status != "deleted"),
-            self._gmail_feed_eligible_clause(),
-            self._not_child_email_attachment_clause(),
+            self._base_eligible_filters(),
+            self._not_suppressed_future_recurrence_sibling(),
         )
 
     def get_inbox_eligible(self, object_id: UUID) -> Object | None:
