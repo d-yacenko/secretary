@@ -12,7 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models import Object
+from app.db.models import Object, UserSettings
 from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_UNRESOLVED
 from app.services.calendar_event_query import (
     WEEK_CALENDAR_PROVIDERS,
@@ -22,7 +22,11 @@ from app.services.calendar_event_query import (
 )
 from app.services.errors import ValidationError
 from app.services.provenance import REJECTED_STATE
-from app.services.temporal_signals_constants import METADATA_LIFECYCLE, WEEK_MAX_TEMPORAL_HINTS
+from app.services.temporal_signals_constants import (
+    METADATA_LIFECYCLE,
+    TEMPORAL_SIGNALS_ENABLED_DEFAULT,
+    WEEK_MAX_TEMPORAL_HINTS,
+)
 
 WEEK_MAX_EVENTS = 500
 
@@ -103,7 +107,11 @@ class WeekService:
         start_date = parse_week_start(week_start, tz, now_local=now_local)
         window_start, window_end = local_week_window(start_date, tz)
         events = self._events_for_window(window_start, window_end)
-        hints = self._hints_for_window(window_start, window_end)
+        hints = (
+            self._hints_for_window(window_start, window_end)
+            if self._temporal_hints_enabled()
+            else []
+        )
         today_date = now_local.date()
         days = []
         for offset in range(7):
@@ -136,6 +144,12 @@ class WeekService:
             "is_current_week": start_date == monday_of(today_date),
             "days": days,
         }
+
+    def _temporal_hints_enabled(self) -> bool:
+        row = self._session.get(UserSettings, self._user_id)
+        if row is None:
+            return TEMPORAL_SIGNALS_ENABLED_DEFAULT
+        return bool(row.temporal_signals_enabled)
 
     def _events_for_window(self, window_start: datetime, window_end: datetime) -> list[Object]:
         stmt = (

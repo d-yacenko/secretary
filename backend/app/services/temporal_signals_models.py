@@ -58,6 +58,7 @@ class TemporalExtractionRequest:
     participation_roles: tuple[str, ...]
     is_channel_message: bool
     has_other_participants: bool
+    semantic_summary: str | None = None
 
 
 @dataclass(frozen=True)

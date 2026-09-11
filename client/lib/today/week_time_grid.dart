@@ -182,7 +182,9 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final compact =
         MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
     _syncViewConfiguration(compact: compact);
-    final empty = widget.week.days.every((day) => day.events.isEmpty);
+    final empty = widget.week.days.every(
+      (day) => day.events.isEmpty && day.temporalHints.isEmpty,
+    );
     final tiles = TileComponents(tileBuilder: _tileBuilder);
     return Column(
       children: [

@@ -12,9 +12,12 @@ from app.domain.temporal_hint import RESULT_NO_TEMPORAL_SIGNAL
 from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.effective_user_settings_service import EffectiveUserSettings
 from app.services.temporal_signals_constants import (
+    TEMPORAL_SIGNAL_AUDIT_EXTRACT,
     TEMPORAL_SIGNAL_MAX_EXTRACTED_TITLE_CHARS,
     TEMPORAL_SIGNAL_MAX_OUTPUT_TOKENS,
     TEMPORAL_SIGNAL_MAX_SEMANTIC_SUBJECT_CHARS,
+    TEMPORAL_SIGNAL_REASONING_EFFORT,
+    TEMPORAL_SIGNAL_VERBOSITY,
 )
 from app.services.temporal_signals_models import (
     TemporalExtractionRequest,
@@ -36,6 +39,8 @@ EXTRACTOR_INSTRUCTIONS = (
     "against the current wall clock. "
     "Approximate phrases such as after lunch, around 10, morning, or date-only "
     "statements without a start time are unsupported_precision. "
+    "Extract exact dates and times from source title and body. "
+    "semantic_summary is supporting context only and must not replace the source body. "
     "Return JSON only: "
     '{"result_class":"no_temporal_signal|unsupported_precision|exact_temporal_signal",'
     '"concise_title":"short title",'
@@ -119,6 +124,11 @@ def extractor_request_payload(request: TemporalExtractionRequest) -> dict:
             "provider": request.provider,
             "title": request.title,
             "body": request.body,
+            **(
+                {"semantic_summary": request.semantic_summary}
+                if request.semantic_summary
+                else {}
+            ),
         },
     }
 
@@ -165,7 +175,11 @@ class OpenAITemporalSignalExtractor:
                 elapsed_ms=elapsed_ms,
                 failed=True,
                 error_category=type(exc).__name__,
-                extra={"source_kind": request.kind, "source_provider": request.provider},
+                extra={
+                    "operation": TEMPORAL_SIGNAL_AUDIT_EXTRACT,
+                    "source_kind": request.kind,
+                    "source_provider": request.provider,
+                },
             )
             raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -181,6 +195,7 @@ class OpenAITemporalSignalExtractor:
             elapsed_ms=elapsed_ms,
             response=response,
             extra={
+                "operation": TEMPORAL_SIGNAL_AUDIT_EXTRACT,
                 "source_kind": request.kind,
                 "source_provider": request.provider,
                 "result_class": parsed.result_class,
@@ -228,7 +243,7 @@ def create_temporal_signal_extractor_from_effective(
     return OpenAITemporalSignalExtractor(
         api_key=effective.openai_api_key,
         model=effective.assistant_model,
-        reasoning_effort=effective.assistant_reasoning_effort,
-        verbosity=effective.assistant_verbosity,
+        reasoning_effort=TEMPORAL_SIGNAL_REASONING_EFFORT,
+        verbosity=TEMPORAL_SIGNAL_VERBOSITY,
         max_output_tokens=TEMPORAL_SIGNAL_MAX_OUTPUT_TOKENS,
     )

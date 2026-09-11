@@ -2819,6 +2819,37 @@ void main() {
     expect(find.text('Возможное время'), findsWidgets);
   });
 
+  testWidgets('week with temporal hints and no events is not empty', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(
+          week: (_) => weekPayload(
+            hintsByDate: {
+              '2026-09-07': [
+                weekTemporalHintJson(
+                  id: 'hint-only',
+                  title: 'Hint only call',
+                  startAt: '2026-09-07T16:00:00+02:00',
+                  endPrecision: 'unknown',
+                ),
+              ],
+            },
+          ),
+        ),
+        size: desktopSize,
+      ),
+    );
+    await pumpCalendar(tester);
+    expect(find.text('На этой неделе событий нет'), findsNothing);
+    expect(find.text('Hint only call'), findsOneWidget);
+  });
+
   testWidgets('passive refresh shows a new hint without moving calendar tiles', (
     tester,
   ) async {

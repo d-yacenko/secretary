@@ -34,27 +34,41 @@ from app.jobs.constants import (
     JOB_TYPE_RECONCILE_TEMPORAL_HINTS,
 )
 from app.jobs.handlers import handle_embed_object, handle_extract_temporal_signal
-from app.llm.temporal_match_judge import MATCH_INSTRUCTIONS, FakeTemporalMatchJudge
+from app.llm.temporal_match_judge import (
+    MATCH_INSTRUCTIONS,
+    FakeTemporalMatchJudge,
+    create_temporal_match_judge_from_effective,
+)
 from app.llm.temporal_signal_extractor import (
     EXTRACTOR_INSTRUCTIONS,
     FakeTemporalSignalExtractor,
+    create_temporal_signal_extractor_from_effective,
     extractor_request_payload,
 )
 from app.main import app
 from app.services.calendar_event_query import WEEK_CALENDAR_PROVIDERS, active_event_predicates
+from app.services.correlation_constants import SEMANTIC_SUMMARY_METADATA_KEY
+from app.services.effective_user_settings_service import EffectiveUserSettings
 from app.services.graph_service import GraphService
 from app.services.temporal_signals_constants import (
     METADATA_END_PRECISION,
     METADATA_EVIDENCE_COUNT,
+    METADATA_EXTRACTOR_VERSION,
     METADATA_LIFECYCLE,
     METADATA_PRIMARY_EVIDENCE_OBJECT_ID,
     METADATA_SOURCE_SIGNATURE,
+    TEMPORAL_SIGNAL_AUDIT_EXTRACT,
+    TEMPORAL_SIGNAL_AUDIT_MATCH,
+    TEMPORAL_SIGNAL_AUDIT_RECONCILE_MATCH,
     TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
+    TEMPORAL_SIGNAL_REASONING_EFFORT,
+    TEMPORAL_SIGNAL_VERBOSITY,
 )
 from app.services.temporal_signals_models import parse_extractor_payload
 from app.services.temporal_signals_resolution import resolve_exact_signal
 from app.services.temporal_signals_service import (
     TemporalSignalService,
+    calendar_event_signature,
     enqueue_extract_temporal_signal,
     evidence_edge_is_active,
     object_is_temporal_source_eligible,
@@ -188,6 +202,7 @@ def _run(
     extractor: FakeTemporalSignalExtractor,
     judge: FakeTemporalMatchJudge | None = None,
     after_extract=None,
+    after_judge=None,
 ) -> None:
     payload = {
         "object_id": str(source.id),
@@ -200,6 +215,7 @@ def _run(
         extractor=extractor,
         match_judge=judge or FakeTemporalMatchJudge(),
         after_extract=after_extract,
+        after_judge=after_judge,
     ).run_extract_job(payload)
 
 
@@ -692,7 +708,12 @@ def test_late_calendar_supersedes_hint(db_session) -> None:
         db_session,
         BOOTSTRAP_USER_ID,
         match_judge=FakeTemporalMatchJudge(match_shared_tokens=True),
-    ).run_reconcile_job({"object_id": str(event.id), "event_signature": "x"})
+    ).run_reconcile_job(
+        {
+            "object_id": str(event.id),
+            "event_signature": calendar_event_signature(event),
+        }
+    )
     db_session.refresh(hint)
     assert hint.deleted_at is None
     assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_CALENDAR
@@ -833,7 +854,7 @@ def test_embed_calendar_enqueues_reconcile(db_session, fake_embedding_service) -
     assert extract_jobs == []
 
 
-def test_missing_source_timestamp_fails_closed_for_relative(db_session) -> None:
+def test_missing_source_timestamp_fails_closed(db_session) -> None:
     parsed = parse_extractor_payload(
         _exact_payload(end_precision="unknown", end_kind=None, end_duration_minutes=None),
         max_title_chars=120,
@@ -846,6 +867,25 @@ def test_missing_source_timestamp_fails_closed_for_relative(db_session) -> None:
     )
     assert resolved is None
     assert reason == "missing_source_reference"
+    absolute = parse_extractor_payload(
+        _exact_payload(
+            start_date_kind="absolute",
+            start_absolute_date="2026-09-11",
+            start_relative_day_offset=None,
+            end_precision="unknown",
+            end_kind=None,
+            end_duration_minutes=None,
+        ),
+        max_title_chars=120,
+        max_subject_chars=200,
+    )
+    resolved_abs, reason_abs = resolve_exact_signal(
+        absolute.exact,
+        timezone_name="Europe/Moscow",
+        source_reference_at=None,
+    )
+    assert resolved_abs is None
+    assert reason_abs == "missing_source_reference"
 
 
 def test_invalid_confidence_rejected() -> None:
@@ -1006,6 +1046,7 @@ def test_unchanged_reprocess_does_not_duplicate_evidence(db_session) -> None:
     assert len(_evidence_edges(db_session)) == 1
     edge = _active_evidence(db_session)[0]
     assert edge.metadata_[METADATA_SOURCE_SIGNATURE] == source_extraction_signature(source)
+    assert edge.metadata_[METADATA_EXTRACTOR_VERSION] == TEMPORAL_SIGNAL_EXTRACTOR_VERSION
 
 
 def test_two_sources_one_revised_away_keeps_remaining_evidence(db_session) -> None:
@@ -1448,3 +1489,514 @@ def test_mattermost_connector_edit_reenqueues_temporal_reevaluation(
     unresolved = _unresolved_hints(db_session)
     assert len(unresolved) == 1
     assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)
+
+
+def _high_cost_effective() -> EffectiveUserSettings:
+    return EffectiveUserSettings(
+        timezone="Europe/Moscow",
+        assistant_model="gpt-test-model",
+        assistant_reasoning_effort="high",
+        assistant_verbosity="high",
+        assistant_max_rounds=8,
+        assistant_max_rounds_override=None,
+        openai_key_configured=True,
+        allowed_assistant_models=["gpt-test-model"],
+        openai_api_key="sk-test",
+    )
+
+
+def test_source_revision_10_to_11_moves_visible_hint(db_session) -> None:
+    _enable(db_session)
+    source = _source(
+        db_session,
+        title="Созвон",
+        body="Дима, завтра в 10:00 созвон.",
+        provider="mattermost",
+        kind="chat_message",
+        metadata={"channel_id": "town-square", "author_user_id": "other"},
+    )
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 10",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+    )
+    first = _unresolved_hints(db_session)[0]
+    assert first.start_at == datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW)
+    source.body = "Дима, завтра в 11:00 созвон."
+    db_session.flush()
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 11",
+                start_local_time="11:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+    )
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 11, 0, tzinfo=MOSCOW)
+    assert first.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+    assert "Созвон 11" in _week_hint_titles(db_session)
+    assert "Созвон 10" not in _week_hint_titles(db_session)
+
+
+def test_extraction_uses_source_body_not_semantic_summary(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(
+        db_session,
+        title="Встреча",
+        body="Коллеги, завтра в 11 давайте на полчаса встретимся.",
+        metadata={
+            SEMANTIC_SUMMARY_METADATA_KEY: "Colleagues discussed lunch without naming a clock time."
+        },
+    )
+    original_sig = source_extraction_signature(source)
+    metadata = dict(source.metadata_ or {})
+    metadata[SEMANTIC_SUMMARY_METADATA_KEY] = "Summary still has no exact time."
+    source.metadata_ = metadata
+    db_session.flush()
+    assert source_extraction_signature(source) == original_sig
+    source.body = "Коллеги, завтра в 12 давайте на полчаса встретимся."
+    db_session.flush()
+    assert source_extraction_signature(source) != original_sig
+    extractor = FakeTemporalSignalExtractor(
+        payload=_exact_payload(start_local_time="12:00")
+    )
+    _run(db_session, source, extractor)
+    assert extractor.last_request is not None
+    assert "завтра в 12" in extractor.last_request.body
+    assert extractor.last_request.semantic_summary == "Summary still has no exact time."
+    request_payload = extractor_request_payload(extractor.last_request)
+    assert "завтра в 12" in request_payload["source"]["body"]
+    assert request_payload["source"]["semantic_summary"] == "Summary still has no exact time."
+    hint = _hints(db_session)[0]
+    assert hint.start_at == datetime(2026, 9, 11, 12, 0, tzinfo=MOSCOW)
+
+
+def test_pending_backlog_does_not_drop_distinct_source_revisions(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    sources = [
+        _source(
+            db_session,
+            title=f"Встреча {index}",
+            body=f"Коллеги, завтра в 11 давайте на полчаса встретимся. #{index}",
+        )
+        for index in range(33)
+    ]
+    for source in sources:
+        enqueue_extract_temporal_signal(db_session, source.id, BOOTSTRAP_USER_ID)
+    jobs = list(
+        db_session.scalars(
+            select(Job).where(
+                Job.type == JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL,
+                Job.status == JOB_STATUS_PENDING,
+            )
+        )
+    )
+    assert len(jobs) == 33
+    signatures = {job.payload["source_signature"] for job in jobs}
+    assert len(signatures) == 33
+
+
+def test_reconcile_stale_signature_before_model_does_not_suppress(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="ADB созвон", body="ADB созвон завтра 10:00")
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB созвон",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="ADB",
+            )
+        ),
+    )
+    hint = _hints(db_session)[0]
+    event = _event(
+        db_session,
+        title="ADB созвон",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 10, 30, tzinfo=MOSCOW),
+        provider="yandex_calendar",
+    )
+    judge = FakeTemporalMatchJudge(match_shared_tokens=True)
+    outcome = TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        match_judge=judge,
+    ).run_reconcile_job({"object_id": str(event.id), "event_signature": "x"})
+    assert outcome.stale is True
+    assert outcome.reason == "stale_before_model"
+    assert judge.calls == 0
+    db_session.refresh(hint)
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_UNRESOLVED
+    jobs = list(
+        db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_RECONCILE_TEMPORAL_HINTS)
+        )
+    )
+    assert len(jobs) == 1
+    assert jobs[0].payload["event_signature"] == calendar_event_signature(event)
+
+
+def test_reconcile_event_change_during_model_discards_result(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="ADB созвон", body="ADB созвон завтра 10:00")
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB созвон",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="ADB",
+            )
+        ),
+    )
+    hint = _hints(db_session)[0]
+    event = _event(
+        db_session,
+        title="ADB созвон",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 10, 30, tzinfo=MOSCOW),
+        provider="google_calendar",
+    )
+    original_sig = calendar_event_signature(event)
+
+    def mutate() -> None:
+        event.title = "Completely unrelated event"
+        event.start_at = datetime(2026, 9, 11, 18, 0, tzinfo=MOSCOW)
+        event.due_at = datetime(2026, 9, 11, 18, 30, tzinfo=MOSCOW)
+        db_session.flush()
+
+    judge = FakeTemporalMatchJudge(match_shared_tokens=True)
+    outcome = TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        match_judge=judge,
+        after_judge=mutate,
+    ).run_reconcile_job(
+        {"object_id": str(event.id), "event_signature": original_sig}
+    )
+    assert judge.calls == 1
+    assert outcome.stale is True
+    assert outcome.reason == "stale_after_model"
+    db_session.refresh(hint)
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_UNRESOLVED
+    jobs = list(
+        db_session.scalars(
+            select(Job).where(Job.type == JOB_TYPE_RECONCILE_TEMPORAL_HINTS)
+        )
+    )
+    assert any(
+        job.payload.get("event_signature") == calendar_event_signature(event)
+        for job in jobs
+    )
+
+
+def test_extract_model_call_counts_without_and_with_candidates(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(
+        db_session,
+        title="Встреча",
+        body="Коллеги, завтра в 11 давайте на полчаса встретимся.",
+    )
+    extractor = FakeTemporalSignalExtractor(payload=_exact_payload())
+    judge = FakeTemporalMatchJudge()
+    _run(db_session, source, extractor, judge)
+    assert extractor.calls == 1
+    assert judge.calls == 0
+    event = _event(
+        db_session,
+        title="Встреча",
+        start_at=datetime(2026, 9, 11, 11, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 11, 30, tzinfo=MOSCOW),
+    )
+    second = _source(
+        db_session,
+        title="Встреча confirmation",
+        body="Коллеги, завтра в 11 давайте на полчаса встретимся. confirmation",
+    )
+    extractor2 = FakeTemporalSignalExtractor(
+        payload=_exact_payload(concise_title="Встреча", semantic_subject="встреча")
+    )
+    judge2 = FakeTemporalMatchJudge(match_shared_tokens=True)
+    _run(db_session, second, extractor2, judge2)
+    assert extractor2.calls == 1
+    assert judge2.calls == 1
+    assert judge2.last_operation == TEMPORAL_SIGNAL_AUDIT_MATCH
+    kinds = {item.kind for item in judge2.last_candidates}
+    assert "event" in kinds
+    assert KIND_TEMPORAL_HINT in kinds
+    assert event.id in {item.object_id for item in judge2.last_candidates}
+
+
+def test_reconcile_uses_one_judge_call(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="ADB созвон", body="ADB созвон завтра 10:00")
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB созвон",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="ADB",
+            )
+        ),
+    )
+    event = _event(
+        db_session,
+        title="ADB созвон",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 10, 30, tzinfo=MOSCOW),
+        provider="yandex_calendar",
+    )
+    judge = FakeTemporalMatchJudge(match_shared_tokens=True)
+    TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        match_judge=judge,
+    ).run_reconcile_job(
+        {
+            "object_id": str(event.id),
+            "event_signature": calendar_event_signature(event),
+        }
+    )
+    assert judge.calls == 1
+    assert judge.last_operation == TEMPORAL_SIGNAL_AUDIT_RECONCILE_MATCH
+
+
+def test_amsterdam_spring_forward_nonexistent_local_times() -> None:
+    start_parsed = parse_extractor_payload(
+        _exact_payload(
+            start_local_time="02:30",
+            end_precision="unknown",
+            end_kind=None,
+            end_duration_minutes=None,
+        ),
+        max_title_chars=120,
+        max_subject_chars=200,
+    )
+    resolved, reason = resolve_exact_signal(
+        start_parsed.exact,
+        timezone_name="Europe/Amsterdam",
+        source_reference_at=datetime(2026, 3, 28, 17, 0, tzinfo=AMSTERDAM),
+    )
+    assert resolved is None
+    assert reason == "nonexistent_local_time"
+    end_parsed = parse_extractor_payload(
+        _exact_payload(
+            start_local_time="01:00",
+            end_kind="local_time",
+            end_duration_minutes=None,
+            end_local_time="02:30",
+        ),
+        max_title_chars=120,
+        max_subject_chars=200,
+    )
+    resolved_end, reason_end = resolve_exact_signal(
+        end_parsed.exact,
+        timezone_name="Europe/Amsterdam",
+        source_reference_at=datetime(2026, 3, 28, 17, 0, tzinfo=AMSTERDAM),
+    )
+    assert resolved_end is None
+    assert reason_end == "nonexistent_local_time"
+    absolute_end = parse_extractor_payload(
+        _exact_payload(
+            start_local_time="01:00",
+            end_kind="absolute",
+            end_duration_minutes=None,
+            end_absolute_datetime="2026-03-29T02:30",
+        ),
+        max_title_chars=120,
+        max_subject_chars=200,
+    )
+    resolved_abs, reason_abs = resolve_exact_signal(
+        absolute_end.exact,
+        timezone_name="Europe/Amsterdam",
+        source_reference_at=datetime(2026, 3, 28, 17, 0, tzinfo=AMSTERDAM),
+    )
+    assert resolved_abs is None
+    assert reason_abs == "nonexistent_local_time"
+
+
+def test_amsterdam_fall_back_ambiguous_local_times() -> None:
+    start_parsed = parse_extractor_payload(
+        _exact_payload(
+            start_local_time="02:30",
+            end_precision="unknown",
+            end_kind=None,
+            end_duration_minutes=None,
+        ),
+        max_title_chars=120,
+        max_subject_chars=200,
+    )
+    resolved, reason = resolve_exact_signal(
+        start_parsed.exact,
+        timezone_name="Europe/Amsterdam",
+        source_reference_at=datetime(2026, 10, 24, 17, 0, tzinfo=AMSTERDAM),
+    )
+    assert resolved is None
+    assert reason == "ambiguous_local_time"
+    end_parsed = parse_extractor_payload(
+        _exact_payload(
+            start_local_time="01:00",
+            end_kind="local_time",
+            end_duration_minutes=None,
+            end_local_time="02:30",
+        ),
+        max_title_chars=120,
+        max_subject_chars=200,
+    )
+    resolved_end, reason_end = resolve_exact_signal(
+        end_parsed.exact,
+        timezone_name="Europe/Amsterdam",
+        source_reference_at=datetime(2026, 10, 24, 17, 0, tzinfo=AMSTERDAM),
+    )
+    assert resolved_end is None
+    assert reason_end == "ambiguous_local_time"
+
+
+def test_temporal_factories_force_low_reasoning_not_user_profile() -> None:
+    captured_extract: dict = {}
+    captured_match: dict = {}
+
+    class _CaptureExtract:
+        def __init__(self, **kwargs) -> None:
+            captured_extract.update(kwargs)
+
+    class _CaptureMatch:
+        def __init__(self, **kwargs) -> None:
+            captured_match.update(kwargs)
+
+    effective = _high_cost_effective()
+    with patch(
+        "app.llm.temporal_signal_extractor.OpenAITemporalSignalExtractor",
+        _CaptureExtract,
+    ):
+        create_temporal_signal_extractor_from_effective(effective)
+    with patch(
+        "app.llm.temporal_match_judge.OpenAITemporalMatchJudge",
+        _CaptureMatch,
+    ):
+        create_temporal_match_judge_from_effective(effective)
+    assert captured_extract["model"] == "gpt-test-model"
+    assert captured_extract["reasoning_effort"] == TEMPORAL_SIGNAL_REASONING_EFFORT
+    assert captured_extract["verbosity"] == TEMPORAL_SIGNAL_VERBOSITY
+    assert captured_match["model"] == "gpt-test-model"
+    assert captured_match["reasoning_effort"] == TEMPORAL_SIGNAL_REASONING_EFFORT
+    assert captured_match["verbosity"] == TEMPORAL_SIGNAL_VERBOSITY
+
+
+def test_openai_temporal_calls_record_operation_discriminator(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.llm.temporal_match_judge import OpenAITemporalMatchJudge
+    from app.llm.temporal_signal_extractor import OpenAITemporalSignalExtractor
+    from app.services.temporal_signals_models import (
+        TemporalExtractionRequest,
+        TemporalMatchCandidate,
+    )
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        "app.llm.temporal_signal_extractor.record_simple_model_call",
+        lambda **kwargs: recorded.append(kwargs),
+    )
+    monkeypatch.setattr(
+        "app.llm.temporal_match_judge.record_simple_model_call",
+        lambda **kwargs: recorded.append(kwargs),
+    )
+
+    class _Responses:
+        def create(self, **kwargs):
+            instructions = str(kwargs.get("instructions") or "").casefold()
+            text = (
+                '{"result_class":"no_temporal_signal"}'
+                if "extract exact-time" in instructions
+                else '{"match":false}'
+            )
+            content = SimpleNamespace(type="output_text", text=text)
+            message = SimpleNamespace(type="message", content=[content])
+            return SimpleNamespace(output=[message], usage=None)
+
+    extractor = OpenAITemporalSignalExtractor.__new__(OpenAITemporalSignalExtractor)
+    extractor._client = SimpleNamespace(responses=_Responses())
+    extractor._model = "gpt-test-model"
+    extractor._reasoning_effort = "low"
+    extractor._verbosity = "low"
+    extractor._max_output_tokens = 800
+    extractor.extract(
+        TemporalExtractionRequest(
+            object_id=uuid4(),
+            kind="email",
+            provider="gmail",
+            title="Hi",
+            body="no time",
+            source_reference_at=SOURCE_AT,
+            timezone="Europe/Moscow",
+            participation_roles=("direct_recipient",),
+            is_channel_message=False,
+            has_other_participants=True,
+        )
+    )
+    judge = OpenAITemporalMatchJudge.__new__(OpenAITemporalMatchJudge)
+    judge._client = SimpleNamespace(responses=_Responses())
+    judge._model = "gpt-test-model"
+    judge._reasoning_effort = "low"
+    judge._verbosity = "low"
+    judge._max_output_tokens = 800
+    judge.judge(
+        trigger_title="Встреча",
+        trigger_subject="встреча",
+        trigger_kind="temporal_hint",
+        candidates=[
+            TemporalMatchCandidate(
+                object_id=uuid4(),
+                kind="event",
+                title="Встреча",
+                start_at=datetime(2026, 9, 11, 11, 0, tzinfo=MOSCOW),
+                due_at=datetime(2026, 9, 11, 11, 30, tzinfo=MOSCOW),
+                summary="встреча",
+                provider="google_calendar",
+            )
+        ],
+        operation=TEMPORAL_SIGNAL_AUDIT_RECONCILE_MATCH,
+    )
+    operations = [item.get("extra", {}).get("operation") for item in recorded]
+    assert TEMPORAL_SIGNAL_AUDIT_EXTRACT in operations
+    assert TEMPORAL_SIGNAL_AUDIT_RECONCILE_MATCH in operations
+    assert all(item.get("reasoning_effort") == "low" for item in recorded)
+    assert all(item.get("verbosity") == "low" for item in recorded)

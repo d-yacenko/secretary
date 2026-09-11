@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 import app.services.week_service as week_service_module
 from app.api.schemas import ObjectCreate
-from app.db.models import Object, User
+from app.db.models import Object, User, UserSettings
 from app.services.errors import ValidationError
 from app.services.graph_service import GraphService
 from app.services.week_service import WeekService, parse_week_start
@@ -48,6 +48,20 @@ def _event(
         )
     )
     return obj
+
+
+def _enable_temporal(session, *, enabled: bool = True) -> None:
+    row = session.get(UserSettings, BOOTSTRAP_USER_ID)
+    if row is None:
+        row = UserSettings(
+            user_id=BOOTSTRAP_USER_ID,
+            temporal_signals_enabled=enabled,
+            timezone="Europe/Amsterdam",
+        )
+        session.add(row)
+    else:
+        row.temporal_signals_enabled = enabled
+    session.flush()
 
 
 def test_week_merges_google_and_yandex_chronologically(db_session) -> None:
@@ -608,6 +622,8 @@ def test_week_temporal_hints_are_additive_and_not_events(db_session) -> None:
     from app.services.calendar_event_query import WEEK_CALENDAR_PROVIDERS, active_event_predicates
     from app.services.temporal_signals_constants import METADATA_LIFECYCLE
 
+    _enable_temporal(db_session)
+
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     google = _event(
         graph,
@@ -664,6 +680,7 @@ def test_week_temporal_hints_are_additive_and_not_events(db_session) -> None:
 
 
 def test_http_week_temporal_hints_omit_source_body(db_session, auth_client) -> None:
+    _enable_temporal(db_session)
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     _event(
         graph,
@@ -691,4 +708,33 @@ def test_http_week_temporal_hints_omit_source_body(db_session, auth_client) -> N
     assert monday["temporal_hints"][0]["end_precision"] == "unknown"
     assert monday["temporal_hints"][0]["primary_provider"] == "gmail"
     assert "gmail" not in {row.get("provider") for row in monday["events"]}
+
+
+def test_week_does_not_project_hints_when_temporal_signals_disabled(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    _event(
+        graph,
+        title="Office",
+        start_at=WEEK_MONDAY + timedelta(hours=10),
+        due_at=WEEK_MONDAY + timedelta(hours=11),
+        external_id="disabled-hint-cal",
+    )
+    hint = _hint(
+        graph,
+        title="Hidden when disabled",
+        start_at=WEEK_MONDAY + timedelta(hours=16),
+        due_at=None,
+    )
+    _enable_temporal(db_session, enabled=False)
+    snapshot = WeekService(db_session, BOOTSTRAP_USER_ID).snapshot(
+        week_start=WEEK_START,
+        timezone="Europe/Amsterdam",
+        reference_at=WEEK_MONDAY + timedelta(hours=12),
+    )
+    monday = snapshot["days"][0]
+    assert [obj.title for obj in monday["events"]] == ["Office"]
+    assert monday["temporal_hints"] == []
+    leftover = db_session.get(Object, hint.id)
+    assert leftover is not None
+    assert leftover.deleted_at is None
 

@@ -80,6 +80,8 @@ from app.services.temporal_signals_constants import (
     TEMPORAL_ELIGIBLE_KINDS,
     TEMPORAL_ELIGIBLE_ORIGINS,
     TEMPORAL_ELIGIBLE_PROVIDERS,
+    TEMPORAL_SIGNAL_AUDIT_MATCH,
+    TEMPORAL_SIGNAL_AUDIT_RECONCILE_MATCH,
     TEMPORAL_SIGNAL_CANDIDATE_WINDOW,
     TEMPORAL_SIGNAL_EXPECTED_MIN_CONFIDENCE,
     TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
@@ -87,7 +89,6 @@ from app.services.temporal_signals_constants import (
     TEMPORAL_SIGNAL_MAX_BODY_CHARS,
     TEMPORAL_SIGNAL_MAX_CANDIDATES,
     TEMPORAL_SIGNAL_MAX_EVIDENCE_EDGES_SCAN,
-    TEMPORAL_SIGNAL_MAX_PENDING_PER_USER,
     TEMPORAL_SIGNAL_MAX_TITLE_CHARS,
     TEMPORAL_SIGNAL_METADATA_VERSION,
     TEMPORAL_SIGNAL_POSSIBLE_MIN_CONFIDENCE,
@@ -188,12 +189,15 @@ def _sha256_text(text: str) -> str:
 
 def bounded_source_text(obj: Object) -> tuple[str, str]:
     title = (obj.title or "")[:TEMPORAL_SIGNAL_MAX_TITLE_CHARS]
+    body = (obj.body or "").strip()[:TEMPORAL_SIGNAL_MAX_BODY_CHARS]
+    return title, body
+
+
+def bounded_semantic_summary(obj: Object) -> str | None:
     summary = (obj.metadata_ or {}).get(SEMANTIC_SUMMARY_METADATA_KEY)
     if isinstance(summary, str) and summary.strip():
-        body = summary.strip()[:TEMPORAL_SIGNAL_MAX_BODY_CHARS]
-    else:
-        body = (obj.body or "").strip()[:TEMPORAL_SIGNAL_MAX_BODY_CHARS]
-    return title, body
+        return summary.strip()[:TEMPORAL_SIGNAL_MAX_BODY_CHARS]
+    return None
 
 
 def source_extraction_signature(obj: Object) -> str:
@@ -226,14 +230,22 @@ def source_extraction_signature(obj: Object) -> str:
     )
 
 
+def _canonical_instant(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).isoformat()
+    return value.isoformat()
+
+
 def calendar_event_signature(obj: Object) -> str:
     return _sha256_text(
         _canonical_json(
             {
                 "object_id": str(obj.id),
                 "title": obj.title,
-                "start_at": obj.start_at.isoformat() if obj.start_at else None,
-                "due_at": obj.due_at.isoformat() if obj.due_at else None,
+                "start_at": _canonical_instant(obj.start_at),
+                "due_at": _canonical_instant(obj.due_at),
                 "provider": obj.provider,
             }
         )
@@ -280,10 +292,6 @@ def enqueue_extract_temporal_signal(
     }
     if _has_signature_job(
         session, user_id, JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL, object_id, extra
-    ):
-        return
-    if _pending_or_running_count(session, user_id, JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL) >= (
-        TEMPORAL_SIGNAL_MAX_PENDING_PER_USER
     ):
         return
     payload: dict = {
@@ -371,20 +379,6 @@ def _has_signature_job(
     return False
 
 
-def _pending_or_running_count(session: Session, user_id: UUID, job_type: str) -> int:
-    return len(
-        list(
-            session.scalars(
-                select(Job.id).where(
-                    Job.user_id == user_id,
-                    Job.type == job_type,
-                    Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING)),
-                )
-            )
-        )
-    )
-
-
 class TemporalSignalService:
     def __init__(
         self,
@@ -394,12 +388,14 @@ class TemporalSignalService:
         extractor: TemporalSignalExtractor | None = None,
         match_judge: TemporalMatchJudge | None = None,
         after_extract: Callable[[], None] | None = None,
+        after_judge: Callable[[], None] | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._extractor = extractor
         self._match_judge = match_judge
         self._after_extract = after_extract
+        self._after_judge = after_judge
         self._graph = GraphService(session, user_id)
 
     def run_extract_job(self, payload: dict) -> TemporalSignalJobOutcome:
@@ -428,11 +424,16 @@ class TemporalSignalService:
 
     def run_reconcile_job(self, payload: dict) -> TemporalSignalJobOutcome:
         object_id = UUID(str(payload["object_id"]))
+        payload_sig = str(payload.get("event_signature") or "")
         if not is_temporal_signals_enabled(self._session, self._user_id):
             return TemporalSignalJobOutcome(reason="disabled")
         event = self._load_source(object_id)
         if event is None or not object_is_calendar_reconcile_eligible(event):
             return TemporalSignalJobOutcome(reason="ineligible")
+        live_sig = calendar_event_signature(event)
+        if not payload_sig or live_sig != payload_sig:
+            enqueue_reconcile_temporal_hints(self._session, object_id, self._user_id)
+            return TemporalSignalJobOutcome(reason="stale_before_model", stale=True)
         parent_raw = payload.get("parent_trace_id")
         parent_trace_id = UUID(str(parent_raw)) if parent_raw else None
         with ai_trace_session(
@@ -441,7 +442,7 @@ class TemporalSignalService:
             object_id=object_id,
             parent_trace_id=parent_trace_id,
         ):
-            outcome = self._reconcile_calendar_event(event)
+            outcome = self._reconcile_calendar_event(event, payload_sig)
             self._record_result(event.id, outcome)
             return outcome
 
@@ -512,26 +513,25 @@ class TemporalSignalService:
                 hint_id=same_revision.id if same_revision.kind == KIND_TEMPORAL_HINT else None,
                 calendar_id=same_revision.id if same_revision.kind == "event" else None,
             )
-        calendar = self._match_calendar(resolved)
-        if calendar is not None:
-            if not self._commit_source_revision(source, payload_sig, calendar, resolved):
+        matched = self._match_existing_anchor(resolved)
+        if matched is not None:
+            if not self._commit_source_revision(source, payload_sig, matched, resolved):
                 return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
-            return TemporalSignalJobOutcome(
-                reason="calendar_first_match",
-                calendar_id=calendar.id,
-            )
-        hint = self._match_hint(resolved)
-        if hint is not None:
-            if not self._commit_source_revision(source, payload_sig, hint, resolved):
-                return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
-            return TemporalSignalJobOutcome(reason="hint_merged", hint_id=hint.id)
+            if matched.kind == "event":
+                return TemporalSignalJobOutcome(
+                    reason="calendar_first_match",
+                    calendar_id=matched.id,
+                )
+            return TemporalSignalJobOutcome(reason="hint_merged", hint_id=matched.id)
         created = self._create_hint(resolved, source, payload_sig)
         if not self._commit_source_revision(source, payload_sig, created, resolved):
             self._refresh_hint_after_evidence_change(created)
             return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
         return TemporalSignalJobOutcome(reason="hint_created", hint_id=created.id)
 
-    def _reconcile_calendar_event(self, event: Object) -> TemporalSignalJobOutcome:
+    def _reconcile_calendar_event(
+        self, event: Object, payload_sig: str
+    ) -> TemporalSignalJobOutcome:
         unresolved = self._unresolved_hints_near(event.start_at, event.due_at)
         if not unresolved:
             return TemporalSignalJobOutcome(reason="no_hints", calendar_id=event.id)
@@ -546,7 +546,14 @@ class TemporalSignalService:
             trigger_subject=self._content_summary(event),
             trigger_kind="event",
             candidates=candidates,
+            operation=TEMPORAL_SIGNAL_AUDIT_RECONCILE_MATCH,
         )
+        if self._after_judge is not None:
+            self._after_judge()
+        fenced = self._post_reconcile_fence(event.id, payload_sig)
+        if fenced is None:
+            return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
+        event = fenced
         allowed = {item.object_id for item in candidates}
         decision = result.decision
         if (
@@ -573,20 +580,23 @@ class TemporalSignalService:
             calendar_id=event.id,
         )
 
-    def _match_calendar(self, resolved: ResolvedTemporalSignal) -> Object | None:
+    def _match_existing_anchor(self, resolved: ResolvedTemporalSignal) -> Object | None:
         events = self._calendar_candidates(resolved.start_at, resolved.due_at)
-        return self._judge_match(
-            resolved,
-            events,
-            trigger_kind=KIND_TEMPORAL_HINT,
-        )
-
-    def _match_hint(self, resolved: ResolvedTemporalSignal) -> Object | None:
         hints = self._unresolved_hints_near(resolved.start_at, resolved.due_at)
+        combined: list[Object] = []
+        seen: set[UUID] = set()
+        for item in [*events, *hints]:
+            if item.id in seen:
+                continue
+            seen.add(item.id)
+            combined.append(item)
+            if len(combined) >= TEMPORAL_SIGNAL_MAX_CANDIDATES:
+                break
         return self._judge_match(
             resolved,
-            hints,
+            combined,
             trigger_kind=KIND_TEMPORAL_HINT,
+            operation=TEMPORAL_SIGNAL_AUDIT_MATCH,
         )
 
     def _judge_match(
@@ -595,6 +605,7 @@ class TemporalSignalService:
         objects: list[Object],
         *,
         trigger_kind: str,
+        operation: str,
     ) -> Object | None:
         if not objects:
             return None
@@ -609,6 +620,7 @@ class TemporalSignalService:
             trigger_subject=resolved.semantic_subject,
             trigger_kind=trigger_kind,
             candidates=candidates,
+            operation=operation,
         )
         allowed = {item.object_id for item in candidates}
         decision = result.decision
@@ -753,9 +765,21 @@ class TemporalSignalService:
             .limit(1)
         )
 
+    def _edge_extractor_version(self, edge: Edge) -> int:
+        raw = (edge.metadata_ or {}).get(METADATA_EXTRACTOR_VERSION)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
     def _active_same_revision_anchor(self, source_id: UUID, payload_sig: str) -> Object | None:
         active = self._active_evidence_edges(source_id=source_id)
-        matching = [edge for edge in active if self._edge_source_signature(edge) == payload_sig]
+        matching = [
+            edge
+            for edge in active
+            if self._edge_source_signature(edge) == payload_sig
+            and self._edge_extractor_version(edge) == TEMPORAL_SIGNAL_EXTRACTOR_VERSION
+        ]
         if not matching or len(matching) != len(active):
             return None
         return self._load_source(matching[0].source_id)
@@ -949,6 +973,7 @@ class TemporalSignalService:
             participation_roles=roles,
             is_channel_message=is_channel,
             has_other_participants=has_others,
+            semantic_summary=bounded_semantic_summary(source),
         )
 
     def _effective_participation(
@@ -1008,6 +1033,24 @@ class TemporalSignalService:
             )
             return None
         return source
+
+    def _post_reconcile_fence(self, object_id: UUID, payload_sig: str) -> Object | None:
+        self._session.expire_all()
+        settings = acquire_temporal_signals_user_gate(self._session, self._user_id)
+        if settings is None or not bool(settings.temporal_signals_enabled):
+            return None
+        event = self._load_source(object_id)
+        if event is None or not object_is_calendar_reconcile_eligible(event):
+            return None
+        if calendar_event_signature(event) != payload_sig:
+            enqueue_reconcile_temporal_hints(
+                self._session,
+                object_id,
+                self._user_id,
+                already_gated=True,
+            )
+            return None
+        return event
 
     def _load_source(self, object_id: UUID) -> Object | None:
         return self._session.scalar(
