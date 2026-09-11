@@ -42,7 +42,7 @@ from app.jobs.source_sync_handlers import (
 from app.jobs.types import JobHandler
 from app.llm.correlation_judge import create_correlation_judge_from_effective
 from app.llm.embedding_service import create_embedding_service_for_api_key
-from app.llm.embedding_text import build_embedding_text
+from app.llm.embedding_text import canonical_embedding_text, embedding_input_signature
 from app.llm.openai_summarizer import create_openai_summarizer_from_effective
 from app.local.constants import POLICY_UPLOAD_COPY
 from app.local.paths import LocalPathResolver
@@ -63,6 +63,7 @@ from app.services.pipeline_enqueue import (
     enqueue_correlate_object,
     enqueue_embed_object,
     enqueue_summarize_resource,
+    has_done_embedding_proof,
 )
 from app.services.proactive_review_service import ProactiveReviewService
 from app.services.representation_embedding_worker import (
@@ -74,34 +75,19 @@ from app.services.representation_service import RepresentationService
 from app.services.semantic_summary_service import SemanticSummaryService
 
 
-def _load_embedding_text(object_id: UUID, user_id: UUID) -> str:
-    session = SessionLocal()
-    try:
-        obj = session.scalar(
-            select(Object).where(Object.id == object_id, Object.user_id == user_id)
-        )
-        if obj is None:
-            raise ValueError(f"object ownership mismatch: {object_id}")
-        return build_embedding_text(obj)
-    finally:
-        session.close()
-
-
-def _store_object_embedding(object_id: UUID, user_id: UUID, embedding: list[float]) -> None:
-    session = SessionLocal()
-    try:
-        obj = session.scalar(
-            select(Object).where(Object.id == object_id, Object.user_id == user_id)
-        )
-        if obj is None:
-            raise ValueError(f"object ownership mismatch: {object_id}")
-        obj.embedding = embedding
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+def _store_object_embedding(
+    session: Session,
+    object_id: UUID,
+    user_id: UUID,
+    embedding: list[float],
+) -> None:
+    obj = session.scalar(
+        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    )
+    if obj is None:
+        raise ValueError(f"object ownership mismatch: {object_id}")
+    obj.embedding = embedding
+    session.flush()
 
 
 def _ingest_already_complete(
@@ -165,7 +151,24 @@ def handle_embed_object(
     object_id = UUID(str(payload["object_id"]))
     if not _object_is_active(session, object_id, user_id):
         return
+    obj = _load_user_object(session, object_id, user_id)
+    if obj is None:
+        return
+    current_sig = embedding_input_signature(obj)
+    payload_sig = str(payload.get("embedding_input_signature") or "")
     parent_trace_id = _parent_trace_id_from_payload(payload)
+    if not payload_sig or payload_sig != current_sig:
+        enqueue_embed_object(session, object_id, user_id)
+        _enqueue_embed_downstream(
+            session, object_id, user_id, obj, parent_trace_id=parent_trace_id
+        )
+        return
+    if has_done_embedding_proof(session, user_id, object_id, current_sig) and obj.embedding is not None:
+        _embed_unembedded_chunks(session, embedding_service, object_id, user_id, parent_trace_id)
+        _enqueue_embed_downstream(
+            session, object_id, user_id, obj, parent_trace_id=parent_trace_id
+        )
+        return
     embed_trace_id = None
     with ai_trace_session(
         user_id,
@@ -174,39 +177,85 @@ def handle_embed_object(
         parent_trace_id=parent_trace_id,
     ) as embed_trace:
         embed_trace_id = embed_trace.trace_id
-        service = embedding_service
-        if service is None:
-            settings_service = EffectiveUserSettingsService.build(session)
-            api_key = settings_service.resolve_openai_api_key(user_id)
-            service = create_embedding_service_for_api_key(api_key)
-        text = _load_embedding_text(object_id, user_id)
-        embedding = service.embed(text)
-        _store_object_embedding(object_id, user_id, embedding)
-
-        chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
-        if chunk_targets:
-            chunk_embeddings = [
-                (target.representation_id, service.embed(target.text))
-                for target in chunk_targets
-            ]
-            store_representation_embeddings(object_id, user_id, chunk_embeddings)
-
-        lookup_session = SessionLocal()
-        try:
-            obj = lookup_session.scalar(
-                select(Object).where(Object.id == object_id, Object.user_id == user_id)
+        live = _load_user_object(session, object_id, user_id)
+        if live is None:
+            return
+        if embedding_input_signature(live) != payload_sig:
+            enqueue_embed_object(session, object_id, user_id)
+            _enqueue_embed_downstream(
+                session, object_id, user_id, live, parent_trace_id=parent_trace_id
             )
-            if obj is not None:
-                enqueue_correlate_object(lookup_session, object_id, user_id, obj.kind)
-                lookup_session.commit()
-        finally:
-            lookup_session.close()
+            return
+        service = _resolve_embedding_service(session, user_id, embedding_service)
+        embedding = service.embed(canonical_embedding_text(live))
+        _store_object_embedding(session, object_id, user_id, embedding)
+        _embed_chunk_targets(service, object_id, user_id)
+    live = _load_user_object(session, object_id, user_id)
+    if live is None:
+        return
+    _enqueue_embed_downstream(
+        session, object_id, user_id, live, parent_trace_id=embed_trace_id
+    )
+
+
+def _resolve_embedding_service(session: Session, user_id: UUID, embedding_service):
+    if embedding_service is not None:
+        return embedding_service
+    settings_service = EffectiveUserSettingsService.build(session)
+    api_key = settings_service.resolve_openai_api_key(user_id)
+    return create_embedding_service_for_api_key(api_key)
+
+
+def _enqueue_embed_downstream(
+    session: Session,
+    object_id: UUID,
+    user_id: UUID,
+    obj: Object,
+    *,
+    parent_trace_id: UUID | None,
+) -> None:
+    enqueue_correlate_object(session, object_id, user_id, obj.kind)
     enqueue_auto_label_object(
         session,
         object_id,
         user_id,
-        parent_trace_id=embed_trace_id,
+        parent_trace_id=parent_trace_id,
     )
+
+
+def _embed_chunk_targets(service, object_id: UUID, user_id: UUID) -> None:
+    chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
+    if not chunk_targets:
+        return
+    chunk_embeddings = [
+        (target.representation_id, service.embed(target.text))
+        for target in chunk_targets
+    ]
+    store_representation_embeddings(object_id, user_id, chunk_embeddings)
+
+
+def _embed_unembedded_chunks(
+    session: Session,
+    embedding_service,
+    object_id: UUID,
+    user_id: UUID,
+    parent_trace_id: UUID | None,
+) -> None:
+    chunk_targets = load_unembedded_chunk_targets(object_id, user_id)
+    if not chunk_targets:
+        return
+    with ai_trace_session(
+        user_id,
+        WORKLOAD_EMBEDDING,
+        object_id=object_id,
+        parent_trace_id=parent_trace_id,
+    ):
+        service = _resolve_embedding_service(session, user_id, embedding_service)
+        chunk_embeddings = [
+            (target.representation_id, service.embed(target.text))
+            for target in chunk_targets
+        ]
+        store_representation_embeddings(object_id, user_id, chunk_embeddings)
 
 
 def handle_summarize_resource(

@@ -403,6 +403,7 @@ def test_event_embed_queues_correlate_job(db_session, fake_embedding_service) ->
     from unittest.mock import patch
 
     from app.jobs.handlers import handle_embed_object
+    from app.llm.embedding_text import embed_job_payload
 
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     event = graph.create_object(
@@ -414,7 +415,7 @@ def test_event_embed_queues_correlate_job(db_session, fake_embedding_service) ->
         handle_embed_object(
             db_session,
             fake_embedding_service,
-            {"object_id": str(event.id)},
+            embed_job_payload(event),
             BOOTSTRAP_USER_ID,
         )
     correlate_job = db_session.scalar(
@@ -585,6 +586,7 @@ def test_correlation_failure_does_not_rollback_embedding(db_session, fake_embedd
     from unittest.mock import patch
 
     from app.jobs.handlers import handle_embed_object
+    from app.llm.embedding_text import embed_job_payload
 
     graph = GraphService(db_session, BOOTSTRAP_USER_ID)
     obj = graph.create_object(ObjectCreate(kind="note", title="Stable", origin="user"))
@@ -594,7 +596,7 @@ def test_correlation_failure_does_not_rollback_embedding(db_session, fake_embedd
         handle_embed_object(
             db_session,
             fake_embedding_service,
-            {"object_id": str(obj.id)},
+            embed_job_payload(obj),
             BOOTSTRAP_USER_ID,
         )
 

@@ -195,13 +195,16 @@ def test_jobs_belong_to_user(db_session) -> None:
 def test_worker_rejects_mismatched_job_object_user(db_session, user_b_id, fake_embedding) -> None:
     graph_a = GraphService(db_session, BOOTSTRAP_USER_ID, fake_embedding)
     obj = graph_a.create_object(ObjectCreate(kind="task", title="Job object", origin="user"))
-    with pytest.raises(ValueError, match="ownership mismatch"):
-        handle_embed_object(
-            db_session,
-            fake_embedding,
-            {"object_id": str(obj.id)},
-            user_b_id,
-        )
+    embedding_before = list(obj.embedding) if obj.embedding is not None else None
+    handle_embed_object(
+        db_session,
+        fake_embedding,
+        {"object_id": str(obj.id)},
+        user_b_id,
+    )
+    db_session.refresh(obj)
+    embedding_after = list(obj.embedding) if obj.embedding is not None else None
+    assert embedding_after == embedding_before
 
 
 def test_google_account_belongs_to_user(db_session, user_b_id) -> None:

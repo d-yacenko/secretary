@@ -50,6 +50,7 @@ from app.jobs.constants import (
 )
 from app.jobs.handlers import HANDLERS, handle_auto_label_object, handle_embed_object
 from app.llm.auto_label_classifier import FakeAutoLabelClassifier, _raw_assignment_rows
+from app.llm.embedding_text import embed_job_payload
 from app.main import app
 from app.proactive.constants import PROACTIVE_READ_TOOL_NAMES
 from app.services.auto_label_constants import (
@@ -169,7 +170,7 @@ def _embed(session: Session, fake_embedding_service, obj: Object) -> None:
         handle_embed_object(
             session,
             fake_embedding_service,
-            {"object_id": str(obj.id)},
+            embed_job_payload(obj),
             BOOTSTRAP_USER_ID,
         )
 

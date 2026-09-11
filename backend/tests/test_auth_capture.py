@@ -24,13 +24,6 @@ def _create_user(db_session, name: str = "Alt user") -> uuid.UUID:
     return user.id
 
 
-def _store_embedding_in_test(db_session, object_id: uuid.UUID, embedding: list[float]) -> None:
-    obj = db_session.get(Object, object_id)
-    if obj is not None:
-        obj.embedding = embedding
-        db_session.flush()
-
-
 def test_unauthenticated_api_returns_401() -> None:
     client = TestClient(app)
     response = client.get("/me")
@@ -398,10 +391,7 @@ def test_captured_task_becomes_searchable_after_embed_handler(
 
     with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
         "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
-    ), patch.object(db_session, "close", lambda: None), patch(
-        "app.jobs.handlers._store_object_embedding",
-        lambda oid, uid, emb: _store_embedding_in_test(db_session, oid, emb),
-    ):
+    ), patch.object(db_session, "close", lambda: None):
         handle_embed_object(db_session, fake_embedding_service, job.payload, BOOTSTRAP_USER_ID)
 
     task = db_session.get(Object, task_id)

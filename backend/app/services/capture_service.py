@@ -7,10 +7,9 @@ from sqlalchemy.orm import Session
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.db.models import Object
 from app.domain.task_lifecycle import TASK_STATUS_OPEN
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.services.errors import NotFoundError, ValidationError
 from app.services.graph_service import GraphService
-from app.services.job_queue_service import JobQueueService
+from app.services.pipeline_enqueue import enqueue_embed_object
 
 MAX_CAPTURE_CONTEXT_IDS = 20
 MAX_CAPTURE_DEPENDS_ON_IDS = 20
@@ -37,7 +36,6 @@ class CaptureService:
         self._session = session
         self._user_id = user_id
         self._graph = GraphService(session, user_id)
-        self._job_queue = JobQueueService(session)
 
     def capture_task(
         self,
@@ -113,11 +111,7 @@ class CaptureService:
             )
             dependency_edge_ids.append(edge.id)
 
-        self._job_queue.enqueue(
-            JOB_TYPE_EMBED_OBJECT,
-            {"object_id": str(task.id)},
-            user_id=self._user_id,
-        )
+        enqueue_embed_object(self._session, task.id, self._user_id)
 
         return CaptureTaskResult(
             task_id=task.id,
@@ -153,11 +147,7 @@ class CaptureService:
             )
         )
 
-        self._job_queue.enqueue(
-            JOB_TYPE_EMBED_OBJECT,
-            {"object_id": str(note.id)},
-            user_id=self._user_id,
-        )
+        enqueue_embed_object(self._session, note.id, self._user_id)
 
         return CaptureNoteResult(note_id=note.id)
 

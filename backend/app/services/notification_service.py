@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EdgeCreate, ObjectCreate
 from app.db.models import Notification, Object
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.notifications.constants import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
@@ -20,7 +19,7 @@ from app.notifications.constants import (
 )
 from app.services.errors import NotFoundError, ValidationError
 from app.services.graph_service import GraphService
-from app.services.job_queue_service import JobQueueService
+from app.services.pipeline_enqueue import enqueue_embed_object
 
 
 def utcnow() -> datetime:
@@ -40,7 +39,6 @@ class NotificationService:
         self._session = session
         self._user_id = user_id
         self._graph = GraphService(session, user_id)
-        self._job_queue = JobQueueService(session)
 
     def create(
         self,
@@ -202,11 +200,7 @@ class NotificationService:
                 )
             )
 
-        self._job_queue.enqueue(
-            JOB_TYPE_EMBED_OBJECT,
-            {"object_id": str(task.id)},
-            user_id=self._user_id,
-        )
+        enqueue_embed_object(self._session, task.id, self._user_id)
 
         notification.result_object_id = task.id
         notification.status = NOTIFICATION_STATUS_ACCEPTED

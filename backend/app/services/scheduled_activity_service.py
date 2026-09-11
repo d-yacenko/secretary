@@ -30,7 +30,6 @@ from app.domain.scheduled_activity import (
 )
 from app.jobs.constants import (
     JOB_STATUS_PENDING,
-    JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
 )
 from app.notifications.constants import NOTIFICATION_PRIORITIES
@@ -38,6 +37,7 @@ from app.services.errors import ValidationError
 from app.services.graph_service import GraphService
 from app.services.job_queue_service import JobQueueService
 from app.services.notification_service import NotificationService
+from app.services.pipeline_enqueue import enqueue_embed_object
 from app.services.provenance import AGENT_ORIGIN
 from app.tools.schemas import ToolError
 
@@ -112,11 +112,7 @@ class ScheduledActivityService:
             run_after=run_at,
         )
         if enqueue_embedding:
-            self._jobs.enqueue(
-                JOB_TYPE_EMBED_OBJECT,
-                {"object_id": str(obj.id)},
-                user_id=self._user_id,
-            )
+            enqueue_embed_object(self._session, obj.id, self._user_id)
         return obj
 
     def create_recurring(
@@ -168,11 +164,7 @@ class ScheduledActivityService:
             run_after=run_at,
         )
         if enqueue_embedding:
-            self._jobs.enqueue(
-                JOB_TYPE_EMBED_OBJECT,
-                {"object_id": str(obj.id)},
-                user_id=self._user_id,
-            )
+            enqueue_embed_object(self._session, obj.id, self._user_id)
         return obj
 
     def cancel(self, activity_id: UUID) -> tuple[Object, bool]:

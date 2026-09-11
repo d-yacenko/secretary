@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.db.models import Job, Object, Representation, User
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_SUMMARIZE_RESOURCE
 from app.llm.embedding_service import FakeEmbeddingService
+from app.llm.embedding_text import embed_job_payload
 from app.main import app
 from app.resources.constants import (
     CONTENT_INGESTED_REVISION_KEY,
@@ -763,7 +764,7 @@ def test_register_long_text_chunks_embedded_by_worker_and_ranked_in_context(
         handle_embed_object(
             db_session,
             stub,
-            {"object_id": str(result.object_id)},
+            embed_job_payload(db_session.get(Object, result.object_id)),
             BOOTSTRAP_USER_ID,
         )
     db_session.expire_all()
@@ -819,17 +820,16 @@ def test_worker_rejects_embedding_other_user_chunk_representations(
         lambda: db_session,
     ):
         load_unembedded_chunk_targets(result.object_id, user_b_id)
-    with (
-        pytest.raises(ValueError, match="ownership mismatch"),
-        patch("app.jobs.handlers.SessionLocal", lambda: db_session),
-        patch.object(db_session, "close", lambda: None),
-    ):
-        handle_embed_object(
-            db_session,
-            FakeEmbeddingService(),
-            {"object_id": str(result.object_id)},
-            user_b_id,
-        )
+    obj_before = db_session.get(Object, result.object_id)
+    embedding_before = obj_before.embedding
+    handle_embed_object(
+        db_session,
+        FakeEmbeddingService(),
+        {"object_id": str(result.object_id)},
+        user_b_id,
+    )
+    obj_after = db_session.get(Object, result.object_id)
+    assert obj_after.embedding == embedding_before
 
 
 def test_metadata_only_upload_persisted_for_later_ingest(
@@ -1040,7 +1040,7 @@ def test_worker_chunk_embedding_calls_are_bounded(
         handle_embed_object(
             db_session,
             stub,
-            {"object_id": str(result.object_id)},
+            embed_job_payload(db_session.get(Object, result.object_id)),
             BOOTSTRAP_USER_ID,
         )
 

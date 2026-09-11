@@ -20,7 +20,6 @@ from app.domain.task_lifecycle import (
     TASK_STATUS_OPEN,
     canonical_task_status_for_model,
 )
-from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
 from app.llm.embedding_service import EmbeddingService
 from app.services.context_service import ContextService
 from app.services.domain_write_mode import DomainWriteMode
@@ -211,11 +210,9 @@ class DomainToolService:
     def _enqueue_object_embedding(self, object_id: UUID) -> None:
         if self._job_queue is None:
             return
-        self._job_queue.enqueue(
-            JOB_TYPE_EMBED_OBJECT,
-            {"object_id": str(object_id)},
-            user_id=self._user_id,
-        )
+        from app.services.pipeline_enqueue import enqueue_embed_object
+
+        enqueue_embed_object(self._session, object_id, self._user_id)
 
     def list_notifications(self, input: ListNotificationsInput) -> ListNotificationsOutput:
         try:

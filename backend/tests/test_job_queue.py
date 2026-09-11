@@ -52,6 +52,24 @@ def _get_job(job_id: uuid.UUID) -> Job | None:
     return job
 
 
+def _persist_signed_embed(obj_id: uuid.UUID) -> uuid.UUID:
+    from app.llm.embedding_text import embed_job_payload
+
+    conn = engine.connect()
+    trans = conn.begin()
+    session = Session(bind=conn)
+    obj = session.get(Object, obj_id)
+    assert obj is not None
+    job_id = JobQueueService(session).enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        embed_job_payload(obj),
+        BOOTSTRAP_USER_ID,
+    ).id
+    trans.commit()
+    conn.close()
+    return job_id
+
+
 def _persist_object() -> uuid.UUID:
     conn = engine.connect()
     trans = conn.begin()
@@ -205,7 +223,7 @@ def test_unknown_job_type_fails_cleanly(fake_embedding_service) -> None:
 def test_worker_continues_after_one_failed_job(fake_embedding_service) -> None:
     bad_id = _persist_enqueue("sync_connector", {"connector": "mail"})
     obj_id = _persist_object()
-    good_id = _persist_enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(obj_id)})
+    good_id = _persist_signed_embed(obj_id)
     try:
         assert process_one_job(fake_embedding_service)
         stored_bad = _get_job(bad_id)
@@ -224,7 +242,7 @@ def test_worker_continues_after_one_failed_job(fake_embedding_service) -> None:
 
 def test_embed_object_job_refreshes_embedding(fake_embedding_service) -> None:
     obj_id = _persist_object()
-    job_id = _persist_enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(obj_id)})
+    job_id = _persist_signed_embed(obj_id)
     try:
         assert process_one_job(fake_embedding_service)
         conn = engine.connect()
@@ -293,7 +311,7 @@ class FailingEmbeddingService:
 
 def test_embedding_failure_schedules_retry_not_done() -> None:
     obj_id = _persist_object()
-    job_id = _persist_enqueue(JOB_TYPE_EMBED_OBJECT, {"object_id": str(obj_id)})
+    job_id = _persist_signed_embed(obj_id)
     before = utcnow()
     try:
         assert process_one_job(FailingEmbeddingService())

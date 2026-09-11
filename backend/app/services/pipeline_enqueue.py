@@ -16,6 +16,7 @@ from app.jobs.constants import (
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
     JOB_TYPE_SUMMARIZE_RESOURCE,
 )
+from app.llm.embedding_text import embed_job_payload, embedding_input_signature
 from app.services.correlation_constants import CORRELATION_TRIGGER_KINDS
 from app.services.correlation_input import correlation_input_signature
 from app.services.job_queue_service import JobQueueService
@@ -140,12 +141,20 @@ def enqueue_correlate_object(
 
 
 def enqueue_embed_object(session: Session, object_id: UUID, user_id: UUID) -> None:
-    if _has_pending_job(session, user_id, JOB_TYPE_EMBED_OBJECT, object_id, {}):
+    from app.db.models import Object
+
+    obj = session.scalar(
+        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    )
+    if obj is None:
         return
-    payload: dict = {"object_id": str(object_id)}
-    parent_trace_id = _active_parent_trace_id()
-    if parent_trace_id is not None:
-        payload["parent_trace_id"] = parent_trace_id
+    signature = embedding_input_signature(obj)
+    if _has_embedding_signature_job(session, user_id, object_id, signature):
+        if has_done_embedding_proof(session, user_id, object_id, signature) and obj.embedding is not None:
+            enqueue_correlate_object(session, object_id, user_id, obj.kind)
+            enqueue_auto_label_object(session, object_id, user_id)
+        return
+    payload = embed_job_payload(obj, parent_trace_id=_active_parent_trace_id())
     JobQueueService(session).enqueue(
         JOB_TYPE_EMBED_OBJECT,
         payload,
@@ -165,7 +174,7 @@ def enqueue_auto_label_object(
     enqueue(session, object_id, user_id, parent_trace_id=parent_trace_id)
 
 
-def _has_correlation_signature_job(
+def has_done_embedding_proof(
     session: Session,
     user_id: UUID,
     object_id: UUID,
@@ -175,10 +184,64 @@ def _has_correlation_signature_job(
         select(Job.id)
         .where(
             Job.user_id == user_id,
-            Job.type == JOB_TYPE_CORRELATE_OBJECT,
+            Job.type == JOB_TYPE_EMBED_OBJECT,
+            Job.status == JOB_STATUS_DONE,
+            Job.payload["object_id"].as_string() == str(object_id),
+            Job.payload["embedding_input_signature"].as_string() == signature,
+        )
+        .limit(1)
+    )
+    return existing_id is not None
+
+
+def _has_correlation_signature_job(
+    session: Session,
+    user_id: UUID,
+    object_id: UUID,
+    signature: str,
+) -> bool:
+    return _has_signature_job(
+        session,
+        user_id,
+        JOB_TYPE_CORRELATE_OBJECT,
+        object_id,
+        "correlation_input_signature",
+        signature,
+    )
+
+
+def _has_embedding_signature_job(
+    session: Session,
+    user_id: UUID,
+    object_id: UUID,
+    signature: str,
+) -> bool:
+    return _has_signature_job(
+        session,
+        user_id,
+        JOB_TYPE_EMBED_OBJECT,
+        object_id,
+        "embedding_input_signature",
+        signature,
+    )
+
+
+def _has_signature_job(
+    session: Session,
+    user_id: UUID,
+    job_type: str,
+    object_id: UUID,
+    signature_key: str,
+    signature: str,
+) -> bool:
+    existing_id = session.scalar(
+        select(Job.id)
+        .where(
+            Job.user_id == user_id,
+            Job.type == job_type,
             Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_DONE)),
             Job.payload["object_id"].as_string() == str(object_id),
-            Job.payload["correlation_input_signature"].as_string() == signature,
+            Job.payload[signature_key].as_string() == signature,
         )
         .limit(1)
     )

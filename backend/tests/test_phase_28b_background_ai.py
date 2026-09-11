@@ -19,7 +19,7 @@ from app.jobs.constants import (
 from app.jobs.handlers import HANDLERS, handle_embed_object, handle_summarize_resource
 from app.jobs.worker import process_one_job
 from app.llm.embedding_service import FakeEmbeddingService
-from app.llm.embedding_text import EMBEDDING_DIMENSION
+from app.llm.embedding_text import EMBEDDING_DIMENSION, embed_job_payload
 from app.services.background_ai_errors import BackgroundAIConfigurationError
 from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.graph_service import GraphService
@@ -154,9 +154,11 @@ def test_embed_job_uses_user_a_personal_key(
         "app.llm.embedding_service.OpenAIEmbeddingService",
         _TrackingEmbeddingService,
     ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal", lambda: db_session
+    ), patch(
         "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
     ), patch.object(db_session, "close", lambda: None):
-        handle_embed_object(db_session, None, {"object_id": str(obj.id)}, BOOTSTRAP_USER_ID)
+        handle_embed_object(db_session, None, embed_job_payload(obj), BOOTSTRAP_USER_ID)
 
     assert _TRACKING_INIT_API_KEYS == [USER_A_KEY]
 
@@ -176,10 +178,12 @@ def test_embed_job_uses_user_b_personal_key_not_user_a(
         "app.llm.embedding_service.OpenAIEmbeddingService",
         _TrackingEmbeddingService,
     ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal", lambda: db_session
+    ), patch(
         "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
     ), patch.object(db_session, "close", lambda: None):
-        handle_embed_object(db_session, None, {"object_id": str(obj_a.id)}, BOOTSTRAP_USER_ID)
-        handle_embed_object(db_session, None, {"object_id": str(obj_b.id)}, user_b)
+        handle_embed_object(db_session, None, embed_job_payload(obj_a), BOOTSTRAP_USER_ID)
+        handle_embed_object(db_session, None, embed_job_payload(obj_b), user_b)
 
     assert _TRACKING_INIT_API_KEYS == [USER_A_KEY, USER_B_KEY]
 
@@ -198,9 +202,11 @@ def test_embed_job_runs_when_assistant_openai_deployment_config_invalid(
         "app.llm.embedding_service.OpenAIEmbeddingService",
         _TrackingEmbeddingService,
     ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal", lambda: db_session
+    ), patch(
         "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
     ), patch.object(db_session, "close", lambda: None):
-        handle_embed_object(db_session, None, {"object_id": str(obj.id)}, BOOTSTRAP_USER_ID)
+        handle_embed_object(db_session, None, embed_job_payload(obj), BOOTSTRAP_USER_ID)
 
     assert _TRACKING_INIT_API_KEYS == [DEPLOY_KEY]
     with pytest.raises(AssistantOpenAIConfigError):
@@ -219,9 +225,11 @@ def test_embed_job_deployment_fallback_without_personal_key(
         "app.llm.embedding_service.OpenAIEmbeddingService",
         _TrackingEmbeddingService,
     ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal", lambda: db_session
+    ), patch(
         "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
     ), patch.object(db_session, "close", lambda: None):
-        handle_embed_object(db_session, None, {"object_id": str(obj.id)}, BOOTSTRAP_USER_ID)
+        handle_embed_object(db_session, None, embed_job_payload(obj), BOOTSTRAP_USER_ID)
 
     assert _TRACKING_INIT_API_KEYS == [DEPLOY_KEY]
 
@@ -240,7 +248,7 @@ def test_embed_job_fake_service_without_personal_or_deployment_key(
         "app.jobs.handlers.create_embedding_service_for_api_key",
         wraps=lambda api_key: FakeEmbeddingService(),
     ) as factory_mock:
-        handle_embed_object(db_session, None, {"object_id": str(obj.id)}, BOOTSTRAP_USER_ID)
+        handle_embed_object(db_session, None, embed_job_payload(obj), BOOTSTRAP_USER_ID)
         factory_mock.assert_called_once()
 
     db_session.refresh(obj)
@@ -263,7 +271,7 @@ def test_embed_job_broken_personal_credential_no_fake_fallback(
         "app.llm.embedding_service.FakeEmbeddingService"
     ) as fake_cls:
         with pytest.raises(UserOpenAICredentialConfigurationError):
-            handle_embed_object(db_session, None, {"object_id": str(obj.id)}, BOOTSTRAP_USER_ID)
+            handle_embed_object(db_session, None, embed_job_payload(obj), BOOTSTRAP_USER_ID)
         fake_cls.assert_not_called()
 
 
@@ -283,9 +291,11 @@ def test_embed_job_reuses_one_service_across_object_and_chunks(
         "app.llm.embedding_service.OpenAIEmbeddingService",
         _TrackingEmbeddingService,
     ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal", lambda: db_session
+    ), patch(
         "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
     ), patch.object(db_session, "close", lambda: None):
-        handle_embed_object(db_session, None, {"object_id": str(obj.id)}, BOOTSTRAP_USER_ID)
+        handle_embed_object(db_session, None, embed_job_payload(obj), BOOTSTRAP_USER_ID)
 
     assert len(_TRACKING_INSTANCES) == 1
     assert _TRACKING_INSTANCES[0].embed_calls >= 2
@@ -408,7 +418,9 @@ def test_summarize_user_a_and_b_use_separate_providers(
     with patch(
         "app.llm.openai_summarizer.OpenAISummarizer",
         _CapturingSummarizer,
-    ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+    ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal", lambda: db_session
+    ), patch.object(
         db_session, "close", lambda: None
     ):
         handle_summarize_resource(
@@ -662,6 +674,38 @@ def _persist_job(job_type: str, payload: dict, user_id: UUID) -> UUID:
     return job_id
 
 
+def _persist_object() -> UUID:
+    from sqlalchemy.orm import Session as OrmSession
+
+    conn = engine.connect()
+    trans = conn.begin()
+    session = OrmSession(bind=conn)
+    obj = GraphService(session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).create_object(
+        ObjectCreate(
+            kind="document",
+            title=f"Credential job object {uuid.uuid4()}",
+            origin="user",
+        )
+    )
+    obj_id = obj.id
+    trans.commit()
+    conn.close()
+    return obj_id
+
+
+def _delete_object(object_id: UUID) -> None:
+    from sqlalchemy.orm import Session as OrmSession
+
+    conn = engine.connect()
+    trans = conn.begin()
+    session = OrmSession(bind=conn)
+    obj = session.get(Object, object_id)
+    if obj is not None:
+        session.delete(obj)
+    trans.commit()
+    conn.close()
+
+
 def _delete_job(job_id: UUID) -> None:
     from sqlalchemy.orm import Session as OrmSession
 
@@ -724,15 +768,18 @@ def test_credential_failure_sanitized_job_error_and_non_retryable(
     monkeypatch.setattr(settings, "openai_api_key", DEPLOY_KEY)
 
     _clear_pending_jobs()
-    job_id = _persist_job(
-        JOB_TYPE_EMBED_OBJECT,
-        {"object_id": str(uuid.uuid4())},
-        BOOTSTRAP_USER_ID,
-    )
+    obj_id = _persist_object()
+    from sqlalchemy.orm import Session as OrmSession
+
+    conn = engine.connect()
+    session = OrmSession(bind=conn)
+    obj = session.get(Object, obj_id)
+    assert obj is not None
+    payload = embed_job_payload(obj)
+    conn.close()
+    job_id = _persist_job(JOB_TYPE_EMBED_OBJECT, payload, BOOTSTRAP_USER_ID)
 
     assert process_one_job()
-
-    from sqlalchemy.orm import Session as OrmSession
 
     conn = engine.connect()
     session = OrmSession(bind=conn)
@@ -746,6 +793,7 @@ def test_credential_failure_sanitized_job_error_and_non_retryable(
     assert LEAK_MARKER not in str(stored.payload)
     assert is_job_error_retryable(UserOpenAICredentialConfigurationError("x")) is False
     _delete_job(job_id)
+    _delete_object(obj_id)
     _delete_user_credential(BOOTSTRAP_USER_ID)
 
 
