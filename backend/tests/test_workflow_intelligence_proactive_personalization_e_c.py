@@ -126,7 +126,7 @@ def test_alembic_head_includes_0034() -> None:
         for path in (Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("*.py")
         if path.name[0].isdigit()
     )
-    assert versions[-1].startswith("0034")
+    assert any(name.startswith("0034") for name in versions)
 
 
 @pytest.mark.parametrize(

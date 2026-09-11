@@ -15,6 +15,8 @@ JOB_TYPE_SUMMARIZE_RESOURCE = "summarize_resource"
 JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT = "extract_explicit_resource_content"
 JOB_TYPE_CORRELATE_OBJECT = "correlate_object"
 JOB_TYPE_AUTO_LABEL_OBJECT = "auto_label_object"
+JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL = "extract_temporal_signal"
+JOB_TYPE_RECONCILE_TEMPORAL_HINTS = "reconcile_temporal_hints"
 
 JOB_TYPE_SYNC_GOOGLE_GMAIL = "sync_google_gmail"
 JOB_TYPE_SYNC_GOOGLE_CALENDAR = "sync_google_calendar"
