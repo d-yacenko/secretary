@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_secretary/today/week_item_type.dart';
 import 'package:personal_secretary/today/week_overlap.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
 
@@ -94,14 +95,14 @@ void main() {
 
   test('inset and width factors match the dense cascade', () {
     expect(weekOverlapLeftInset(0), 0.00);
-    expect(weekOverlapLeftInset(1), 0.10);
-    expect(weekOverlapLeftInset(2), 0.16);
-    expect(weekOverlapLeftInset(3), 0.21);
-    expect(weekOverlapLeftInset(8), 0.21);
+    expect(weekOverlapLeftInset(1), 0.07);
+    expect(weekOverlapLeftInset(2), 0.11);
+    expect(weekOverlapLeftInset(3), 0.15);
+    expect(weekOverlapLeftInset(8), 0.15);
     expect(weekOverlapWidthFactor(0), 1.00);
-    expect(weekOverlapWidthFactor(1), 0.90);
-    expect(weekOverlapWidthFactor(2), 0.84);
-    expect(weekOverlapWidthFactor(3), 0.79);
+    expect(weekOverlapWidthFactor(1), closeTo(0.93, 0.001));
+    expect(weekOverlapWidthFactor(2), closeTo(0.89, 0.001));
+    expect(weekOverlapWidthFactor(3), closeTo(0.85, 0.001));
   });
 
   test('depth tones are distinguishable and theme-aware', () {
@@ -152,5 +153,16 @@ void main() {
     expect(wide.height, kWeekWideEventTitleHeight);
     expect(phone.fontSize, 11);
     expect(phone.fontSize, greaterThan(wide.fontSize!));
+  });
+
+  test('calendar commitment maps to outlined calendar icon', () {
+    expect(
+      weekTemporalItemTypeIcon(WeekTemporalItemType.calendarCommitment),
+      Icons.calendar_today_outlined,
+    );
+    expect(
+      weekTemporalItemTypeSemantics(WeekTemporalItemType.calendarCommitment),
+      'Календарное событие',
+    );
   });
 }

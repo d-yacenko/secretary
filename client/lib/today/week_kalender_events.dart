@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:kalender/kalender.dart';
 
 import '../api/api_models.dart';
+import 'week_item_type.dart';
 
 /// Calendar event bound to a Secretary Object.id.
 class SecretaryWeekEvent extends CalendarEvent {
@@ -10,14 +11,13 @@ class SecretaryWeekEvent extends CalendarEvent {
     required super.dateTimeRange,
     required this.title,
     this.provider,
+    this.itemType = WeekTemporalItemType.calendarCommitment,
     super.isAllDay = false,
-  }) : super(
-          id: objectId,
-          interaction: EventInteraction.allowNone(),
-        );
+  }) : super(id: objectId, interaction: EventInteraction.allowNone());
 
   final String title;
   final String? provider;
+  final WeekTemporalItemType itemType;
 
   String get objectId => id;
 
@@ -28,6 +28,7 @@ class SecretaryWeekEvent extends CalendarEvent {
       dateTimeRange: dateTimeRange,
       title: title,
       provider: provider,
+      itemType: itemType,
       isAllDay: isAllDay,
     );
   }
@@ -37,11 +38,12 @@ class SecretaryWeekEvent extends CalendarEvent {
     return super == other &&
         other is SecretaryWeekEvent &&
         other.title == title &&
-        other.provider == provider;
+        other.provider == provider &&
+        other.itemType == itemType;
   }
 
   @override
-  int get hashCode => Object.hash(super.hashCode, title, provider);
+  int get hashCode => Object.hash(super.hashCode, title, provider, itemType);
 }
 
 /// Unique events from a Week projection, using original start/end instants.
@@ -75,6 +77,7 @@ List<SecretaryWeekEvent> weekOutToKalenderEvents(WeekOut week) {
         dateTimeRange: DateTimeRange(start: start, end: end),
         title: event.object.title,
         provider: event.object.provider,
+        itemType: WeekTemporalItemType.calendarCommitment,
         isAllDay: allDay[entry.key] ?? false,
       ),
     );

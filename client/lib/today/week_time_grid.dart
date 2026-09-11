@@ -8,8 +8,10 @@ import '../ui/object_bookmark.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/object_presentation.dart';
 import 'week_kalender_events.dart';
+import 'week_item_type.dart';
 import 'week_overlap.dart';
 import 'week_overlap_layout.dart';
+import 'week_today_column.dart';
 
 final _readOnlyInteraction = CalendarInteraction(
   allowResizing: false,
@@ -164,6 +166,17 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                     todayDate: widget.week.todayDate,
                   ),
                 ),
+                bodyComponents: MultiDayBodyComponents(
+                  hourLines: compact
+                      ? null
+                      : (context, heightPerMinute, timeOfDayRange) {
+                          return WeekTodayColumnHourLines(
+                            todayIndex: weekTodayColumnIndex(widget.week),
+                            heightPerMinute: heightPerMinute,
+                            timeOfDayRange: timeOfDayRange,
+                          );
+                        },
+                ),
               ),
             ),
             header: CalendarHeader(
@@ -215,6 +228,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       bookmarkColor: widget.bookmarks.colorFor(event.id),
       depth: depth,
       compact: compact,
+      itemType: secretary?.itemType ?? WeekTemporalItemType.calendarCommitment,
     );
   }
 }
@@ -258,6 +272,7 @@ class WeekKalenderEventTile extends StatelessWidget {
     this.bookmarkColor,
     this.depth = 0,
     this.compact = false,
+    this.itemType = WeekTemporalItemType.calendarCommitment,
   });
 
   final String objectId;
@@ -267,18 +282,14 @@ class WeekKalenderEventTile extends StatelessWidget {
   final String? bookmarkColor;
   final int depth;
   final bool compact;
+  final WeekTemporalItemType itemType;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
     final denseTitle = !compact && !allDay;
-    final glyph = compactProviderGlyphWidget(
-      provider,
-      size: denseTitle
-          ? kWeekWideProviderGlyphSize
-          : kWeekPhoneProviderGlyphSize,
-    );
+    final typeColor = scheme.onSurfaceVariant.withValues(alpha: 0.72);
     final tokenColor = bookmarkColor == null
         ? null
         : bookmarkTokenColor(bookmarkColor!, scheme);
@@ -298,7 +309,14 @@ class WeekKalenderEventTile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
             child: Row(
               children: [
-                if (glyph != null) ...[glyph, const SizedBox(width: 4)],
+                _WeekEventIdentityRail(
+                  objectId: objectId,
+                  provider: provider,
+                  itemType: itemType,
+                  compact: !denseTitle,
+                  typeColor: typeColor,
+                ),
+                const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     title,
@@ -349,6 +367,49 @@ class WeekKalenderEventTile extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _WeekEventIdentityRail extends StatelessWidget {
+  const _WeekEventIdentityRail({
+    required this.objectId,
+    required this.provider,
+    required this.itemType,
+    required this.compact,
+    required this.typeColor,
+  });
+
+  final String objectId;
+  final String? provider;
+  final WeekTemporalItemType itemType;
+  final bool compact;
+  final Color typeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final providerSize = compact
+        ? kWeekPhoneProviderGlyphSize
+        : kWeekWideProviderGlyphSize;
+    final typeSize = compact ? kWeekPhoneTypeGlyphSize : kWeekWideTypeGlyphSize;
+    final glyph = compactProviderGlyphWidget(provider, size: providerSize);
+    return IgnorePointer(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.topCenter,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (glyph != null) glyph,
+            WeekTemporalItemTypeGlyph(
+              objectId: objectId,
+              itemType: itemType,
+              size: typeSize,
+              color: typeColor,
+            ),
+          ],
+        ),
       ),
     );
   }
