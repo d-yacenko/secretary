@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.ai_audit.context import get_active_trace
 from app.db.models import Job
 from app.jobs.constants import (
+    JOB_STATUS_DONE,
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_CORRELATE_OBJECT,
@@ -16,6 +17,7 @@ from app.jobs.constants import (
     JOB_TYPE_SUMMARIZE_RESOURCE,
 )
 from app.services.correlation_constants import CORRELATION_TRIGGER_KINDS
+from app.services.correlation_input import correlation_input_signature
 from app.services.job_queue_service import JobQueueService
 
 
@@ -113,9 +115,20 @@ def enqueue_correlate_object(
 ) -> None:
     if object_kind not in CORRELATION_TRIGGER_KINDS:
         return
-    if _has_pending_job(session, user_id, JOB_TYPE_CORRELATE_OBJECT, object_id, {}):
+    from app.db.models import Object
+
+    obj = session.scalar(
+        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    )
+    if obj is None:
         return
-    payload: dict = {"object_id": str(object_id)}
+    signature = correlation_input_signature(obj)
+    if _has_correlation_signature_job(session, user_id, object_id, signature):
+        return
+    payload: dict = {
+        "object_id": str(object_id),
+        "correlation_input_signature": signature,
+    }
     parent_trace_id = _active_parent_trace_id()
     if parent_trace_id is not None:
         payload["parent_trace_id"] = parent_trace_id
@@ -150,6 +163,26 @@ def enqueue_auto_label_object(
     from app.services.auto_label_service import enqueue_auto_label_object as enqueue
 
     enqueue(session, object_id, user_id, parent_trace_id=parent_trace_id)
+
+
+def _has_correlation_signature_job(
+    session: Session,
+    user_id: UUID,
+    object_id: UUID,
+    signature: str,
+) -> bool:
+    existing_id = session.scalar(
+        select(Job.id)
+        .where(
+            Job.user_id == user_id,
+            Job.type == JOB_TYPE_CORRELATE_OBJECT,
+            Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_DONE)),
+            Job.payload["object_id"].as_string() == str(object_id),
+            Job.payload["correlation_input_signature"].as_string() == signature,
+        )
+        .limit(1)
+    )
+    return existing_id is not None
 
 
 def _has_pending_job(

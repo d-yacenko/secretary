@@ -8,7 +8,13 @@ from uuid import UUID
 
 from app.ai_audit.instrumentation import record_simple_model_call
 from app.services.background_ai_errors import BackgroundAIConfigurationError
-from app.services.correlation_constants import CORRELATION_ALLOWED_TYPES
+from app.services.correlation_constants import (
+    CORRELATION_ALLOWED_TYPES,
+    CORRELATION_BACKGROUND_REASONING_EFFORT,
+    CORRELATION_BACKGROUND_VERBOSITY,
+    CORRELATION_MAX_PROPOSED_EDGES,
+    CORRELATION_MIN_CONFIDENCE,
+)
 from app.services.correlation_models import (
     CorrelationCandidate,
     CorrelationDecision,
@@ -17,6 +23,20 @@ from app.services.correlation_models import (
 from app.services.effective_user_settings_service import EffectiveUserSettings
 
 logger = logging.getLogger(__name__)
+
+JUDGE_INSTRUCTIONS = (
+    "You judge whether candidate objects correlate with a trigger object. "
+    "Return JSON only: {\"decisions\":[{\"target_object_id\":\"...\","
+    "\"relation_type\":\"related_to|references\",\"confidence\":0.0-1.0,"
+    "\"rationale\":\"short Russian explanation\"}]}. "
+    "Only use candidate object_ids from the supplied list. "
+    "Allowed relation types: related_to, references. "
+    f"Propose at most {CORRELATION_MAX_PROPOSED_EDGES} strongest decisions. "
+    f"Do not emit a decision with confidence below {CORRELATION_MIN_CONFIDENCE:.2f}. "
+    "Do not propose a candidate that already has existing_relation. "
+    "Do not propose the trigger object. "
+    "Rationale must be one short user-auditable sentence in Russian, no chain-of-thought."
+)
 
 
 class CorrelationJudge(Protocol):
@@ -39,6 +59,7 @@ class FakeCorrelationJudge:
     ) -> None:
         self._decisions = decisions or []
         self._invented_uuid = invented_uuid
+        self.calls = 0
 
     def judge(
         self,
@@ -47,6 +68,7 @@ class FakeCorrelationJudge:
         trigger_summary: str,
         candidates: list[CorrelationCandidate],
     ) -> CorrelationJudgeResult:
+        self.calls += 1
         allowed_ids = {candidate.object_id for candidate in candidates}
         filtered: list[CorrelationDecision] = []
         for decision in self._decisions:
@@ -106,15 +128,7 @@ class OpenAICorrelationJudge:
             }
             for candidate in candidates
         ]
-        instructions = (
-            "You judge whether candidate objects correlate with a trigger object. "
-            "Return JSON only: {\"decisions\":[{\"target_object_id\":\"...\","
-            "\"relation_type\":\"related_to|references\",\"confidence\":0.0-1.0,"
-            "\"rationale\":\"short Russian explanation\"}]}. "
-            "Only use candidate object_ids from the supplied list. "
-            "Allowed relation types: related_to, references. "
-            "Rationale must be a short user-auditable sentence in Russian, no chain-of-thought."
-        )
+        instructions = JUDGE_INSTRUCTIONS
         user_content = json.dumps(
             {
                 "trigger": {
@@ -226,6 +240,8 @@ def _parse_judge_response(text: str, allowed_ids: set[str]) -> CorrelationJudgeR
         except (TypeError, ValueError):
             continue
         rationale = str(row.get("rationale", "")).strip()
+        if confidence < CORRELATION_MIN_CONFIDENCE:
+            continue
         decisions.append(
             CorrelationDecision(
                 target_object_id=UUID(target_id),
@@ -234,7 +250,8 @@ def _parse_judge_response(text: str, allowed_ids: set[str]) -> CorrelationJudgeR
                 rationale=rationale[:500],
             )
         )
-    return CorrelationJudgeResult(decisions=tuple(decisions))
+    decisions.sort(key=lambda item: (-item.confidence, str(item.target_object_id)))
+    return CorrelationJudgeResult(decisions=tuple(decisions[:CORRELATION_MAX_PROPOSED_EDGES]))
 
 
 def create_correlation_judge() -> CorrelationJudge:
@@ -245,8 +262,8 @@ def create_correlation_judge() -> CorrelationJudge:
     return OpenAICorrelationJudge(
         api_key=settings.openai_api_key,
         model=settings.openai_assistant_model,
-        reasoning_effort=settings.openai_assistant_reasoning_effort,
-        verbosity=settings.openai_assistant_verbosity,
+        reasoning_effort=CORRELATION_BACKGROUND_REASONING_EFFORT,
+        verbosity=CORRELATION_BACKGROUND_VERBOSITY,
     )
 
 
@@ -258,6 +275,6 @@ def create_correlation_judge_from_effective(
     return OpenAICorrelationJudge(
         api_key=effective.openai_api_key,
         model=effective.assistant_model,
-        reasoning_effort=effective.assistant_reasoning_effort,
-        verbosity=effective.assistant_verbosity,
+        reasoning_effort=CORRELATION_BACKGROUND_REASONING_EFFORT,
+        verbosity=CORRELATION_BACKGROUND_VERBOSITY,
     )

@@ -560,24 +560,31 @@ def test_correlate_uses_user_key_and_effective_settings(
     row.assistant_verbosity = "high"
     db_session.flush()
     obj = _create_object(db_session, BOOTSTRAP_USER_ID)
+    from app.services.correlation_input import correlation_input_signature
 
     with patch(
         "app.llm.correlation_judge.OpenAICorrelationJudge",
         _CapturingJudge,
-    ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+    ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal",
+        lambda: db_session,
+    ), patch.object(
         db_session, "close", lambda: None
     ):
         handle_correlate_object(
             db_session,
             None,
-            {"object_id": str(obj.id)},
+            {
+                "object_id": str(obj.id),
+                "correlation_input_signature": correlation_input_signature(obj),
+            },
             BOOTSTRAP_USER_ID,
         )
 
     assert _JUDGE_CAPTURED[0]["api_key"] == USER_A_KEY
     assert _JUDGE_CAPTURED[0]["model"] == "gpt-corr-a"
-    assert _JUDGE_CAPTURED[0]["reasoning_effort"] == "medium"
-    assert _JUDGE_CAPTURED[0]["verbosity"] == "high"
+    assert _JUDGE_CAPTURED[0]["reasoning_effort"] == "low"
+    assert _JUDGE_CAPTURED[0]["verbosity"] == "low"
 
 
 def test_correlate_user_a_and_b_use_separate_judges(
@@ -605,23 +612,33 @@ def test_correlate_user_a_and_b_use_separate_judges(
     db_session.flush()
     obj_a = _create_object(db_session, BOOTSTRAP_USER_ID)
     obj_b = _create_object(db_session, user_b)
+    from app.services.correlation_input import correlation_input_signature
 
     with patch(
         "app.llm.correlation_judge.OpenAICorrelationJudge",
         _CapturingJudge,
-    ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch.object(
+    ), patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.ai_audit.context.SessionLocal",
+        lambda: db_session,
+    ), patch.object(
         db_session, "close", lambda: None
     ):
         handle_correlate_object(
             db_session,
             None,
-            {"object_id": str(obj_a.id)},
+            {
+                "object_id": str(obj_a.id),
+                "correlation_input_signature": correlation_input_signature(obj_a),
+            },
             BOOTSTRAP_USER_ID,
         )
         handle_correlate_object(
             db_session,
             None,
-            {"object_id": str(obj_b.id)},
+            {
+                "object_id": str(obj_b.id),
+                "correlation_input_signature": correlation_input_signature(obj_b),
+            },
             user_b,
         )
 

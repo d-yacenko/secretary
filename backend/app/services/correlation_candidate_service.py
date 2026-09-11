@@ -1,7 +1,6 @@
 """Bounded correlation candidate generation."""
 
 from datetime import UTC, datetime, timedelta
-from email.utils import getaddresses, parseaddr
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -17,6 +16,7 @@ from app.services.correlation_constants import (
     MAX_MAIL_PEER_LOOKUP_ROWS,
     SEMANTIC_SUMMARY_METADATA_KEY,
 )
+from app.services.correlation_input import extract_correlation_participants
 from app.services.correlation_models import CorrelationCandidate
 from app.services.errors import NotFoundError
 from app.services.representation_service import KIND_SUMMARY, RepresentationService
@@ -50,17 +50,6 @@ def _content_summary(obj: Object, summary_rep: str | None) -> str:
     if obj.body:
         return obj.body[:500]
     return obj.title[:500]
-
-
-def _normalize_email_address(value: str) -> str | None:
-    text = value.strip()
-    if not text:
-        return None
-    _, addr = parseaddr(text)
-    candidate = addr.strip() if addr else text
-    if "@" not in candidate:
-        return None
-    return candidate.lower()
 
 
 class CorrelationCandidateService:
@@ -183,7 +172,7 @@ class CorrelationCandidateService:
         return results
 
     def _participant_time_candidates(self, trigger: Object) -> list[CorrelationCandidate]:
-        participants = self._extract_participants(trigger)
+        participants = extract_correlation_participants(trigger)
         anchor_time = trigger.occurred_at or trigger.start_at or trigger.due_at
         if not participants and anchor_time is None:
             return []
@@ -202,7 +191,9 @@ class CorrelationCandidateService:
             if not self._is_eligible_target(obj):
                 continue
             reasons: list[str] = []
-            if participants and self._participants_overlap(participants, self._extract_participants(obj)):
+            if participants and self._participants_overlap(
+                participants, extract_correlation_participants(obj)
+            ):
                 reasons.append("shared_participant")
             if anchor_time is not None and self._time_close(anchor_time, obj):
                 reasons.append("time_proximity")
@@ -274,30 +265,6 @@ class CorrelationCandidateService:
         if edge is None:
             return None
         return f"{edge.type}:{edge.state}"
-
-    def _extract_participants(self, obj: Object) -> set[str]:
-        meta = obj.metadata_ or {}
-        emails: set[str] = set()
-        for key in ("sender", "from"):
-            value = meta.get(key)
-            if isinstance(value, str):
-                normalized = _normalize_email_address(value)
-                if normalized:
-                    emails.add(normalized)
-        for key in ("recipients", "to", "cc"):
-            value = meta.get(key)
-            if isinstance(value, list):
-                for item in value:
-                    if isinstance(item, str):
-                        normalized = _normalize_email_address(item)
-                        if normalized:
-                            emails.add(normalized)
-            elif isinstance(value, str):
-                for _, addr in getaddresses([value]):
-                    normalized = _normalize_email_address(addr or value)
-                    if normalized:
-                        emails.add(normalized)
-        return emails
 
     def _participants_overlap(self, left: set[str], right: set[str]) -> bool:
         if not left or not right:

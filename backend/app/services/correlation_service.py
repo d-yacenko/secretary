@@ -17,8 +17,8 @@ from app.services.correlation_constants import (
     CORRELATION_MIN_CONFIDENCE,
     CORRELATION_TRIGGER_KINDS,
     CORRELATION_VERSION,
-    SEMANTIC_SUMMARY_METADATA_KEY,
 )
+from app.services.correlation_input import effective_trigger_summary
 from app.services.correlation_models import CorrelationCandidate, CorrelationDecision
 from app.services.deterministic_relation_service import DeterministicRelationService
 from app.services.edge_dedup import (
@@ -65,7 +65,7 @@ class CorrelationService:
             return 0
 
         allowed_candidate_ids = {candidate.object_id for candidate in candidate_list}
-        trigger_summary = _trigger_summary(trigger)
+        trigger_summary = effective_trigger_summary(trigger)
         judge_result = self._judge.judge(
             trigger_title=trigger.title,
             trigger_kind=trigger.kind,
@@ -163,16 +163,6 @@ def _is_valid_judge_decision(
     if is_object_hidden_from_active_reads(target):
         return False
     return True
-
-
-def _trigger_summary(trigger: Object) -> str:
-    meta = trigger.metadata_ or {}
-    semantic = meta.get(SEMANTIC_SUMMARY_METADATA_KEY)
-    if isinstance(semantic, str) and semantic.strip():
-        return semantic.strip()[:500]
-    if trigger.body:
-        return trigger.body[:500]
-    return trigger.title
 
 
 def _candidate_reasons(

@@ -29,7 +29,10 @@ from app.jobs.constants import (
     RETRY_BACKOFF_SECONDS,
     STALE_LOCK_MINUTES,
 )
-from app.services.background_ai_errors import BackgroundAIConfigurationError
+from app.services.background_ai_errors import (
+    BackgroundAIConfigurationError,
+    is_openai_quota_exhausted,
+)
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 
@@ -68,6 +71,8 @@ def is_job_error_retryable(exc: BaseException) -> bool:
         exc,
         (UserOpenAICredentialConfigurationError, BackgroundAIConfigurationError),
     ):
+        return False
+    if is_openai_quota_exhausted(exc):
         return False
     if isinstance(exc, GoogleApiError):
         return exc.retryable
@@ -201,11 +206,15 @@ class JobQueueService:
         job = self._require_job(job_id)
         job.last_error = error[:MAX_LAST_ERROR_LENGTH]
         job.updated_at = utcnow()
-        if not retryable and job.type in RECURRING_SOURCE_JOB_TYPES:
-            job.status = JOB_STATUS_PENDING
-            job.attempts = 0
+        if not retryable:
+            if job.type in RECURRING_SOURCE_JOB_TYPES:
+                job.status = JOB_STATUS_PENDING
+                job.attempts = 0
+                job.locked_at = None
+                self._apply_recurring_failure_cooldown(job)
+                return
+            job.status = JOB_STATUS_FAILED
             job.locked_at = None
-            self._apply_recurring_failure_cooldown(job)
             return
         if job.attempts >= MAX_JOB_ATTEMPTS:
             job.status = JOB_STATUS_FAILED

@@ -52,6 +52,7 @@ from app.resources.constants import (
 )
 from app.services.auto_label_service import enqueue_auto_label_object
 from app.services.background_ai_errors import BackgroundAIConfigurationError
+from app.services.correlation_input import correlation_input_signature
 from app.services.correlation_service import CorrelationService
 from app.services.effective_user_settings_service import (
     EffectiveUserSettings,
@@ -265,6 +266,16 @@ def handle_correlate_object(
     object_id = UUID(str(payload["object_id"]))
     if not _object_is_active(session, object_id, user_id):
         return
+    obj = session.scalar(
+        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+    )
+    if obj is None:
+        return
+    payload_sig = str(payload.get("correlation_input_signature") or "")
+    current_sig = correlation_input_signature(obj)
+    if current_sig != payload_sig:
+        enqueue_correlate_object(session, object_id, user_id, obj.kind)
+        return
     parent_trace_id = _parent_trace_id_from_payload(payload)
     with ai_trace_session(
         user_id,
@@ -274,6 +285,12 @@ def handle_correlate_object(
     ):
         work_session = SessionLocal()
         try:
+            live = work_session.scalar(
+                select(Object).where(Object.id == object_id, Object.user_id == user_id)
+            )
+            if live is None or correlation_input_signature(live) != payload_sig:
+                enqueue_correlate_object(session, object_id, user_id, obj.kind)
+                return
             effective = _background_effective_settings(session, user_id)
             judge = create_correlation_judge_from_effective(effective)
             CorrelationService(work_session, user_id, judge).run_correlation(object_id)
