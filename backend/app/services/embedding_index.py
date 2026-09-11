@@ -29,6 +29,8 @@ def refresh_object_embedding(
     embedding_service: EmbeddingService,
 ) -> None:
     intended_sig = embedding_input_signature(obj)
+    if object_has_current_embedding_provenance(obj, intended_sig):
+        return
     try:
         vector = embedding_service.embed(canonical_embedding_text(obj))
     except Exception:  # noqa: BLE001

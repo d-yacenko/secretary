@@ -1010,6 +1010,139 @@ def test_semantic_change_during_embedding_api_discards_stale_vector(db_session) 
     assert len(_correlate_jobs(db_session)) == 1
 
 
+def test_sync_technical_metadata_patch_zero_additional_embedding_calls(
+    db_session,
+) -> None:
+    service = CountingEmbeddingService()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, service)
+    obj = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Stable",
+            body="body",
+            origin="user",
+            metadata={"etag": "etag-1", "last_modified": "20260911T090000Z"},
+        )
+    )
+    assert len(service.calls) == 1
+    sig = embedding_input_signature(obj)
+    graph.update_object(
+        obj.id,
+        ObjectUpdate(metadata={"etag": "etag-2", "last_modified": "20260911T100000Z"}),
+    )
+    db_session.refresh(obj)
+    assert embedding_input_signature(obj) == sig
+    assert len(service.calls) == 1
+    assert obj.embedding_signature == sig
+    assert obj.embedding is not None
+
+
+def test_sync_semantic_metadata_patch_one_additional_embedding_call(db_session) -> None:
+    service = CountingEmbeddingService()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, service)
+    obj = graph.create_object(
+        ObjectCreate(
+            kind="note",
+            title="Stable",
+            body="body",
+            origin="user",
+            metadata={"location": "Room 1"},
+        )
+    )
+    assert len(service.calls) == 1
+    graph.update_object(obj.id, ObjectUpdate(metadata={"location": "Room 2"}))
+    db_session.refresh(obj)
+    assert len(service.calls) == 2
+    assert obj.embedding is not None
+    assert obj.embedding_signature == embedding_input_signature(obj)
+
+
+def test_sync_title_body_change_one_new_provider_call(db_session) -> None:
+    service = CountingEmbeddingService()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, service)
+    obj = graph.create_object(
+        ObjectCreate(kind="note", title="Title A", body="body-a", origin="user")
+    )
+    assert len(service.calls) == 1
+    graph.update_object(obj.id, ObjectUpdate(title="Title B", body="body-b"))
+    db_session.refresh(obj)
+    assert len(service.calls) == 2
+    assert obj.embedding_signature == embedding_input_signature(obj)
+
+
+def test_sync_null_provenance_lazy_one_provider_call(db_session) -> None:
+    service = CountingEmbeddingService()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, service)
+    obj = graph.create_object(
+        ObjectCreate(kind="note", title="Legacy vector", body="body", origin="user")
+    )
+    assert len(service.calls) == 1
+    obj.embedding_signature = None
+    db_session.flush()
+    graph.update_object(obj.id, ObjectUpdate(metadata={"etag": "noop"}))
+    db_session.refresh(obj)
+    assert len(service.calls) == 2
+    assert obj.embedding is not None
+    assert obj.embedding_signature == embedding_input_signature(obj)
+
+
+def test_sync_aba_does_not_reuse_historical_vector(db_session) -> None:
+    service = CountingEmbeddingService()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, service)
+    obj = graph.create_object(
+        ObjectCreate(kind="note", title="Title A", body="same-body", origin="user")
+    )
+    sig_a = embedding_input_signature(obj)
+    assert obj.embedding_signature == sig_a
+    graph.update_object(obj.id, ObjectUpdate(title="Title B"))
+    db_session.refresh(obj)
+    sig_b = embedding_input_signature(obj)
+    assert sig_b != sig_a
+    assert obj.embedding_signature == sig_b
+    graph.update_object(obj.id, ObjectUpdate(title="Title A"))
+    db_session.refresh(obj)
+    assert len(service.calls) == 3
+    assert obj.embedding is not None
+    assert obj.embedding_signature == sig_a
+
+
+def test_sync_mutation_during_provider_call_discards_stale_vector(db_session) -> None:
+    inner = FakeEmbeddingService()
+    created: list[Object] = []
+
+    class _MutatingDuringEmbed:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def embed(self, text: str) -> list[float]:
+            self.calls.append(text)
+            if len(self.calls) == 2:
+                created[0].body = "after-during-call"
+                db_session.flush()
+            return inner.embed(text)
+
+    service = _MutatingDuringEmbed()
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, service)
+    obj = graph.create_object(
+        ObjectCreate(kind="note", title="During", body="before", origin="user")
+    )
+    created.append(obj)
+    create_sig = embedding_input_signature(obj)
+    assert len(service.calls) == 1
+    graph.update_object(obj.id, ObjectUpdate(title="During-updated"))
+    db_session.refresh(obj)
+    assert len(service.calls) == 2
+    assert obj.embedding_signature == create_sig
+    current_sig = embedding_input_signature(obj)
+    assert current_sig != create_sig
+    pending = [
+        job
+        for job in _embed_jobs(db_session)
+        if job.payload.get("embedding_input_signature") == current_sig
+    ]
+    assert len(pending) == 1
+
+
 def test_migration_0035_adds_embedding_signature_column(db_session) -> None:
     from pathlib import Path
 

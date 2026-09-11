@@ -2,7 +2,11 @@
 
 ## Current phase
 
-OpenAI Cost Guard B-R2 — bind stored vector to exact embedding revision: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact parent `547a96b61ec051fd65c1dbb9d004faa0f3378ead`. Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+OpenAI Cost Guard B-R3 — close synchronous embedding idempotency bypass: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact parent `b11e373704a8aa0b20716142a5139229921154f5`. Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+
+Synchronous GraphService `refresh_object_embedding()` skips the provider when the stored vector already has current `embedding_signature` provenance. Request-time embedding remains synchronous.
+
+OpenAI Cost Guard B-R2 — bind stored vector to exact embedding revision: **ACCEPTED** at `b11e373704a8aa0b20716142a5139229921154f5` (parent `547a96b61ec051fd65c1dbb9d004faa0f3378ead`). Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
 
 Stored `Object.embedding` is proven only by Secretary-owned `Object.embedding_signature` matching the current `embedding_input_signature`. Historical DONE jobs are not vector provenance. Post-call revision fence discards a stale provider vector if the object changed during the API call.
 
