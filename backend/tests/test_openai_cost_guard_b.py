@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.api.schemas import ObjectCreate
+from app.api.schemas import ObjectCreate, ObjectUpdate
 from app.db.models import Job, Object, Representation, UserSettings
 from app.jobs.constants import (
     JOB_STATUS_DONE,
@@ -490,16 +490,17 @@ def test_failed_previous_embedding_is_not_done_proof(db_session) -> None:
     service = CountingEmbeddingService()
     enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
     first = _embed_jobs(db_session)[0]
-    _run_embed(db_session, first.payload, service)
     first.status = JOB_STATUS_FAILED
     db_session.flush()
+    assert note.embedding is None
+    assert note.embedding_signature is None
     enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
     jobs = _embed_jobs(db_session)
     assert len(jobs) == 2
     second = next(job for job in jobs if job.id != first.id)
-    _run_embed(db_session, second.payload, service)
-    assert len(service.calls) == 2
     assert second.status == JOB_STATUS_PENDING
+    _run_embed(db_session, second.payload, service)
+    assert len(service.calls) == 1
 
 
 def test_correlation_significant_embedding_insignificant_still_enqueues_correlate(
@@ -546,6 +547,7 @@ def test_embedding_suppression_does_not_suppress_auto_label(db_session) -> None:
     note = _note(db_session, "Label me", body="work notes")
     service = CountingEmbeddingService()
     note.embedding = FakeEmbeddingService().embed(canonical_embedding_text(note))
+    note.embedding_signature = embedding_input_signature(note)
     done = JobQueueService(db_session).enqueue(
         JOB_TYPE_EMBED_OBJECT,
         embed_job_payload(note),
@@ -658,7 +660,9 @@ def test_done_without_vector_enqueues_one_recovery_signed_job(db_session) -> Non
     db_session.flush()
     db_session.refresh(note)
     assert note.embedding is not None
+    assert note.embedding_signature == embedding_input_signature(note)
     note.embedding = None
+    note.embedding_signature = None
     db_session.flush()
     current_sig = embedding_input_signature(note)
     enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
@@ -682,6 +686,7 @@ def test_done_without_vector_enqueues_one_recovery_signed_job(db_session) -> Non
     db_session.flush()
     db_session.refresh(note)
     assert note.embedding is not None
+    assert note.embedding_signature == current_sig
     enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
     enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
     assert len(_embed_jobs(db_session)) == 2
@@ -828,3 +833,194 @@ def test_done_current_signature_with_vector_zero_paid_embed_downstream_independe
     assert len(_embed_jobs(db_session)) == 1
     assert len(service.calls) == 1
     assert len(_correlate_jobs(db_session)) == first_corr + 1
+
+
+class _FailingEmbeddingService:
+    def embed(self, text: str) -> list[float]:
+        raise RuntimeError("embedding provider unavailable")
+
+
+def test_aba_semantic_revision_does_not_reuse_stale_vector(db_session) -> None:
+    note = _note(db_session, "Title A", body="same-body")
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    job_a = _embed_jobs(db_session)[0]
+    _run_embed(db_session, job_a.payload, service)
+    job_a.status = JOB_STATUS_DONE
+    db_session.flush()
+    sig_a = embedding_input_signature(note)
+    db_session.refresh(note)
+    assert note.embedding_signature == sig_a
+    note.title = "Title B"
+    db_session.flush()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    job_b = next(job for job in _embed_jobs(db_session) if job.id != job_a.id)
+    _run_embed(db_session, job_b.payload, service)
+    job_b.status = JOB_STATUS_DONE
+    db_session.flush()
+    sig_b = embedding_input_signature(note)
+    db_session.refresh(note)
+    assert note.embedding_signature == sig_b
+    assert sig_b != sig_a
+    note.title = "Title A"
+    db_session.flush()
+    assert embedding_input_signature(note) == sig_a
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    pending_a = [
+        job
+        for job in _embed_jobs(db_session)
+        if job.status == JOB_STATUS_PENDING
+        and job.payload.get("embedding_input_signature") == sig_a
+    ]
+    assert len(pending_a) == 1
+    _run_embed(db_session, pending_a[0].payload, service)
+    assert len(service.calls) == 3
+    db_session.refresh(note)
+    assert note.embedding_signature == sig_a
+    assert note.embedding is not None
+
+
+def test_model_version_aba_does_not_falsely_prove_current_vector(
+    db_session, monkeypatch
+) -> None:
+    from app.llm.embedding_text import effective_embedding_model
+
+    original_model = effective_embedding_model()
+    note = _note(db_session, "Model ABA", body="text")
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    job_m1 = _embed_jobs(db_session)[0]
+    _run_embed(db_session, job_m1.payload, service)
+    job_m1.status = JOB_STATUS_DONE
+    db_session.flush()
+    sig_m1 = embedding_input_signature(note)
+    monkeypatch.setattr(
+        "app.llm.embedding_text.effective_embedding_model",
+        lambda: "text-embedding-3-large",
+    )
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    job_m2 = next(job for job in _embed_jobs(db_session) if job.id != job_m1.id)
+    _run_embed(db_session, job_m2.payload, service)
+    job_m2.status = JOB_STATUS_DONE
+    db_session.flush()
+    db_session.refresh(note)
+    assert note.embedding_signature != sig_m1
+    monkeypatch.setattr(
+        "app.llm.embedding_text.effective_embedding_model",
+        lambda: original_model,
+    )
+    assert embedding_input_signature(note) == sig_m1
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    pending_m1 = [
+        job
+        for job in _embed_jobs(db_session)
+        if job.status == JOB_STATUS_PENDING
+        and job.payload.get("embedding_input_signature") == sig_m1
+    ]
+    assert len(pending_m1) == 1
+    _run_embed(db_session, pending_m1[0].payload, service)
+    assert len(service.calls) == 3
+    db_session.refresh(note)
+    assert note.embedding_signature == sig_m1
+
+
+def test_null_provenance_on_existing_vector_enqueues_lazy_current_job(db_session) -> None:
+    note = _note(db_session, "Legacy vector", body="body")
+    note.embedding = FakeEmbeddingService().embed(canonical_embedding_text(note))
+    note.embedding_signature = None
+    db_session.flush()
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    jobs = [
+        job
+        for job in _embed_jobs(db_session)
+        if job.payload.get("embedding_input_signature") == embedding_input_signature(note)
+    ]
+    assert len(jobs) == 1
+    _run_embed(db_session, jobs[0].payload, service)
+    assert len(service.calls) == 1
+    db_session.refresh(note)
+    assert note.embedding_signature == embedding_input_signature(note)
+
+
+def test_sync_graph_write_stores_matching_embedding_signature(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService())
+    obj = graph.create_object(
+        ObjectCreate(kind="note", title="Sync A", body="body", origin="user")
+    )
+    assert obj.embedding is not None
+    assert obj.embedding_signature == embedding_input_signature(obj)
+    graph.update_object(obj.id, ObjectUpdate(title="Sync B"))
+    db_session.refresh(obj)
+    assert obj.embedding is not None
+    assert obj.embedding_signature == embedding_input_signature(obj)
+
+
+def test_sync_embedding_failure_clears_vector_and_signature(db_session) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID, FakeEmbeddingService())
+    obj = graph.create_object(
+        ObjectCreate(kind="note", title="Will fail", body="body", origin="user")
+    )
+    assert obj.embedding_signature is not None
+    failing = GraphService(db_session, BOOTSTRAP_USER_ID, _FailingEmbeddingService())
+    failing.update_object(obj.id, ObjectUpdate(title="Changed"))
+    db_session.refresh(obj)
+    assert obj.embedding is None
+    assert obj.embedding_signature is None
+
+
+def test_semantic_change_during_embedding_api_discards_stale_vector(db_session) -> None:
+    _enable_auto_label(db_session)
+    note = _note(db_session, "During", body="before")
+    inner = FakeEmbeddingService()
+
+    class _MutatingDuringEmbed:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def embed(self, text: str) -> list[float]:
+            self.calls.append(text)
+            note.body = "after-during-call"
+            db_session.flush()
+            return inner.embed(text)
+
+    service = _MutatingDuringEmbed()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    stale = _embed_jobs(db_session)[0]
+    _run_embed(db_session, stale.payload, service)
+    assert len(service.calls) == 1
+    db_session.refresh(note)
+    assert note.embedding is None
+    assert note.embedding_signature is None
+    assert _correlate_jobs(db_session) == []
+    assert _auto_label_jobs(db_session) == []
+    current_sig = embedding_input_signature(note)
+    current = [
+        job
+        for job in _embed_jobs(db_session)
+        if job.id != stale.id
+        and job.payload.get("embedding_input_signature") == current_sig
+    ]
+    assert len(current) == 1
+    _run_embed(db_session, current[0].payload, service)
+    assert len(service.calls) == 2
+    db_session.refresh(note)
+    assert note.embedding_signature == current_sig
+    assert len(_correlate_jobs(db_session)) == 1
+
+
+def test_migration_0035_adds_embedding_signature_column(db_session) -> None:
+    from pathlib import Path
+
+    from sqlalchemy import inspect
+
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic/versions/0035_object_embedding_signature.py"
+    )
+    text_src = module_path.read_text(encoding="utf-8")
+    assert 'down_revision: str | None = "0034"' in text_src
+    assert "embedding_signature" in text_src
+    columns = {col["name"] for col in inspect(db_session.bind).get_columns("objects")}
+    assert "embedding_signature" in columns

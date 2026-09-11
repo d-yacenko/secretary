@@ -31,6 +31,7 @@ from app.services.client_intake_constants import (
     LEGACY_METADATA_ONLY_SUFFIXES,
 )
 from app.services.client_representation_service import ClientRepresentationPersistence
+from app.services.embedding_index import clear_object_embedding
 from app.services.errors import NotFoundError, ValidationError
 from app.services.folder_containment_service import FolderContainmentService
 from app.services.folder_object_service import EXPLICIT_LOCAL_INTAKE_MODE, FolderObjectService
@@ -228,7 +229,7 @@ class ClientFileIntakeService:
                 obj.metadata_ = bump_representation_generation(
                     invalidate_semantic_summary_metadata(dict(obj.metadata_ or {}))
                 )
-                obj.embedding = None
+                clear_object_embedding(obj)
                 enqueue_embed_object(self._session, obj.id, self._user_id)
                 jobs_enqueued = 1
                 status = "updated" if existing else "created"

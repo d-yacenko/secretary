@@ -74,7 +74,7 @@ def _persist_object() -> uuid.UUID:
     conn = engine.connect()
     trans = conn.begin()
     session = Session(bind=conn)
-    obj = GraphService(session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).create_object(
+    obj = GraphService(session, BOOTSTRAP_USER_ID).create_object(
         ObjectCreate(
             kind="task",
             title=f"Persisted job object {uuid.uuid4()}",

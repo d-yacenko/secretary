@@ -2,7 +2,11 @@
 
 ## Current phase
 
-OpenAI Cost Guard B-R1 — embedding proof/recovery + downstream ordering: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact parent `1dd5aab3c67adfceb58f9561146a7d029d956371`. Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. No Alembic migration. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+OpenAI Cost Guard B-R2 — bind stored vector to exact embedding revision: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact parent `547a96b61ec051fd65c1dbb9d004faa0f3378ead`. Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+
+Stored `Object.embedding` is proven only by Secretary-owned `Object.embedding_signature` matching the current `embedding_input_signature`. Historical DONE jobs are not vector provenance. Post-call revision fence discards a stale provider vector if the object changed during the API call.
+
+OpenAI Cost Guard B-R1 — embedding proof/recovery + downstream ordering: **CLOSED** at `547a96b61ec051fd65c1dbb9d004faa0f3378ead` (parent `1dd5aab3c67adfceb58f9561146a7d029d956371`). Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. No Alembic migration in B-R1. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
 
 DONE embed jobs prove a paid object embedding only together with `Object.embedding`. Missing vector recovers through one current signed job. Unsigned/stale jobs no longer enqueue correlation/auto-label before the current embedding exists.
 

@@ -19,6 +19,7 @@ from app.jobs.constants import (
 from app.llm.embedding_text import embed_job_payload, embedding_input_signature
 from app.services.correlation_constants import CORRELATION_TRIGGER_KINDS
 from app.services.correlation_input import correlation_input_signature
+from app.services.embedding_index import object_has_current_embedding_provenance
 from app.services.job_queue_service import JobQueueService
 
 
@@ -151,7 +152,7 @@ def enqueue_embed_object(session: Session, object_id: UUID, user_id: UUID) -> No
     signature = embedding_input_signature(obj)
     if _has_active_embedding_signature_job(session, user_id, object_id, signature):
         return
-    if has_done_embedding_proof(session, user_id, object_id, signature) and obj.embedding is not None:
+    if object_has_current_embedding_provenance(obj, signature):
         enqueue_correlate_object(session, object_id, user_id, obj.kind)
         enqueue_auto_label_object(session, object_id, user_id)
         return
@@ -173,26 +174,6 @@ def enqueue_auto_label_object(
     from app.services.auto_label_service import enqueue_auto_label_object as enqueue
 
     enqueue(session, object_id, user_id, parent_trace_id=parent_trace_id)
-
-
-def has_done_embedding_proof(
-    session: Session,
-    user_id: UUID,
-    object_id: UUID,
-    signature: str,
-) -> bool:
-    existing_id = session.scalar(
-        select(Job.id)
-        .where(
-            Job.user_id == user_id,
-            Job.type == JOB_TYPE_EMBED_OBJECT,
-            Job.status == JOB_STATUS_DONE,
-            Job.payload["object_id"].as_string() == str(object_id),
-            Job.payload["embedding_input_signature"].as_string() == signature,
-        )
-        .limit(1)
-    )
-    return existing_id is not None
 
 
 def _has_correlation_signature_job(

@@ -10,6 +10,7 @@ from app.content_extraction.metadata_keys import (
     MECHANICAL_REPRESENTATION_COUNT,
 )
 from app.db.models import Object
+from app.services.embedding_index import clear_object_embedding
 from app.services.semantic_summary_service import invalidate_semantic_summary_metadata
 
 STATUS_PENDING = "pending"
@@ -18,7 +19,7 @@ STATUS_PENDING = "pending"
 def invalidate_object_content_immediately(session: Session, obj: Object) -> None:
     """Clear stale indexed content before a new revision is extracted."""
     MechanicalRepresentationPersistence(session).clear_mechanical_for_object(obj.id)
-    obj.embedding = None
+    clear_object_embedding(obj)
     merged = invalidate_semantic_summary_metadata(dict(obj.metadata_ or {}))
     merged[CONTENT_EXTRACTION_STATUS] = STATUS_PENDING
     merged[CONTENT_EXTRACTION_VERSION] = EXTRACTION_VERSION

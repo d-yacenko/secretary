@@ -82,6 +82,7 @@ class Object(Base):
     state: Mapped[str] = mapped_column(nullable=False, server_default="confirmed")
     confidence: Mapped[float | None] = mapped_column(nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
+    embedding_signature: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

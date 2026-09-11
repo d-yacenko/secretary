@@ -221,12 +221,12 @@ def test_patch_metadata_refreshes_object_embedding(db_session, fake_embedding_se
             kind="note",
             title="Stable title",
             origin="system",
-            metadata={"topic": "alpha"},
+            metadata={"location": "alpha"},
         )
     )
     before = list(obj.embedding or [])
 
-    graph.update_object(obj.id, ObjectUpdate(metadata={"topic": "beta"}))
+    graph.update_object(obj.id, ObjectUpdate(metadata={"location": "beta"}))
     db_session.refresh(obj)
 
     assert obj.embedding is not None
@@ -241,6 +241,7 @@ def test_create_object_survives_embedding_failure(db_session) -> None:
     db_session.refresh(obj)
     assert obj.id is not None
     assert obj.embedding is None
+    assert obj.embedding_signature is None
 
 
 def test_update_clears_stale_embedding_on_failure(db_session, fake_embedding_service) -> None:
@@ -254,6 +255,7 @@ def test_update_clears_stale_embedding_on_failure(db_session, fake_embedding_ser
     failing_graph.update_object(obj.id, ObjectUpdate(title="Changed title"))
     db_session.refresh(obj)
     assert obj.embedding is None
+    assert obj.embedding_signature is None
 
 
 def test_non_searchable_patch_does_not_refresh_embedding(

@@ -81,7 +81,7 @@ def test_migration_0034_from_0033(db_session: Session) -> None:
         for path in (Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("*.py")
         if path.name[0].isdigit()
     )
-    assert versions[-1].startswith("0034")
+    assert any(name.startswith("0034_inbox_workflow_controls") for name in versions)
     module_path = (
         Path(__file__).resolve().parents[1] / "alembic/versions/0034_inbox_workflow_controls.py"
     )

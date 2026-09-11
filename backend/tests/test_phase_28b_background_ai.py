@@ -680,7 +680,7 @@ def _persist_object() -> UUID:
     conn = engine.connect()
     trans = conn.begin()
     session = OrmSession(bind=conn)
-    obj = GraphService(session, BOOTSTRAP_USER_ID, FakeEmbeddingService()).create_object(
+    obj = GraphService(session, BOOTSTRAP_USER_ID).create_object(
         ObjectCreate(
             kind="document",
             title=f"Credential job object {uuid.uuid4()}",

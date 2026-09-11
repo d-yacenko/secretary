@@ -58,12 +58,15 @@ from app.services.effective_user_settings_service import (
     EffectiveUserSettings,
     EffectiveUserSettingsService,
 )
+from app.services.embedding_index import (
+    assign_object_embedding,
+    object_has_current_embedding_provenance,
+)
 from app.services.local_file_sync_service import copy_local_file_to_upload
 from app.services.pipeline_enqueue import (
     enqueue_correlate_object,
     enqueue_embed_object,
     enqueue_summarize_resource,
-    has_done_embedding_proof,
 )
 from app.services.proactive_review_service import ProactiveReviewService
 from app.services.representation_embedding_worker import (
@@ -75,19 +78,26 @@ from app.services.representation_service import RepresentationService
 from app.services.semantic_summary_service import SemanticSummaryService
 
 
-def _store_object_embedding(
+def _store_object_embedding_if_current(
     session: Session,
     object_id: UUID,
     user_id: UUID,
     embedding: list[float],
-) -> None:
+    payload_sig: str,
+) -> bool:
     obj = session.scalar(
-        select(Object).where(Object.id == object_id, Object.user_id == user_id)
+        select(Object)
+        .where(Object.id == object_id, Object.user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if obj is None:
         raise ValueError(f"object ownership mismatch: {object_id}")
-    obj.embedding = embedding
+    if embedding_input_signature(obj) != payload_sig:
+        return False
+    assign_object_embedding(obj, embedding, payload_sig)
     session.flush()
+    return True
 
 
 def _ingest_already_complete(
@@ -160,7 +170,7 @@ def handle_embed_object(
     if not payload_sig or payload_sig != current_sig:
         enqueue_embed_object(session, object_id, user_id)
         return
-    if has_done_embedding_proof(session, user_id, object_id, current_sig) and obj.embedding is not None:
+    if object_has_current_embedding_provenance(obj, current_sig):
         _embed_unembedded_chunks(session, embedding_service, object_id, user_id, parent_trace_id)
         _enqueue_embed_downstream(
             session, object_id, user_id, obj, parent_trace_id=parent_trace_id
@@ -182,7 +192,12 @@ def handle_embed_object(
             return
         service = _resolve_embedding_service(session, user_id, embedding_service)
         embedding = service.embed(canonical_embedding_text(live))
-        _store_object_embedding(session, object_id, user_id, embedding)
+        stored = _store_object_embedding_if_current(
+            session, object_id, user_id, embedding, payload_sig
+        )
+        if not stored:
+            enqueue_embed_object(session, object_id, user_id)
+            return
         _embed_chunk_targets(service, object_id, user_id)
     live = _load_user_object(session, object_id, user_id)
     if live is None:
