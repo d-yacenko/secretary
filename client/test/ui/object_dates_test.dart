@@ -53,6 +53,16 @@ void main() {
     );
     expect(
       objectPrimaryDateIso(
+        _object(kind: 'temporal_hint', startAt: '2026-08-30T10:00:00Z'),
+      ),
+      '2026-08-30T10:00:00Z',
+    );
+    expect(
+      objectPrimaryDateFieldLabel(_object(kind: 'temporal_hint')),
+      'Начало',
+    );
+    expect(
+      objectPrimaryDateIso(
         _object(
           kind: 'email',
           occurredAt: '2026-08-30T15:43:00Z',

@@ -340,6 +340,7 @@ def test_week_empty_response(db_session) -> None:
     assert snapshot["week_end"] == "2026-09-14"
     assert len(snapshot["days"]) == 7
     assert all(day["events"] == [] for day in snapshot["days"])
+    assert all(day["temporal_hints"] == [] for day in snapshot["days"])
     assert [day["date"] for day in snapshot["days"]] == [
         "2026-09-07",
         "2026-09-08",
@@ -491,6 +492,7 @@ def test_http_week_empty_and_validation(auth_client) -> None:
     assert payload["timezone"] == "Europe/Amsterdam"
     assert len(payload["days"]) == 7
     assert all(day["events"] == [] for day in payload["days"])
+    assert all(day["temporal_hints"] == [] for day in payload["days"])
 
     invalid = auth_client.get(
         "/week",
@@ -564,3 +566,129 @@ def test_week_does_not_use_inbox_feed_fields(db_session) -> None:
     assert titles == []
     leftover = db_session.scalar(select(Object).where(Object.title == "Created this week but starts later"))
     assert leftover is not None
+
+
+def _hint(graph: GraphService, *, title: str, start_at: datetime, due_at: datetime | None, metadata: dict | None = None) -> Object:
+    from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_UNRESOLVED
+    from app.services.temporal_signals_constants import (
+        METADATA_END_PRECISION,
+        METADATA_EVIDENCE_COUNT,
+        METADATA_LIFECYCLE,
+        METADATA_PARTICIPATION,
+        METADATA_PRIMARY_EVIDENCE_KIND,
+        METADATA_PRIMARY_EVIDENCE_PROVIDER,
+    )
+
+    meta = {
+        METADATA_LIFECYCLE: LIFECYCLE_UNRESOLVED,
+        METADATA_END_PRECISION: "exact" if due_at is not None else "unknown",
+        METADATA_PARTICIPATION: "expected",
+        METADATA_PRIMARY_EVIDENCE_PROVIDER: "gmail",
+        METADATA_PRIMARY_EVIDENCE_KIND: "email",
+        METADATA_EVIDENCE_COUNT: 1,
+    }
+    if metadata:
+        meta.update(metadata)
+    return graph.create_object(
+        ObjectCreate(
+            kind=KIND_TEMPORAL_HINT,
+            title=title,
+            origin="system",
+            state="observed",
+            start_at=start_at,
+            due_at=due_at,
+            metadata=meta,
+            confidence=0.9,
+        )
+    )
+
+
+def test_week_temporal_hints_are_additive_and_not_events(db_session) -> None:
+    from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_SUPERSEDED_BY_CALENDAR
+    from app.services.calendar_event_query import WEEK_CALENDAR_PROVIDERS, active_event_predicates
+    from app.services.temporal_signals_constants import METADATA_LIFECYCLE
+
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    google = _event(
+        graph,
+        title="Google review",
+        start_at=WEEK_MONDAY + timedelta(hours=10),
+        due_at=WEEK_MONDAY + timedelta(hours=11),
+        external_id="g-hint-week",
+    )
+    yandex = _event(
+        graph,
+        title="Yandex standup",
+        provider="yandex_calendar",
+        start_at=WEEK_MONDAY + timedelta(hours=9),
+        due_at=WEEK_MONDAY + timedelta(hours=9, minutes=30),
+        external_id="y-hint-week",
+    )
+    known = _hint(
+        graph,
+        title="Known duration hint",
+        start_at=WEEK_MONDAY + timedelta(hours=14),
+        due_at=WEEK_MONDAY + timedelta(hours=15),
+    )
+    unknown = _hint(
+        graph,
+        title="Unknown duration hint",
+        start_at=WEEK_MONDAY + timedelta(hours=16),
+        due_at=None,
+    )
+    _hint(
+        graph,
+        title="Superseded hint",
+        start_at=WEEK_MONDAY + timedelta(hours=11),
+        due_at=WEEK_MONDAY + timedelta(hours=12),
+        metadata={METADATA_LIFECYCLE: LIFECYCLE_SUPERSEDED_BY_CALENDAR},
+    )
+
+    snapshot = WeekService(db_session, BOOTSTRAP_USER_ID).snapshot(
+        week_start=WEEK_START,
+        timezone="Europe/Amsterdam",
+        reference_at=WEEK_MONDAY + timedelta(hours=12),
+    )
+    monday_events = [obj.title for obj in snapshot["days"][0]["events"]]
+    monday_hints = snapshot["days"][0]["temporal_hints"]
+    assert monday_events == ["Yandex standup", "Google review"]
+    assert [obj.title for obj in monday_hints] == ["Known duration hint", "Unknown duration hint"]
+    assert google.kind == "event" and yandex.kind == "event"
+    assert known.kind == KIND_TEMPORAL_HINT and unknown.due_at is None
+    calendar_rows = list(
+        db_session.scalars(select(Object).where(*active_event_predicates(BOOTSTRAP_USER_ID)))
+    )
+    assert known not in calendar_rows
+    assert unknown not in calendar_rows
+    assert "gmail" not in WEEK_CALENDAR_PROVIDERS
+
+
+def test_http_week_temporal_hints_omit_source_body(db_session, auth_client) -> None:
+    graph = GraphService(db_session, BOOTSTRAP_USER_ID)
+    _event(
+        graph,
+        title="Office",
+        start_at=WEEK_MONDAY + timedelta(hours=10),
+        due_at=WEEK_MONDAY + timedelta(hours=11),
+        external_id="http-hint-cal",
+    )
+    hint = _hint(
+        graph,
+        title="Call",
+        start_at=WEEK_MONDAY + timedelta(hours=16),
+        due_at=None,
+    )
+    response = auth_client.get(
+        "/week",
+        params={"week_start": WEEK_START, "client_timezone_id": "Europe/Amsterdam"},
+    )
+    assert response.status_code == 200
+    monday = response.json()["days"][0]
+    assert [row["title"] for row in monday["events"]] == ["Office"]
+    assert "body" not in monday["temporal_hints"][0]
+    assert monday["temporal_hints"][0]["id"] == str(hint.id)
+    assert monday["temporal_hints"][0]["due_at"] is None
+    assert monday["temporal_hints"][0]["end_precision"] == "unknown"
+    assert monday["temporal_hints"][0]["primary_provider"] == "gmail"
+    assert "gmail" not in {row.get("provider") for row in monday["events"]}
+

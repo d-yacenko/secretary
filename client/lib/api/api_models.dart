@@ -29,6 +29,7 @@ class UserSettings {
     required this.openaiKeyConfigured,
     required this.allowedAssistantModels,
     this.autoLabelEnabled = false,
+    this.temporalSignalsEnabled = false,
   });
 
   final String timezone;
@@ -43,6 +44,7 @@ class UserSettings {
   final bool openaiKeyConfigured;
   final List<String> allowedAssistantModels;
   final bool autoLabelEnabled;
+  final bool temporalSignalsEnabled;
 
   factory UserSettings.fromJson(Map<String, dynamic> json) {
     return UserSettings(
@@ -61,6 +63,8 @@ class UserSettings {
               .map((item) => item as String)
               .toList(),
       autoLabelEnabled: json['auto_label_enabled'] as bool? ?? false,
+      temporalSignalsEnabled:
+          json['temporal_signals_enabled'] as bool? ?? false,
     );
   }
 }
@@ -816,23 +820,71 @@ class WeekEvent {
   }
 }
 
+class WeekTemporalHint {
+  WeekTemporalHint({
+    required this.id,
+    required this.title,
+    required this.startAt,
+    this.dueAt,
+    required this.endPrecision,
+    required this.participation,
+    this.primaryProvider,
+    this.primaryKind,
+    this.evidenceCount = 1,
+    this.extractionConfidence,
+  });
+
+  final String id;
+  final String title;
+  final String startAt;
+  final String? dueAt;
+  final String endPrecision;
+  final String participation;
+  final String? primaryProvider;
+  final String? primaryKind;
+  final int evidenceCount;
+  final double? extractionConfidence;
+
+  bool get endUnknown => dueAt == null || endPrecision == 'unknown';
+
+  factory WeekTemporalHint.fromJson(Map<String, dynamic> json) {
+    return WeekTemporalHint(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      startAt: json['start_at'] as String,
+      dueAt: json['due_at'] as String?,
+      endPrecision: json['end_precision'] as String? ?? 'unknown',
+      participation: json['participation'] as String? ?? '',
+      primaryProvider: json['primary_provider'] as String?,
+      primaryKind: json['primary_kind'] as String?,
+      evidenceCount: json['evidence_count'] as int? ?? 1,
+      extractionConfidence: (json['extraction_confidence'] as num?)?.toDouble(),
+    );
+  }
+}
+
 class WeekDay {
   WeekDay({
     required this.date,
     required this.isToday,
     required this.events,
+    this.temporalHints = const [],
   });
 
   final String date;
   final bool isToday;
   final List<WeekEvent> events;
+  final List<WeekTemporalHint> temporalHints;
 
   factory WeekDay.fromJson(Map<String, dynamic> json) {
     return WeekDay(
       date: json['date'] as String,
       isToday: json['is_today'] as bool? ?? false,
-      events: (json['events'] as List<dynamic>)
+      events: (json['events'] as List<dynamic>? ?? const [])
           .map((e) => WeekEvent.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      temporalHints: (json['temporal_hints'] as List<dynamic>? ?? const [])
+          .map((e) => WeekTemporalHint.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }

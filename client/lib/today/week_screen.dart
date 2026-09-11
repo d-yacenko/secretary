@@ -141,8 +141,10 @@ class _WeekScreenState extends State<WeekScreen> {
         _loadState = WeekLoadState.ready;
       });
       final ids = [
-        for (final day in snapshot.days)
+        for (final day in snapshot.days) ...[
           for (final event in day.events) event.object.id,
+          for (final hint in day.temporalHints) hint.id,
+        ],
       ];
       await _bookmarks.reconcileVisible(ids);
     } on AuthenticationException {
@@ -192,6 +194,9 @@ class _WeekScreenState extends State<WeekScreen> {
               isToday: day.isToday,
               events: day.events
                   .where((event) => event.object.id != result.deletedObjectId)
+                  .toList(),
+              temporalHints: day.temporalHints
+                  .where((hint) => hint.id != result.deletedObjectId)
                   .toList(),
             ),
         ],

@@ -221,6 +221,7 @@ void main() {
       String title = 'Office',
       String updatedAt = '2026-09-07T08:00:00Z',
       String? extraEventId,
+      bool extraHint = false,
     }) {
       return WeekOut.fromJson({
         'week_start': '2026-09-07',
@@ -267,6 +268,21 @@ void main() {
                   'all_day': false,
                 },
             ],
+            'temporal_hints': extraHint
+                ? [
+                    {
+                      'id': 'hint-a',
+                      'title': 'Possible call',
+                      'start_at': '2026-09-07T16:00:00+02:00',
+                      'due_at': null,
+                      'end_precision': 'unknown',
+                      'participation': 'expected',
+                      'primary_provider': 'gmail',
+                      'primary_kind': 'email',
+                      'evidence_count': 1,
+                    },
+                  ]
+                : <Map<String, dynamic>>[],
           },
         ],
       });
@@ -276,6 +292,7 @@ void main() {
     final same = from(updatedAt: '2026-09-10T08:00:00Z');
     final renamed = from(title: 'Renamed');
     final added = from(extraEventId: 'evt-b');
+    final hinted = from(extraHint: true);
     expect(weekPresentationSignature(a), weekPresentationSignature(same));
     expect(
       weekPresentationSignature(a),
@@ -284,6 +301,10 @@ void main() {
     expect(
       weekPresentationSignature(a),
       isNot(weekPresentationSignature(added)),
+    );
+    expect(
+      weekPresentationSignature(a),
+      isNot(weekPresentationSignature(hinted)),
     );
   });
 }

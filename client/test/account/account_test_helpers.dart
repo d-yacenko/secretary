@@ -55,6 +55,7 @@ Map<String, dynamic> accountSettingsJson({
     'openai_key_configured': openaiKeyConfigured,
     'allowed_assistant_models': allowedAssistantModels,
     'auto_label_enabled': autoLabelEnabled,
+    'temporal_signals_enabled': false,
   };
 }
 

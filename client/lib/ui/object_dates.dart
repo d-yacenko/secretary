@@ -7,6 +7,7 @@ String? objectPrimaryDateIso(SecretaryObject object) {
       return object.dueAt;
     case 'event':
     case 'calendar_event':
+    case 'temporal_hint':
       return object.startAt;
     case 'email':
     case 'message':
@@ -43,6 +44,7 @@ String objectPrimaryDateFieldLabel(SecretaryObject object) {
       return 'Срок';
     case 'event':
     case 'calendar_event':
+    case 'temporal_hint':
       return 'Начало';
     case 'email':
     case 'message':

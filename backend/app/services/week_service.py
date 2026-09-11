@@ -8,11 +8,12 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import Object
+from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_UNRESOLVED
 from app.services.calendar_event_query import (
     WEEK_CALENDAR_PROVIDERS,
     active_event_predicates,
@@ -20,6 +21,8 @@ from app.services.calendar_event_query import (
     event_overlaps_window,
 )
 from app.services.errors import ValidationError
+from app.services.provenance import REJECTED_STATE
+from app.services.temporal_signals_constants import METADATA_LIFECYCLE, WEEK_MAX_TEMPORAL_HINTS
 
 WEEK_MAX_EVENTS = 500
 
@@ -75,6 +78,11 @@ def _event_sort_key(obj: Object) -> tuple[bool, datetime, str]:
     return (not event_is_all_day(obj), start, str(obj.id))
 
 
+def _hint_sort_key(obj: Object) -> tuple[datetime, str]:
+    start = obj.start_at or datetime.min.replace(tzinfo=UTC)
+    return (start, str(obj.id))
+
+
 class WeekService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
@@ -95,6 +103,7 @@ class WeekService:
         start_date = parse_week_start(week_start, tz, now_local=now_local)
         window_start, window_end = local_week_window(start_date, tz)
         events = self._events_for_window(window_start, window_end)
+        hints = self._hints_for_window(window_start, window_end)
         today_date = now_local.date()
         days = []
         for offset in range(7):
@@ -105,11 +114,16 @@ class WeekService:
                 obj for obj in events if event_occupies_day(obj, day_date, day_start, day_end)
             ]
             day_events.sort(key=_event_sort_key)
+            day_hints = [
+                obj for obj in hints if event_occupies_day(obj, day_date, day_start, day_end)
+            ]
+            day_hints.sort(key=_hint_sort_key)
             days.append(
                 {
                     "date": day_date.isoformat(),
                     "is_today": day_date == today_date,
                     "events": day_events,
+                    "temporal_hints": day_hints,
                 }
             )
         return {
@@ -133,5 +147,24 @@ class WeekService:
             )
             .order_by(Object.start_at.asc(), Object.id.asc())
             .limit(WEEK_MAX_EVENTS)
+        )
+        return list(self._session.scalars(stmt))
+
+    def _hints_for_window(self, window_start: datetime, window_end: datetime) -> list[Object]:
+        lifecycle = Object.metadata_[METADATA_LIFECYCLE].as_string()
+        stmt = (
+            select(Object)
+            .where(
+                Object.user_id == self._user_id,
+                Object.kind == KIND_TEMPORAL_HINT,
+                Object.state != REJECTED_STATE,
+                Object.deleted_at.is_(None),
+                or_(Object.status.is_(None), Object.status != "deleted"),
+                Object.start_at.is_not(None),
+                or_(lifecycle.is_(None), lifecycle == LIFECYCLE_UNRESOLVED),
+                event_overlaps_window(window_start, window_end),
+            )
+            .order_by(Object.start_at.asc(), Object.id.asc())
+            .limit(WEEK_MAX_TEMPORAL_HINTS)
         )
         return list(self._session.scalars(stmt))

@@ -268,10 +268,60 @@ class WeekEventOut(ObjectOut):
         return cls(**base.model_dump(), all_day=event_is_all_day(obj))
 
 
+class WeekTemporalHintOut(BaseModel):
+    id: UUID
+    title: str
+    start_at: datetime
+    due_at: datetime | None = None
+    end_precision: str
+    participation: str
+    primary_provider: str | None = None
+    primary_kind: str | None = None
+    evidence_count: int = 1
+    extraction_confidence: float | None = None
+
+    @classmethod
+    def from_hint(cls, obj: Any) -> "WeekTemporalHintOut":
+        from app.domain.temporal_hint import END_PRECISION_UNKNOWN
+        from app.services.temporal_signals_constants import (
+            METADATA_END_PRECISION,
+            METADATA_EVIDENCE_COUNT,
+            METADATA_EXTRACTION_CONFIDENCE,
+            METADATA_PARTICIPATION,
+            METADATA_PRIMARY_EVIDENCE_KIND,
+            METADATA_PRIMARY_EVIDENCE_PROVIDER,
+        )
+
+        metadata = obj.metadata_ or {}
+        evidence_count = metadata.get(METADATA_EVIDENCE_COUNT, 1)
+        try:
+            count = int(evidence_count)
+        except (TypeError, ValueError):
+            count = 1
+        confidence = metadata.get(METADATA_EXTRACTION_CONFIDENCE, obj.confidence)
+        try:
+            confidence_value = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence_value = None
+        return cls(
+            id=obj.id,
+            title=obj.title,
+            start_at=obj.start_at,
+            due_at=obj.due_at,
+            end_precision=str(metadata.get(METADATA_END_PRECISION) or END_PRECISION_UNKNOWN),
+            participation=str(metadata.get(METADATA_PARTICIPATION) or ""),
+            primary_provider=metadata.get(METADATA_PRIMARY_EVIDENCE_PROVIDER),
+            primary_kind=metadata.get(METADATA_PRIMARY_EVIDENCE_KIND),
+            evidence_count=count,
+            extraction_confidence=confidence_value,
+        )
+
+
 class WeekDayOut(BaseModel):
     date: str
     is_today: bool
     events: list[WeekEventOut]
+    temporal_hints: list[WeekTemporalHintOut] = Field(default_factory=list)
 
 
 class WeekOut(BaseModel):

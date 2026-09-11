@@ -65,11 +65,38 @@ void main() {
     };
   }
 
+  Map<String, dynamic> weekTemporalHintJson({
+    required String id,
+    required String title,
+    required String startAt,
+    String? dueAt,
+    String endPrecision = 'exact',
+    String participation = 'expected',
+    String? primaryProvider = 'gmail',
+    String? primaryKind = 'email',
+    int evidenceCount = 1,
+    double? extractionConfidence = 0.9,
+  }) {
+    return {
+      'id': id,
+      'title': title,
+      'start_at': startAt,
+      'due_at': dueAt,
+      'end_precision': endPrecision,
+      'participation': participation,
+      'primary_provider': primaryProvider,
+      'primary_kind': primaryKind,
+      'evidence_count': evidenceCount,
+      'extraction_confidence': extractionConfidence,
+    };
+  }
+
   Map<String, dynamic> weekPayload({
     String weekStart = '2026-09-07',
     bool isCurrentWeek = true,
     String todayDate = '2026-09-10',
     Map<String, List<Map<String, dynamic>>> eventsByDate = const {},
+    Map<String, List<Map<String, dynamic>>> hintsByDate = const {},
   }) {
     return {
       'week_start': weekStart,
@@ -85,6 +112,8 @@ void main() {
             'date': shiftCalendarDate(weekStart, i),
             'is_today': shiftCalendarDate(weekStart, i) == todayDate,
             'events': eventsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
+            'temporal_hints':
+                hintsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
           },
       ],
     };
@@ -431,6 +460,7 @@ void main() {
     expect(copy.title, 'Holiday');
     expect(copy.provider, 'google_calendar');
     expect(copy.itemType, WeekTemporalItemType.calendarCommitment);
+    expect(copy.endUnknown, isFalse);
     expect(copy.isAllDay, isTrue);
     expect(copy.interaction.allowStartResize, isFalse);
     expect(copy.interaction.allowEndResize, isFalse);
@@ -2583,5 +2613,271 @@ void main() {
       find.byKey(const Key('week_event_2026-09-07_stable')),
     );
     expect(after.top, closeTo(before.top, 0.5));
+  });
+
+  test('weekOutToKalenderEvents projects hints without inventing factual end', () {
+    final week = WeekOut.fromJson(
+      weekPayload(
+        eventsByDate: {
+          '2026-09-07': [
+            secretaryObjectJson(
+              id: 'google',
+              title: 'Google review',
+              startAt: '2026-09-07T10:00:00+02:00',
+              dueAt: '2026-09-07T11:00:00+02:00',
+            ),
+            secretaryObjectJson(
+              id: 'yandex',
+              title: 'Yandex standup',
+              provider: 'yandex_calendar',
+              startAt: '2026-09-07T09:00:00+02:00',
+              dueAt: '2026-09-07T09:30:00+02:00',
+            ),
+          ],
+        },
+        hintsByDate: {
+          '2026-09-07': [
+            weekTemporalHintJson(
+              id: 'hint-known',
+              title: 'Known duration call',
+              startAt: '2026-09-07T14:00:00+02:00',
+              dueAt: '2026-09-07T15:00:00+02:00',
+            ),
+            weekTemporalHintJson(
+              id: 'hint-unknown',
+              title: 'Unknown duration call',
+              startAt: '2026-09-07T16:00:00+02:00',
+              endPrecision: 'unknown',
+            ),
+          ],
+        },
+      ),
+    );
+    final events = weekOutToKalenderEvents(week);
+    expect(week.days.first.temporalHints.singleWhere((h) => h.id == 'hint-unknown').dueAt, isNull);
+    expect(events.map((e) => e.objectId).toSet(), {
+      'google',
+      'yandex',
+      'hint-known',
+      'hint-unknown',
+    });
+    expect(
+      events.where((e) => e.isAllDay),
+      isEmpty,
+    );
+    final known = events.singleWhere((e) => e.objectId == 'hint-known');
+    final unknown = events.singleWhere((e) => e.objectId == 'hint-unknown');
+    expect(known.itemType, WeekTemporalItemType.temporalHint);
+    expect(known.endUnknown, isFalse);
+    expect(known.dateTimeRange.duration, const Duration(hours: 1));
+    expect(known.provider, 'gmail');
+    expect(unknown.itemType, WeekTemporalItemType.temporalHint);
+    expect(unknown.endUnknown, isTrue);
+    expect(unknown.dateTimeRange.duration, kWeekUnknownEndVisualDuration);
+    expect(
+      events.where((e) => e.itemType == WeekTemporalItemType.calendarCommitment).length,
+      2,
+    );
+    final signatureWithout = weekPresentationSignature(
+      WeekOut.fromJson(weekPayload()),
+    );
+    expect(weekPresentationSignature(week), isNot(signatureWithout));
+  });
+
+  testWidgets('week renders mixed calendar and temporal hints', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var openedId = '';
+    final mock = MockClient((request) async {
+      if (request.url.path == '/week') {
+        return jsonOk(
+          weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'google-evt',
+                  title: 'Google review',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+                secretaryObjectJson(
+                  id: 'yandex-evt',
+                  title: 'Yandex standup',
+                  provider: 'yandex_calendar',
+                  startAt: '2026-09-07T09:00:00+02:00',
+                  dueAt: '2026-09-07T09:30:00+02:00',
+                ),
+              ],
+            },
+            hintsByDate: {
+              '2026-09-07': [
+                weekTemporalHintJson(
+                  id: 'hint-known',
+                  title: 'Known duration call',
+                  startAt: '2026-09-07T14:00:00+02:00',
+                  dueAt: '2026-09-07T15:00:00+02:00',
+                  primaryProvider: 'yandex_mail',
+                ),
+                weekTemporalHintJson(
+                  id: 'hint-unknown',
+                  title: 'Unknown duration call',
+                  startAt: '2026-09-07T16:00:00+02:00',
+                  endPrecision: 'unknown',
+                  primaryProvider: 'mattermost',
+                  primaryKind: 'chat_message',
+                ),
+              ],
+            },
+          ),
+        );
+      }
+      if (request.url.path == '/labels/by-objects' ||
+          request.url.path == '/object-bookmarks/by-objects') {
+        return jsonOk({'objects': {}});
+      }
+      if (request.url.path == '/objects/hint-unknown') {
+        openedId = 'hint-unknown';
+        return jsonOk(
+          secretaryObjectJson(
+            id: 'hint-unknown',
+            title: 'Unknown duration call',
+            kind: 'temporal_hint',
+            provider: null,
+            startAt: '2026-09-07T16:00:00+02:00',
+            dueAt: null,
+            includeAllDay: false,
+          ),
+        );
+      }
+      if (request.url.path == '/objects/hint-unknown/neighbors') {
+        return jsonOk({'object_id': 'hint-unknown', 'neighbors': []});
+      }
+      if (request.url.path == '/objects/hint-unknown/context') {
+        return jsonOk({
+          'object': secretaryObjectJson(
+            id: 'hint-unknown',
+            title: 'Unknown duration call',
+            kind: 'temporal_hint',
+            provider: null,
+            startAt: '2026-09-07T16:00:00+02:00',
+            dueAt: null,
+            includeAllDay: false,
+          ),
+          'edges': [],
+          'neighbors': [],
+        });
+      }
+      if (request.url.path.endsWith('/labels')) {
+        return jsonOk({'labels': []});
+      }
+      return http.Response('{}', 404);
+    });
+    await tester.pumpWidget(buildWeek(mock, size: desktopSize));
+    await pumpCalendar(tester);
+
+    expect(find.text('Google review'), findsOneWidget);
+    expect(find.text('Yandex standup'), findsOneWidget);
+    expect(find.text('Known duration call'), findsOneWidget);
+    expect(find.text('Unknown duration call'), findsOneWidget);
+    expect(find.byKey(const Key('week_type_calendar_google-evt')), findsOneWidget);
+    expect(find.byKey(const Key('week_type_calendar_yandex-evt')), findsOneWidget);
+    expect(find.byKey(const Key('week_type_hint_hint-known')), findsOneWidget);
+    expect(find.byKey(const Key('week_type_hint_hint-unknown')), findsOneWidget);
+    expect(
+      tester.widget<Icon>(find.byKey(const Key('week_type_hint_hint-known'))).icon,
+      weekTemporalItemTypeIcon(WeekTemporalItemType.temporalHint),
+    );
+    expect(
+      tester
+          .widget<Icon>(find.byKey(const Key('week_type_calendar_google-evt')))
+          .icon,
+      weekTemporalItemTypeIcon(WeekTemporalItemType.calendarCommitment),
+    );
+    expect(find.byKey(const Key('week_hint_style_hint-known')), findsOneWidget);
+    expect(find.byKey(const Key('week_hint_style_hint-unknown')), findsOneWidget);
+    expect(find.byKey(const Key('week_hint_unknown_end_hint-unknown')), findsOneWidget);
+    expect(find.byKey(const Key('week_hint_unknown_end_hint-known')), findsNothing);
+    expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_yandex')), findsNWidgets(2));
+    expect(find.byKey(const Key('source_mark_mattermost')), findsOneWidget);
+
+    final unknownTile = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_hint-unknown')),
+    );
+    final knownTile = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_hint-known')),
+    );
+    expect(unknownTile.height, closeTo(knownTile.height / 2, 8));
+
+    await tester.ensureVisible(find.text('Unknown duration call'));
+    await tester.tap(find.text('Unknown duration call'));
+    await pumpCalendar(tester);
+    expect(openedId, 'hint-unknown');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+    expect(find.text('Возможное время'), findsWidgets);
+  });
+
+  testWidgets('passive refresh shows a new hint without moving calendar tiles', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final mock = weekClient(
+      week: (_) {
+        weekCalls += 1;
+        return weekPayload(
+          eventsByDate: {
+            '2026-09-07': [
+              secretaryObjectJson(
+                id: 'stable',
+                title: 'Stable meeting',
+                startAt: '2026-09-07T10:00:00+02:00',
+                dueAt: '2026-09-07T11:00:00+02:00',
+              ),
+            ],
+          },
+          hintsByDate: weekCalls == 1
+              ? const {}
+              : {
+                  '2026-09-07': [
+                    weekTemporalHintJson(
+                      id: 'hint-new',
+                      title: 'New temporal hint',
+                      startAt: '2026-09-07T16:00:00+02:00',
+                      endPrecision: 'unknown',
+                    ),
+                  ],
+                },
+        );
+      },
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    final before = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(find.text('New temporal hint'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await pumpCalendar(tester);
+    expect(find.text('New temporal hint'), findsOneWidget);
+    expect(find.byKey(const Key('week_type_hint_hint-new')), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final after = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(after.top, closeTo(before.top, 0.5));
+    expect(after.left, closeTo(before.left, 0.5));
   });
 }

@@ -27,12 +27,15 @@ const Map<String, String> _relationTypeLabels = {
   'depends_on': 'Зависит от',
   'contains': 'Содержит',
   'labeled_with': 'Метка',
+  'temporal_evidence': 'Временное свидетельство',
+  'temporal_confirmation': 'Подтверждено календарём',
 };
 
 const Map<String, String> _originLabels = {
   'user': 'Пользователь',
   'agent': 'Агент',
   'source': 'Источник',
+  'system': 'Секретарь',
 };
 
 const Map<String, String> _neighborDirectionLabels = {
