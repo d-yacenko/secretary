@@ -567,12 +567,16 @@ class TemporalSignalService:
         if hint is None or not hint_is_unresolved(hint):
             return TemporalSignalJobOutcome(reason="hint_gone", calendar_id=event.id)
         self._suppress_hint(hint, event)
-        for evidence in self._evidence_sources(hint):
+        for edge in self._active_evidence_edges(anchor_id=hint.id):
+            source = self._load_source(edge.target_id)
+            if source is None:
+                continue
             self._upsert_evidence(
                 event,
-                evidence,
+                source,
                 decision.confidence,
-                source_extraction_signature(evidence),
+                self._edge_source_signature(edge),
+                extractor_version=self._edge_extractor_version(edge),
             )
         return TemporalSignalJobOutcome(
             reason="hint_superseded",
@@ -792,12 +796,21 @@ class TemporalSignalService:
         edge.metadata_ = metadata
         self._session.flush()
 
-    def _write_evidence_revision(self, edge: Edge, signature: str, confidence: float) -> None:
+    def _write_evidence_revision(
+        self,
+        edge: Edge,
+        signature: str,
+        confidence: float,
+        *,
+        extractor_version: int | None = None,
+    ) -> None:
         metadata = dict(edge.metadata_ or {})
         metadata.pop(METADATA_LIFECYCLE, None)
         metadata.pop("retired_by_source_signature", None)
         metadata[METADATA_SOURCE_SIGNATURE] = signature
-        metadata[METADATA_EXTRACTOR_VERSION] = TEMPORAL_SIGNAL_EXTRACTOR_VERSION
+        metadata[METADATA_EXTRACTOR_VERSION] = (
+            TEMPORAL_SIGNAL_EXTRACTOR_VERSION if extractor_version is None else extractor_version
+        )
         edge.metadata_ = metadata
         edge.confidence = confidence
         self._session.flush()
@@ -808,10 +821,20 @@ class TemporalSignalService:
         source: Object,
         confidence: float,
         signature: str,
+        *,
+        extractor_version: int | None = None,
     ) -> None:
+        version = (
+            TEMPORAL_SIGNAL_EXTRACTOR_VERSION if extractor_version is None else extractor_version
+        )
         edge = self._find_evidence_edge(anchor.id, source.id)
         if edge is not None:
-            self._write_evidence_revision(edge, signature, confidence)
+            self._write_evidence_revision(
+                edge,
+                signature,
+                confidence,
+                extractor_version=version,
+            )
             return
         self._graph.create_edge(
             EdgeCreate(
@@ -822,7 +845,7 @@ class TemporalSignalService:
                 state=OBSERVED_STATE,
                 confidence=confidence,
                 metadata={
-                    METADATA_EXTRACTOR_VERSION: TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
+                    METADATA_EXTRACTOR_VERSION: version,
                     METADATA_SOURCE_SIGNATURE: signature,
                 },
             )

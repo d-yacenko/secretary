@@ -733,6 +733,166 @@ def test_late_calendar_supersedes_hint(db_session) -> None:
     assert any(edge.target_id == source.id for edge in _evidence_edges(db_session))
 
 
+def _adb_exact_payload() -> dict:
+    return _exact_payload(
+        concise_title="ADB созвон",
+        start_local_time="10:00",
+        end_precision="unknown",
+        end_kind=None,
+        end_duration_minutes=None,
+        semantic_subject="ADB",
+    )
+
+
+def test_late_calendar_copies_hint_revision_not_unprocessed_source_body(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="ADB созвон", body="ADB созвон завтра 10:00")
+    _run(db_session, source, FakeTemporalSignalExtractor(payload=_adb_exact_payload()))
+    sig_a = source_extraction_signature(source)
+    hint_edge = _active_evidence(db_session)[0]
+    version_a = hint_edge.metadata_[METADATA_EXTRACTOR_VERSION]
+    hint = _hints(db_session)[0]
+    source.body = "Совсем другой текст без точного времени."
+    db_session.flush()
+    sig_b = source_extraction_signature(source)
+    assert sig_b != sig_a
+    event = _event(
+        db_session,
+        title="ADB созвон",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 10, 30, tzinfo=MOSCOW),
+        provider="google_calendar",
+    )
+    event_title = event.title
+    event_start = event.start_at
+    event_due = event.due_at
+    TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        match_judge=FakeTemporalMatchJudge(match_shared_tokens=True),
+    ).run_reconcile_job(
+        {
+            "object_id": str(event.id),
+            "event_signature": calendar_event_signature(event),
+        }
+    )
+    calendar_active = [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.source_id == event.id and edge.target_id == source.id
+    ]
+    assert len(calendar_active) == 1
+    copied = calendar_active[0]
+    assert copied.metadata_[METADATA_SOURCE_SIGNATURE] == sig_a
+    assert copied.metadata_[METADATA_SOURCE_SIGNATURE] != sig_b
+    assert copied.metadata_[METADATA_EXTRACTOR_VERSION] == version_a
+    db_session.refresh(hint)
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_CALENDAR
+    _run(db_session, source, FakeTemporalSignalExtractor())
+    remaining_a = [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.target_id == source.id
+        and (edge.metadata_ or {}).get(METADATA_SOURCE_SIGNATURE) == sig_a
+    ]
+    assert remaining_a == []
+    fabricated_b = [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.source_id == event.id
+        and edge.target_id == source.id
+        and (edge.metadata_ or {}).get(METADATA_SOURCE_SIGNATURE) == sig_b
+    ]
+    assert fabricated_b == []
+    assert [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.source_id == event.id and edge.target_id == source.id
+    ] == []
+    db_session.refresh(event)
+    assert event.deleted_at is None
+    assert event.title == event_title
+    assert event.start_at == event_start
+    assert event.due_at == event_due
+    assert event.provider == "google_calendar"
+    history = [
+        edge
+        for edge in _evidence_edges(db_session)
+        if edge.target_id == source.id
+    ]
+    assert len(history) >= 2
+    assert all(
+        (edge.metadata_ or {}).get(METADATA_LIFECYCLE) == LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+        or evidence_edge_is_active(edge) is False
+        for edge in history
+    )
+
+
+def test_late_calendar_then_processed_revision_b_keeps_one_calendar_evidence(
+    db_session,
+) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="ADB созвон", body="ADB созвон завтра 10:00")
+    _run(db_session, source, FakeTemporalSignalExtractor(payload=_adb_exact_payload()))
+    sig_a = source_extraction_signature(source)
+    source.body = "Напоминание: ADB созвон завтра 10:00, зал B"
+    db_session.flush()
+    sig_b = source_extraction_signature(source)
+    assert sig_b != sig_a
+    event = _event(
+        db_session,
+        title="ADB созвон",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 10, 30, tzinfo=MOSCOW),
+        provider="yandex_calendar",
+    )
+    TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        match_judge=FakeTemporalMatchJudge(match_shared_tokens=True),
+    ).run_reconcile_job(
+        {
+            "object_id": str(event.id),
+            "event_signature": calendar_event_signature(event),
+        }
+    )
+    copied = [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.source_id == event.id
+    ]
+    assert len(copied) == 1
+    assert copied[0].metadata_[METADATA_SOURCE_SIGNATURE] == sig_a
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(payload=_adb_exact_payload()),
+        FakeTemporalMatchJudge(match_shared_tokens=True),
+    )
+    calendar_active = [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.source_id == event.id and edge.target_id == source.id
+    ]
+    assert len(calendar_active) == 1
+    assert calendar_active[0].metadata_[METADATA_SOURCE_SIGNATURE] == sig_b
+    assert calendar_active[0].metadata_[METADATA_EXTRACTOR_VERSION] == (
+        TEMPORAL_SIGNAL_EXTRACTOR_VERSION
+    )
+    assert [
+        edge
+        for edge in _active_evidence(db_session)
+        if edge.target_id == source.id
+        and (edge.metadata_ or {}).get(METADATA_SOURCE_SIGNATURE) == sig_a
+    ] == []
+    db_session.refresh(event)
+    assert event.deleted_at is None
+    assert event.provider == "yandex_calendar"
+    assert event.title == "ADB созвон"
+
+
 def test_invented_match_id_rejected(db_session) -> None:
     _enable(db_session)
     _identity(db_session)
