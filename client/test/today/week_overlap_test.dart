@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_secretary/today/week_item_type.dart';
 import 'package:personal_secretary/today/week_overlap.dart';
+import 'package:personal_secretary/today/week_today_column.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
 
 void main() {
@@ -95,14 +96,14 @@ void main() {
 
   test('inset and width factors match the dense cascade', () {
     expect(weekOverlapLeftInset(0), 0.00);
-    expect(weekOverlapLeftInset(1), 0.07);
-    expect(weekOverlapLeftInset(2), 0.11);
-    expect(weekOverlapLeftInset(3), 0.15);
-    expect(weekOverlapLeftInset(8), 0.15);
+    expect(weekOverlapLeftInset(1), 0.04);
+    expect(weekOverlapLeftInset(2), 0.07);
+    expect(weekOverlapLeftInset(3), 0.10);
+    expect(weekOverlapLeftInset(8), 0.10);
     expect(weekOverlapWidthFactor(0), 1.00);
-    expect(weekOverlapWidthFactor(1), closeTo(0.93, 0.001));
-    expect(weekOverlapWidthFactor(2), closeTo(0.89, 0.001));
-    expect(weekOverlapWidthFactor(3), closeTo(0.85, 0.001));
+    expect(weekOverlapWidthFactor(1), closeTo(0.96, 0.001));
+    expect(weekOverlapWidthFactor(2), closeTo(0.93, 0.001));
+    expect(weekOverlapWidthFactor(3), closeTo(0.90, 0.001));
   });
 
   test('depth tones are distinguishable and theme-aware', () {
@@ -163,6 +164,31 @@ void main() {
     expect(
       weekTemporalItemTypeSemantics(WeekTemporalItemType.calendarCommitment),
       'Календарное событие',
+    );
+    expect(kWeekWideTypeGlyphSize, 13);
+    expect(kWeekPhoneTypeGlyphSize, 13.5);
+    expect(kWeekWideTypeGlyphSize, greaterThan(kWeekWideProviderGlyphSize));
+    expect(kWeekPhoneTypeGlyphSize, greaterThan(kWeekPhoneProviderGlyphSize));
+    expect(kWeekIdentityRailGap, 2);
+    expect(kWeekTypeGlyphOpacity, inInclusiveRange(0.78, 0.85));
+  });
+
+  test('today column tint is distinct from surface in light and dark', () {
+    void check(ColorScheme scheme) {
+      final tint = weekTodayColumnColor(scheme);
+      expect(tint, isNot(scheme.surface));
+      expect(
+        (tint.computeLuminance() - scheme.surface.computeLuminance()).abs(),
+        greaterThan(0.004),
+      );
+    }
+
+    check(ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)));
+    check(
+      ColorScheme.fromSeed(
+        seedColor: const Color(0xFF1565C0),
+        brightness: Brightness.dark,
+      ),
     );
   });
 }

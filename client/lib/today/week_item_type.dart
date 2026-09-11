@@ -8,8 +8,10 @@ enum WeekTemporalItemType {
   calendarCommitment,
 }
 
-const double kWeekWideTypeGlyphSize = 9.5;
-const double kWeekPhoneTypeGlyphSize = 10.5;
+const double kWeekWideTypeGlyphSize = 13;
+const double kWeekPhoneTypeGlyphSize = 13.5;
+const double kWeekIdentityRailGap = 2;
+const double kWeekTypeGlyphOpacity = 0.82;
 
 IconData weekTemporalItemTypeIcon(WeekTemporalItemType type) {
   switch (type) {

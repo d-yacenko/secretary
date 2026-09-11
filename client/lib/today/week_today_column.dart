@@ -15,7 +15,15 @@ int? weekTodayColumnIndex(WeekOut week) {
   return index;
 }
 
-const double kWeekTodayColumnTintAlpha = 0.05;
+const double kWeekTodayColumnTintAlpha = 0.085;
+
+/// Theme-aware full-column Today tint. Distinct from bare [ColorScheme.surface].
+Color weekTodayColumnColor(ColorScheme scheme) {
+  return Color.alphaBlend(
+    scheme.primary.withValues(alpha: kWeekTodayColumnTintAlpha),
+    scheme.surface,
+  );
+}
 
 /// Hour-lines layer with a restrained today-column tint behind the lines.
 ///
@@ -41,6 +49,7 @@ class WeekTodayColumnHourLines extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final scheme = Theme.of(context).colorScheme;
+                final tint = weekTodayColumnColor(scheme);
                 return Row(
                   children: [
                     for (var i = 0; i < 7; i++)
@@ -48,9 +57,7 @@ class WeekTodayColumnHourLines extends StatelessWidget {
                         child: i == todayIndex
                             ? ColoredBox(
                                 key: const Key('week_today_column_highlight'),
-                                color: scheme.primary.withValues(
-                                  alpha: kWeekTodayColumnTintAlpha,
-                                ),
+                                color: tint,
                               )
                             : const SizedBox.expand(),
                       ),

@@ -164,6 +164,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                   dayHeaderBuilder: (context, date) => _WeekDayHeader(
                     date: date,
                     todayDate: widget.week.todayDate,
+                    showTodayAnchor: widget.week.isCurrentWeek && !compact,
                   ),
                 ),
                 bodyComponents: MultiDayBodyComponents(
@@ -234,17 +235,22 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
 }
 
 class _WeekDayHeader extends StatelessWidget {
-  const _WeekDayHeader({required this.date, required this.todayDate});
+  const _WeekDayHeader({
+    required this.date,
+    required this.todayDate,
+    required this.showTodayAnchor,
+  });
 
   final DateTime date;
   final String todayDate;
+  final bool showTodayAnchor;
 
   @override
   Widget build(BuildContext context) {
     final iso = formatCalendarDate(date);
     final isToday = iso == todayDate;
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
+    final text = Padding(
       key: Key('week_day_$iso'),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       child: Text(
@@ -258,6 +264,14 @@ class _WeekDayHeader extends StatelessWidget {
           fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
         ),
       ),
+    );
+    if (!isToday || !showTodayAnchor) {
+      return text;
+    }
+    return ColoredBox(
+      key: const Key('week_today_header_highlight'),
+      color: weekTodayColumnColor(scheme),
+      child: text,
     );
   }
 }
@@ -289,7 +303,9 @@ class WeekKalenderEventTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
     final denseTitle = !compact && !allDay;
-    final typeColor = scheme.onSurfaceVariant.withValues(alpha: 0.72);
+    final typeColor = scheme.onSurfaceVariant.withValues(
+      alpha: kWeekTypeGlyphOpacity,
+    );
     final tokenColor = bookmarkColor == null
         ? null
         : bookmarkTokenColor(bookmarkColor!, scheme);
@@ -306,7 +322,7 @@ class WeekKalenderEventTile extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
+            padding: EdgeInsets.fromLTRB(4, allDay ? 2 : 1, 4, allDay ? 2 : 1),
             child: Row(
               children: [
                 _WeekEventIdentityRail(
@@ -394,22 +410,49 @@ class _WeekEventIdentityRail extends StatelessWidget {
         : kWeekWideProviderGlyphSize;
     final typeSize = compact ? kWeekPhoneTypeGlyphSize : kWeekWideTypeGlyphSize;
     final glyph = compactProviderGlyphWidget(provider, size: providerSize);
-    return IgnorePointer(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.topCenter,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (glyph != null) glyph,
-            WeekTemporalItemTypeGlyph(
-              objectId: objectId,
-              itemType: itemType,
-              size: typeSize,
-              color: typeColor,
-            ),
-          ],
+    final needed =
+        (glyph != null ? providerSize + kWeekIdentityRailGap : 0) + typeSize;
+    final column = Column(
+      key: Key('week_identity_rail_$objectId'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (glyph != null) ...[
+          SizedBox(
+            width: providerSize,
+            height: providerSize,
+            child: FittedBox(fit: BoxFit.contain, child: glyph),
+          ),
+          const SizedBox(height: kWeekIdentityRailGap),
+        ],
+        WeekTemporalItemTypeGlyph(
+          objectId: objectId,
+          itemType: itemType,
+          size: typeSize,
+          color: typeColor,
         ),
+      ],
+    );
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxH = constraints.maxHeight;
+          final fits = !maxH.isFinite || maxH >= needed;
+          if (fits) {
+            return column;
+          }
+          final railWidth = providerSize > typeSize ? providerSize : typeSize;
+          return SizedBox(
+            width: railWidth,
+            height: maxH,
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.topCenter,
+                maxHeight: needed,
+                child: column,
+              ),
+            ),
+          );
+        },
       ),
     );
   }

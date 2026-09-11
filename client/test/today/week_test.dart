@@ -19,6 +19,7 @@ import 'package:personal_secretary/today/week_kalender_events.dart';
 import 'package:personal_secretary/today/week_overlap.dart';
 import 'package:personal_secretary/today/week_overlap_layout.dart';
 import 'package:personal_secretary/today/week_screen.dart';
+import 'package:personal_secretary/today/week_time_grid.dart';
 import 'package:personal_secretary/today/week_today_column.dart';
 import 'package:personal_secretary/ui/date_format.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
@@ -571,7 +572,8 @@ void main() {
       find.byKey(const Key('week_event_2026-09-07_google-overlap')),
     );
     expect((review.top - overlap.top).abs(), lessThan(80));
-    expect((review.left - overlap.left).abs(), greaterThan(8));
+    expect((review.left - overlap.left).abs(), greaterThan(4));
+    expect((review.left - overlap.left).abs(), lessThan(10));
     expect((review.width - overlap.width).abs(), greaterThan(4));
     final body = tester.widget<CalendarBody>(find.byType(CalendarBody));
     expect(
@@ -1174,7 +1176,7 @@ void main() {
     expect(mutationPaths, isEmpty);
   });
 
-  testWidgets('nested shorter event stays above 90% of the day column', (
+  testWidgets('nested shorter event stays near-full column width', (
     tester,
   ) async {
     tester.view.physicalSize = desktopSize;
@@ -1215,10 +1217,11 @@ void main() {
       find.byKey(const Key('week_event_2026-09-07_short')),
     );
     final ratio = nested.width / long.width;
-    expect(ratio, greaterThan(0.90));
-    expect(ratio, inInclusiveRange(0.90, 0.96));
-    expect(ratio, isNot(inInclusiveRange(0.50, 0.60)));
-    expect(nested.left, greaterThan(long.left + 4));
+    expect(ratio, greaterThanOrEqualTo(0.95));
+    expect(ratio, inInclusiveRange(0.95, 0.98));
+    expect(nested.left, greaterThan(long.left));
+    expect(nested.left - long.left, greaterThan(0));
+    expect(nested.left - long.left, closeTo(long.width * 0.04, 2));
     expect(nested.right, closeTo(long.right, 1.5));
     expect(tester.takeException(), isNull);
   });
@@ -1296,11 +1299,11 @@ void main() {
     expect(find.text('Nest C'), findsOneWidget);
     expect(find.text('Nest D'), findsOneWidget);
     expect({a.width, b.width, c.width, d.width}.length, greaterThan(1));
-    expect(b.width / a.width, inInclusiveRange(0.90, 0.96));
-    expect(c.width / a.width, inInclusiveRange(0.86, 0.92));
-    expect(d.width / a.width, greaterThanOrEqualTo(0.84));
-    expect(d.width / a.width, lessThan(0.90));
-    expect(d.left - a.left, lessThan(a.width * 0.18));
+    expect(b.width / a.width, inInclusiveRange(0.94, 0.98));
+    expect(c.width / a.width, inInclusiveRange(0.91, 0.95));
+    expect(d.width / a.width, greaterThanOrEqualTo(0.89));
+    expect(d.width / a.width, lessThan(0.96));
+    expect(d.left - a.left, lessThan(a.width * 0.12));
     expect(tester.takeException(), isNull);
 
     Future<void> tapExposed(Rect tile) async {
@@ -1418,6 +1421,12 @@ void main() {
                   startAt: '2026-09-07T12:00:00+02:00',
                   dueAt: '2026-09-07T13:00:00+02:00',
                 ),
+                secretaryObjectJson(
+                  id: 'half-hour',
+                  title: 'Thirty minutes',
+                  startAt: '2026-09-07T14:00:00+02:00',
+                  dueAt: '2026-09-07T14:30:00+02:00',
+                ),
               ],
             },
           ),
@@ -1433,8 +1442,16 @@ void main() {
     );
     await pumpCalendar(tester);
 
-    expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_google')), findsNWidgets(2));
     expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_identity_rail_half-hour')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_type_calendar_half-hour')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const Key('week_type_calendar_google-evt')),
       findsOneWidget,
@@ -1455,6 +1472,62 @@ void main() {
           .icon,
       weekTemporalItemTypeIcon(WeekTemporalItemType.calendarCommitment),
     );
+    expect(
+      tester
+          .widget<Icon>(find.byKey(const Key('week_type_calendar_google-evt')))
+          .size,
+      kWeekWideTypeGlyphSize,
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const Key('week_type_calendar_google-evt')))
+          .shortestSide,
+      closeTo(kWeekWideTypeGlyphSize, 0.6),
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const Key('week_type_calendar_google-evt')))
+          .shortestSide,
+      greaterThan(kWeekWideProviderGlyphSize),
+    );
+    final googleTile = find.byKey(
+      const Key('week_event_2026-09-07_google-evt'),
+    );
+    final providerRect = tester.getRect(
+      find.descendant(
+        of: googleTile,
+        matching: find.byKey(const Key('source_mark_google')),
+      ),
+    );
+    final typeRect = tester.getRect(
+      find.byKey(const Key('week_type_calendar_google-evt')),
+    );
+    expect(
+      typeRect.top - providerRect.bottom,
+      closeTo(kWeekIdentityRailGap, 1),
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const Key('week_identity_rail_half-hour')),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is FittedBox && widget.fit == BoxFit.scaleDown,
+        ),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<Icon>(find.byKey(const Key('week_type_calendar_half-hour')))
+          .size,
+      kWeekWideTypeGlyphSize,
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const Key('week_type_calendar_half-hour')))
+          .shortestSide,
+      closeTo(kWeekWideTypeGlyphSize, 0.6),
+    );
+    expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Google type'));
     await pumpCalendar(tester);
@@ -1465,6 +1538,30 @@ void main() {
     await tester.tap(find.text('Yandex type'));
     await pumpCalendar(tester);
     expect(openedId, 'yandex-evt');
+  });
+
+  testWidgets('tiny event tile clips identity rail without overflow', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 140,
+            height: 12,
+            child: WeekKalenderEventTile(
+              objectId: 'tiny',
+              title: 'Tiny',
+              provider: 'google_calendar',
+              allDay: false,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('week_identity_rail_tiny')), findsOneWidget);
+    expect(find.byKey(const Key('week_type_calendar_tiny')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('wide current week tints exactly today column', (tester) async {
@@ -1481,6 +1578,23 @@ void main() {
       find.byKey(const Key('week_today_column_highlight')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('week_today_header_highlight')),
+      findsOneWidget,
+    );
+    final highlightBox = tester.widget<ColoredBox>(
+      find.byKey(const Key('week_today_column_highlight')),
+    );
+    final headerBox = tester.widget<ColoredBox>(
+      find.byKey(const Key('week_today_header_highlight')),
+    );
+    final scheme = Theme.of(
+      tester.element(find.byKey(const Key('week_today_column_highlight'))),
+    ).colorScheme;
+    final expectedTint = weekTodayColumnColor(scheme);
+    expect(highlightBox.color, expectedTint);
+    expect(headerBox.color, expectedTint);
+    expect(highlightBox.color, isNot(scheme.surface));
     final highlight = tester.getRect(
       find.byKey(const Key('week_today_column_highlight')),
     );
@@ -1509,6 +1623,7 @@ void main() {
     );
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
 
     tester.view.physicalSize = const Size(360, 760);
     await tester.pumpWidget(
@@ -1519,6 +1634,7 @@ void main() {
     );
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
   });
 
   testWidgets('today column highlight follows current-week navigation', (
@@ -1553,11 +1669,16 @@ void main() {
     await tester.tap(find.byKey(const Key('week_nav_prev')));
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
 
     await tester.tap(find.byKey(const Key('week_nav_current')));
     await pumpCalendar(tester);
     expect(
       find.byKey(const Key('week_today_column_highlight')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_today_header_highlight')),
       findsOneWidget,
     );
     final highlight = tester.getRect(

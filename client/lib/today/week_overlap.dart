@@ -6,8 +6,8 @@ const int kWeekOverlapMaxDepth = 3;
 
 /// Left inset of the day column for stack depths 0..3.
 ///
-/// Useful widths are the complement: 100%, 93%, 89%, 85%.
-const List<double> kWeekOverlapLeftInsets = [0.00, 0.07, 0.11, 0.15];
+/// Useful widths are the complement: 100%, 96%, 93%, 90%.
+const List<double> kWeekOverlapLeftInsets = [0.00, 0.04, 0.07, 0.10];
 
 const double kWeekWideEventTitleSize = 10.5;
 const double kWeekWideEventTitleHeight = 1.15;
