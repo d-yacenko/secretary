@@ -12,6 +12,7 @@ import '../navigation/secretary_navigation.dart';
 import '../ui/date_format.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/passive_snapshot_refresh.dart';
+import 'week_kalender_events.dart';
 import 'week_time_grid.dart';
 
 enum WeekLoadState { loading, ready, error }
@@ -127,6 +128,12 @@ class _WeekScreenState extends State<WeekScreen> {
     try {
       final snapshot = await widget.apiClient.getWeek(weekStart: weekStart);
       if (!mounted || generation != _requestGeneration) {
+        return;
+      }
+      if (_loadState == WeekLoadState.ready &&
+          _week != null &&
+          weekPresentationSignature(snapshot) ==
+              weekPresentationSignature(_week!)) {
         return;
       }
       setState(() {

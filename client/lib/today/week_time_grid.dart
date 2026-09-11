@@ -43,14 +43,19 @@ class WeekTimeGrid extends StatefulWidget {
 class _WeekTimeGridState extends State<WeekTimeGrid> {
   final _events = DefaultEventsController();
   final _calendar = CalendarController();
-  late DateTime Function() _now;
   ViewConfiguration? _viewConfiguration;
+  String? _eventsSignature;
+  String? _configWeekStart;
+  bool? _configCompact;
+  bool? _configCurrentWeek;
+
+  DateTime _nowCallback() => (widget.now ?? DateTime.now)();
 
   @override
   void initState() {
     super.initState();
-    _now = widget.now ?? DateTime.now;
     widget.bookmarks.addListener(_onBookmarksChanged);
+    _eventsSignature = weekPresentationSignature(widget.week);
     _events.replaceEvents(weekOutToKalenderEvents(widget.week));
   }
 
@@ -61,8 +66,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       oldWidget.bookmarks.removeListener(_onBookmarksChanged);
       widget.bookmarks.addListener(_onBookmarksChanged);
     }
-    _now = widget.now ?? DateTime.now;
-    _events.replaceEvents(weekOutToKalenderEvents(widget.week));
+    final nextSignature = weekPresentationSignature(widget.week);
+    if (nextSignature != _eventsSignature) {
+      _eventsSignature = nextSignature;
+      _events.replaceEvents(weekOutToKalenderEvents(widget.week));
+    }
     if (oldWidget.week.weekStart != widget.week.weekStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_calendar.isAttached) {
@@ -92,20 +100,17 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     return DateTime(civil.year, civil.month, civil.day);
   }
 
-  ViewConfiguration _buildViewConfiguration() {
+  ViewConfiguration _buildViewConfiguration({
+    required bool compact,
+    required TimeOfDay initialTime,
+  }) {
     final initial = _civilLocal(widget.week.weekStart);
-    final now = _now();
-    final initialTime = widget.week.isCurrentWeek
-        ? TimeOfDay(hour: now.hour, minute: now.minute)
-        : const TimeOfDay(hour: 8, minute: 0);
-    final compact =
-        MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
     if (compact) {
       return MultiDayViewConfiguration.singleDay(
         initialDateTime: initial,
         initialTimeOfDay: initialTime,
         initialHeightPerMinute: 0.9,
-        nowCallback: _now,
+        nowCallback: _nowCallback,
       );
     }
     return MultiDayViewConfiguration.week(
@@ -113,7 +118,29 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       firstDayOfWeek: DateTime.monday,
       initialTimeOfDay: initialTime,
       initialHeightPerMinute: 0.9,
-      nowCallback: _now,
+      nowCallback: _nowCallback,
+    );
+  }
+
+  void _syncViewConfiguration({required bool compact}) {
+    final weekStart = widget.week.weekStart;
+    final isCurrent = widget.week.isCurrentWeek;
+    if (_viewConfiguration != null &&
+        _configWeekStart == weekStart &&
+        _configCompact == compact &&
+        _configCurrentWeek == isCurrent) {
+      return;
+    }
+    final now = _nowCallback();
+    final initialTime = isCurrent
+        ? TimeOfDay(hour: now.hour, minute: now.minute)
+        : const TimeOfDay(hour: 8, minute: 0);
+    _configWeekStart = weekStart;
+    _configCompact = compact;
+    _configCurrentWeek = isCurrent;
+    _viewConfiguration = _buildViewConfiguration(
+      compact: compact,
+      initialTime: initialTime,
     );
   }
 
@@ -134,7 +161,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   Widget build(BuildContext context) {
     final compact =
         MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
-    _viewConfiguration = _buildViewConfiguration();
+    _syncViewConfiguration(compact: compact);
     final empty = widget.week.days.every((day) => day.events.isEmpty);
     final tiles = TileComponents(tileBuilder: _tileBuilder);
     return Column(
@@ -164,7 +191,6 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                   dayHeaderBuilder: (context, date) => _WeekDayHeader(
                     date: date,
                     todayDate: widget.week.todayDate,
-                    showTodayAnchor: widget.week.isCurrentWeek && !compact,
                   ),
                 ),
                 bodyComponents: MultiDayBodyComponents(
@@ -235,43 +261,72 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
 }
 
 class _WeekDayHeader extends StatelessWidget {
-  const _WeekDayHeader({
-    required this.date,
-    required this.todayDate,
-    required this.showTodayAnchor,
-  });
+  const _WeekDayHeader({required this.date, required this.todayDate});
 
   final DateTime date;
   final String todayDate;
-  final bool showTodayAnchor;
 
   @override
   Widget build(BuildContext context) {
     final iso = formatCalendarDate(date);
     final isToday = iso == todayDate;
     final scheme = Theme.of(context).colorScheme;
-    final text = Padding(
-      key: Key('week_day_$iso'),
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: Text(
-        key: Key(isToday ? 'week_day_today_$iso' : 'week_day_header_$iso'),
-        '${formatRussianWeekdayShort(date)} ${formatRussianDayMonth(date)}',
-        textAlign: TextAlign.center,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: isToday ? scheme.primary : null,
-          fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
+    if (!isToday) {
+      return Padding(
+        key: Key('week_day_$iso'),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Text(
+          key: Key('week_day_header_$iso'),
+          '${formatRussianWeekdayShort(date)} ${formatRussianDayMonth(date)}',
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w500),
         ),
-      ),
-    );
-    if (!isToday || !showTodayAnchor) {
-      return text;
+      );
     }
-    return ColoredBox(
-      key: const Key('week_today_header_highlight'),
-      color: weekTodayColumnColor(scheme),
-      child: text,
+    final fill = weekTodayBadgeFill(scheme);
+    final onFill = weekTodayBadgeForeground(scheme);
+    return Padding(
+      key: Key('week_day_$iso'),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            formatRussianWeekdayShort(date),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 2),
+          DecoratedBox(
+            key: const Key('week_today_date_badge'),
+            decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+            child: SizedBox(
+              width: kWeekTodayBadgeSize,
+              height: kWeekTodayBadgeSize,
+              child: Center(
+                child: Text(
+                  key: Key('week_day_today_$iso'),
+                  '${date.day}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: onFill,
+                    fontWeight: FontWeight.w600,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

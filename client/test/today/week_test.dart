@@ -558,7 +558,9 @@ void main() {
         ),
       );
     }
-    expect(find.text('Пн 7 сентября'), findsOneWidget);
+    expect(find.text('Пн 7 сентября'), findsNothing);
+    expect(find.text('Пн'), findsOneWidget);
+    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
     expect(find.text('Вс 13 сентября'), findsOneWidget);
     expect(
       tester
@@ -1595,23 +1597,30 @@ void main() {
       find.byKey(const Key('week_today_column_highlight')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const Key('week_today_header_highlight')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
     final highlightBox = tester.widget<ColoredBox>(
       find.byKey(const Key('week_today_column_highlight')),
     );
-    final headerBox = tester.widget<ColoredBox>(
-      find.byKey(const Key('week_today_header_highlight')),
+    final badge = tester.widget<DecoratedBox>(
+      find.byKey(const Key('week_today_date_badge')),
     );
     final scheme = Theme.of(
       tester.element(find.byKey(const Key('week_today_column_highlight'))),
     ).colorScheme;
     final expectedTint = weekTodayColumnColor(scheme);
     expect(highlightBox.color, expectedTint);
-    expect(headerBox.color, expectedTint);
     expect(highlightBox.color, isNot(scheme.surface));
+    expect(badge.decoration, isA<BoxDecoration>());
+    final decoration = badge.decoration as BoxDecoration;
+    expect(decoration.shape, BoxShape.circle);
+    expect(decoration.color, weekTodayBadgeFill(scheme));
+    expect(decoration.color, isNot(expectedTint));
+    final number = tester.widget<Text>(
+      find.byKey(const Key('week_day_today_2026-09-10')),
+    );
+    expect(number.data, '10');
+    expect(number.style?.color, weekTodayBadgeForeground(scheme));
     final highlight = tester.getRect(
       find.byKey(const Key('week_today_column_highlight')),
     );
@@ -1641,6 +1650,7 @@ void main() {
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
 
     tester.view.physicalSize = const Size(360, 760);
     await tester.pumpWidget(
@@ -1652,6 +1662,29 @@ void main() {
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
+  });
+
+  testWidgets('phone today header uses the circular date badge', (
+    tester,
+  ) async {
+    const phone = Size(360, 760);
+    tester.view.physicalSize = phone;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(week: (_) => weekPayload(todayDate: '2026-09-07')),
+        size: phone,
+      ),
+    );
+    await pumpCalendar(tester);
+    expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_day_today_2026-09-07')), findsOneWidget);
+    expect(find.text('Пн 7 сентября'), findsNothing);
   });
 
   testWidgets('today column highlight follows current-week navigation', (
@@ -1687,6 +1720,7 @@ void main() {
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
 
     await tester.tap(find.byKey(const Key('week_nav_current')));
     await pumpCalendar(tester);
@@ -1694,10 +1728,8 @@ void main() {
       find.byKey(const Key('week_today_column_highlight')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const Key('week_today_header_highlight')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
     final highlight = tester.getRect(
       find.byKey(const Key('week_today_column_highlight')),
     );
@@ -2285,5 +2317,155 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await pumpCalendar(tester);
     expect(weekCalls, 2);
+  });
+
+  testWidgets('identical passive refresh keeps event vertical position', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final mock = weekClient(
+      week: (_) {
+        weekCalls += 1;
+        return weekPayload(
+          eventsByDate: {
+            '2026-09-07': [
+              secretaryObjectJson(
+                id: 'stable',
+                title: 'Stable meeting',
+                startAt: '2026-09-07T10:00:00+02:00',
+                dueAt: '2026-09-07T11:00:00+02:00',
+              ),
+            ],
+          },
+        );
+      },
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    final before = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await pumpCalendar(tester);
+    expect(weekCalls, greaterThan(1));
+    expect(find.text('Stable meeting'), findsOneWidget);
+    expect(find.text('7–13 сентября'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final after = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(after.top, closeTo(before.top, 0.5));
+    expect(after.left, closeTo(before.left, 0.5));
+  });
+
+  testWidgets('advancing now does not move the event viewport', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var clock = DateTime(2026, 9, 10, 10, 0);
+    final mock = weekClient(
+      week: (_) => weekPayload(
+        eventsByDate: {
+          '2026-09-07': [
+            secretaryObjectJson(
+              id: 'stable',
+              title: 'Stable meeting',
+              startAt: '2026-09-07T10:00:00+02:00',
+              dueAt: '2026-09-07T11:00:00+02:00',
+            ),
+          ],
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        now: () => clock,
+        passiveRefreshInterval: const Duration(days: 1),
+      ),
+    );
+    await pumpCalendar(tester);
+    final before = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+
+    clock = clock.add(const Duration(minutes: 1));
+    await tester.pump(const Duration(minutes: 1));
+    await pumpCalendar(tester);
+    final after = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(after.top, closeTo(before.top, 0.5));
+    expect(find.text('Stable meeting'), findsOneWidget);
+  });
+
+  testWidgets('changed passive snapshot adds events without recentering', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final mock = weekClient(
+      week: (_) {
+        weekCalls += 1;
+        return weekPayload(
+          eventsByDate: {
+            '2026-09-07': [
+              secretaryObjectJson(
+                id: 'stable',
+                title: 'Stable meeting',
+                startAt: '2026-09-07T10:00:00+02:00',
+                dueAt: '2026-09-07T11:00:00+02:00',
+              ),
+              if (weekCalls > 1)
+                secretaryObjectJson(
+                  id: 'later',
+                  title: 'Later meeting',
+                  startAt: '2026-09-07T16:00:00+02:00',
+                  dueAt: '2026-09-07T17:00:00+02:00',
+                ),
+            ],
+          },
+        );
+      },
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    final before = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(find.text('Later meeting'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await pumpCalendar(tester);
+    expect(find.text('Later meeting'), findsOneWidget);
+    expect(find.text('7–13 сентября'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final after = tester.getRect(
+      find.byKey(const Key('week_event_2026-09-07_stable')),
+    );
+    expect(after.top, closeTo(before.top, 0.5));
   });
 }

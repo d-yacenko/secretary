@@ -116,7 +116,27 @@ void main() {
     for (final label in ['Входящие', 'Сегодня', 'Граф', 'Поиск', 'Секретарь']) {
       expect(find.text(label), findsWidgets);
     }
-    expect(find.text('Добавить'), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byType(FloatingActionButton),
+        matching: find.text('Задача'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(FloatingActionButton),
+        matching: find.byIcon(Icons.add),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(FloatingActionButton),
+        matching: find.text('Добавить'),
+      ),
+      findsNothing,
+    );
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byType(PlaceholderScreen), findsNothing);
   });
@@ -155,7 +175,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.text('Добавить'), findsWidgets);
+    final addButton = find.byKey(const Key('shell_add_button'));
+    expect(
+      find.descendant(of: addButton, matching: find.text('Задача')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: addButton, matching: find.text('Добавить')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: addButton, matching: find.byIcon(Icons.add)),
+      findsOneWidget,
+    );
     expect(find.byType(FloatingActionButton), findsNothing);
   });
 

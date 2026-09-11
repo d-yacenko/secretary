@@ -98,7 +98,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Входящие'), findsWidgets);
-    expect(find.text('Добавить'), findsWidgets);
+    expect(find.text('Задача'), findsWidgets);
   });
 
   testWidgets('invalid token / 401 returns to auth setup', (tester) async {

@@ -188,7 +188,7 @@ class _AppShellState extends State<AppShell> {
               key: const Key('shell_add_button'),
               onPressed: _openCapture,
               icon: const Icon(Icons.add),
-              label: const Text('Добавить'),
+              label: const Text('Задача'),
             ),
           )
         : null;
@@ -244,21 +244,22 @@ class _AppShellState extends State<AppShell> {
                   destination == ShellDestination.graph))
             IconButton(
               icon: const Icon(Icons.add),
-              tooltip: 'Добавить',
+              tooltip: 'Задача',
               onPressed: _openCapture,
             ),
           accountAction,
         ],
       ),
       body: _destinationScreen(destination),
-      floatingActionButton: isWide ||
+      floatingActionButton:
+          isWide ||
               destination == ShellDestination.assistant ||
               destination == ShellDestination.graph
           ? null
           : FloatingActionButton.extended(
               onPressed: _openCapture,
               icon: const Icon(Icons.add),
-              label: const Text('Добавить'),
+              label: const Text('Задача'),
             ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,

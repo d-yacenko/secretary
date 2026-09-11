@@ -16,6 +16,7 @@ int? weekTodayColumnIndex(WeekOut week) {
 }
 
 const double kWeekTodayColumnTintAlpha = 0.085;
+const double kWeekTodayBadgeSize = 26;
 
 /// Theme-aware full-column Today tint. Distinct from bare [ColorScheme.surface].
 Color weekTodayColumnColor(ColorScheme scheme) {
@@ -23,6 +24,22 @@ Color weekTodayColumnColor(ColorScheme scheme) {
     scheme.primary.withValues(alpha: kWeekTodayColumnTintAlpha),
     scheme.surface,
   );
+}
+
+/// Saturated Today date-badge fill. Independent of provider, overlap, bookmark.
+///
+/// App primary (indigo seed) is too muted/lavender for a Google-like date
+/// circle, so this uses a local semantic blue still split by theme brightness.
+Color weekTodayBadgeFill(ColorScheme scheme) {
+  return scheme.brightness == Brightness.dark
+      ? const Color(0xFF90CAF9)
+      : const Color(0xFF1565C0);
+}
+
+Color weekTodayBadgeForeground(ColorScheme scheme) {
+  return scheme.brightness == Brightness.dark
+      ? const Color(0xFF0D47A1)
+      : const Color(0xFFFFFFFF);
 }
 
 /// Hour-lines layer with a restrained today-column tint behind the lines.

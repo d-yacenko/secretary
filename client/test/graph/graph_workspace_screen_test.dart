@@ -51,7 +51,7 @@ void main() {
 
       if (size.width < 900) {
         expect(find.byType(FloatingActionButton), findsNothing);
-        expect(find.byTooltip('Добавить'), findsOneWidget);
+        expect(find.byTooltip('Задача'), findsOneWidget);
       }
 
       await tester.tap(find.byTooltip('Уместить граф'));

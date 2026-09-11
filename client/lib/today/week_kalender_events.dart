@@ -46,6 +46,44 @@ class SecretaryWeekEvent extends CalendarEvent {
   int get hashCode => Object.hash(super.hashCode, title, provider, itemType);
 }
 
+/// Deterministic rendered-projection identity for Week layout updates.
+///
+/// Covers week identity, today metadata, and layout-relevant event fields.
+/// Unrelated Object metadata is omitted so equivalent snapshots do not relayout.
+String weekPresentationSignature(WeekOut week) {
+  final buffer = StringBuffer()
+    ..write(week.weekStart)
+    ..write('|')
+    ..write(week.weekEnd)
+    ..write('|')
+    ..write(week.todayDate)
+    ..write('|')
+    ..write(week.isCurrentWeek);
+  for (final day in week.days) {
+    buffer
+      ..write('|')
+      ..write(day.date)
+      ..write(':');
+    for (final event in day.events) {
+      final object = event.object;
+      buffer
+        ..write(object.id)
+        ..write('\t')
+        ..write(object.title)
+        ..write('\t')
+        ..write(object.provider ?? '')
+        ..write('\t')
+        ..write(object.startAt ?? '')
+        ..write('\t')
+        ..write(object.dueAt ?? '')
+        ..write('\t')
+        ..write(event.allDay)
+        ..write(';');
+    }
+  }
+  return buffer.toString();
+}
+
 /// Unique events from a Week projection, using original start/end instants.
 ///
 /// The backend repeats an Object on every overlapping local day. Kalender must

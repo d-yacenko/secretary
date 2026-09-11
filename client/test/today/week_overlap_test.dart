@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/today/week_item_type.dart';
+import 'package:personal_secretary/today/week_kalender_events.dart';
 import 'package:personal_secretary/today/week_overlap.dart';
 import 'package:personal_secretary/today/week_today_column.dart';
 import 'package:personal_secretary/ui/object_bookmark.dart';
@@ -188,6 +190,98 @@ void main() {
         seedColor: const Color(0xFF1565C0),
         brightness: Brightness.dark,
       ),
+    );
+  });
+
+  test(
+    'today badge is a saturated blue distinct from the pale column tint',
+    () {
+      void check(ColorScheme scheme) {
+        final fill = weekTodayBadgeFill(scheme);
+        final onFill = weekTodayBadgeForeground(scheme);
+        expect(fill, isNot(weekTodayColumnColor(scheme)));
+        expect(fill, isNot(scheme.surface));
+        expect(weekOverlapContrastRatio(fill, onFill), greaterThan(4.5));
+      }
+
+      check(ColorScheme.fromSeed(seedColor: Colors.indigo));
+      check(
+        ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.dark,
+        ),
+      );
+    },
+  );
+
+  test('week presentation signature ignores unrelated metadata', () {
+    WeekOut from({
+      String title = 'Office',
+      String updatedAt = '2026-09-07T08:00:00Z',
+      String? extraEventId,
+    }) {
+      return WeekOut.fromJson({
+        'week_start': '2026-09-07',
+        'week_end': '2026-09-14',
+        'timezone': 'Europe/Amsterdam',
+        'window_start': '2026-09-07T00:00:00+02:00',
+        'window_end': '2026-09-14T00:00:00+02:00',
+        'today_date': '2026-09-10',
+        'is_current_week': true,
+        'days': [
+          {
+            'date': '2026-09-07',
+            'is_today': false,
+            'events': [
+              {
+                'id': 'evt-a',
+                'kind': 'event',
+                'title': title,
+                'body': null,
+                'provider': 'google_calendar',
+                'start_at': '2026-09-07T10:00:00+02:00',
+                'due_at': '2026-09-07T11:00:00+02:00',
+                'metadata': {},
+                'origin': 'source',
+                'state': 'observed',
+                'created_at': '2026-09-07T08:00:00Z',
+                'updated_at': updatedAt,
+                'all_day': false,
+              },
+              if (extraEventId != null)
+                {
+                  'id': extraEventId,
+                  'kind': 'event',
+                  'title': 'Later',
+                  'body': null,
+                  'provider': 'google_calendar',
+                  'start_at': '2026-09-07T14:00:00+02:00',
+                  'due_at': '2026-09-07T15:00:00+02:00',
+                  'metadata': {},
+                  'origin': 'source',
+                  'state': 'observed',
+                  'created_at': '2026-09-07T08:00:00Z',
+                  'updated_at': updatedAt,
+                  'all_day': false,
+                },
+            ],
+          },
+        ],
+      });
+    }
+
+    final a = from();
+    final same = from(updatedAt: '2026-09-10T08:00:00Z');
+    final renamed = from(title: 'Renamed');
+    final added = from(extraEventId: 'evt-b');
+    expect(weekPresentationSignature(a), weekPresentationSignature(same));
+    expect(
+      weekPresentationSignature(a),
+      isNot(weekPresentationSignature(renamed)),
+    );
+    expect(
+      weekPresentationSignature(a),
+      isNot(weekPresentationSignature(added)),
     );
   });
 }

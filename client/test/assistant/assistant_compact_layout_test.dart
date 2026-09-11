@@ -185,7 +185,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(FloatingActionButton), findsNothing);
-    expect(find.byTooltip('Добавить'), findsOneWidget);
+    expect(find.byTooltip('Задача'), findsOneWidget);
     expect(find.byKey(const Key('assistant_input')), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     assistant.dispose();
