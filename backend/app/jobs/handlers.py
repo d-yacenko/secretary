@@ -159,9 +159,6 @@ def handle_embed_object(
     parent_trace_id = _parent_trace_id_from_payload(payload)
     if not payload_sig or payload_sig != current_sig:
         enqueue_embed_object(session, object_id, user_id)
-        _enqueue_embed_downstream(
-            session, object_id, user_id, obj, parent_trace_id=parent_trace_id
-        )
         return
     if has_done_embedding_proof(session, user_id, object_id, current_sig) and obj.embedding is not None:
         _embed_unembedded_chunks(session, embedding_service, object_id, user_id, parent_trace_id)
@@ -182,9 +179,6 @@ def handle_embed_object(
             return
         if embedding_input_signature(live) != payload_sig:
             enqueue_embed_object(session, object_id, user_id)
-            _enqueue_embed_downstream(
-                session, object_id, user_id, live, parent_trace_id=parent_trace_id
-            )
             return
         service = _resolve_embedding_service(session, user_id, embedding_service)
         embedding = service.embed(canonical_embedding_text(live))

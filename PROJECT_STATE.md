@@ -2,7 +2,11 @@
 
 ## Current phase
 
-OpenAI Cost Guard B — embedding revision idempotency: **implemented / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact production parent `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at that SHA. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. No Alembic migration. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No general token/cost circuit breaker.
+OpenAI Cost Guard B-R1 — embedding proof/recovery + downstream ordering: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact parent `1dd5aab3c67adfceb58f9561146a7d029d956371`. Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. No Alembic migration. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+
+DONE embed jobs prove a paid object embedding only together with `Object.embedding`. Missing vector recovers through one current signed job. Unsigned/stale jobs no longer enqueue correlation/auto-label before the current embedding exists.
+
+OpenAI Cost Guard B — embedding revision idempotency: **implemented / awaiting Architect review** at `1dd5aab3c67adfceb58f9561146a7d029d956371` (parent `f20a68256b2a3061a4aaf9143893d7187a90a3d3`). Canonical semantic embedding input signature. Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at that production SHA. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. No Alembic migration. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No general token/cost circuit breaker.
 
 Live-credit window `2026-09-11T18:32:10.305527Z`–`2026-09-11T19:05:00.089588Z` showed Cost Guard A suppressing duplicate correlation (25 model calls / 25 Yandex events) while object-level embedding still churned (403 embedding API calls / 28 objects). Cost Guard B binds paid object embeddings to a canonical semantic input signature.
 

@@ -173,6 +173,16 @@ def _correlate_jobs(db_session) -> list[Job]:
     )
 
 
+def _auto_label_jobs(db_session) -> list[Job]:
+    return list(
+        db_session.scalars(
+            select(Job)
+            .where(Job.type == JOB_TYPE_AUTO_LABEL_OBJECT)
+            .order_by(Job.created_at, Job.id)
+        )
+    )
+
+
 def _run_embed(db_session, payload: dict, service: CountingEmbeddingService) -> None:
     handle_embed_object(db_session, service, payload, BOOTSTRAP_USER_ID)
 
@@ -636,3 +646,185 @@ def test_canonical_text_omits_compact_housekeeping(db_session) -> None:
     assert "Room 1" in text
     assert "owner@example.com" in text
     assert "a@example.com" in text
+
+
+def test_done_without_vector_enqueues_one_recovery_signed_job(db_session) -> None:
+    note = _note(db_session, "Recover me", body="body")
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    first = _embed_jobs(db_session)[0]
+    _run_embed(db_session, first.payload, service)
+    first.status = JOB_STATUS_DONE
+    db_session.flush()
+    db_session.refresh(note)
+    assert note.embedding is not None
+    note.embedding = None
+    db_session.flush()
+    current_sig = embedding_input_signature(note)
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    jobs = _embed_jobs(db_session)
+    assert first.status == JOB_STATUS_DONE
+    assert any(job.id == first.id and job.status == JOB_STATUS_DONE for job in jobs)
+    recovery = [
+        job
+        for job in jobs
+        if job.id != first.id
+        and job.payload.get("embedding_input_signature") == current_sig
+        and job.status == JOB_STATUS_PENDING
+    ]
+    assert len(recovery) == 1
+    assert len(service.calls) == 1
+    _run_embed(db_session, recovery[0].payload, service)
+    assert len(service.calls) == 2
+    recovery[0].status = JOB_STATUS_DONE
+    db_session.flush()
+    db_session.refresh(note)
+    assert note.embedding is not None
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    assert len(_embed_jobs(db_session)) == 2
+    _run_embed(db_session, recovery[0].payload, service)
+    assert len(service.calls) == 2
+
+
+def test_unsigned_job_does_not_enqueue_downstream_before_signed_success(db_session) -> None:
+    _enable_auto_label(db_session)
+    note = _note(db_session, "New unsigned", body="body")
+    service = CountingEmbeddingService()
+    unsigned = JobQueueService(db_session).enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(note.id)},
+        BOOTSTRAP_USER_ID,
+    )
+    _run_embed(db_session, unsigned.payload, service)
+    assert service.calls == []
+    signed = [
+        job
+        for job in _embed_jobs(db_session)
+        if job.payload.get("embedding_input_signature") == embedding_input_signature(note)
+    ]
+    assert len(signed) == 1
+    assert _correlate_jobs(db_session) == []
+    assert _auto_label_jobs(db_session) == []
+    _run_embed(db_session, signed[0].payload, service)
+    assert len(service.calls) == 1
+    assert len(_correlate_jobs(db_session)) == 1
+    assert len(_auto_label_jobs(db_session)) == 1
+
+
+def test_stale_signed_job_does_not_enqueue_downstream_before_current_success(
+    db_session,
+) -> None:
+    _enable_auto_label(db_session)
+    note = _note(db_session, "S1", body="one")
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    stale = _embed_jobs(db_session)[0]
+    _run_embed(db_session, stale.payload, service)
+    stale.status = JOB_STATUS_DONE
+    db_session.flush()
+    first_corr = len(_correlate_jobs(db_session))
+    first_auto = len(_auto_label_jobs(db_session))
+    note.body = "two"
+    db_session.flush()
+    _run_embed(db_session, stale.payload, service)
+    assert len(service.calls) == 1
+    current = next(job for job in _embed_jobs(db_session) if job.id != stale.id)
+    assert len(_correlate_jobs(db_session)) == first_corr
+    assert len(_auto_label_jobs(db_session)) == first_auto
+    _run_embed(db_session, current.payload, service)
+    assert len(service.calls) == 2
+    assert len(_correlate_jobs(db_session)) == first_corr + 1
+    assert len(_auto_label_jobs(db_session)) == first_auto + 1
+
+
+def test_stale_embedding_model_does_not_enqueue_downstream_before_current_success(
+    db_session, monkeypatch
+) -> None:
+    _enable_auto_label(db_session)
+    note = _note(db_session, "Model", body="text")
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, note.id, BOOTSTRAP_USER_ID)
+    stale = _embed_jobs(db_session)[0]
+    _run_embed(db_session, stale.payload, service)
+    stale.status = JOB_STATUS_DONE
+    db_session.flush()
+    first_corr = len(_correlate_jobs(db_session))
+    monkeypatch.setattr(
+        "app.llm.embedding_text.effective_embedding_model",
+        lambda: "text-embedding-3-large",
+    )
+    monkeypatch.setattr(
+        "app.llm.embedding_text.embedding_input_version",
+        lambda: "cost_guard_b2",
+    )
+    _run_embed(db_session, stale.payload, service)
+    assert len(service.calls) == 1
+    current_sig = embedding_input_signature(note)
+    current = next(
+        job
+        for job in _embed_jobs(db_session)
+        if job.payload.get("embedding_input_signature") == current_sig
+    )
+    assert len(_correlate_jobs(db_session)) == first_corr
+    _run_embed(db_session, current.payload, service)
+    assert len(service.calls) == 2
+    assert len(_correlate_jobs(db_session)) == first_corr
+
+
+def test_unsigned_housekeeping_churn_with_done_vector_runs_downstream_signature_checks(
+    db_session,
+) -> None:
+    _enable_auto_label(db_session)
+    event = _yandex_event(db_session)
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, event.id, BOOTSTRAP_USER_ID)
+    done = _embed_jobs(db_session)[0]
+    _run_embed(db_session, done.payload, service)
+    done.status = JOB_STATUS_DONE
+    db_session.flush()
+    first_corr_sig = correlation_input_signature(event)
+    first_corr_count = len(_correlate_jobs(db_session))
+    first_auto_count = len(_auto_label_jobs(db_session))
+    event.metadata_ = {
+        **dict(event.metadata_ or {}),
+        "etag": "etag-churned",
+        "href": "/moved.ics",
+        "last_modified": "20260912T000000Z",
+    }
+    flag_modified(event, "metadata_")
+    db_session.flush()
+    unsigned = JobQueueService(db_session).enqueue(
+        JOB_TYPE_EMBED_OBJECT,
+        {"object_id": str(event.id)},
+        BOOTSTRAP_USER_ID,
+    )
+    _run_embed(db_session, unsigned.payload, service)
+    assert len(service.calls) == 1
+    assert len(_embed_jobs(db_session)) == 2
+    assert correlation_input_signature(event) == first_corr_sig
+    assert len(_correlate_jobs(db_session)) == first_corr_count
+    assert len(_auto_label_jobs(db_session)) == first_auto_count
+
+
+def test_done_current_signature_with_vector_zero_paid_embed_downstream_independent(
+    db_session,
+) -> None:
+    event = _yandex_event(db_session)
+    service = CountingEmbeddingService()
+    enqueue_embed_object(db_session, event.id, BOOTSTRAP_USER_ID)
+    job = _embed_jobs(db_session)[0]
+    _run_embed(db_session, job.payload, service)
+    job.status = JOB_STATUS_DONE
+    db_session.flush()
+    first_corr = len(_correlate_jobs(db_session))
+    event.metadata_ = {**dict(event.metadata_ or {}), "thread_id": "thread-2"}
+    flag_modified(event, "metadata_")
+    event.occurred_at = datetime(2026, 9, 11, 15, 0, tzinfo=UTC)
+    db_session.flush()
+    enqueue_embed_object(db_session, event.id, BOOTSTRAP_USER_ID)
+    assert len(_embed_jobs(db_session)) == 1
+    assert len(service.calls) == 1
+    assert len(_correlate_jobs(db_session)) == first_corr + 1

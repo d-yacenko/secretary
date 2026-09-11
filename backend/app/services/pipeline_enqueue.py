@@ -149,10 +149,11 @@ def enqueue_embed_object(session: Session, object_id: UUID, user_id: UUID) -> No
     if obj is None:
         return
     signature = embedding_input_signature(obj)
-    if _has_embedding_signature_job(session, user_id, object_id, signature):
-        if has_done_embedding_proof(session, user_id, object_id, signature) and obj.embedding is not None:
-            enqueue_correlate_object(session, object_id, user_id, obj.kind)
-            enqueue_auto_label_object(session, object_id, user_id)
+    if _has_active_embedding_signature_job(session, user_id, object_id, signature):
+        return
+    if has_done_embedding_proof(session, user_id, object_id, signature) and obj.embedding is not None:
+        enqueue_correlate_object(session, object_id, user_id, obj.kind)
+        enqueue_auto_label_object(session, object_id, user_id)
         return
     payload = embed_job_payload(obj, parent_trace_id=_active_parent_trace_id())
     JobQueueService(session).enqueue(
@@ -210,7 +211,7 @@ def _has_correlation_signature_job(
     )
 
 
-def _has_embedding_signature_job(
+def _has_active_embedding_signature_job(
     session: Session,
     user_id: UUID,
     object_id: UUID,
@@ -223,6 +224,7 @@ def _has_embedding_signature_job(
         object_id,
         "embedding_input_signature",
         signature,
+        statuses=(JOB_STATUS_PENDING, JOB_STATUS_RUNNING),
     )
 
 
@@ -233,13 +235,15 @@ def _has_signature_job(
     object_id: UUID,
     signature_key: str,
     signature: str,
+    *,
+    statuses: tuple[str, ...] = (JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_DONE),
 ) -> bool:
     existing_id = session.scalar(
         select(Job.id)
         .where(
             Job.user_id == user_id,
             Job.type == job_type,
-            Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_DONE)),
+            Job.status.in_(statuses),
             Job.payload["object_id"].as_string() == str(object_id),
             Job.payload[signature_key].as_string() == signature,
         )
