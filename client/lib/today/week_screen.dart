@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_error.dart';
@@ -9,6 +11,7 @@ import '../capture/capture_controller.dart';
 import '../navigation/secretary_navigation.dart';
 import '../ui/date_format.dart';
 import '../ui/object_bookmark_controller.dart';
+import '../ui/passive_snapshot_refresh.dart';
 import 'week_time_grid.dart';
 
 enum WeekLoadState { loading, ready, error }
@@ -24,6 +27,8 @@ class WeekScreen extends StatefulWidget {
     this.onShowInGraph,
     this.bookmarkController,
     this.now,
+    this.passiveRefreshInterval = kPassiveSnapshotRefreshInterval,
+    this.isActive = true,
   });
 
   final SecretaryApiClient apiClient;
@@ -34,6 +39,8 @@ class WeekScreen extends StatefulWidget {
   final ShowInGraphHandler? onShowInGraph;
   final ObjectBookmarkController? bookmarkController;
   final DateTime Function()? now;
+  final Duration passiveRefreshInterval;
+  final bool isActive;
 
   @override
   State<WeekScreen> createState() => _WeekScreenState();
@@ -46,6 +53,8 @@ class _WeekScreenState extends State<WeekScreen> {
   String? _errorMessage;
   late final ObjectBookmarkController _bookmarks;
   var _ownsBookmarks = false;
+  late final PassiveSnapshotRefresh _passiveRefresh;
+  var _requestGeneration = 0;
 
   @override
   void initState() {
@@ -60,23 +69,56 @@ class _WeekScreenState extends State<WeekScreen> {
         authController: widget.authController,
       );
     }
+    _passiveRefresh = PassiveSnapshotRefresh(
+      interval: widget.passiveRefreshInterval,
+      isPaused: () => !widget.isActive,
+      onRefresh: () => _loadWeek(
+        weekStart: _activeWeekStart,
+        showFullLoader: false,
+        passive: true,
+      ),
+    );
+    _passiveRefresh.attach();
     _loadWeek();
   }
 
   @override
+  void didUpdateWidget(covariant WeekScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      unawaited(
+        _loadWeek(
+          weekStart: _activeWeekStart,
+          showFullLoader: false,
+          passive: true,
+        ),
+      );
+    }
+  }
+
+  @override
   void dispose() {
+    _passiveRefresh.dispose();
     if (_ownsBookmarks) {
       _bookmarks.dispose();
     }
     super.dispose();
   }
 
-  Future<void> _loadWeek({String? weekStart, bool showFullLoader = true}) async {
+  Future<void> _loadWeek({
+    String? weekStart,
+    bool showFullLoader = true,
+    bool passive = false,
+  }) async {
     if (!mounted) {
       return;
     }
+    if (passive && !widget.isActive) {
+      return;
+    }
+    final generation = ++_requestGeneration;
     _activeWeekStart = weekStart;
-    if (showFullLoader) {
+    if (showFullLoader && !passive) {
       setState(() {
         _loadState = WeekLoadState.loading;
         _errorMessage = null;
@@ -84,7 +126,7 @@ class _WeekScreenState extends State<WeekScreen> {
     }
     try {
       final snapshot = await widget.apiClient.getWeek(weekStart: weekStart);
-      if (!mounted) {
+      if (!mounted || generation != _requestGeneration) {
         return;
       }
       setState(() {
@@ -99,7 +141,10 @@ class _WeekScreenState extends State<WeekScreen> {
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
     } on ApiException catch (e) {
-      if (!mounted) {
+      if (!mounted || generation != _requestGeneration) {
+        return;
+      }
+      if (passive && _week != null) {
         return;
       }
       setState(() {

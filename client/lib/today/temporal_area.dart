@@ -61,10 +61,7 @@ class _TemporalAreaState extends State<TemporalArea> {
                   value: TemporalMode.today,
                   label: Text('Сегодня'),
                 ),
-                ButtonSegment(
-                  value: TemporalMode.week,
-                  label: Text('Неделя'),
-                ),
+                ButtonSegment(value: TemporalMode.week, label: Text('Неделя')),
               ],
               selected: {_mode},
               showSelectedIcon: false,
@@ -113,6 +110,8 @@ class _TemporalAreaState extends State<TemporalArea> {
                       onShowInGraph: widget.onShowInGraph,
                       bookmarkController: widget.bookmarkController,
                       now: widget.now,
+                      passiveRefreshInterval: widget.passiveRefreshInterval,
+                      isActive: _mode == TemporalMode.week,
                     )
                   : const SizedBox.shrink(),
             ],

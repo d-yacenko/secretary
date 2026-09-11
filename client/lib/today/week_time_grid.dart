@@ -303,9 +303,7 @@ class WeekKalenderEventTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
     final denseTitle = !compact && !allDay;
-    final typeColor = scheme.onSurfaceVariant.withValues(
-      alpha: kWeekTypeGlyphOpacity,
-    );
+    final typeColor = tone.foreground;
     final tokenColor = bookmarkColor == null
         ? null
         : bookmarkTokenColor(bookmarkColor!, scheme);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -156,6 +157,8 @@ void main() {
     MockClient mock, {
     Size size = desktopSize,
     DateTime Function()? now,
+    Duration passiveRefreshInterval = const Duration(days: 1),
+    bool isActive = true,
   }) {
     final pair = controllers(mock);
     return harness(
@@ -165,6 +168,8 @@ void main() {
         authController: pair.$1,
         captureController: pair.$2,
         now: now ?? testNow,
+        passiveRefreshInterval: passiveRefreshInterval,
+        isActive: isActive,
       ),
     );
   }
@@ -986,6 +991,7 @@ void main() {
           authController: pair.$1,
           captureController: pair.$2,
           now: testNow,
+          passiveRefreshInterval: const Duration(days: 1),
         ),
       ),
     );
@@ -1478,6 +1484,17 @@ void main() {
           .size,
       kWeekWideTypeGlyphSize,
     );
+    final googleTypeIcon = tester.widget<Icon>(
+      find.byKey(const Key('week_type_calendar_google-evt')),
+    );
+    final googleScheme = Theme.of(
+      tester.element(find.byKey(const Key('week_event_2026-09-07_google-evt'))),
+    ).colorScheme;
+    expect(googleTypeIcon.color, weekOverlapTone(googleScheme, 0).foreground);
+    expect(
+      googleTypeIcon.color,
+      isNot(googleScheme.onSurfaceVariant.withValues(alpha: 0.82)),
+    );
     expect(
       tester
           .getSize(find.byKey(const Key('week_type_calendar_google-evt')))
@@ -1688,5 +1705,585 @@ void main() {
       find.byKey(const Key('week_day_2026-09-10')),
     );
     expect(highlight.center.dx, closeTo(todayHeader.center.dx, 28));
+  });
+
+  testWidgets('calendar type glyph uses tile foreground in light and dark', (
+    tester,
+  ) async {
+    Future<void> pumpTheme(ThemeData theme) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Theme(
+            data: theme,
+            child: const Center(
+              child: SizedBox(
+                width: 160,
+                height: 48,
+                child: WeekKalenderEventTile(
+                  objectId: 'contrast',
+                  title: 'Contrast',
+                  provider: 'google_calendar',
+                  allDay: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    await pumpTheme(
+      ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
+      ),
+    );
+    final lightIcon = tester.widget<Icon>(
+      find.byKey(const Key('week_type_calendar_contrast')),
+    );
+    final lightScheme = Theme.of(
+      tester.element(find.byKey(const Key('week_type_calendar_contrast'))),
+    ).colorScheme;
+    expect(lightIcon.size, kWeekWideTypeGlyphSize);
+    expect(lightIcon.color, weekOverlapTone(lightScheme, 0).foreground);
+    expect(lightIcon.color!.computeLuminance(), lessThan(0.25));
+    expect(
+      lightIcon.color,
+      isNot(lightScheme.onSurfaceVariant.withValues(alpha: 0.82)),
+    );
+
+    await pumpTheme(
+      ThemeData.dark().copyWith(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1565C0),
+          brightness: Brightness.dark,
+        ),
+      ),
+    );
+    final darkIcon = tester.widget<Icon>(
+      find.byKey(const Key('week_type_calendar_contrast')),
+    );
+    final darkScheme = Theme.of(
+      tester.element(find.byKey(const Key('week_type_calendar_contrast'))),
+    ).colorScheme;
+    expect(darkScheme.brightness, Brightness.dark);
+    expect(darkIcon.size, kWeekWideTypeGlyphSize);
+    expect(darkIcon.color, weekOverlapTone(darkScheme, 0).foreground);
+    expect(darkIcon.color, isNot(Colors.black));
+    expect(
+      darkIcon.color,
+      isNot(darkScheme.onSurfaceVariant.withValues(alpha: 0.82)),
+    );
+  });
+
+  testWidgets('active Week passively replaces snapshot without full loader', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final methods = <String>[];
+    final mock = weekClient(
+      week: (_) {
+        weekCalls += 1;
+        return weekPayload(
+          eventsByDate: {
+            '2026-09-07': [
+              secretaryObjectJson(
+                id: 'evt-a',
+                title: 'Snapshot A',
+                startAt: '2026-09-07T10:00:00+02:00',
+                dueAt: '2026-09-07T11:00:00+02:00',
+              ),
+              if (weekCalls > 1)
+                secretaryObjectJson(
+                  id: 'evt-b',
+                  title: 'Snapshot B',
+                  startAt: '2026-09-07T14:00:00+02:00',
+                  dueAt: '2026-09-07T15:00:00+02:00',
+                ),
+            ],
+          },
+        );
+      },
+      onRequest: (request) =>
+          methods.add('${request.method} ${request.url.path}'),
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    expect(find.text('Snapshot A'), findsOneWidget);
+    expect(find.text('Snapshot B'), findsNothing);
+    expect(weekCalls, 1);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+    expect(weekCalls, greaterThan(1));
+    expect(find.text('Snapshot B'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(methods.where((item) => item.contains('/sources/sync')), isEmpty);
+    expect(
+      methods.where(
+        (item) => item.startsWith('PUT ') || item.startsWith('DELETE '),
+      ),
+      isEmpty,
+    );
+  });
+
+  testWidgets('hidden Week does not poll /week', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final pair = controllers(
+      weekClient(
+        week: (_) {
+          weekCalls += 1;
+          return weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'hidden-evt',
+                  title: 'Hidden event',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      harness(
+        size: desktopSize,
+        child: TemporalArea(
+          apiClient: pair.$1.apiClient,
+          authController: pair.$1,
+          captureController: pair.$2,
+          passiveRefreshInterval: const Duration(milliseconds: 500),
+          clockTick: const Duration(days: 1),
+          now: testNow,
+        ),
+      ),
+    );
+    await pumpCalendar(tester);
+    await tester.tap(find.text('Неделя'));
+    await pumpCalendar(tester);
+    expect(find.text('Hidden event'), findsOneWidget);
+    expect(weekCalls, 1);
+
+    await tester.tap(find.text('Сегодня').last);
+    await pumpCalendar(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(weekCalls, 1);
+  });
+
+  testWidgets('returning to Week quietly refreshes immediately', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    var serveB = false;
+    final pair = controllers(
+      weekClient(
+        week: (_) {
+          weekCalls += 1;
+          return weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: serveB ? 'evt-b' : 'evt-a',
+                  title: serveB ? 'Snapshot B' : 'Snapshot A',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      harness(
+        size: desktopSize,
+        child: TemporalArea(
+          apiClient: pair.$1.apiClient,
+          authController: pair.$1,
+          captureController: pair.$2,
+          passiveRefreshInterval: const Duration(days: 1),
+          clockTick: const Duration(days: 1),
+          now: testNow,
+        ),
+      ),
+    );
+    await pumpCalendar(tester);
+    await tester.tap(find.text('Неделя'));
+    await pumpCalendar(tester);
+    expect(find.text('Snapshot A'), findsOneWidget);
+    expect(weekCalls, 1);
+
+    await tester.tap(find.text('Сегодня').last);
+    await pumpCalendar(tester);
+    serveB = true;
+    await tester.tap(find.text('Неделя'));
+    await pumpCalendar(tester);
+    expect(weekCalls, 2);
+    expect(find.text('Snapshot B'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('passive refresh keeps the requested non-current week', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final weekStarts = <String?>[];
+    final mock = weekClient(
+      week: (weekStart) {
+        weekStarts.add(weekStart);
+        if (weekStart == '2026-09-14') {
+          return weekPayload(
+            weekStart: '2026-09-14',
+            isCurrentWeek: false,
+            todayDate: '2026-09-10',
+            eventsByDate: {
+              '2026-09-14': [
+                secretaryObjectJson(
+                  id: 'next-evt',
+                  title: 'Next week event',
+                  startAt: '2026-09-14T10:00:00+02:00',
+                  dueAt: '2026-09-14T11:00:00+02:00',
+                ),
+              ],
+            },
+          );
+        }
+        if (weekStart == '2026-08-31') {
+          return weekPayload(
+            weekStart: '2026-08-31',
+            isCurrentWeek: false,
+            todayDate: '2026-09-10',
+            eventsByDate: {
+              '2026-08-31': [
+                secretaryObjectJson(
+                  id: 'prev-evt',
+                  title: 'Previous week event',
+                  startAt: '2026-08-31T10:00:00+02:00',
+                  dueAt: '2026-08-31T11:00:00+02:00',
+                ),
+              ],
+            },
+          );
+        }
+        return weekPayload();
+      },
+    );
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    await tester.tap(find.byKey(const Key('week_nav_next')));
+    await pumpCalendar(tester);
+    expect(find.text('Next week event'), findsOneWidget);
+    expect(find.text('14–20 сентября'), findsOneWidget);
+    final afterNext = weekStarts.length;
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+    expect(weekStarts.length, greaterThan(afterNext));
+    expect(weekStarts.sublist(afterNext), everyElement('2026-09-14'));
+    expect(find.text('Next week event'), findsOneWidget);
+    expect(find.text('14–20 сентября'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('week_nav_prev')));
+    await pumpCalendar(tester);
+    await tester.tap(find.byKey(const Key('week_nav_prev')));
+    await pumpCalendar(tester);
+    expect(find.text('Previous week event'), findsOneWidget);
+    final afterPrev = weekStarts.length;
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+    expect(weekStarts.sublist(afterPrev), everyElement('2026-08-31'));
+    expect(find.text('31 августа – 6 сентября'), findsOneWidget);
+  });
+
+  testWidgets('passive Week error keeps last good snapshot', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/week') {
+        weekCalls += 1;
+        if (weekCalls == 2) {
+          return http.Response(
+            jsonEncode({'detail': 'week unavailable'}),
+            500,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return jsonOk(
+          weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: weekCalls == 1 ? 'evt-a' : 'evt-b',
+                  title: weekCalls == 1 ? 'Snapshot A' : 'Snapshot B',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+          ),
+        );
+      }
+      if (request.url.path == '/object-bookmarks/by-objects') {
+        return jsonOk({'objects': {}});
+      }
+      return http.Response('{}', 404);
+    });
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    expect(find.text('Snapshot A'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+    expect(find.text('Snapshot A'), findsOneWidget);
+    expect(find.text('Повторить'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+    expect(find.text('Snapshot B'), findsOneWidget);
+    expect(find.text('Повторить'), findsNothing);
+  });
+
+  testWidgets('stale Week response cannot clobber newer navigation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final holdPassive = Completer<void>();
+    final mock = MockClient((request) async {
+      if (request.url.path == '/week') {
+        weekCalls += 1;
+        final weekStart = request.url.queryParameters['week_start'];
+        if (weekCalls == 2) {
+          await holdPassive.future;
+          return jsonOk(
+            weekPayload(
+              eventsByDate: {
+                '2026-09-07': [
+                  secretaryObjectJson(
+                    id: 'stale-current',
+                    title: 'Stale current',
+                    startAt: '2026-09-07T10:00:00+02:00',
+                    dueAt: '2026-09-07T11:00:00+02:00',
+                  ),
+                ],
+              },
+            ),
+          );
+        }
+        if (weekStart == '2026-09-14') {
+          return jsonOk(
+            weekPayload(
+              weekStart: '2026-09-14',
+              isCurrentWeek: false,
+              todayDate: '2026-09-10',
+              eventsByDate: {
+                '2026-09-14': [
+                  secretaryObjectJson(
+                    id: 'next-evt',
+                    title: 'Next week event',
+                    startAt: '2026-09-14T10:00:00+02:00',
+                    dueAt: '2026-09-14T11:00:00+02:00',
+                  ),
+                ],
+              },
+            ),
+          );
+        }
+        return jsonOk(weekPayload());
+      }
+      if (request.url.path == '/object-bookmarks/by-objects') {
+        return jsonOk({'objects': {}});
+      }
+      return http.Response('{}', 404);
+    });
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(weekCalls, 2);
+
+    await tester.tap(find.byKey(const Key('week_nav_next')));
+    await pumpCalendar(tester);
+    expect(find.text('Next week event'), findsOneWidget);
+    expect(find.text('14–20 сентября'), findsOneWidget);
+
+    holdPassive.complete();
+    await pumpCalendar(tester);
+    expect(find.text('Next week event'), findsOneWidget);
+    expect(find.text('Stale current'), findsNothing);
+    expect(find.text('14–20 сентября'), findsOneWidget);
+  });
+
+  testWidgets('stale Week error cannot replace newer content', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final holdPassive = Completer<void>();
+    final mock = MockClient((request) async {
+      if (request.url.path == '/week') {
+        weekCalls += 1;
+        final weekStart = request.url.queryParameters['week_start'];
+        if (weekCalls == 2) {
+          await holdPassive.future;
+          return http.Response(
+            jsonEncode({'detail': 'stale failure'}),
+            500,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (weekStart == '2026-09-14') {
+          return jsonOk(
+            weekPayload(
+              weekStart: '2026-09-14',
+              isCurrentWeek: false,
+              todayDate: '2026-09-10',
+              eventsByDate: {
+                '2026-09-14': [
+                  secretaryObjectJson(
+                    id: 'next-evt',
+                    title: 'Next week event',
+                    startAt: '2026-09-14T10:00:00+02:00',
+                    dueAt: '2026-09-14T11:00:00+02:00',
+                  ),
+                ],
+              },
+            ),
+          );
+        }
+        return jsonOk(weekPayload());
+      }
+      if (request.url.path == '/object-bookmarks/by-objects') {
+        return jsonOk({'objects': {}});
+      }
+      return http.Response('{}', 404);
+    });
+    await tester.pumpWidget(
+      buildWeek(
+        mock,
+        size: desktopSize,
+        passiveRefreshInterval: const Duration(milliseconds: 500),
+      ),
+    );
+    await pumpCalendar(tester);
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.tap(find.byKey(const Key('week_nav_next')));
+    await pumpCalendar(tester);
+    expect(find.text('Next week event'), findsOneWidget);
+
+    holdPassive.complete();
+    await pumpCalendar(tester);
+    expect(find.text('Next week event'), findsOneWidget);
+    expect(find.text('Повторить'), findsNothing);
+  });
+
+  testWidgets('app resume refreshes active Week and skips hidden Week', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var weekCalls = 0;
+    final pair = controllers(
+      weekClient(
+        week: (_) {
+          weekCalls += 1;
+          return weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'live-evt',
+                  title: 'Live event',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      harness(
+        size: desktopSize,
+        child: TemporalArea(
+          apiClient: pair.$1.apiClient,
+          authController: pair.$1,
+          captureController: pair.$2,
+          passiveRefreshInterval: const Duration(days: 1),
+          clockTick: const Duration(days: 1),
+          now: testNow,
+        ),
+      ),
+    );
+    await pumpCalendar(tester);
+    await tester.tap(find.text('Неделя'));
+    await pumpCalendar(tester);
+    expect(weekCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpCalendar(tester);
+    expect(weekCalls, 2);
+
+    await tester.tap(find.text('Сегодня').last);
+    await pumpCalendar(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpCalendar(tester);
+    expect(weekCalls, 2);
   });
 }

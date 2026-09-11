@@ -170,7 +170,6 @@ void main() {
     expect(kWeekWideTypeGlyphSize, greaterThan(kWeekWideProviderGlyphSize));
     expect(kWeekPhoneTypeGlyphSize, greaterThan(kWeekPhoneProviderGlyphSize));
     expect(kWeekIdentityRailGap, 2);
-    expect(kWeekTypeGlyphOpacity, inInclusiveRange(0.78, 0.85));
   });
 
   test('today column tint is distinct from surface in light and dark', () {

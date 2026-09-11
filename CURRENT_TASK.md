@@ -1,4 +1,4 @@
-# Current task — Unified Week B-R4 — Final perceptual tuning
+# Current task — Unified Week B-R5 — Final closure corrective
 
 ## Status
 
@@ -12,17 +12,20 @@ Unified Week B-R2: `d4627c8749f4dd786632a38a28e8feb7ec7d453f`.
 
 Unified Week B-R3: `915f7d56aca07d86d3e7201344120d5ef5657a27`.
 
-Unified Week B-R4: **implemented / awaiting Architect review** on `review/unified-week-b` (not deployed).
+Unified Week B-R4: `cb99f40cdf50f7e88ce108d857be2de36c5b2ae2`.
 
-Do **not** deploy Week B through B-R4 until Architect accepts.
+Unified Week B-R5: **implemented / awaiting Architect review** on `review/unified-week-b` (not deployed).
+
+Do **not** deploy Week B through B-R5 until Architect accepts.
 Do **not** begin Availability A.
+Do **not** begin recurring calendar actions.
 Do **not** mark Week A or Week B PRODUCTION ACCEPTED.
 
 ## Production / lineage
 
 - Production application SHA: `eeb3ab4b49b3bdc1e2f6c2e5c6c90bddfc244d4a`
 - Branch: `review/unified-week-b`
-- Parent of B-R4: `915f7d56aca07d86d3e7201344120d5ef5657a27`
+- Parent of B-R5: `cb99f40cdf50f7e88ce108d857be2de36c5b2ae2`
 - Alembic: **0034 / 0034** (no migration)
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval 60
@@ -30,10 +33,10 @@ Do **not** mark Week A or Week B PRODUCTION ACCEPTED.
 - Encrypted Architect context: untouched
 - kalender pin: **0.29.1** (exact)
 
-## What B-R4 is
+## What B-R5 is
 
-Final read-only Week perceptual tuning: tighter near-full-width overlap, a clearly visible today-column (and matching header) tint, and a readable calendar-commitment type glyph beside the provider mark. Typography, depth palette, bookmarks, and provider identity remain as accepted in B-R2/B-R3.
+Final Week closure corrective: high-contrast calendar type glyph (tile `tone.foreground`) and passive GET `/week` snapshot refresh via existing `PassiveSnapshotRefresh` while Week is the active TemporalArea mode.
 
 ## Out of this phase
 
-Availability / free-busy, scheduled work, temporal hints, calendar/provider mutation, kalender fork/vendor, deploy.
+Availability / free-busy, scheduled work, temporal hints, recurring calendar creation, calendar/provider mutation, kalender fork/vendor, deploy.
