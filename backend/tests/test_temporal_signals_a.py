@@ -22,6 +22,7 @@ from app.domain.temporal_hint import (
     EDGE_TYPE_TEMPORAL_EVIDENCE,
     KIND_TEMPORAL_HINT,
     LIFECYCLE_SUPERSEDED_BY_CALENDAR,
+    LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION,
     LIFECYCLE_UNRESOLVED,
     RESULT_EXACT_TEMPORAL_SIGNAL,
     RESULT_NO_TEMPORAL_SIGNAL,
@@ -46,6 +47,8 @@ from app.services.temporal_signals_constants import (
     METADATA_END_PRECISION,
     METADATA_EVIDENCE_COUNT,
     METADATA_LIFECYCLE,
+    METADATA_PRIMARY_EVIDENCE_OBJECT_ID,
+    METADATA_SOURCE_SIGNATURE,
     TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
 )
 from app.services.temporal_signals_models import parse_extractor_payload
@@ -53,9 +56,11 @@ from app.services.temporal_signals_resolution import resolve_exact_signal
 from app.services.temporal_signals_service import (
     TemporalSignalService,
     enqueue_extract_temporal_signal,
+    evidence_edge_is_active,
     object_is_temporal_source_eligible,
     source_extraction_signature,
 )
+from app.services.week_service import WeekService
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 from tests.conftest import AuthTestClient
 
@@ -218,6 +223,28 @@ def _evidence_edges(session: Session) -> list[Edge]:
             )
         )
     )
+
+
+def _active_evidence(session: Session) -> list[Edge]:
+    return [edge for edge in _evidence_edges(session) if evidence_edge_is_active(edge)]
+
+
+def _unresolved_hints(session: Session) -> list[Object]:
+    return [
+        hint
+        for hint in _hints(session)
+        if (hint.metadata_ or {}).get(METADATA_LIFECYCLE, LIFECYCLE_UNRESOLVED)
+        == LIFECYCLE_UNRESOLVED
+    ]
+
+
+def _week_hint_titles(session: Session) -> list[str]:
+    snapshot = WeekService(session, BOOTSTRAP_USER_ID).snapshot(
+        week_start="2026-09-07",
+        timezone="Europe/Moscow",
+        reference_at=SOURCE_AT,
+    )
+    return [obj.title for day in snapshot["days"] for obj in day["temporal_hints"]]
 
 
 def test_migration_0035_temporal_signals_default_false(db_session: Session) -> None:
@@ -885,3 +912,539 @@ def test_user_scope(db_session) -> None:
     )
     assert foreign.reason == "ineligible"
     assert len(_hints(db_session)) == 1
+
+
+def test_mattermost_edit_moves_visible_hint_to_new_time(db_session) -> None:
+    _enable(db_session)
+    source = _source(
+        db_session,
+        title="Созвон",
+        body="Дима, завтра в 14:00 созвон.",
+        provider="mattermost",
+        kind="chat_message",
+        metadata={"channel_id": "town-square", "author_user_id": "other"},
+    )
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 14",
+                start_local_time="14:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+    )
+    first = _unresolved_hints(db_session)[0]
+    assert first.start_at == datetime(2026, 9, 11, 14, 0, tzinfo=MOSCOW)
+    source.body = "Дима, завтра в 16:00 созвон."
+    db_session.flush()
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 16",
+                start_local_time="16:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+    )
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)
+    assert first.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+    assert len(_active_evidence(db_session)) == 1
+    assert _active_evidence(db_session)[0].target_id == source.id
+    assert "Созвон 16" in _week_hint_titles(db_session)
+    assert "Созвон 14" not in _week_hint_titles(db_session)
+
+
+def test_source_edit_removing_signal_hides_old_hint(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="Встреча", body="Коллеги, завтра в 11 давайте на полчаса встретимся.")
+    _run(db_session, source, FakeTemporalSignalExtractor(payload=_exact_payload()))
+    hint = _unresolved_hints(db_session)[0]
+    source.body = "Спасибо, перенесли без конкретного времени."
+    db_session.flush()
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload={"result_class": RESULT_NO_TEMPORAL_SIGNAL}
+        ),
+    )
+    db_session.refresh(hint)
+    assert hint.deleted_at is None
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+    assert hint.metadata_[METADATA_EVIDENCE_COUNT] == 0
+    assert METADATA_SOURCE_SIGNATURE not in hint.metadata_
+    assert _unresolved_hints(db_session) == []
+    assert _week_hint_titles(db_session) == []
+    assert _active_evidence(db_session) == []
+    assert len(_evidence_edges(db_session)) == 1
+
+
+def test_unchanged_reprocess_does_not_duplicate_evidence(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="Встреча", body="Коллеги, завтра в 11 давайте на полчаса встретимся.")
+    extractor = FakeTemporalSignalExtractor(payload=_exact_payload())
+    _run(db_session, source, extractor)
+    _run(db_session, source, extractor)
+    hints = _unresolved_hints(db_session)
+    assert len(hints) == 1
+    assert hints[0].metadata_[METADATA_EVIDENCE_COUNT] == 1
+    assert len(_active_evidence(db_session)) == 1
+    assert len(_evidence_edges(db_session)) == 1
+    edge = _active_evidence(db_session)[0]
+    assert edge.metadata_[METADATA_SOURCE_SIGNATURE] == source_extraction_signature(source)
+
+
+def test_two_sources_one_revised_away_keeps_remaining_evidence(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    email = _source(db_session, title="ADB созвон", body="ADB созвон завтра 10:00")
+    _run(
+        db_session,
+        email,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB созвон",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="ADB",
+            )
+        ),
+        FakeTemporalMatchJudge(match_shared_tokens=True),
+    )
+    chat = _source(
+        db_session,
+        title="Напоминание ADB",
+        body="Напоминаю, завтра в 10 ADB созвон",
+        provider="mattermost",
+        kind="chat_message",
+        metadata={"channel_id": "town-square", "author_user_id": "other"},
+    )
+    _run(
+        db_session,
+        chat,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB созвон",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="ADB",
+            )
+        ),
+        FakeTemporalMatchJudge(match_shared_tokens=True),
+    )
+    hint = _unresolved_hints(db_session)[0]
+    assert hint.metadata_[METADATA_EVIDENCE_COUNT] == 2
+    chat.body = "Спасибо, тема закрыта без времени."
+    db_session.flush()
+    _run(
+        db_session,
+        chat,
+        FakeTemporalSignalExtractor(
+            payload={"result_class": RESULT_NO_TEMPORAL_SIGNAL}
+        ),
+    )
+    db_session.refresh(hint)
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_UNRESOLVED
+    assert hint.metadata_[METADATA_EVIDENCE_COUNT] == 1
+    assert hint.metadata_[METADATA_PRIMARY_EVIDENCE_OBJECT_ID] == str(email.id)
+    assert hint.metadata_[METADATA_SOURCE_SIGNATURE] == source_extraction_signature(email)
+    assert {edge.target_id for edge in _active_evidence(db_session)} == {email.id}
+
+
+def test_source_revision_moves_evidence_between_hints(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="Тема A", body="Завтра в 10 созвон по ADB")
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB",
+                start_local_time="10:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="ADB",
+            )
+        ),
+    )
+    first = _unresolved_hints(db_session)[0]
+    source.body = "Завтра в 16 обсудим Samsung"
+    db_session.flush()
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Samsung",
+                start_local_time="16:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="Samsung",
+            )
+        ),
+    )
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].id != first.id
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)
+    db_session.refresh(first)
+    assert first.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+    assert {edge.source_id for edge in _active_evidence(db_session)} == {unresolved[0].id}
+
+
+def test_source_revision_moves_evidence_from_hint_to_calendar(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="ADB invitation", body="ADB курс завтра 10:00-18:00")
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB course",
+                start_local_time="10:00",
+                end_precision="exact",
+                end_kind="duration_minutes",
+                end_duration_minutes=480,
+                semantic_subject="ADB course",
+            )
+        ),
+    )
+    hint = _unresolved_hints(db_session)[0]
+    event = _event(
+        db_session,
+        title="ADB course",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 18, 0, tzinfo=MOSCOW),
+    )
+    source.body = "Напоминаю: ADB курс завтра 10:00-18:00, зал B"
+    db_session.flush()
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB course",
+                start_local_time="10:00",
+                end_precision="exact",
+                end_kind="duration_minutes",
+                end_duration_minutes=480,
+                semantic_subject="ADB course",
+            )
+        ),
+        FakeTemporalMatchJudge(match_shared_tokens=True),
+    )
+    db_session.refresh(hint)
+    assert _unresolved_hints(db_session) == []
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+    active = _active_evidence(db_session)
+    assert len(active) == 1
+    assert active[0].source_id == event.id
+    assert active[0].target_id == source.id
+
+
+def test_calendar_first_revision_no_longer_matching_retires_calendar_evidence(
+    db_session,
+) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    event = _event(
+        db_session,
+        title="ADB course",
+        start_at=datetime(2026, 9, 11, 10, 0, tzinfo=MOSCOW),
+        due_at=datetime(2026, 9, 11, 18, 0, tzinfo=MOSCOW),
+    )
+    source = _source(db_session, title="ADB course invitation", body="ADB курс завтра 10:00-18:00")
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="ADB course",
+                start_local_time="10:00",
+                end_precision="exact",
+                end_kind="duration_minutes",
+                end_duration_minutes=480,
+                semantic_subject="ADB course",
+            )
+        ),
+        FakeTemporalMatchJudge(match_shared_tokens=True),
+    )
+    assert _unresolved_hints(db_session) == []
+    assert _active_evidence(db_session)[0].source_id == event.id
+    source.body = "Завтра в 16 обсудим Samsung"
+    db_session.flush()
+    _run(
+        db_session,
+        source,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Samsung",
+                start_local_time="16:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="Samsung",
+            )
+        ),
+        FakeTemporalMatchJudge(),
+    )
+    assert event.deleted_at is None
+    assert event.provider == "google_calendar"
+    active = _active_evidence(db_session)
+    assert len(active) == 1
+    assert active[0].source_id != event.id
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)
+
+
+def test_stale_revision_cannot_resurrect_or_retire_newer_state(db_session) -> None:
+    _enable(db_session)
+    source = _source(
+        db_session,
+        title="Созвон",
+        body="Дима, завтра в 14:00 созвон.",
+        provider="mattermost",
+        kind="chat_message",
+        metadata={"channel_id": "town-square", "author_user_id": "other"},
+    )
+    old_sig = source_extraction_signature(source)
+
+    def process_newer() -> None:
+        source.body = "Дима, завтра в 16:00 созвон."
+        db_session.flush()
+        _run(
+            db_session,
+            source,
+            FakeTemporalSignalExtractor(
+                payload=_exact_payload(
+                    concise_title="Созвон 16",
+                    start_local_time="16:00",
+                    end_precision="unknown",
+                    end_kind=None,
+                    end_duration_minutes=None,
+                    semantic_subject="созвон",
+                )
+            ),
+        )
+
+    TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        extractor=FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 14",
+                start_local_time="14:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+        match_judge=FakeTemporalMatchJudge(),
+        after_extract=process_newer,
+    ).run_extract_job(
+        {
+            "object_id": str(source.id),
+            "source_signature": old_sig,
+            "extractor_version": TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
+        }
+    )
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)
+    assert unresolved[0].title == "Созвон 16"
+    stale = TemporalSignalService(
+        db_session,
+        BOOTSTRAP_USER_ID,
+        extractor=FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 14 resurrected",
+                start_local_time="14:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+        match_judge=FakeTemporalMatchJudge(),
+    ).run_extract_job(
+        {
+            "object_id": str(source.id),
+            "source_signature": old_sig,
+            "extractor_version": TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
+        }
+    )
+    assert stale.stale is True
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)
+
+
+def test_extraction_exception_keeps_last_successful_evidence(db_session) -> None:
+    _enable(db_session)
+    _identity(db_session)
+    source = _source(db_session, title="Встреча", body="Коллеги, завтра в 11 давайте на полчаса встретимся.")
+    _run(db_session, source, FakeTemporalSignalExtractor(payload=_exact_payload()))
+    hint = _unresolved_hints(db_session)[0]
+    with pytest.raises(RuntimeError, match="quota"):
+        _run(
+            db_session,
+            source,
+            FakeTemporalSignalExtractor(error=RuntimeError("quota")),
+        )
+    db_session.refresh(hint)
+    assert hint.metadata_[METADATA_LIFECYCLE] == LIFECYCLE_UNRESOLVED
+    assert hint.metadata_[METADATA_EVIDENCE_COUNT] == 1
+    assert len(_active_evidence(db_session)) == 1
+
+
+def test_mattermost_connector_edit_reenqueues_temporal_reevaluation(
+    db_session,
+    monkeypatch,
+    fake_embedding_service,
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from app.connectors.mattermost.credentials import MattermostAccountStore
+    from app.connectors.mattermost.normalize import build_external_id
+    from app.connectors.mattermost.sync import build_mattermost_sync_service
+    from app.connectors.mattermost.transport import FakeMattermostTransport
+    from app.jobs.constants import JOB_TYPE_EMBED_OBJECT
+    from tests.test_phase_27b_mattermost import ALLOWED_URL, PAT, _channel, _post
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr("app.core.config.settings.secretary_credential_key", key)
+    monkeypatch.setattr("app.core.config.settings.mattermost_allowed_base_urls", ALLOWED_URL)
+    now = datetime(2026, 9, 10, 18, 0, tzinfo=MOSCOW)
+    create_time = datetime(2026, 9, 10, 14, 0, tzinfo=MOSCOW)
+    edit_time = datetime(2026, 9, 10, 15, 0, tzinfo=MOSCOW)
+    transport = FakeMattermostTransport(
+        channels=[_channel("ch-1", "general", "General", "O", now)],
+        teams=[{"id": "team-1", "name": "team", "display_name": "Team"}],
+        users_by_id={"author-1": {"id": "author-1", "username": "bob", "display_name": "Bob"}},
+        posts_by_channel={
+            "ch-1": [_post("p-time", "ch-1", "Дима, завтра в 14:00 созвон.", create_time, update_at=create_time)],
+        },
+    )
+    store = MattermostAccountStore(db_session, MattermostAccountStore.build_encryption(key))
+    account = store.upsert_account(
+        user_id=BOOTSTRAP_USER_ID,
+        normalized_server_url=ALLOWED_URL,
+        remote_user_id="user-1",
+        username="alice",
+        access_token=PAT,
+        display_name="Alice",
+        email="alice@example.com",
+    )
+    db_session.flush()
+    service = build_mattermost_sync_service(
+        session=db_session,
+        credential_key=key,
+        sync_days=14,
+        max_channels=50,
+        initial_posts_per_channel=100,
+        max_posts_per_run=500,
+        overlap_seconds=300,
+        transport_factory=lambda snapshot: transport,
+        now_factory=lambda: now,
+    )
+    _enable(db_session)
+    service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    obj = db_session.scalar(
+        select(Object).where(Object.external_id == build_external_id(ALLOWED_URL, "p-time"))
+    )
+    assert obj is not None
+    first_embeds = [
+        job
+        for job in db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT))
+        if (job.payload or {}).get("object_id") == str(obj.id)
+    ]
+    assert len(first_embeds) == 1
+    _run(
+        db_session,
+        obj,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 14",
+                start_local_time="14:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+    )
+    assert _unresolved_hints(db_session)[0].start_at == datetime(2026, 9, 11, 14, 0, tzinfo=MOSCOW)
+    transport.posts_by_channel["ch-1"] = [
+        _post("p-time", "ch-1", "Дима, завтра в 16:00 созвон.", create_time, update_at=edit_time),
+    ]
+    result = service.sync_account(account.id, BOOTSTRAP_USER_ID)
+    assert result["updated"] == 1
+    db_session.refresh(obj)
+    assert obj.body == "Дима, завтра в 16:00 созвон."
+    embeds = [
+        job
+        for job in db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT))
+        if (job.payload or {}).get("object_id") == str(obj.id)
+    ]
+    assert len(embeds) == 2
+    extract_jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL))
+    )
+    assert extract_jobs == []
+    with patch("app.jobs.handlers.SessionLocal", lambda: db_session), patch(
+        "app.services.representation_embedding_worker.SessionLocal", lambda: db_session
+    ), patch("app.ai_audit.context.SessionLocal", lambda: db_session), patch.object(
+        db_session, "close", lambda: None
+    ):
+        handle_embed_object(
+            db_session,
+            fake_embedding_service,
+            {"object_id": str(obj.id)},
+            BOOTSTRAP_USER_ID,
+        )
+    extract_jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL))
+    )
+    assert len(extract_jobs) == 1
+    assert extract_jobs[0].payload["source_signature"] == source_extraction_signature(obj)
+    _run(
+        db_session,
+        obj,
+        FakeTemporalSignalExtractor(
+            payload=_exact_payload(
+                concise_title="Созвон 16",
+                start_local_time="16:00",
+                end_precision="unknown",
+                end_kind=None,
+                end_duration_minutes=None,
+                semantic_subject="созвон",
+            )
+        ),
+    )
+    unresolved = _unresolved_hints(db_session)
+    assert len(unresolved) == 1
+    assert unresolved[0].start_at == datetime(2026, 9, 11, 16, 0, tzinfo=MOSCOW)

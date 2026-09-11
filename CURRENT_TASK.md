@@ -1,42 +1,36 @@
-# Current task — Temporal Signals A — exact-time hints + calendar-first dedup + Week projection
+# Current task — Temporal Signals A-R1 — revision-aware source evidence
 
 ## Status
 
-Temporal Signals A: **implemented / awaiting Architect review** on `review/temporal-signals-a` (not deployed).
+Temporal Signals A at `3bcf0f94ff138df900615f130bacd04dc1afaa32` is **NOT YET ARCHITECT-ACCEPTED**.
 
-Checkpoints on the same branch:
-
-- A1 `bd51f01` — extraction / persistence / dedup / reconciliation / settings / tests
-- A2 — Week API + Flutter presentation / tests
+A-R1: **implemented / awaiting Architect review** on `review/temporal-signals-a` (not deployed).
 
 Do **not** deploy this phase.
 Do **not** enable `temporal_signals_enabled` on production.
 Do **not** run historical backfill.
 Do **not** begin Temporal Signals B, Availability, Recurring Calendar Actions, Scheduled Work, or Telegram.
 
-Unified Week B-R7 is the production base of this phase at `99658a6f893483317dcecaf15d886cd1ed8d692b`.
-
 ## Production / lineage
 
 - Production application SHA: `99658a6f893483317dcecaf15d886cd1ed8d692b`
 - Review branch: `review/temporal-signals-a`
-- Merge-base with production: `99658a6f893483317dcecaf15d886cd1ed8d692b`
-- Alembic: review **0035**; production remains **0034** until Architect deploys
+- A parent: `3bcf0f94ff138df900615f130bacd04dc1afaa32`
+- Alembic: review **0035** (unchanged); production remains **0034** until Architect deploys
 - Android `minSdk`: **23**
 - Proactive: **OFF**, interval 60
 - real-user `auto_label_enabled=true`
-- `temporal_signals_enabled` default **FALSE** (no silent opt-in)
+- `temporal_signals_enabled` default **FALSE**
 - Encrypted Architect context: untouched
 - kalender pin: **0.29.1** (exact)
+- Flutter / Week API contract: **unchanged / inherited from A2**
 
-## What Temporal Signals A is
+## What A-R1 is
 
-Exact DATE + exact START TIME temporal hints from already ingested Gmail / Yandex Mail / Mattermost sources.
+Corrective: temporal evidence is idempotent per source revision/signature, not merely per source Object id.
 
-Hints are derived Secretary Objects (`kind=temporal_hint`). They are visible on Week, are not busy time, do not mutate providers, and do not become tasks or calendar events.
-
-Calendar remains the visual authority when a high-confidence semantic match exists.
+Mattermost in-place edits that enqueue a new `embed_object` re-evaluate Temporal Signals. Stale evidence from a previous signature cannot keep an unresolved Week hint alive.
 
 ## Out of this phase
 
-Approximate time, date-only hints, Availability / free-busy, scheduled work, task projection onto Week, accepting a hint into a calendar event, provider mutation, Telegram, native notifications, historical backfill, production enable, deploy.
+Approximate time, date-only hints, Availability / free-busy, scheduled work, accepting a hint into a calendar event, provider mutation, Telegram, historical backfill, production enable, deploy, Week visual redesign.

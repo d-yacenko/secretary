@@ -70,10 +70,12 @@ class FakeTemporalSignalExtractor:
         result: TemporalExtractionResult | None = None,
         payload: dict | None = None,
         by_body: dict[str, dict] | None = None,
+        error: Exception | None = None,
     ) -> None:
         self.result = result
         self.payload = payload
         self.by_body = by_body or {}
+        self.error = error
         self.calls = 0
         self.last_request: TemporalExtractionRequest | None = None
         self.last_payload: dict | None = None
@@ -81,6 +83,8 @@ class FakeTemporalSignalExtractor:
     def extract(self, request: TemporalExtractionRequest) -> TemporalExtractionResult:
         self.calls += 1
         self.last_request = request
+        if self.error is not None:
+            raise self.error
         raw = self.payload
         for needle, candidate in self.by_body.items():
             if needle in request.body or needle in request.title:

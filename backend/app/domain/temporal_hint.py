@@ -2,6 +2,7 @@ KIND_TEMPORAL_HINT = "temporal_hint"
 
 LIFECYCLE_UNRESOLVED = "unresolved"
 LIFECYCLE_SUPERSEDED_BY_CALENDAR = "superseded_by_calendar"
+LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION = "superseded_by_source_revision"
 
 START_PRECISION_EXACT = "exact"
 END_PRECISION_EXACT = "exact"

@@ -21,6 +21,7 @@ from app.domain.temporal_hint import (
     EDGE_TYPE_TEMPORAL_EVIDENCE,
     KIND_TEMPORAL_HINT,
     LIFECYCLE_SUPERSEDED_BY_CALENDAR,
+    LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION,
     LIFECYCLE_UNRESOLVED,
     PARTICIPATION_EXPECTED,
     PARTICIPATION_OTHERS_ONLY,
@@ -85,6 +86,7 @@ from app.services.temporal_signals_constants import (
     TEMPORAL_SIGNAL_MATCH_MIN_CONFIDENCE,
     TEMPORAL_SIGNAL_MAX_BODY_CHARS,
     TEMPORAL_SIGNAL_MAX_CANDIDATES,
+    TEMPORAL_SIGNAL_MAX_EVIDENCE_EDGES_SCAN,
     TEMPORAL_SIGNAL_MAX_PENDING_PER_USER,
     TEMPORAL_SIGNAL_MAX_TITLE_CHARS,
     TEMPORAL_SIGNAL_METADATA_VERSION,
@@ -245,6 +247,13 @@ def hint_is_unresolved(obj: Object) -> bool:
         return False
     lifecycle = (obj.metadata_ or {}).get(METADATA_LIFECYCLE, LIFECYCLE_UNRESOLVED)
     return lifecycle == LIFECYCLE_UNRESOLVED
+
+
+def evidence_edge_is_active(edge: Edge) -> bool:
+    if edge.state == REJECTED_STATE:
+        return False
+    lifecycle = (edge.metadata_ or {}).get(METADATA_LIFECYCLE)
+    return lifecycle not in {LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION}
 
 
 def enqueue_extract_temporal_signal(
@@ -450,9 +459,13 @@ class TemporalSignalService:
         if fenced is None:
             return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
         source = fenced
+        if not self._signature_still_current(source, payload_sig):
+            return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
         if extraction.result_class != RESULT_EXACT_TEMPORAL_SIGNAL or extraction.exact is None:
-            return TemporalSignalJobOutcome(
-                reason=extraction.reject_reason or extraction.result_class
+            return self._retire_source_revision(
+                source,
+                payload_sig,
+                reason=extraction.reject_reason or extraction.result_class,
             )
         timezone = EffectiveUserSettingsService.build(self._session).get_settings_view(
             self._user_id
@@ -464,7 +477,11 @@ class TemporalSignalService:
             source_reference_at=reference,
         )
         if resolved is None:
-            return TemporalSignalJobOutcome(reason=reason or "unresolved_datetime")
+            return self._retire_source_revision(
+                source,
+                payload_sig,
+                reason=reason or "unresolved_datetime",
+            )
         participation = self._effective_participation(
             resolved.participation,
             resolved.extraction_confidence,
@@ -473,7 +490,11 @@ class TemporalSignalService:
             request.has_other_participants,
         )
         if participation in {PARTICIPATION_OTHERS_ONLY, PARTICIPATION_UNKNOWN}:
-            return TemporalSignalJobOutcome(reason=f"participation_{participation}")
+            return self._retire_source_revision(
+                source,
+                payload_sig,
+                reason=f"participation_{participation}",
+            )
         resolved = ResolvedTemporalSignal(
             title=resolved.title,
             start_at=resolved.start_at,
@@ -484,26 +505,30 @@ class TemporalSignalService:
             semantic_subject=resolved.semantic_subject,
             source_reference_at=resolved.source_reference_at,
         )
-        existing_anchor = self._existing_evidence_anchor(source.id)
-        if existing_anchor is not None:
+        same_revision = self._active_same_revision_anchor(source.id, payload_sig)
+        if same_revision is not None:
             return TemporalSignalJobOutcome(
                 reason="already_evidenced",
-                hint_id=existing_anchor.id if existing_anchor.kind == KIND_TEMPORAL_HINT else None,
-                calendar_id=existing_anchor.id if existing_anchor.kind == "event" else None,
+                hint_id=same_revision.id if same_revision.kind == KIND_TEMPORAL_HINT else None,
+                calendar_id=same_revision.id if same_revision.kind == "event" else None,
             )
         calendar = self._match_calendar(resolved)
         if calendar is not None:
-            self._attach_evidence(calendar, source, resolved.extraction_confidence)
+            if not self._commit_source_revision(source, payload_sig, calendar, resolved):
+                return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
             return TemporalSignalJobOutcome(
                 reason="calendar_first_match",
                 calendar_id=calendar.id,
             )
         hint = self._match_hint(resolved)
         if hint is not None:
-            self._attach_evidence(hint, source, resolved.extraction_confidence)
-            self._bump_evidence_count(hint)
+            if not self._commit_source_revision(source, payload_sig, hint, resolved):
+                return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
             return TemporalSignalJobOutcome(reason="hint_merged", hint_id=hint.id)
         created = self._create_hint(resolved, source, payload_sig)
+        if not self._commit_source_revision(source, payload_sig, created, resolved):
+            self._refresh_hint_after_evidence_change(created)
+            return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
         return TemporalSignalJobOutcome(reason="hint_created", hint_id=created.id)
 
     def _reconcile_calendar_event(self, event: Object) -> TemporalSignalJobOutcome:
@@ -536,7 +561,12 @@ class TemporalSignalService:
             return TemporalSignalJobOutcome(reason="hint_gone", calendar_id=event.id)
         self._suppress_hint(hint, event)
         for evidence in self._evidence_sources(hint):
-            self._attach_evidence(event, evidence, decision.confidence)
+            self._upsert_evidence(
+                event,
+                evidence,
+                decision.confidence,
+                source_extraction_signature(evidence),
+            )
         return TemporalSignalJobOutcome(
             reason="hint_superseded",
             hint_id=hint.id,
@@ -670,17 +700,94 @@ class TemporalSignalService:
                 confidence=resolved.extraction_confidence,
             )
         )
-        self._attach_evidence(hint, source, resolved.extraction_confidence)
         return hint
 
-    def _attach_evidence(self, anchor: Object, source: Object, confidence: float) -> None:
-        if has_equivalent_relation(
-            self._session,
-            self._user_id,
-            anchor.id,
-            source.id,
-            EDGE_TYPE_TEMPORAL_EVIDENCE,
-        ):
+    def _signature_still_current(self, source: Object, payload_sig: str) -> bool:
+        return source_extraction_signature(source) == payload_sig
+
+    def _edge_source_signature(self, edge: Edge) -> str:
+        return str((edge.metadata_ or {}).get(METADATA_SOURCE_SIGNATURE) or "")
+
+    def _evidence_edges_for_source(self, source_id: UUID) -> list[Edge]:
+        return list(
+            self._session.scalars(
+                select(Edge)
+                .where(
+                    Edge.user_id == self._user_id,
+                    Edge.target_id == source_id,
+                    Edge.type == EDGE_TYPE_TEMPORAL_EVIDENCE,
+                )
+                .order_by(Edge.created_at.asc(), Edge.id.asc())
+                .limit(TEMPORAL_SIGNAL_MAX_EVIDENCE_EDGES_SCAN)
+            )
+        )
+
+    def _active_evidence_edges(self, *, anchor_id: UUID | None = None, source_id: UUID | None = None) -> list[Edge]:
+        stmt = select(Edge).where(
+            Edge.user_id == self._user_id,
+            Edge.type == EDGE_TYPE_TEMPORAL_EVIDENCE,
+        )
+        if anchor_id is not None:
+            stmt = stmt.where(Edge.source_id == anchor_id)
+        if source_id is not None:
+            stmt = stmt.where(Edge.target_id == source_id)
+        rows = list(
+            self._session.scalars(
+                stmt.order_by(Edge.created_at.asc(), Edge.id.asc()).limit(
+                    TEMPORAL_SIGNAL_MAX_EVIDENCE_EDGES_SCAN
+                )
+            )
+        )
+        return [edge for edge in rows if evidence_edge_is_active(edge)]
+
+    def _find_evidence_edge(self, anchor_id: UUID, source_id: UUID) -> Edge | None:
+        return self._session.scalar(
+            select(Edge)
+            .where(
+                Edge.user_id == self._user_id,
+                Edge.source_id == anchor_id,
+                Edge.target_id == source_id,
+                Edge.type == EDGE_TYPE_TEMPORAL_EVIDENCE,
+            )
+            .order_by(Edge.created_at.asc(), Edge.id.asc())
+            .limit(1)
+        )
+
+    def _active_same_revision_anchor(self, source_id: UUID, payload_sig: str) -> Object | None:
+        active = self._active_evidence_edges(source_id=source_id)
+        matching = [edge for edge in active if self._edge_source_signature(edge) == payload_sig]
+        if not matching or len(matching) != len(active):
+            return None
+        return self._load_source(matching[0].source_id)
+
+    def _retire_evidence_edge(self, edge: Edge, payload_sig: str) -> None:
+        metadata = dict(edge.metadata_ or {})
+        metadata[METADATA_LIFECYCLE] = LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+        if payload_sig:
+            metadata["retired_by_source_signature"] = payload_sig
+        edge.metadata_ = metadata
+        self._session.flush()
+
+    def _write_evidence_revision(self, edge: Edge, signature: str, confidence: float) -> None:
+        metadata = dict(edge.metadata_ or {})
+        metadata.pop(METADATA_LIFECYCLE, None)
+        metadata.pop("retired_by_source_signature", None)
+        metadata[METADATA_SOURCE_SIGNATURE] = signature
+        metadata[METADATA_EXTRACTOR_VERSION] = TEMPORAL_SIGNAL_EXTRACTOR_VERSION
+        edge.metadata_ = metadata
+        edge.confidence = confidence
+        self._session.flush()
+
+    def _upsert_evidence(
+        self,
+        anchor: Object,
+        source: Object,
+        confidence: float,
+        signature: str,
+    ) -> None:
+        edge = self._find_evidence_edge(anchor.id, source.id)
+        if edge is not None:
+            self._write_evidence_revision(edge, signature, confidence)
             return
         self._graph.create_edge(
             EdgeCreate(
@@ -692,15 +799,92 @@ class TemporalSignalService:
                 confidence=confidence,
                 metadata={
                     METADATA_EXTRACTOR_VERSION: TEMPORAL_SIGNAL_EXTRACTOR_VERSION,
+                    METADATA_SOURCE_SIGNATURE: signature,
                 },
             )
         )
 
-    def _bump_evidence_count(self, hint: Object) -> None:
-        metadata = dict(hint.metadata_ or {})
-        count = int(metadata.get(METADATA_EVIDENCE_COUNT) or 1) + 1
-        metadata[METADATA_EVIDENCE_COUNT] = count
-        hint.metadata_ = metadata
+    def _commit_source_revision(
+        self,
+        source: Object,
+        payload_sig: str,
+        anchor: Object,
+        resolved: ResolvedTemporalSignal,
+    ) -> bool:
+        if not self._signature_still_current(source, payload_sig):
+            enqueue_extract_temporal_signal(self._session, source.id, self._user_id)
+            return False
+        affected: list[UUID] = []
+        for edge in self._evidence_edges_for_source(source.id):
+            if not evidence_edge_is_active(edge):
+                continue
+            if edge.source_id == anchor.id:
+                self._write_evidence_revision(edge, payload_sig, resolved.extraction_confidence)
+                continue
+            self._retire_evidence_edge(edge, payload_sig)
+            affected.append(edge.source_id)
+        self._upsert_evidence(anchor, source, resolved.extraction_confidence, payload_sig)
+        for object_id in dict.fromkeys([*affected, anchor.id]):
+            obj = self._load_source(object_id)
+            if obj is not None:
+                self._refresh_hint_after_evidence_change(obj)
+        return True
+
+    def _retire_source_revision(
+        self,
+        source: Object,
+        payload_sig: str,
+        *,
+        reason: str,
+    ) -> TemporalSignalJobOutcome:
+        if not self._signature_still_current(source, payload_sig):
+            enqueue_extract_temporal_signal(self._session, source.id, self._user_id)
+            return TemporalSignalJobOutcome(reason="stale_after_model", stale=True)
+        affected: list[UUID] = []
+        for edge in self._evidence_edges_for_source(source.id):
+            if not evidence_edge_is_active(edge):
+                continue
+            if self._edge_source_signature(edge) == payload_sig:
+                continue
+            self._retire_evidence_edge(edge, payload_sig)
+            affected.append(edge.source_id)
+        for object_id in dict.fromkeys(affected):
+            obj = self._load_source(object_id)
+            if obj is not None:
+                self._refresh_hint_after_evidence_change(obj)
+        return TemporalSignalJobOutcome(reason=reason)
+
+    def _refresh_hint_after_evidence_change(self, obj: Object) -> None:
+        if obj.kind != KIND_TEMPORAL_HINT:
+            return
+        active = self._active_evidence_edges(anchor_id=obj.id)
+        metadata = dict(obj.metadata_ or {})
+        metadata[METADATA_EVIDENCE_COUNT] = len(active)
+        if not active:
+            if metadata.get(METADATA_LIFECYCLE, LIFECYCLE_UNRESOLVED) == LIFECYCLE_UNRESOLVED:
+                metadata[METADATA_LIFECYCLE] = LIFECYCLE_SUPERSEDED_BY_SOURCE_REVISION
+            metadata.pop(METADATA_SOURCE_SIGNATURE, None)
+            obj.metadata_ = metadata
+            self._session.flush()
+            return
+        primary_id = None
+        raw_primary = metadata.get(METADATA_PRIMARY_EVIDENCE_OBJECT_ID)
+        if raw_primary:
+            try:
+                primary_id = UUID(str(raw_primary))
+            except ValueError:
+                primary_id = None
+        active_source_ids = {edge.target_id for edge in active}
+        if primary_id not in active_source_ids:
+            chosen = min(active, key=lambda edge: (edge.created_at, str(edge.id)))
+            primary_id = chosen.target_id
+        primary = self._load_source(primary_id) if primary_id is not None else None
+        if primary is not None:
+            metadata[METADATA_PRIMARY_EVIDENCE_OBJECT_ID] = str(primary.id)
+            metadata[METADATA_PRIMARY_EVIDENCE_PROVIDER] = primary.provider
+            metadata[METADATA_PRIMARY_EVIDENCE_KIND] = primary.kind
+            metadata[METADATA_SOURCE_SIGNATURE] = source_extraction_signature(primary)
+        obj.metadata_ = metadata
         self._session.flush()
 
     def _suppress_hint(self, hint: Object, calendar: Object) -> None:
@@ -730,16 +914,7 @@ class TemporalSignalService:
         self._session.flush()
 
     def _evidence_sources(self, hint: Object) -> list[Object]:
-        edges = list(
-            self._session.scalars(
-                select(Edge).where(
-                    Edge.user_id == self._user_id,
-                    Edge.source_id == hint.id,
-                    Edge.type == EDGE_TYPE_TEMPORAL_EVIDENCE,
-                    Edge.state != REJECTED_STATE,
-                )
-            )
-        )
+        edges = self._active_evidence_edges(anchor_id=hint.id)
         if not edges:
             return []
         ids = [edge.target_id for edge in edges]
@@ -748,19 +923,6 @@ class TemporalSignalService:
                 select(Object).where(Object.user_id == self._user_id, Object.id.in_(ids))
             )
         )
-
-    def _existing_evidence_anchor(self, source_id: UUID) -> Object | None:
-        edge = self._session.scalar(
-            select(Edge).where(
-                Edge.user_id == self._user_id,
-                Edge.target_id == source_id,
-                Edge.type == EDGE_TYPE_TEMPORAL_EVIDENCE,
-                Edge.state != REJECTED_STATE,
-            ).limit(1)
-        )
-        if edge is None:
-            return None
-        return self._load_source(edge.source_id)
 
     def _build_request(self, source: Object) -> TemporalExtractionRequest:
         title, body = bounded_source_text(source)
