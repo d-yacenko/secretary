@@ -194,11 +194,13 @@ void main() {
   });
 
   test(
-    'today badge is a saturated blue distinct from the pale column tint',
+    'today header badge is a saturated blue with white text in light and dark',
     () {
       void check(ColorScheme scheme) {
         final fill = weekTodayBadgeFill(scheme);
         final onFill = weekTodayBadgeForeground(scheme);
+        expect(fill, kWeekTodayBadgeBlue);
+        expect(onFill, kWeekTodayBadgeOnFill);
         expect(fill, isNot(weekTodayColumnColor(scheme)));
         expect(fill, isNot(scheme.surface));
         expect(weekOverlapContrastRatio(fill, onFill), greaterThan(4.5));

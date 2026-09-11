@@ -19,6 +19,25 @@ final _readOnlyInteraction = CalendarInteraction(
   allowEventCreation: false,
 );
 
+const TimeOfDay kWeekMorningInitialTime = TimeOfDay(hour: 8, minute: 0);
+
+/// Initial vertical viewport anchor. Wide/tablet always opens around 08:00.
+/// Compact current Week keeps a current-time anchor; non-current stays 08:00.
+TimeOfDay weekInitialTimeOfDay({
+  required bool compact,
+  required bool isCurrentWeek,
+  required DateTime now,
+}) {
+  if (compact && isCurrentWeek) {
+    return TimeOfDay(hour: now.hour, minute: now.minute);
+  }
+  return kWeekMorningInitialTime;
+}
+
+String weekDayHeaderLabel(DateTime date) {
+  return '${formatRussianWeekdayShort(date)} ${formatRussianDayMonth(date)}';
+}
+
 /// Read-only week time-grid over [WeekOut], backed by kalender.
 class WeekTimeGrid extends StatefulWidget {
   const WeekTimeGrid({
@@ -131,10 +150,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
         _configCurrentWeek == isCurrent) {
       return;
     }
-    final now = _nowCallback();
-    final initialTime = isCurrent
-        ? TimeOfDay(hour: now.hour, minute: now.minute)
-        : const TimeOfDay(hour: 8, minute: 0);
+    final initialTime = weekInitialTimeOfDay(
+      compact: compact,
+      isCurrentWeek: isCurrent,
+      now: _nowCallback(),
+    );
     _configWeekStart = weekStart;
     _configCompact = compact;
     _configCurrentWeek = isCurrent;
@@ -270,14 +290,14 @@ class _WeekDayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final iso = formatCalendarDate(date);
     final isToday = iso == todayDate;
-    final scheme = Theme.of(context).colorScheme;
+    final label = weekDayHeaderLabel(date);
     if (!isToday) {
       return Padding(
         key: Key('week_day_$iso'),
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Text(
           key: Key('week_day_header_$iso'),
-          '${formatRussianWeekdayShort(date)} ${formatRussianDayMonth(date)}',
+          label,
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -287,45 +307,34 @@ class _WeekDayHeader extends StatelessWidget {
         ),
       );
     }
+    final scheme = Theme.of(context).colorScheme;
     final fill = weekTodayBadgeFill(scheme);
     final onFill = weekTodayBadgeForeground(scheme);
     return Padding(
       key: Key('week_day_$iso'),
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            formatRussianWeekdayShort(date),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w500),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: Center(
+        child: DecoratedBox(
+          key: const Key('week_today_header_badge'),
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(kWeekTodayHeaderBadgeRadius),
           ),
-          const SizedBox(height: 2),
-          DecoratedBox(
-            key: const Key('week_today_date_badge'),
-            decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
-            child: SizedBox(
-              width: kWeekTodayBadgeSize,
-              height: kWeekTodayBadgeSize,
-              child: Center(
-                child: Text(
-                  key: Key('week_day_today_$iso'),
-                  '${date.day}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: onFill,
-                    fontWeight: FontWeight.w600,
-                    height: 1,
-                  ),
-                ),
+          child: Padding(
+            padding: kWeekTodayHeaderBadgePadding,
+            child: Text(
+              key: Key('week_day_header_$iso'),
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: onFill,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

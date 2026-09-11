@@ -16,7 +16,18 @@ int? weekTodayColumnIndex(WeekOut week) {
 }
 
 const double kWeekTodayColumnTintAlpha = 0.085;
-const double kWeekTodayBadgeSize = 26;
+const double kWeekTodayHeaderBadgeRadius = 5;
+const EdgeInsets kWeekTodayHeaderBadgePadding = EdgeInsets.symmetric(
+  horizontal: 6,
+  vertical: 2,
+);
+
+/// Saturated Today header fill. Independent of provider, overlap, bookmark.
+///
+/// App primary (indigo seed) is too muted/lavender, so this uses a local
+/// semantic blue. Light and dark both keep a strong blue with white text.
+const Color kWeekTodayBadgeBlue = Color(0xFF1565C0);
+const Color kWeekTodayBadgeOnFill = Color(0xFFFFFFFF);
 
 /// Theme-aware full-column Today tint. Distinct from bare [ColorScheme.surface].
 Color weekTodayColumnColor(ColorScheme scheme) {
@@ -26,20 +37,12 @@ Color weekTodayColumnColor(ColorScheme scheme) {
   );
 }
 
-/// Saturated Today date-badge fill. Independent of provider, overlap, bookmark.
-///
-/// App primary (indigo seed) is too muted/lavender for a Google-like date
-/// circle, so this uses a local semantic blue still split by theme brightness.
 Color weekTodayBadgeFill(ColorScheme scheme) {
-  return scheme.brightness == Brightness.dark
-      ? const Color(0xFF90CAF9)
-      : const Color(0xFF1565C0);
+  return kWeekTodayBadgeBlue;
 }
 
 Color weekTodayBadgeForeground(ColorScheme scheme) {
-  return scheme.brightness == Brightness.dark
-      ? const Color(0xFF0D47A1)
-      : const Color(0xFFFFFFFF);
+  return kWeekTodayBadgeOnFill;
 }
 
 /// Hour-lines layer with a restrained today-column tint behind the lines.

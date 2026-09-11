@@ -451,6 +451,50 @@ void main() {
     );
   });
 
+  test(
+    'wide week initial time is morning, compact current week follows now',
+    () {
+      final lateMorning = DateTime(2026, 9, 11, 11, 8);
+      expect(
+        weekInitialTimeOfDay(
+          compact: false,
+          isCurrentWeek: true,
+          now: lateMorning,
+        ),
+        kWeekMorningInitialTime,
+      );
+      expect(
+        weekInitialTimeOfDay(
+          compact: false,
+          isCurrentWeek: false,
+          now: lateMorning,
+        ),
+        kWeekMorningInitialTime,
+      );
+      expect(
+        weekInitialTimeOfDay(
+          compact: true,
+          isCurrentWeek: true,
+          now: lateMorning,
+        ),
+        const TimeOfDay(hour: 11, minute: 8),
+      );
+      expect(
+        weekInitialTimeOfDay(
+          compact: true,
+          isCurrentWeek: false,
+          now: lateMorning,
+        ),
+        kWeekMorningInitialTime,
+      );
+    },
+  );
+
+  test('today header label uses weekday and day-month helpers', () {
+    expect(weekDayHeaderLabel(DateTime(2026, 9, 11)), 'Пт 11 сентября');
+    expect(weekDayHeaderLabel(DateTime(2026, 9, 7)), 'Пн 7 сентября');
+  });
+
   testWidgets('Сегодня | Неделя switch keeps Today and loads Week', (
     tester,
   ) async {
@@ -558,9 +602,9 @@ void main() {
         ),
       );
     }
-    expect(find.text('Пн 7 сентября'), findsNothing);
-    expect(find.text('Пн'), findsOneWidget);
-    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
+    expect(find.text('Пн 7 сентября'), findsOneWidget);
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
     expect(find.text('Вс 13 сентября'), findsOneWidget);
     expect(
       tester
@@ -600,7 +644,7 @@ void main() {
     expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
     expect(find.byKey(const Key('week_type_calendar_google')), findsOneWidget);
     expect(find.byKey(const Key('week_type_calendar_yandex')), findsOneWidget);
-    expect(find.byKey(const Key('week_day_today_2026-09-07')), findsOneWidget);
+    expect(find.byKey(const Key('week_day_header_2026-09-07')), findsOneWidget);
     expect(find.text('На этой неделе событий нет'), findsNothing);
   });
 
@@ -824,16 +868,20 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Trip'), findsOneWidget);
-      expect(
-        find.byKey(const Key('week_event_2026-09-08_overnight')),
-        findsOneWidget,
-      );
 
       final bodyScrollable = find.descendant(
         of: find.byKey(const Key('week_time_grid')),
         matching: find.byType(Scrollable),
       );
-      await tester.fling(bodyScrollable.first, const Offset(0, -2500), 2000);
+      await tester.fling(bodyScrollable.first, const Offset(0, 2500), 2000);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        find.byKey(const Key('week_event_2026-09-08_overnight')),
+        findsOneWidget,
+      );
+
+      await tester.fling(bodyScrollable.first, const Offset(0, -4000), 2000);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(
@@ -1598,12 +1646,13 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
-    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
     final highlightBox = tester.widget<ColoredBox>(
       find.byKey(const Key('week_today_column_highlight')),
     );
     final badge = tester.widget<DecoratedBox>(
-      find.byKey(const Key('week_today_date_badge')),
+      find.byKey(const Key('week_today_header_badge')),
     );
     final scheme = Theme.of(
       tester.element(find.byKey(const Key('week_today_column_highlight'))),
@@ -1613,14 +1662,26 @@ void main() {
     expect(highlightBox.color, isNot(scheme.surface));
     expect(badge.decoration, isA<BoxDecoration>());
     final decoration = badge.decoration as BoxDecoration;
-    expect(decoration.shape, BoxShape.circle);
+    expect(decoration.shape, BoxShape.rectangle);
+    expect(
+      decoration.borderRadius,
+      BorderRadius.circular(kWeekTodayHeaderBadgeRadius),
+    );
     expect(decoration.color, weekTodayBadgeFill(scheme));
     expect(decoration.color, isNot(expectedTint));
-    final number = tester.widget<Text>(
-      find.byKey(const Key('week_day_today_2026-09-10')),
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_today_header_badge')),
+        matching: find.text('Чт 10 сентября'),
+      ),
+      findsOneWidget,
     );
-    expect(number.data, '10');
-    expect(number.style?.color, weekTodayBadgeForeground(scheme));
+    final label = tester.widget<Text>(
+      find.byKey(const Key('week_day_header_2026-09-10')),
+    );
+    expect(label.data, 'Чт 10 сентября');
+    expect(label.style?.color, weekTodayBadgeForeground(scheme));
+    expect(label.style?.color, const Color(0xFFFFFFFF));
     final highlight = tester.getRect(
       find.byKey(const Key('week_today_column_highlight')),
     );
@@ -1651,6 +1712,7 @@ void main() {
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_badge')), findsNothing);
 
     tester.view.physicalSize = const Size(360, 760);
     await tester.pumpWidget(
@@ -1663,9 +1725,10 @@ void main() {
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_badge')), findsNothing);
   });
 
-  testWidgets('phone today header uses the circular date badge', (
+  testWidgets('phone today header uses the full blue date label', (
     tester,
   ) async {
     const phone = Size(360, 760);
@@ -1682,9 +1745,60 @@ void main() {
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
-    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
-    expect(find.byKey(const Key('week_day_today_2026-09-07')), findsOneWidget);
-    expect(find.text('Пн 7 сентября'), findsNothing);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_today_header_badge')),
+        matching: find.text('Пн 7 сентября'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('today header shows Friday 11 September in the blue label', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(week: (_) => weekPayload(todayDate: '2026-09-11')),
+        size: desktopSize,
+        now: () => DateTime(2026, 9, 11, 11, 8),
+      ),
+    );
+    await pumpCalendar(tester);
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('week_today_header_badge')),
+        matching: find.text('Пт 11 сентября'),
+      ),
+      findsOneWidget,
+    );
+    final badge = tester.widget<DecoratedBox>(
+      find.byKey(const Key('week_today_header_badge')),
+    );
+    final decoration = badge.decoration as BoxDecoration;
+    expect(decoration.shape, isNot(BoxShape.circle));
+    expect(
+      decoration.borderRadius,
+      BorderRadius.circular(kWeekTodayHeaderBadgeRadius),
+    );
+    expect(decoration.color, kWeekTodayBadgeBlue);
+    final label = tester.widget<Text>(
+      find.byKey(const Key('week_day_header_2026-09-11')),
+    );
+    expect(label.data, 'Пт 11 сентября');
+    expect(label.style?.color, kWeekTodayBadgeOnFill);
+    expect(
+      find.byKey(const Key('week_today_column_highlight')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('today column highlight follows current-week navigation', (
@@ -1721,6 +1835,7 @@ void main() {
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
+    expect(find.byKey(const Key('week_today_header_badge')), findsNothing);
 
     await tester.tap(find.byKey(const Key('week_nav_current')));
     await pumpCalendar(tester);
@@ -1729,7 +1844,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
-    expect(find.byKey(const Key('week_today_date_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
+    expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
     final highlight = tester.getRect(
       find.byKey(const Key('week_today_column_highlight')),
     );
