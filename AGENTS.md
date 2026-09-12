@@ -26,12 +26,12 @@ The explicit current task message from the user/Architect is the authorization t
 
 ## Architect-only boundary
 
-`secretary_architect_context_encrypted.md` is Architect-owned private continuity.
+`secretary_architect_context_encrypted.md` is the **only canonical Architect-private continuity/context file** in this repository. It is encrypted and Architect-owned.
 
-- Never read, decrypt, decode, edit, regenerate, replace, delete, re-encrypt, or commit it.
+- Never read, decrypt, decode, inspect, edit, regenerate, replace, move, delete, re-encrypt, or commit it.
 - Never inspect its git history, blobs, diffs, or copies on other branches.
 - If it differs locally, conflicts during a merge/rebase, or appears damaged, do **not** restore/copy/resolve it yourself. Stop and report the problem to the Architect.
-- Do not create plaintext architect context, roadmap, future-feature planning, or architecture-backlog files.
+- Do not create plaintext architect context, roadmap, future-feature planning, architecture-backlog files, or replacement playbooks.
 - Do not browse Architect-owned branches to infer roadmap or decisions. If the current task explicitly names an exact branch/SHA as a mechanical base or deploy target, use only that ref for the requested operation.
 
 `personal_secretary_llm_build_playbook.md` is retired and must not be used as an instruction source. If it appears in a working tree, do not read or follow it; report its presence.
