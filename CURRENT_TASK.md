@@ -1,34 +1,23 @@
-# Current task — Scheduled Work A
+# Current task — Scheduled Work A-R1
 
 ## Status
 
-**Scheduled Work A: implemented / awaiting Architect review**
+**Scheduled Work A-R1: implemented / awaiting Architect review**
 
 Branch: `review/scheduled-work-a`
-Exact base/parent: `9dd26f271fa4bab94b3e60d6cbc840ff19b4f04d`
-Exact implementation SHA: `bae22631b2455aa6583721089231133e65ba8481`
+Exact A-R1 application SHA: `76721b16650c49ce32b6405e8a001bdc6822bec4`
+A-R1 parent: `6a3994f454ebf6ab805581da995ee4c629bbacde`
+Scheduled Work A code SHA: `bae22631b2455aa6583721089231133e65ba8481`
 Migration: **0038 → 0037** (`objects.planned_start_at`, `objects.planned_end_at`)
 No deploy.
 
 Production remains `6cf1c04fb87dc99b050b6d83d0995db5c2f9e876`.
 Production Alembic remains **0037 / 0037**.
 
-Temporal Signals A remains **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**.
+## This corrective
 
-Do not change production settings:
-- `temporal_signals_enabled=true`
-- `openai_daily_token_limit=1500000`
-- assistant model `gpt-5.6-luna`
-- proactive=false / interval 60
-- `auto_label_enabled=true`
-
-## This phase
-
-Explicit task planned execution interval (`planned_start_at` / `planned_end_at`) as Week layer 2.
-
-Scheduled work is not a calendar event, not busy time, and does not write Google/Yandex calendars.
-
-`due_at` remains a deadline. No backfill. No OpenAI/model/cost-guard changes.
+Week `scheduled_work` is fail-closed: only `open` / `in_progress` / `done`.
+NULL, legacy `completed`, cancelled/archived/deleted, and unknown statuses are excluded.
 
 ## Out of this phase
 
