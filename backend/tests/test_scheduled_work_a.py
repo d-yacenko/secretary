@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -13,6 +13,15 @@ from app.domain.planned_execution import (
     PLANNED_INTERVAL_BOTH_OR_NEITHER,
     PLANNED_INTERVAL_END_AFTER_START,
     PLANNED_INTERVAL_TASKS_ONLY,
+)
+from app.domain.task_lifecycle import (
+    LEGACY_TASK_STATUS_COMPLETED,
+    TASK_STATUS_ARCHIVED,
+    TASK_STATUS_CANCELLED,
+    TASK_STATUS_DELETED,
+    TASK_STATUS_DONE,
+    TASK_STATUS_IN_PROGRESS,
+    TASK_STATUS_OPEN,
 )
 from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_UNRESOLVED
 from app.llm.embedding_service import FakeEmbeddingService
@@ -47,7 +56,7 @@ def _task(
     graph: GraphService,
     *,
     title: str = "Planned work",
-    status: str | None = "open",
+    status: str | None = TASK_STATUS_OPEN,
     planned_start_at: datetime | None = START,
     planned_end_at: datetime | None = END,
     due_at: datetime | None = None,
@@ -287,11 +296,11 @@ def test_deadline_only_task_does_not_appear_in_scheduled_work(db_session) -> Non
 
 def test_scheduled_open_and_in_progress_appear(db_session) -> None:
     graph = _graph(db_session)
-    open_task = _task(graph, title="Open work", status="open")
+    open_task = _task(graph, title="Open work", status=TASK_STATUS_OPEN)
     progress = _task(
         graph,
         title="In progress work",
-        status="in_progress",
+        status=TASK_STATUS_IN_PROGRESS,
         planned_start_at=START + timedelta(hours=2),
         planned_end_at=END + timedelta(hours=2),
     )
@@ -303,32 +312,58 @@ def test_scheduled_open_and_in_progress_appear(db_session) -> None:
 
 def test_done_scheduled_task_remains_in_historical_week(db_session) -> None:
     graph = _graph(db_session)
-    done = _task(graph, title="Finished work", status="done")
+    done = _task(graph, title="Finished work", status=TASK_STATUS_DONE)
     monday = _snapshot(db_session)["days"][0]
     assert [obj.title for obj in monday["scheduled_work"]] == ["Finished work"]
     assert monday["scheduled_work"][0].id == done.id
-    assert monday["scheduled_work"][0].status == "done"
+    assert monday["scheduled_work"][0].status == TASK_STATUS_DONE
 
 
 def test_cancelled_archived_deleted_excluded(db_session) -> None:
     graph = _graph(db_session)
-    _task(graph, title="Cancelled work", status="cancelled")
+    _task(graph, title="Cancelled work", status=TASK_STATUS_CANCELLED)
     _task(
         graph,
         title="Archived work",
-        status="archived",
+        status=TASK_STATUS_ARCHIVED,
         planned_start_at=START + timedelta(minutes=5),
         planned_end_at=END + timedelta(minutes=5),
     )
-    deleted = _task(
+    _task(
         graph,
         title="Deleted work",
-        status="deleted",
+        status=TASK_STATUS_DELETED,
         planned_start_at=START + timedelta(minutes=10),
         planned_end_at=END + timedelta(minutes=10),
     )
-    deleted.deleted_at = datetime.now(UTC)
-    db_session.flush()
+    monday = _snapshot(db_session)["days"][0]
+    assert monday["scheduled_work"] == []
+
+
+def test_null_status_scheduled_task_excluded(db_session) -> None:
+    graph = _graph(db_session)
+    task = _task(graph, title="Null status work", status=None)
+    assert task.status is None
+    monday = _snapshot(db_session)["days"][0]
+    assert monday["scheduled_work"] == []
+
+
+def test_legacy_completed_scheduled_task_excluded(db_session) -> None:
+    graph = _graph(db_session)
+    task = _task(
+        graph,
+        title="Legacy completed work",
+        status=LEGACY_TASK_STATUS_COMPLETED,
+    )
+    assert task.status == LEGACY_TASK_STATUS_COMPLETED
+    monday = _snapshot(db_session)["days"][0]
+    assert monday["scheduled_work"] == []
+
+
+def test_unknown_status_scheduled_task_excluded(db_session) -> None:
+    graph = _graph(db_session)
+    task = _task(graph, title="Mystery work", status="mystery")
+    assert task.status == "mystery"
     monday = _snapshot(db_session)["days"][0]
     assert monday["scheduled_work"] == []
 

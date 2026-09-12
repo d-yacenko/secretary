@@ -15,9 +15,9 @@ from app.core.config import settings
 from app.db.models import Object, UserSettings
 from app.domain.planned_execution import KIND_TASK
 from app.domain.task_lifecycle import (
-    TASK_STATUS_ARCHIVED,
-    TASK_STATUS_CANCELLED,
-    TASK_STATUS_DELETED,
+    TASK_STATUS_DONE,
+    TASK_STATUS_IN_PROGRESS,
+    TASK_STATUS_OPEN,
 )
 from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_UNRESOLVED
 from app.services.calendar_event_query import (
@@ -36,11 +36,11 @@ from app.services.temporal_signals_constants import (
 
 WEEK_MAX_EVENTS = 500
 WEEK_MAX_SCHEDULED_WORK = 500
-HIDDEN_SCHEDULED_WORK_STATUSES = frozenset(
+VISIBLE_SCHEDULED_WORK_STATUSES = frozenset(
     {
-        TASK_STATUS_CANCELLED,
-        TASK_STATUS_ARCHIVED,
-        TASK_STATUS_DELETED,
+        TASK_STATUS_OPEN,
+        TASK_STATUS_IN_PROGRESS,
+        TASK_STATUS_DONE,
     }
 )
 
@@ -206,10 +206,7 @@ class WeekService:
                 Object.user_id == self._user_id,
                 Object.kind == KIND_TASK,
                 Object.deleted_at.is_(None),
-                or_(
-                    Object.status.is_(None),
-                    Object.status.notin_(HIDDEN_SCHEDULED_WORK_STATUSES),
-                ),
+                Object.status.in_(VISIBLE_SCHEDULED_WORK_STATUSES),
                 Object.planned_start_at.is_not(None),
                 Object.planned_end_at.is_not(None),
                 Object.planned_start_at < window_end,
