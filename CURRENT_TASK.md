@@ -1,24 +1,30 @@
-# Current task — Scheduled Work A-R1
+# Current task — Scheduled Work A
 
 ## Status
 
-**Scheduled Work A-R1: implemented / awaiting Architect review**
+**Scheduled Work A: CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**
 
 Branch: `review/scheduled-work-a`
-Exact A-R1 application SHA: `76721b16650c49ce32b6405e8a001bdc6822bec4`
-A-R1 parent: `6a3994f454ebf6ab805581da995ee4c629bbacde`
-Scheduled Work A code SHA: `bae22631b2455aa6583721089231133e65ba8481`
+Exact production application SHA: `76721b16650c49ce32b6405e8a001bdc6822bec4`
+Production Alembic: **0038 / 0038**
 Migration: **0038 → 0037** (`objects.planned_start_at`, `objects.planned_end_at`)
-No deploy.
+Docs-only closure parent: `90b8e3298d6ff6215eaad1fbce48f1c0fe8ccc51`
+No docs-only deploy.
 
-Production remains `6cf1c04fb87dc99b050b6d83d0995db5c2f9e876`.
-Production Alembic remains **0037 / 0037**.
+## Contract
 
-## This corrective
+Scheduled work is an explicit user-planned task execution interval on `Object` (`planned_start_at` / `planned_end_at`). It is not `due_at`, not a calendar event, not hard busy time, and does not write Google/Yandex calendars.
 
-Week `scheduled_work` is fail-closed: only `open` / `in_progress` / `done`.
-NULL, legacy `completed`, cancelled/archived/deleted, and unknown statuses are excluded.
+Week layers: confirmed calendar events = HARD; `scheduled_work` = SOFT; `temporal_hints` = TENTATIVE.
 
-## Out of this phase
+Week `scheduled_work` is fail-closed: `open` / `in_progress` / `done` only. NULL, legacy `completed`, cancelled, archived, deleted, and unknown statuses are excluded.
 
-Availability / free-busy, automatic placement, drag-and-drop, calendar writes, converting hints or deadlines into planned intervals, recurring tasks, historical backfill, Telegram Temporal.
+Schema: both planned fields NULL, or `kind=task` and both non-NULL and `planned_end_at > planned_start_at`. No backfill.
+
+## Production acceptance
+
+Upgrade **0037 → 0038** succeeded. `/health` healthy. No schema backfill; existing tasks stayed unscheduled. Settings and source-sync unchanged. FAILED count did not increase.
+
+Smoke task `ad24f373-700e-49d0-b5e0-31567e9e5bfd` via capture → Object PATCH interval → status transitions → clear → soft-delete. Capture left the interval NULL. Set 2026-09-12 20:00–20:45 Europe/Moscow; `due_at` stayed NULL. Same Object.id in `scheduled_work` only. open visible, done visible, cancelled hidden. Clear returned both planned fields to NULL and removed the task from `scheduled_work`. Normal soft-delete. Zero Scheduled Work calendar writes or OpenAI calls. Temporal Signals healthy. Cost Guards unchanged.
+
+Production settings remain: `temporal_signals_enabled=true`, `openai_daily_token_limit=1500000`, assistant model `gpt-5.6-luna`, proactive=false / interval 60, `auto_label_enabled=true`, source sync intervals unchanged.
