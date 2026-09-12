@@ -87,6 +87,62 @@ void main() {
       expect(find.text('Добавить папку'), findsNothing);
     });
 
+    testWidgets('disconnect first click opens dialog without API or forgetToken', (
+      tester,
+    ) async {
+      final requests = <http.Request>[];
+      final tokens = _CountingTokenStore();
+      final client = SecretaryApiClient(
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/connections')) {
+            return http.Response(jsonEncode(_connectionsJson()), 200);
+          }
+          if (isAccountSettingsRequest(request.url)) {
+            return http.Response(jsonEncode(accountSettingsJson()), 200);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      client.configure(baseUrl: _baseUrl, token: _token);
+      final auth = AuthController(
+        apiClient: client,
+        tokenStore: tokens,
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      auth.user = UserMe(
+        id: 'user-1',
+        displayName: 'Alice',
+        createdAt: '2026-01-01T00:00:00Z',
+      );
+
+      await _pumpAccountReady(
+        tester,
+        buildAccountScreen(apiClient: client, authController: auth),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('client_disconnect_button')),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Отключить этот клиент'), findsOneWidget);
+      expect(find.text('Забыть токен / отключить клиент'), findsNothing);
+      final requestCount = requests.length;
+
+      await tester.tap(find.byKey(const Key('client_disconnect_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('client_disconnect_dialog')), findsOneWidget);
+      expect(tokens.deletes, 0);
+      expect(auth.status, AuthStatus.authenticated);
+      expect(requests.length, requestCount);
+      expect(
+        requests.any((request) => request.method == 'DELETE'),
+        isFalse,
+      );
+    });
+
     testWidgets('display name save sends PATCH /me', (tester) async {
       String? patchedName;
       final client = SecretaryApiClient(
@@ -766,6 +822,25 @@ Email:
       expect(find.textContaining('profile_text exceeds maximum length'), findsOneWidget);
     });
   });
+}
+
+class _CountingTokenStore implements TokenStore {
+  String? token = _token;
+  int deletes = 0;
+
+  @override
+  Future<String?> readToken() async => token;
+
+  @override
+  Future<void> writeToken(String value) async {
+    token = value;
+  }
+
+  @override
+  Future<void> deleteToken() async {
+    deletes += 1;
+    token = null;
+  }
 }
 
 class FakeTokenStore implements TokenStore {

@@ -103,5 +103,23 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('disconnect control is at the bottom of Account', (tester) async {
+      final client = buildAccountApiClient();
+      await pumpAccountReady(
+        tester,
+        buildAccountScreen(
+          apiClient: client,
+          authController: _buildAuth(client),
+        ),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('client_disconnect_button')),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Отключить этот клиент'), findsOneWidget);
+      expect(find.text('Забыть токен / отключить клиент'), findsNothing);
+    });
   });
 }

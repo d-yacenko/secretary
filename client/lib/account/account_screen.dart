@@ -9,6 +9,7 @@ import '../ui/domain_labels.dart';
 import '../ui/ui_text_scale.dart';
 import 'account_labels_section.dart';
 import 'account_layout.dart';
+import 'client_disconnect.dart';
 import 'identity_profile_template.dart';
 import 'semantic_context_template.dart';
 import 'source_preferences_list.dart';
@@ -1076,13 +1077,8 @@ class _AccountScreenState extends State<AccountScreen>
                 authController: widget.authController,
               ),
               const SizedBox(height: 32),
-              OutlinedButton(
-                onPressed: () async {
-                  final navigator = Navigator.of(context);
-                  await widget.authController.forgetToken();
-                  navigator.pop();
-                },
-                child: const Text('Забыть токен / отключить клиент'),
+              ClientDisconnectControl(
+                authController: widget.authController,
               ),
             ],
           ),

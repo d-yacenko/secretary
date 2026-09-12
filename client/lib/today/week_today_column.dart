@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:kalender/kalender.dart';
 
 import '../api/api_models.dart';
+import 'week_hour_grid.dart';
 
 /// Monday–Sunday index of today in [week], or null when no body highlight.
 int? weekTodayColumnIndex(WeekOut week) {
@@ -47,7 +48,7 @@ Color weekTodayBadgeForeground(ColorScheme scheme) {
 
 /// Hour-lines layer with a restrained today-column tint behind the lines.
 ///
-/// Public kalender API only: custom [HourLinesBuilder] + [HourLines].
+/// Public kalender API only: custom [HourLinesBuilder] + whole-hour lines.
 class WeekTodayColumnHourLines extends StatelessWidget {
   const WeekTodayColumnHourLines({
     super.key,
@@ -86,7 +87,7 @@ class WeekTodayColumnHourLines extends StatelessWidget {
               },
             ),
           ),
-        HourLines(
+        WeekWholeHourHourLines(
           heightPerMinute: heightPerMinute,
           timeOfDayRange: timeOfDayRange,
         ),

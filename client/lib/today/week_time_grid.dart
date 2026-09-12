@@ -8,6 +8,7 @@ import '../ui/object_bookmark.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/object_presentation.dart';
 import 'week_kalender_events.dart';
+import 'week_hour_grid.dart';
 import 'week_item_type.dart';
 import 'week_overlap.dart';
 import 'week_overlap_layout.dart';
@@ -20,6 +21,22 @@ final _readOnlyInteraction = CalendarInteraction(
 );
 
 const TimeOfDay kWeekMorningInitialTime = TimeOfDay(hour: 8, minute: 0);
+
+const double kWeekTemporalHintWideWidthFactor = 0.725;
+const double kWeekTemporalHintCompactWidthFactor = 0.90;
+
+double weekTemporalHintWidthFactor({required bool compact}) {
+  return compact
+      ? kWeekTemporalHintCompactWidthFactor
+      : kWeekTemporalHintWideWidthFactor;
+}
+
+Color weekTemporalHintFill(ColorScheme scheme) {
+  if (scheme.brightness == Brightness.light) {
+    return scheme.surfaceContainerLowest;
+  }
+  return scheme.surfaceContainerHigh;
+}
 
 /// Initial vertical viewport anchor. Wide/tablet always opens around 08:00.
 /// Compact current Week keeps a current-time anchor; non-current stays 08:00.
@@ -219,15 +236,21 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                   ),
                 ),
                 bodyComponents: MultiDayBodyComponents(
-                  hourLines: compact
-                      ? null
-                      : (context, heightPerMinute, timeOfDayRange) {
-                          return WeekTodayColumnHourLines(
-                            todayIndex: weekTodayColumnIndex(widget.week),
-                            heightPerMinute: heightPerMinute,
-                            timeOfDayRange: timeOfDayRange,
-                          );
-                        },
+                  hourLines: (context, heightPerMinute, timeOfDayRange) {
+                    return WeekTodayColumnHourLines(
+                      todayIndex: compact
+                          ? null
+                          : weekTodayColumnIndex(widget.week),
+                      heightPerMinute: heightPerMinute,
+                      timeOfDayRange: timeOfDayRange,
+                    );
+                  },
+                  timeline: (context, heightPerMinute, timeOfDayRange, _, __) {
+                    return WeekWholeHourTimeLine(
+                      heightPerMinute: heightPerMinute,
+                      timeOfDayRange: timeOfDayRange,
+                    );
+                  },
                 ),
               ),
             ),
@@ -380,7 +403,7 @@ class WeekKalenderEventTile extends StatelessWidget {
     final isScheduled = itemType == WeekTemporalItemType.scheduledWork;
     final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
     final fill = isHint
-        ? scheme.onSurface.withValues(alpha: 0.08)
+        ? weekTemporalHintFill(scheme)
         : isScheduled
         ? scheme.secondaryContainer.withValues(alpha: completed ? 0.32 : 0.74)
         : tone.fill.withValues(alpha: 0.92);
@@ -475,7 +498,7 @@ class WeekKalenderEventTile extends StatelessWidget {
                 key: Key('week_hint_unknown_end_$objectId'),
                 decoration: BoxDecoration(
                   borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(4),
+                    bottom: Radius.circular(100),
                   ),
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
@@ -492,18 +515,25 @@ class WeekKalenderEventTile extends StatelessWidget {
       ],
     );
     if (isHint) {
-      return Material(
-        key: Key('week_hint_style_$objectId'),
-        color: fill,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(4)),
-        ),
-        child: CustomPaint(
-          painter: _WeekHintOutlinePainter(
-            color: outline,
-            endUnknown: endUnknown,
+      return Align(
+        alignment: Alignment.center,
+        child: FractionallySizedBox(
+          key: Key('week_hint_visual_$objectId'),
+          widthFactor: weekTemporalHintWidthFactor(compact: compact),
+          heightFactor: 1,
+          child: Material(
+            key: Key('week_hint_style_$objectId'),
+            color: fill,
+            clipBehavior: Clip.antiAlias,
+            shape: const StadiumBorder(),
+            child: CustomPaint(
+              painter: _WeekHintOutlinePainter(
+                color: outline,
+                endUnknown: endUnknown,
+              ),
+              child: content,
+            ),
           ),
-          child: content,
         ),
       );
     }
@@ -547,15 +577,19 @@ class _WeekHintOutlinePainter extends CustomPainter {
       ..strokeWidth = 1.15
       ..strokeCap = StrokeCap.round;
     const inset = 0.6;
-    final left = inset;
-    final top = inset;
-    final right = size.width - inset;
-    final bottom = size.height - inset;
-    _dashedLine(canvas, Offset(left, top), Offset(right, top), paint);
-    _dashedLine(canvas, Offset(left, top), Offset(left, bottom), paint);
-    _dashedLine(canvas, Offset(right, top), Offset(right, bottom), paint);
+    final rect = Rect.fromLTWH(
+      inset,
+      inset,
+      size.width - inset * 2,
+      size.height - inset * 2,
+    );
+    if (rect.isEmpty) {
+      return;
+    }
+    final radius = Radius.circular(rect.height / 2);
+    final path = Path()..addRRect(RRect.fromRectAndRadius(rect, radius));
+    _dashedPath(canvas, path, paint);
     if (!endUnknown) {
-      _dashedLine(canvas, Offset(left, bottom), Offset(right, bottom), paint);
       return;
     }
     final faded = Paint()
@@ -563,42 +597,33 @@ class _WeekHintOutlinePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
-    _dashedLine(
-      canvas,
-      Offset(left + 4, bottom),
-      Offset(right - 4, bottom),
-      faded,
-      dash: 2,
-      gap: 4,
-    );
+    final bottom = Path()
+      ..moveTo(rect.left + 4, rect.bottom)
+      ..lineTo(rect.right - 4, rect.bottom);
+    _dashedPath(canvas, bottom, faded, dash: 2, gap: 4);
   }
 
-  void _dashedLine(
+  void _dashedPath(
     Canvas canvas,
-    Offset start,
-    Offset end,
+    Path path,
     Paint paint, {
     double dash = 3.2,
     double gap = 2.4,
   }) {
-    final delta = end - start;
-    final length = delta.distance;
-    if (length <= 0) {
-      return;
-    }
-    final direction = delta / length;
-    var drawn = 0.0;
-    var on = true;
-    while (drawn < length) {
-      final step = on ? dash : gap;
-      final next = drawn + step > length ? length - drawn : step;
-      final from = start + direction * drawn;
-      drawn += next;
-      final to = start + direction * drawn;
-      if (on) {
-        canvas.drawLine(from, to, paint);
+    for (final metric in path.computeMetrics()) {
+      var drawn = 0.0;
+      var on = true;
+      while (drawn < metric.length) {
+        final step = on ? dash : gap;
+        final next = drawn + step > metric.length
+            ? metric.length
+            : drawn + step;
+        if (on) {
+          canvas.drawPath(metric.extractPath(drawn, next), paint);
+        }
+        drawn = next;
+        on = !on;
       }
-      on = !on;
     }
   }
 
