@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.api.schemas import WeekDayOut, WeekEventOut, WeekOut
+from app.api.schemas import WeekDayOut, WeekEventOut, WeekOut, WeekTemporalHintOut
 from app.core.client_timezone import resolve_client_timezone
 from app.core.current_user import CurrentUserContext
 from app.services.errors import ValidationError
@@ -43,6 +43,9 @@ def get_week(
                 date=day["date"],
                 is_today=day["is_today"],
                 events=[WeekEventOut.from_event(obj) for obj in day["events"]],
+                temporal_hints=[
+                    WeekTemporalHintOut.from_hint(obj) for obj in day["temporal_hints"]
+                ],
             )
             for day in snapshot["days"]
         ],

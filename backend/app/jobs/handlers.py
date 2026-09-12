@@ -21,8 +21,10 @@ from app.jobs.constants import (
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT,
+    JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL,
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_PROACTIVE_REVIEW,
+    JOB_TYPE_RECONCILE_TEMPORAL_HINTS,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
@@ -232,6 +234,23 @@ def _enqueue_embed_downstream(
 ) -> None:
     enqueue_correlate_object(session, object_id, user_id, obj.kind)
     enqueue_auto_label_object(
+        session,
+        object_id,
+        user_id,
+        parent_trace_id=parent_trace_id,
+    )
+    from app.services.temporal_signals_service import (
+        enqueue_extract_temporal_signal,
+        enqueue_reconcile_temporal_hints,
+    )
+
+    enqueue_extract_temporal_signal(
+        session,
+        object_id,
+        user_id,
+        parent_trace_id=parent_trace_id,
+    )
+    enqueue_reconcile_temporal_hints(
         session,
         object_id,
         user_id,
@@ -532,6 +551,28 @@ def handle_auto_label_object(
     AutoLabelService(session, user_id).run_job(payload)
 
 
+def handle_extract_temporal_signal(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    from app.services.temporal_signals_service import TemporalSignalService
+
+    TemporalSignalService(session, user_id).run_extract_job(payload)
+
+
+def handle_reconcile_temporal_hints(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    from app.services.temporal_signals_service import TemporalSignalService
+
+    TemporalSignalService(session, user_id).run_reconcile_job(payload)
+
+
 HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_EMBED_OBJECT: handle_embed_object,
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
@@ -539,6 +580,8 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_SUMMARIZE_RESOURCE: handle_summarize_resource,
     JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
     JOB_TYPE_AUTO_LABEL_OBJECT: handle_auto_label_object,
+    JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL: handle_extract_temporal_signal,
+    JOB_TYPE_RECONCILE_TEMPORAL_HINTS: handle_reconcile_temporal_hints,
     JOB_TYPE_SYNC_GOOGLE_GMAIL: handle_sync_google_gmail,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR: handle_sync_google_calendar,
     JOB_TYPE_SYNC_YANDEX_MAIL: handle_sync_yandex_mail,

@@ -24,6 +24,7 @@ from app.jobs.constants import (
     JOB_STATUS_PENDING,
     JOB_TYPE_CORRELATE_OBJECT,
     JOB_TYPE_EMBED_OBJECT,
+    JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
 )
 from app.jobs.worker import process_one_job
@@ -32,6 +33,8 @@ from app.llm.auto_label_classifier import FakeAutoLabelClassifier
 from app.llm.correlation_judge import FakeCorrelationJudge
 from app.llm.embedding_service import FakeEmbeddingService
 from app.llm.openai_assistant_provider import OpenAIAssistantProvider
+from app.llm.temporal_match_judge import FakeTemporalMatchJudge
+from app.llm.temporal_signal_extractor import FakeTemporalSignalExtractor
 from app.main import app
 from app.services.auto_label_models import AutoLabelObjectInput
 from app.services.effective_user_settings_service import EffectiveUserSettingsService
@@ -44,6 +47,7 @@ from app.services.openai_daily_budget import (
     OpenAIDailyBudgetGuard,
 )
 from app.services.personal_semantic_context_service import PersonalSemanticContext
+from app.services.temporal_signals_models import TemporalExtractionRequest
 from tests.conftest import AuthTestClient
 
 
@@ -557,6 +561,47 @@ def test_blocked_summarizer_makes_zero_provider_calls(db_session, budget_user_id
     assert summarizer.calls == 0
 
 
+def test_blocked_temporal_extractor_makes_zero_provider_calls(db_session, budget_user_id) -> None:
+    _set_limit(db_session, budget_user_id, 10)
+    _seed_usage(db_session, budget_user_id, input_tokens=10)
+
+    extractor = FakeTemporalSignalExtractor()
+    request = TemporalExtractionRequest(
+        object_id=budget_user_id,
+        kind="email",
+        provider="gmail",
+        title="t",
+        body="b",
+        source_reference_at=datetime(2026, 9, 11, 12, 0, tzinfo=UTC),
+        timezone="Europe/Moscow",
+        participation_roles=(),
+        is_channel_message=False,
+        has_other_participants=True,
+    )
+    with pytest.raises(OpenAIDailyBudgetExhaustedError):
+        _guard(db_session, budget_user_id).guard_temporal_signal_extractor(extractor).extract(
+            request
+        )
+    assert extractor.calls == 0
+
+
+def test_blocked_temporal_match_judge_makes_zero_provider_calls(
+    db_session, budget_user_id
+) -> None:
+    _set_limit(db_session, budget_user_id, 10)
+    _seed_usage(db_session, budget_user_id, input_tokens=10)
+
+    judge = FakeTemporalMatchJudge()
+    with pytest.raises(OpenAIDailyBudgetExhaustedError):
+        _guard(db_session, budget_user_id).guard_temporal_match_judge(judge).judge(
+            trigger_title="t",
+            trigger_subject="s",
+            trigger_kind="event",
+            candidates=[],
+        )
+    assert judge.calls == 0
+
+
 def test_blocked_transcription_makes_zero_provider_calls(db_session, budget_user_id) -> None:
     _set_limit(db_session, budget_user_id, 10)
     _seed_usage(db_session, budget_user_id, input_tokens=10)
@@ -633,6 +678,36 @@ def test_background_ai_job_is_parked_without_burning_retries(db_session, monkeyp
     assert parked.run_after >= status.reset_at
 
     # no hot retry loop: the parked job is not claimable again today
+    assert process_one_job() is False
+
+
+def test_background_temporal_job_is_parked_without_burning_retries(
+    db_session, monkeypatch, budget_user_id
+) -> None:
+    _set_limit(db_session, budget_user_id, 10)
+    _seed_usage(db_session, budget_user_id, input_tokens=10)
+    queue = JobQueueService(db_session)
+    job = queue.enqueue(
+        JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL,
+        {"object_id": str(budget_user_id)},
+        budget_user_id,
+    )
+    job_id = job.id
+    status = _guard(db_session, budget_user_id).status()
+
+    def blocked_handler(session, embedding_service, payload, user_id):
+        raise OpenAIDailyBudgetExhaustedError(status)
+
+    monkeypatch.setattr("app.jobs.worker.get_handler", lambda job_type: blocked_handler)
+
+    assert process_one_job() is True
+
+    db_session.expire_all()
+    parked = db_session.get(Job, job_id)
+    assert parked.status == JOB_STATUS_PENDING
+    assert parked.attempts == 0
+    assert parked.last_error == OPENAI_DAILY_BUDGET_PARKED_ERROR
+    assert parked.run_after >= status.reset_at
     assert process_one_job() is False
 
 

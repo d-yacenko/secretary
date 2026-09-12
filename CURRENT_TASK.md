@@ -1,44 +1,33 @@
-# Current task — OpenAI Cost Guard C — per-user daily OpenAI token hard cap
+# Current task — Temporal Signals A — integration onto Cost Guard C lineage
 
 ## Status
 
-**OpenAI Cost Guard C: CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**
+**Temporal Signals A integration: implemented / awaiting Architect review**
 
-Exact application SHA: `7b580d955085ae7a5b3ae8c0a80b7f580cb938b1`
-Branch: `hotfix/openai-cost-guard-c`
-Exact parent of deployed SHA: `27e0c097c43a81bbb9925f13a83734cc722a3201`
-Previous production: `04f20f21d5460c9901d811ebd53863a370f85eda`
-Production Alembic: **0036 / 0036** (`user_settings.openai_daily_token_limit`)
+Exact integration SHA: `4bf706ac5ce57efd68fae803345af7cfddeece58`
+Branch: `review/temporal-signals-a-integration`
+Exact parent SHA: `bd6ebebc4d6475e45b8b7a91f3da253890d75ae2`
+Accepted Temporal source head: `a9dc8c9c9e74dc4b8857fface89e803f493d21fd`
+Temporal source base: `99658a6f893483317dcecaf15d886cd1ed8d692b`
+Current production application (unchanged by this branch): `7b580d955085ae7a5b3ae8c0a80b7f580cb938b1`
+Current production Alembic: **0036 / 0036**
 
-Final production fuse: **NULL / disabled**. Do **not** change the user's `openai_daily_token_limit`.
-Do **not** begin Cost Guard D.
-Do **not** merge/rebase Temporal Signals A.
-Do **not** add dollar pricing or anomaly detection.
+Functional Temporal Signals A diff transferred from `99658a6` → `a9dc8c9` onto the Cost Guard C lineage. Old unpublished Temporal migration `0035` was not carried over.
 
-## Production fuse test (PASSED)
+Alembic on this branch: **0037 → 0036** (`user_settings.temporal_signals_enabled`)
 
-- U at arming: 293952 actual tokens today
-- temporary limit: 293952
-- 2 `/assistant/message` requests => HTTP 429 `code=openai_daily_budget_exhausted`
-- zero new assistant `model_round` / `model_round_failed` paid events
-- `tokens_used_today` did not increase while armed
-- one warning notification for the local day; no duplicate on second request
-- source sync stayed healthy
-- no FAILED/job storm
-- naturally blocked embed jobs parked until Moscow local-day reset
-- parked attempts remained 0
-- blocked embedding traces had zero `model_round`
-- clearing the limit released parked jobs without manual retry
-- final `openai_daily_token_limit=NULL`
-- final `exhausted=false`
-- application SHA and Alembic unchanged
+Final lineage:
 
-## Deployed C-R1 corrections (included in the accepted SHA)
+- 0035 — Cost Guard B / `objects.embedding_signature`
+- 0036 — Cost Guard C / `openai_daily_token_limit`
+- 0037 — Temporal Signals / `temporal_signals_enabled`
 
-- Sequential paid calls in the same unfinished AI trace include that trace's actual uncommitted `input_tokens + output_tokens` in the pre-call check. Assistant round `extra_tokens` is not double-counted (max vs in-flight).
-- Transcription preserves real OpenAI SDK token usage (`UsageTokens`) across the threadpool and writes it to audit. Duration-only usage is not estimated into tokens.
-- PATCH `/me/settings` timezone releases budget-parked jobs so the worker can run them or repark to the new timezone's `reset_at`.
+`temporal_signals_enabled`: Boolean, `nullable=False`, `server_default=false`. Default FALSE. No automatic enable. No historical backfill.
+
+Paid Temporal OpenAI calls use the shared Cost Guard C daily token hard cap. Workload remains `background_temporal_signal`. Temporal reasoning/verbosity remain LOW. No separate Temporal budget.
+
+NO DEPLOY. No production DB changes. Temporal remains disabled. Cost Guards A+B+C remain intact.
 
 ## Out of this phase
 
-Cost Guard D, Temporal Signals, dollar pricing, Flutter changes, model/sync changes.
+Deploy, enabling `temporal_signals_enabled`, historical backfill, Telegram Temporal, Cost Guard D, dollar pricing, anomaly detection, next phase.

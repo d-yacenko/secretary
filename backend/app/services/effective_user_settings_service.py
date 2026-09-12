@@ -35,6 +35,7 @@ from app.services.openai_daily_budget import (
     MIN_OPENAI_DAILY_TOKEN_LIMIT,
     validate_openai_daily_token_limit,
 )
+from app.services.temporal_signals_constants import TEMPORAL_SIGNALS_ENABLED_DEFAULT
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 
 
@@ -69,6 +70,7 @@ class EffectiveUserSettings:
     proactive_enabled: bool = PROACTIVE_ENABLED_DEFAULT
     proactive_interval_minutes: int = PROACTIVE_INTERVAL_MINUTES_DEFAULT
     auto_label_enabled: bool = AUTO_LABEL_ENABLED_DEFAULT
+    temporal_signals_enabled: bool = TEMPORAL_SIGNALS_ENABLED_DEFAULT
     openai_daily_token_limit: int | None = None
 
 
@@ -107,6 +109,7 @@ class EffectiveUserSettingsService:
             proactive_enabled=self._resolve_proactive_enabled(row),
             proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
             auto_label_enabled=self._resolve_auto_label_enabled(row),
+            temporal_signals_enabled=self._resolve_temporal_signals_enabled(row),
             openai_daily_token_limit=self._resolve_openai_daily_token_limit(row),
         )
 
@@ -131,6 +134,7 @@ class EffectiveUserSettingsService:
             proactive_enabled=self._resolve_proactive_enabled(row),
             proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
             auto_label_enabled=self._resolve_auto_label_enabled(row),
+            temporal_signals_enabled=self._resolve_temporal_signals_enabled(row),
             openai_daily_token_limit=self._resolve_openai_daily_token_limit(row),
         )
 
@@ -154,6 +158,7 @@ class EffectiveUserSettingsService:
         proactive_enabled: bool | None = None,
         proactive_interval_minutes: int | None = None,
         auto_label_enabled: bool | None = None,
+        temporal_signals_enabled: bool | None = None,
         openai_daily_token_limit: int | None = None,
         openai_daily_token_limit_set: bool = False,
     ) -> EffectiveUserSettings:
@@ -196,6 +201,8 @@ class EffectiveUserSettingsService:
             )
         if auto_label_enabled is not None:
             row.auto_label_enabled = bool(auto_label_enabled)
+        if temporal_signals_enabled is not None:
+            row.temporal_signals_enabled = bool(temporal_signals_enabled)
         if openai_daily_token_limit_set:
             if openai_daily_token_limit is None:
                 row.openai_daily_token_limit = None
@@ -308,6 +315,11 @@ class EffectiveUserSettingsService:
         if row is None:
             return AUTO_LABEL_ENABLED_DEFAULT
         return bool(row.auto_label_enabled)
+
+    def _resolve_temporal_signals_enabled(self, row: UserSettings | None) -> bool:
+        if row is None:
+            return TEMPORAL_SIGNALS_ENABLED_DEFAULT
+        return bool(row.temporal_signals_enabled)
 
     def _resolve_openai_daily_token_limit(self, row: UserSettings | None) -> int | None:
         if row is None or row.openai_daily_token_limit is None:

@@ -59,6 +59,7 @@ Map<String, dynamic> accountSettingsJson({
     'openai_key_configured': openaiKeyConfigured,
     'allowed_assistant_models': allowedAssistantModels,
     'auto_label_enabled': autoLabelEnabled,
+    'temporal_signals_enabled': false,
     'openai_daily_token_limit': openaiDailyTokenLimit,
     'min_openai_daily_token_limit': 1,
     'max_openai_daily_token_limit': 1000000000,

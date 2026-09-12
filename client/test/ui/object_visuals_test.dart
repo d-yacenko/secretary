@@ -9,6 +9,8 @@ void main() {
     expect(objectKindLabel('email'), 'Письмо');
     expect(iconForKind('folder'), Icons.folder_outlined);
     expect(objectKindLabel('folder'), 'Папка');
+    expect(iconForKind('temporal_hint'), Icons.schedule_outlined);
+    expect(objectKindLabel('temporal_hint'), 'Возможное время');
     expect(iconForKind('unknown_kind'), isNotNull);
     expect(objectKindLabel('unknown_kind'), 'unknown_kind');
   });

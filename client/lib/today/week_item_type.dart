@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 ///
 /// Independent of source provider (Google / Yandex) and of bookmark color.
 enum WeekTemporalItemType {
-  /// Confirmed provider calendar event. The only kind `/week` currently returns.
+  /// Confirmed provider calendar event.
   calendarCommitment,
+
+  /// Derived exact-time hint. Not busy time.
+  temporalHint,
 }
 
 const double kWeekWideTypeGlyphSize = 13;
@@ -16,6 +19,8 @@ IconData weekTemporalItemTypeIcon(WeekTemporalItemType type) {
   switch (type) {
     case WeekTemporalItemType.calendarCommitment:
       return Icons.calendar_today_outlined;
+    case WeekTemporalItemType.temporalHint:
+      return Icons.schedule_outlined;
   }
 }
 
@@ -23,6 +28,8 @@ String weekTemporalItemTypeSemantics(WeekTemporalItemType type) {
   switch (type) {
     case WeekTemporalItemType.calendarCommitment:
       return 'Календарное событие';
+    case WeekTemporalItemType.temporalHint:
+      return 'Возможное время';
   }
 }
 
@@ -30,6 +37,8 @@ Key weekTemporalItemTypeKey(WeekTemporalItemType type, String objectId) {
   switch (type) {
     case WeekTemporalItemType.calendarCommitment:
       return Key('week_type_calendar_$objectId');
+    case WeekTemporalItemType.temporalHint:
+      return Key('week_type_hint_$objectId');
   }
 }
 

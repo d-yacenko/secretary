@@ -22,6 +22,7 @@ const Map<String, String> objectKindLabels = {
   'chat_message': 'Сообщение',
   'label': 'Метка',
   'scheduled_activity': 'Активность',
+  'temporal_hint': 'Возможное время',
 };
 
 const Map<String, String> providerLabels = {
@@ -103,6 +104,8 @@ IconData iconForObjectKind(String kind) {
       return Icons.work_outline;
     case 'label':
       return Icons.label_outline;
+    case 'temporal_hint':
+      return Icons.schedule_outlined;
     default:
       return Icons.category_outlined;
   }

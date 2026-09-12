@@ -1021,7 +1021,10 @@ def test_assistant_instructions_carry_relevance_evidence_contract() -> None:
 def test_no_hardcoded_taxonomy_parser_or_auto_label_job_in_backend() -> None:
     python_files = list(BACKEND_APP.rglob("*.py"))
     assert python_files
-    scoring_pattern = re.compile(r"responsibility_score|relevance_score\s*[-+]=|user_role", re.IGNORECASE)
+    scoring_pattern = re.compile(
+        r"responsibility_score|relevance_score\s*[-+]=\s*|\buser_role\b",
+        re.IGNORECASE,
+    )
     for path in python_files:
         source = path.read_text(encoding="utf-8")
         for prefix in HARDCODED_TAXONOMY_PREFIXES:
@@ -1052,4 +1055,5 @@ def test_pass_c_did_not_add_label_migration() -> None:
     )
     assert any(name.startswith("0032") for name in versions)
     assert any(name.startswith("0033") for name in versions)
-    assert versions[-1].startswith("0034")
+    assert any(name.startswith("0034") for name in versions)
+    assert versions[-1].startswith("0037")

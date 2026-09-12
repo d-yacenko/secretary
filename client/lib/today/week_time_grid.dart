@@ -182,7 +182,9 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final compact =
         MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
     _syncViewConfiguration(compact: compact);
-    final empty = widget.week.days.every((day) => day.events.isEmpty);
+    final empty = widget.week.days.every(
+      (day) => day.events.isEmpty && day.temporalHints.isEmpty,
+    );
     final tiles = TileComponents(tileBuilder: _tileBuilder);
     return Column(
       children: [
@@ -276,6 +278,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       depth: depth,
       compact: compact,
       itemType: secretary?.itemType ?? WeekTemporalItemType.calendarCommitment,
+      endUnknown: secretary?.endUnknown ?? false,
     );
   }
 }
@@ -351,6 +354,7 @@ class WeekKalenderEventTile extends StatelessWidget {
     this.depth = 0,
     this.compact = false,
     this.itemType = WeekTemporalItemType.calendarCommitment,
+    this.endUnknown = false,
   });
 
   final String objectId;
@@ -361,92 +365,217 @@ class WeekKalenderEventTile extends StatelessWidget {
   final int depth;
   final bool compact;
   final WeekTemporalItemType itemType;
+  final bool endUnknown;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isHint = itemType == WeekTemporalItemType.temporalHint;
     final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
+    final fill = isHint
+        ? scheme.onSurface.withValues(alpha: 0.08)
+        : tone.fill.withValues(alpha: 0.92);
+    final foreground = isHint ? scheme.onSurface : tone.foreground;
+    final outline = isHint
+        ? scheme.onSurface.withValues(alpha: 0.48)
+        : scheme.outline.withValues(alpha: 0.42);
     final denseTitle = !compact && !allDay;
-    final typeColor = tone.foreground;
     final tokenColor = bookmarkColor == null
         ? null
         : bookmarkTokenColor(bookmarkColor!, scheme);
-    return Material(
-      color: tone.fill.withValues(alpha: 0.92),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4),
-        side: BorderSide(
-          color: scheme.outline.withValues(alpha: 0.42),
-          width: 0.8,
-        ),
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(4, allDay ? 2 : 1, 4, allDay ? 2 : 1),
-            child: Row(
-              children: [
-                _WeekEventIdentityRail(
-                  objectId: objectId,
-                  provider: provider,
-                  itemType: itemType,
-                  compact: !denseTitle,
-                  typeColor: typeColor,
+    final content = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(4, allDay ? 2 : 1, 4, allDay ? 2 : 1),
+          child: Row(
+            children: [
+              _WeekEventIdentityRail(
+                objectId: objectId,
+                provider: provider,
+                itemType: itemType,
+                compact: !denseTitle,
+                typeColor: foreground,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: allDay ? 1 : 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: weekEventTitleStyle(
+                    Theme.of(context).textTheme,
+                    color: foreground,
+                    compact: !denseTitle,
+                  ),
                 ),
-                const SizedBox(width: 4),
-                Expanded(
+              ),
+              if (allDay)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
                   child: Text(
-                    title,
-                    maxLines: allDay ? 1 : 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: weekEventTitleStyle(
-                      Theme.of(context).textTheme,
-                      color: tone.foreground,
-                      compact: !denseTitle,
+                    'Весь день',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: foreground.withValues(alpha: 0.8),
                     ),
                   ),
                 ),
-                if (allDay)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Text(
-                      'Весь день',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: tone.foreground.withValues(alpha: 0.8),
-                      ),
+            ],
+          ),
+        ),
+        if (tokenColor != null)
+          Positioned(
+            top: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  ObjectBookmarkGlyph(
+                    fillColor: scheme.surface,
+                    size: Size(
+                      kBookmarkTabSize.width + 2,
+                      kBookmarkTabSize.height + 2,
                     ),
                   ),
-              ],
+                  ObjectBookmarkGlyph(
+                    key: Key('week_bookmark_$objectId'),
+                    fillColor: tokenColor,
+                    size: kBookmarkTabSize,
+                  ),
+                ],
+              ),
             ),
           ),
-          if (tokenColor != null)
-            Positioned(
-              top: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    ObjectBookmarkGlyph(
-                      fillColor: scheme.surface,
-                      size: Size(
-                        kBookmarkTabSize.width + 2,
-                        kBookmarkTabSize.height + 2,
-                      ),
-                    ),
-                    ObjectBookmarkGlyph(
-                      key: Key('week_bookmark_$objectId'),
-                      fillColor: tokenColor,
-                      size: kBookmarkTabSize,
-                    ),
-                  ],
+        if (isHint && endUnknown)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 10,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                key: Key('week_hint_unknown_end_$objectId'),
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(4),
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      fill.withValues(alpha: 0),
+                      scheme.surface.withValues(alpha: 0.82),
+                    ],
+                  ),
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
+    if (isHint) {
+      return Material(
+        key: Key('week_hint_style_$objectId'),
+        color: fill,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(4)),
+        ),
+        child: CustomPaint(
+          painter: _WeekHintOutlinePainter(
+            color: outline,
+            endUnknown: endUnknown,
+          ),
+          child: content,
+        ),
+      );
+    }
+    return Material(
+      color: fill,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4),
+        side: BorderSide(color: outline, width: 0.8),
+      ),
+      child: content,
+    );
+  }
+}
+
+class _WeekHintOutlinePainter extends CustomPainter {
+  const _WeekHintOutlinePainter({
+    required this.color,
+    required this.endUnknown,
+  });
+
+  final Color color;
+  final bool endUnknown;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..strokeCap = StrokeCap.round;
+    const inset = 0.6;
+    final left = inset;
+    final top = inset;
+    final right = size.width - inset;
+    final bottom = size.height - inset;
+    _dashedLine(canvas, Offset(left, top), Offset(right, top), paint);
+    _dashedLine(canvas, Offset(left, top), Offset(left, bottom), paint);
+    _dashedLine(canvas, Offset(right, top), Offset(right, bottom), paint);
+    if (!endUnknown) {
+      _dashedLine(canvas, Offset(left, bottom), Offset(right, bottom), paint);
+      return;
+    }
+    final faded = Paint()
+      ..color = color.withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..strokeCap = StrokeCap.round;
+    _dashedLine(
+      canvas,
+      Offset(left + 4, bottom),
+      Offset(right - 4, bottom),
+      faded,
+      dash: 2,
+      gap: 4,
+    );
+  }
+
+  void _dashedLine(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Paint paint, {
+    double dash = 3.2,
+    double gap = 2.4,
+  }) {
+    final delta = end - start;
+    final length = delta.distance;
+    if (length <= 0) {
+      return;
+    }
+    final direction = delta / length;
+    var drawn = 0.0;
+    var on = true;
+    while (drawn < length) {
+      final step = on ? dash : gap;
+      final next = drawn + step > length ? length - drawn : step;
+      final from = start + direction * drawn;
+      drawn += next;
+      final to = start + direction * drawn;
+      if (on) {
+        canvas.drawLine(from, to, paint);
+      }
+      on = !on;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WeekHintOutlinePainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.endUnknown != endUnknown;
   }
 }
 

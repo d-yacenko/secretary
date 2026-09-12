@@ -15,6 +15,7 @@ from app.db.models import Job, Object, UserSettings
 from app.domain.labels import KIND_LABEL
 from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.domain.scheduled_activity import KIND_SCHEDULED_ACTIVITY
+from app.domain.temporal_hint import KIND_TEMPORAL_HINT
 from app.jobs.constants import (
     JOB_STATUS_DONE,
     JOB_STATUS_PENDING,
@@ -92,7 +93,7 @@ def acquire_auto_label_user_gate(session: Session, user_id: UUID) -> UserSetting
 def object_is_auto_label_eligible(obj: Object) -> bool:
     if is_object_hidden_from_active_reads(obj) or obj.state == REJECTED_STATE:
         return False
-    if obj.kind in {KIND_LABEL, KIND_SCHEDULED_ACTIVITY}:
+    if obj.kind in {KIND_LABEL, KIND_SCHEDULED_ACTIVITY, KIND_TEMPORAL_HINT}:
         return False
     if obj.origin not in AUTO_LABEL_ELIGIBLE_ORIGINS:
         return False

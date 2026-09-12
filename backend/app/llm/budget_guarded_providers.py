@@ -16,6 +16,7 @@ from app.ai_audit.constants import (
     WORKLOAD_BACKGROUND_AUTO_LABEL,
     WORKLOAD_BACKGROUND_CORRELATION,
     WORKLOAD_BACKGROUND_SUMMARY,
+    WORKLOAD_BACKGROUND_TEMPORAL_SIGNAL,
     WORKLOAD_EMBEDDING,
 )
 from app.ai_audit.context import ai_trace_session, get_active_trace
@@ -76,6 +77,34 @@ class BudgetGuardedAutoLabelClassifier(_BudgetGuarded):
         self._guard.ensure_allowed()
         with _usage_recorded(self._guard, WORKLOAD_BACKGROUND_AUTO_LABEL):
             return self._inner.classify(obj=obj, candidates=candidates, personal=personal)
+
+
+class BudgetGuardedTemporalSignalExtractor(_BudgetGuarded):
+    def extract(self, request):
+        self._guard.ensure_allowed()
+        with _usage_recorded(self._guard, WORKLOAD_BACKGROUND_TEMPORAL_SIGNAL):
+            return self._inner.extract(request)
+
+
+class BudgetGuardedTemporalMatchJudge(_BudgetGuarded):
+    def judge(
+        self,
+        *,
+        trigger_title,
+        trigger_subject,
+        trigger_kind,
+        candidates,
+        operation="temporal_match",
+    ):
+        self._guard.ensure_allowed()
+        with _usage_recorded(self._guard, WORKLOAD_BACKGROUND_TEMPORAL_SIGNAL):
+            return self._inner.judge(
+                trigger_title=trigger_title,
+                trigger_subject=trigger_subject,
+                trigger_kind=trigger_kind,
+                candidates=candidates,
+                operation=operation,
+            )
 
 
 class BudgetGuardedTranscriptionProvider(_BudgetGuarded):

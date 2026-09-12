@@ -245,6 +245,16 @@ class OpenAIDailyBudgetGuard:
 
         return BudgetGuardedTranscriptionProvider(provider, self)
 
+    def guard_temporal_signal_extractor(self, extractor):
+        from app.llm.budget_guarded_providers import BudgetGuardedTemporalSignalExtractor
+
+        return BudgetGuardedTemporalSignalExtractor(extractor, self)
+
+    def guard_temporal_match_judge(self, judge):
+        from app.llm.budget_guarded_providers import BudgetGuardedTemporalMatchJudge
+
+        return BudgetGuardedTemporalMatchJudge(judge, self)
+
     def _zone(self) -> ZoneInfo:
         from app.services.effective_user_settings_service import resolve_user_timezone
 

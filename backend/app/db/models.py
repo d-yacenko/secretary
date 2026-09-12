@@ -554,6 +554,11 @@ class UserSettings(Base):
         default=False,
         server_default=text("false"),
     )
+    temporal_signals_enabled: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
