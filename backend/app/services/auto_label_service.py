@@ -49,6 +49,7 @@ from app.services.correlation_constants import SEMANTIC_SUMMARY_METADATA_KEY
 from app.services.effective_user_settings_service import EffectiveUserSettingsService
 from app.services.job_queue_service import JobQueueService
 from app.services.label_service import LabelService, label_description
+from app.services.openai_daily_budget import OpenAIDailyBudgetGuard
 from app.services.personal_semantic_context_service import (
     PersonalSemanticContext,
     load_personal_semantic_context,
@@ -362,11 +363,17 @@ class AutoLabelService:
             object_id=object_id,
             parent_trace_id=parent_trace_id,
         ):
-            classifier = self._classifier or create_auto_label_classifier_from_effective(
-                EffectiveUserSettingsService.build(self._session).get_effective_settings(
-                    self._user_id
+            classifier = self._classifier
+            if classifier is None:
+                classifier = OpenAIDailyBudgetGuard.build(
+                    self._session, self._user_id
+                ).guard_auto_label_classifier(
+                    create_auto_label_classifier_from_effective(
+                        EffectiveUserSettingsService.build(
+                            self._session
+                        ).get_effective_settings(self._user_id)
+                    )
                 )
-            )
             result = classifier.classify(
                 obj=state.obj_input,
                 candidates=list(state.candidates),

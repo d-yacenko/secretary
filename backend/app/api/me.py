@@ -1,4 +1,6 @@
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
@@ -18,6 +20,13 @@ from app.services.effective_user_settings_service import (
     EffectiveUserSettingsService,
 )
 from app.services.errors import NotFoundError, ValidationError
+from app.services.job_queue_service import JobQueueService
+from app.services.openai_daily_budget import (
+    MAX_OPENAI_DAILY_TOKEN_LIMIT,
+    MIN_OPENAI_DAILY_TOKEN_LIMIT,
+    OpenAIDailyBudgetGuard,
+    OpenAIDailyBudgetStatus,
+)
 from app.services.personal_semantic_context_service import PersonalSemanticContextService
 from app.services.user_identity_context_service import UserIdentityProfileService
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
@@ -39,6 +48,13 @@ class UserMePatch(BaseModel):
         return value
 
 
+class OpenAIDailyBudgetOut(BaseModel):
+    daily_token_limit: int | None
+    tokens_used_today: int
+    exhausted: bool
+    reset_at: str
+
+
 class UserSettingsOut(BaseModel):
     timezone: str
     assistant_model: str
@@ -54,6 +70,10 @@ class UserSettingsOut(BaseModel):
     proactive_enabled: bool
     proactive_interval_minutes: int
     auto_label_enabled: bool
+    openai_daily_token_limit: int | None
+    min_openai_daily_token_limit: int
+    max_openai_daily_token_limit: int
+    openai_daily_budget: OpenAIDailyBudgetOut
 
 
 class UserSettingsPatch(BaseModel):
@@ -67,6 +87,7 @@ class UserSettingsPatch(BaseModel):
     proactive_enabled: bool | None = None
     proactive_interval_minutes: int | None = None
     auto_label_enabled: bool | None = None
+    openai_daily_token_limit: int | None = None
 
 
 class OpenAICredentialPut(BaseModel):
@@ -138,7 +159,19 @@ def _settings_service(session: Session) -> EffectiveUserSettingsService:
     return EffectiveUserSettingsService.build(session)
 
 
-def _serialize_settings(effective: EffectiveUserSettings) -> UserSettingsOut:
+def _budget_status(session: Session, user_id: UUID) -> OpenAIDailyBudgetStatus:
+    """Current fuse status; also the guaranteed-committed once-per-day warning point."""
+    guard = OpenAIDailyBudgetGuard.build(session, user_id)
+    status_view = guard.status()
+    if status_view.exhausted:
+        guard.ensure_exhausted_notification()
+    return status_view
+
+
+def _serialize_settings(
+    effective: EffectiveUserSettings,
+    budget: OpenAIDailyBudgetStatus,
+) -> UserSettingsOut:
     return UserSettingsOut(
         timezone=effective.timezone,
         assistant_model=effective.assistant_model,
@@ -154,6 +187,15 @@ def _serialize_settings(effective: EffectiveUserSettings) -> UserSettingsOut:
         proactive_enabled=effective.proactive_enabled,
         proactive_interval_minutes=effective.proactive_interval_minutes,
         auto_label_enabled=effective.auto_label_enabled,
+        openai_daily_token_limit=effective.openai_daily_token_limit,
+        min_openai_daily_token_limit=MIN_OPENAI_DAILY_TOKEN_LIMIT,
+        max_openai_daily_token_limit=MAX_OPENAI_DAILY_TOKEN_LIMIT,
+        openai_daily_budget=OpenAIDailyBudgetOut(
+            daily_token_limit=budget.daily_token_limit,
+            tokens_used_today=budget.tokens_used_today,
+            exhausted=budget.exhausted,
+            reset_at=budget.reset_at.isoformat(),
+        ),
     )
 
 
@@ -200,7 +242,7 @@ def get_my_settings(
 ) -> UserSettingsOut:
     service = _settings_service(session)
     effective = service.get_settings_view(current_user.user_id)
-    return _serialize_settings(effective)
+    return _serialize_settings(effective, _budget_status(session, current_user.user_id))
 
 
 @router.patch("/me/settings", response_model=UserSettingsOut)
@@ -251,6 +293,14 @@ def patch_my_settings(
                 if "auto_label_enabled" in payload.model_fields_set
                 else None
             ),
+            openai_daily_token_limit=(
+                payload.openai_daily_token_limit
+                if "openai_daily_token_limit" in payload.model_fields_set
+                else None
+            ),
+            openai_daily_token_limit_set=(
+                "openai_daily_token_limit" in payload.model_fields_set
+            ),
         )
     except ValidationError as exc:
         raise HTTPException(
@@ -264,7 +314,11 @@ def patch_my_settings(
         from app.services.proactive_scheduler import ProactiveScheduler
 
         ProactiveScheduler(session).sync_user(current_user.user_id)
-    return _serialize_settings(effective)
+
+    budget = _budget_status(session, current_user.user_id)
+    if "openai_daily_token_limit" in payload.model_fields_set and not budget.exhausted:
+        JobQueueService(session).release_budget_parked_jobs(current_user.user_id)
+    return _serialize_settings(effective, budget)
 
 
 @router.put("/me/credentials/openai", response_model=OpenAICredentialOut)

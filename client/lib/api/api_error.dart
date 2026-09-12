@@ -37,6 +37,20 @@ class ServerException extends ApiException {
 
 const secretaryNetworkErrorMessage = 'Нет связи с сервером Секретаря.';
 
+/// Stable typed code returned when the per-user daily OpenAI token cap is hit.
+const openAiDailyBudgetExhaustedCode = 'openai_daily_budget_exhausted';
+const openAiDailyBudgetExhaustedMessage =
+    'Дневной лимит OpenAI исчерпан. AI-функции приостановлены до 00:00.';
+
+/// Local message for a budget-exhausted failure, so the UI never shows a
+/// generic network error when the fuse is the real cause.
+String? localOpenAiDailyBudgetMessage(Object error) {
+  if (error is ApiException && error.code == openAiDailyBudgetExhaustedCode) {
+    return openAiDailyBudgetExhaustedMessage;
+  }
+  return null;
+}
+
 class ApiErrorDetail {
   const ApiErrorDetail({required this.message, this.code});
 

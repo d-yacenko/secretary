@@ -156,6 +156,10 @@ class AssistantService:
         self._identity_facts = identity_facts
         self._identity_context_service = identity_context_service
 
+    @property
+    def user_id(self) -> UUID:
+        return self._user_id
+
     def send_message(
         self,
         message: str,

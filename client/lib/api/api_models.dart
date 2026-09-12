@@ -15,6 +15,29 @@ class UserMe {
   }
 }
 
+class OpenAIDailyBudget {
+  OpenAIDailyBudget({
+    required this.dailyTokenLimit,
+    required this.tokensUsedToday,
+    required this.exhausted,
+    required this.resetAt,
+  });
+
+  final int? dailyTokenLimit;
+  final int tokensUsedToday;
+  final bool exhausted;
+  final String resetAt;
+
+  factory OpenAIDailyBudget.fromJson(Map<String, dynamic> json) {
+    return OpenAIDailyBudget(
+      dailyTokenLimit: json['daily_token_limit'] as int?,
+      tokensUsedToday: json['tokens_used_today'] as int? ?? 0,
+      exhausted: json['exhausted'] as bool? ?? false,
+      resetAt: json['reset_at'] as String? ?? '',
+    );
+  }
+}
+
 class UserSettings {
   UserSettings({
     required this.timezone,
@@ -28,7 +51,11 @@ class UserSettings {
     required this.maxAssistantMaxRounds,
     required this.openaiKeyConfigured,
     required this.allowedAssistantModels,
+    required this.openaiDailyBudget,
     this.autoLabelEnabled = false,
+    this.openaiDailyTokenLimit,
+    this.minOpenaiDailyTokenLimit = 1,
+    this.maxOpenaiDailyTokenLimit = 1000000000,
   });
 
   final String timezone;
@@ -43,6 +70,10 @@ class UserSettings {
   final bool openaiKeyConfigured;
   final List<String> allowedAssistantModels;
   final bool autoLabelEnabled;
+  final int? openaiDailyTokenLimit;
+  final int minOpenaiDailyTokenLimit;
+  final int maxOpenaiDailyTokenLimit;
+  final OpenAIDailyBudget openaiDailyBudget;
 
   factory UserSettings.fromJson(Map<String, dynamic> json) {
     return UserSettings(
@@ -61,6 +92,15 @@ class UserSettings {
               .map((item) => item as String)
               .toList(),
       autoLabelEnabled: json['auto_label_enabled'] as bool? ?? false,
+      openaiDailyTokenLimit: json['openai_daily_token_limit'] as int?,
+      minOpenaiDailyTokenLimit:
+          json['min_openai_daily_token_limit'] as int? ?? 1,
+      maxOpenaiDailyTokenLimit:
+          json['max_openai_daily_token_limit'] as int? ?? 1000000000,
+      openaiDailyBudget: OpenAIDailyBudget.fromJson(
+        (json['openai_daily_budget'] as Map<String, dynamic>?) ??
+            const <String, dynamic>{},
+      ),
     );
   }
 }

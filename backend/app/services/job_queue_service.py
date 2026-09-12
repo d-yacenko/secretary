@@ -33,6 +33,7 @@ from app.services.background_ai_errors import (
     BackgroundAIConfigurationError,
     is_openai_quota_exhausted,
 )
+from app.services.openai_daily_budget import OPENAI_DAILY_BUDGET_PARKED_ERROR
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
 
 
@@ -201,6 +202,43 @@ class JobQueueService:
         job.locked_at = None
         job.updated_at = utcnow()
         self._apply_recurring_failure_cooldown(job)
+
+    def park_until_openai_budget_reset(self, job_id: UUID, reset_at: datetime) -> None:
+        """Defer an AI job to the next local day without burning a retry attempt.
+
+        The claim that just happened incremented `attempts`; parking undoes only
+        that increment so genuine earlier failures keep their history and the job
+        never hot-loops while the daily cap is exhausted.
+        """
+        job = self._require_job(job_id)
+        now = utcnow()
+        job.status = JOB_STATUS_PENDING
+        job.attempts = max(job.attempts - 1, 0)
+        job.locked_at = None
+        job.last_error = OPENAI_DAILY_BUDGET_PARKED_ERROR
+        job.run_after = max(reset_at, now)
+        job.updated_at = now
+        self._session.flush()
+
+    def release_budget_parked_jobs(self, user_id: UUID) -> int:
+        """Make budget-parked AI work runnable again after the cap is raised/cleared."""
+        now = utcnow()
+        parked = list(
+            self._session.scalars(
+                select(Job).where(
+                    Job.user_id == user_id,
+                    Job.status == JOB_STATUS_PENDING,
+                    Job.last_error == OPENAI_DAILY_BUDGET_PARKED_ERROR,
+                    Job.run_after > now,
+                )
+            )
+        )
+        for job in parked:
+            job.last_error = None
+            job.run_after = now
+            job.updated_at = now
+        self._session.flush()
+        return len(parked)
 
     def mark_retry(self, job_id: UUID, error: str, *, retryable: bool = True) -> None:
         job = self._require_job(job_id)

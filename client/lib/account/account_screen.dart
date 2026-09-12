@@ -61,6 +61,7 @@ class _AccountScreenState extends State<AccountScreen>
   late final TextEditingController _timezoneController;
   late final TextEditingController _identityController;
   late final TextEditingController _semanticController;
+  late final TextEditingController _openaiDailyTokenLimitController;
 
   @override
   void initState() {
@@ -77,6 +78,9 @@ class _AccountScreenState extends State<AccountScreen>
     );
     _semanticController = TextEditingController(
       text: widget.initialSemanticContext?.contextText ?? '',
+    );
+    _openaiDailyTokenLimitController = TextEditingController(
+      text: widget.initialSettings?.openaiDailyTokenLimit?.toString() ?? '',
     );
     if (widget.initialConnections != null &&
         widget.initialSettings != null &&
@@ -120,6 +124,7 @@ class _AccountScreenState extends State<AccountScreen>
     _timezoneController.dispose();
     _identityController.dispose();
     _semanticController.dispose();
+    _openaiDailyTokenLimitController.dispose();
     super.dispose();
   }
 
@@ -230,6 +235,8 @@ class _AccountScreenState extends State<AccountScreen>
         _sourcePreferences = sourcePreferences;
         if (settings != null) {
           _timezoneController.text = settings.timezone;
+          _openaiDailyTokenLimitController.text =
+              settings.openaiDailyTokenLimit?.toString() ?? '';
         }
         _error = error;
         _sourcePreferencesError = sourcePreferencesError;
@@ -496,6 +503,52 @@ class _AccountScreenState extends State<AccountScreen>
       if (mounted) {
         setState(() {
           _settings = updated;
+          _error = null;
+        });
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _settingsSaving = false);
+      }
+    }
+  }
+
+  Future<void> _saveOpenaiDailyTokenLimit() async {
+    if (_settingsSaving || _settings == null) {
+      return;
+    }
+    final raw = _openaiDailyTokenLimitController.text.trim();
+    int? limit;
+    if (raw.isNotEmpty) {
+      limit = int.tryParse(raw.replaceAll(RegExp(r'[\s\u00a0]'), ''));
+      if (limit == null || limit < _settings!.minOpenaiDailyTokenLimit) {
+        setState(() {
+          _error = 'Дневной лимит OpenAI должен быть положительным числом '
+              'или пустым значением.';
+        });
+        return;
+      }
+    }
+    setState(() {
+      _settingsSaving = true;
+      _error = null;
+    });
+    try {
+      final updated = await widget.apiClient.patchSettings(
+        openaiDailyTokenLimit: limit,
+        patchOpenaiDailyTokenLimit: true,
+      );
+      if (mounted) {
+        setState(() {
+          _settings = updated;
+          _openaiDailyTokenLimitController.text =
+              updated.openaiDailyTokenLimit?.toString() ?? '';
           _error = null;
         });
       }
@@ -942,6 +995,13 @@ class _AccountScreenState extends State<AccountScreen>
                       onChanged: _settingsSaving
                           ? null
                           : (value) => _saveAutoLabelEnabled(value),
+                    ),
+                    const SizedBox(height: 16),
+                    _OpenAiDailyBudgetControl(
+                      settings: settings,
+                      controller: _openaiDailyTokenLimitController,
+                      saving: _settingsSaving,
+                      onSave: _saveOpenaiDailyTokenLimit,
                     ),
                   ],
                 ],
@@ -1671,6 +1731,96 @@ class _ConnectionRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Text('$label: $status$suffix'),
+    );
+  }
+}
+
+String formatTokenCount(int value) {
+  final digits = value.abs().toString();
+  final buffer = StringBuffer(value < 0 ? '-' : '');
+  for (var index = 0; index < digits.length; index++) {
+    if (index > 0 && (digits.length - index) % 3 == 0) {
+      buffer.write('\u00a0');
+    }
+    buffer.write(digits[index]);
+  }
+  return buffer.toString();
+}
+
+class _OpenAiDailyBudgetControl extends StatelessWidget {
+  const _OpenAiDailyBudgetControl({
+    required this.settings,
+    required this.controller,
+    required this.saving,
+    required this.onSave,
+  });
+
+  final UserSettings settings;
+  final TextEditingController controller;
+  final bool saving;
+  final Future<void> Function() onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final budget = settings.openaiDailyBudget;
+    final theme = Theme.of(context);
+    final usage = budget.dailyTokenLimit == null
+        ? 'Сегодня: ${formatTokenCount(budget.tokensUsedToday)} токенов. '
+            'Дневной лимит не задан.'
+        : 'Сегодня: ${formatTokenCount(budget.tokensUsedToday)} / '
+            '${formatTokenCount(budget.dailyTokenLimit!)} токенов';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Дневной лимит OpenAI', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text(
+          'Когда дневной расход достигает лимита, Секретарь перестаёт обращаться '
+          'к OpenAI до начала следующих суток. Остальные функции работают как обычно. '
+          'Пустое поле отключает лимит.',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 16,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: 320,
+              child: TextField(
+                key: const Key('account_openai_daily_token_limit'),
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Дневной лимит OpenAI, токенов',
+                ),
+              ),
+            ),
+            OutlinedButton(
+              key: const Key('account_openai_daily_token_limit_save'),
+              onPressed: saving ? null : () => onSave(),
+              child: Text(saving ? 'Сохранение…' : 'Сохранить лимит'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          usage,
+          key: const Key('account_openai_daily_budget_usage'),
+          style: theme.textTheme.bodySmall,
+        ),
+        if (budget.exhausted) ...[
+          const SizedBox(height: 4),
+          Text(
+            openAiDailyBudgetExhaustedMessage,
+            key: const Key('account_openai_daily_budget_exhausted'),
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.error),
+          ),
+        ],
+      ],
     );
   }
 }

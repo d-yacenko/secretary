@@ -9,6 +9,7 @@ OPENAI_SERVICE = "openai_service"
 ASSISTANT_ROUND_LIMIT = "assistant_round_limit"
 ASSISTANT_OUTPUT_LIMIT = "assistant_output_limit"
 ASSISTANT_INTERNAL = "assistant_internal"
+OPENAI_DAILY_BUDGET_EXHAUSTED = "openai_daily_budget_exhausted"
 
 USER_MESSAGES: dict[str, str] = {
     ASSISTANT_CONFIGURATION: (
@@ -29,6 +30,9 @@ USER_MESSAGES: dict[str, str] = {
     ),
     ASSISTANT_INTERNAL: (
         "Секретарь не смог завершить запрос из-за внутренней ошибки."
+    ),
+    OPENAI_DAILY_BUDGET_EXHAUSTED: (
+        "Дневной лимит OpenAI исчерпан. AI-функции приостановлены до 00:00."
     ),
 }
 

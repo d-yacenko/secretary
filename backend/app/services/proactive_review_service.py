@@ -64,6 +64,7 @@ from app.services.effective_user_settings_service import (
 )
 from app.services.job_queue_service import JobQueueService, utcnow
 from app.services.notification_service import NotificationService
+from app.services.openai_daily_budget import OpenAIDailyBudgetGuard
 from app.services.personal_relevance_evidence_service import (
     PersonalRelevanceEvidenceService,
     acquire_personal_relevance_authority,
@@ -440,7 +441,9 @@ class ProactiveReviewService:
             logger.info("proactive seed personal-relevance evidence incomplete")
             empty["incomplete"] = True
             return empty
-        provider = create_proactive_provider(effective)
+        provider = OpenAIDailyBudgetGuard.build(
+            self._session, self._user_id
+        ).guard_assistant_provider(create_proactive_provider(effective))
         message = (
             "Perform a bounded proactive attention review. "
             f"window_start={window_start.isoformat()} "

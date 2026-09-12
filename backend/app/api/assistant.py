@@ -9,7 +9,10 @@ from app.ai_audit.constants import (
     WORKLOAD_TRANSCRIPTION,
 )
 from app.ai_audit.context import ai_trace_session
-from app.api.assistant_error_responses import build_assistant_error_detail
+from app.api.assistant_error_responses import (
+    build_assistant_error_detail,
+    build_openai_daily_budget_error_detail,
+)
 from app.api.deps import get_current_user, get_db
 from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_EXPIRED,
@@ -18,6 +21,7 @@ from app.assistant.action_plan_constants import (
 from app.assistant.transcription_constants import AUDIO_TOO_LARGE
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.current_user import CurrentUserContext
+from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage
 from app.llm.openai_assistant_provider import AssistantProviderError
 from app.llm.openai_transcription_provider import TranscriptionProviderError
@@ -38,6 +42,10 @@ from app.services.effective_user_settings_service import (
     EffectiveUserSettingsService,
 )
 from app.services.errors import NotFoundError, ValidationError
+from app.services.openai_daily_budget import (
+    OpenAIDailyBudgetExhaustedError,
+    OpenAIDailyBudgetGuard,
+)
 from app.services.transcription_service import (
     TranscriptionConfigurationError,
     TranscriptionProvider,
@@ -131,7 +139,9 @@ class AssistantRuntime:
 def build_assistant_runtime(session: Session, user_id: UUID) -> AssistantRuntime:
     settings_service = EffectiveUserSettingsService.build(session)
     effective = settings_service.get_effective_settings(user_id)
-    provider = create_assistant_provider_from_effective(effective)
+    provider = OpenAIDailyBudgetGuard.build(session, user_id).guard_assistant_provider(
+        create_assistant_provider_from_effective(effective)
+    )
     return AssistantRuntime(provider=provider, effective=effective)
 
 
@@ -180,7 +190,10 @@ def get_transcription_provider(
         api_key = EffectiveUserSettingsService.build(session).resolve_openai_api_key(
             current_user.user_id
         )
-        return create_transcription_provider_for_api_key(api_key)
+        provider = create_transcription_provider_for_api_key(api_key)
+        return OpenAIDailyBudgetGuard.build(
+            session, current_user.user_id
+        ).guard_transcription_provider(provider)
     except (
         TranscriptionConfigurationError,
         UserOpenAICredentialConfigurationError,
@@ -189,6 +202,29 @@ def get_transcription_provider(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=TRANSCRIPTION_PROVIDER_UNAVAILABLE,
         ) from exc
+
+
+def _openai_daily_budget_http_error(
+    user_id: UUID,
+    exc: OpenAIDailyBudgetExhaustedError,
+) -> HTTPException:
+    """Typed 429 for blocked interactive AI, plus the once-per-day user warning.
+
+    The warning is written on its own committed session because the request
+    session is rolled back when this error response is raised.
+    """
+    notice_session = SessionLocal()
+    try:
+        OpenAIDailyBudgetGuard(notice_session, user_id).ensure_exhausted_notification()
+        notice_session.commit()
+    except Exception:  # noqa: BLE001
+        notice_session.rollback()
+    finally:
+        notice_session.close()
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=build_openai_daily_budget_error_detail(exc),
+    )
 
 
 def _serialize_action_plan_response(plan: PendingActionPlanView) -> ActionPlanResponse:
@@ -214,6 +250,8 @@ async def assistant_transcribe(
     try:
         with ai_trace_session(current_user.user_id, WORKLOAD_TRANSCRIPTION):
             text = await transcribe_audio_upload(audio, provider)
+    except OpenAIDailyBudgetExhaustedError as exc:
+        raise _openai_daily_budget_http_error(current_user.user_id, exc) from exc
     except ValidationError as exc:
         status_code = (
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
@@ -248,6 +286,11 @@ def assistant_message(
             client_timezone_id=data.client_timezone_id,
             client_utc_offset_minutes=data.client_utc_offset_minutes,
         )
+    except OpenAIDailyBudgetExhaustedError as exc:
+        raise _openai_daily_budget_http_error(
+            service.user_id,
+            exc,
+        ) from exc
     except AssistantValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -409,6 +452,8 @@ def resume_action_plan(
     )
     try:
         result = assistant.finalize_executed_plan(plan)
+    except OpenAIDailyBudgetExhaustedError as exc:
+        raise _openai_daily_budget_http_error(current_user.user_id, exc) from exc
     except AssistantProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

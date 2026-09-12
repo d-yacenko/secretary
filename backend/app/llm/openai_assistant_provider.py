@@ -185,6 +185,9 @@ class OpenAIAssistantProvider:
         self._last_store_false = False
         self._last_instructions: str = ""
         self.last_tool_definitions: list[dict] | None = None
+        # Installed by OpenAIDailyBudgetGuard; called with the actual tokens already
+        # charged inside this run before every further paid round.
+        self.budget_round_check: Callable[[int], None] | None = None
 
     @property
     def max_rounds(self) -> int:
@@ -244,6 +247,7 @@ class OpenAIAssistantProvider:
         usage_totals = ResponsesUsageAccumulated()
 
         for round_number in range(1, self._max_rounds + 1):
+            self._check_budget(usage_totals)
             round_started = time.perf_counter()
             try:
                 response = self._client.responses.create(
@@ -378,6 +382,12 @@ class OpenAIAssistantProvider:
 
         raise AssistantRoundLimitError()
 
+    def _check_budget(self, usage_totals: ResponsesUsageAccumulated) -> None:
+        if self.budget_round_check is None:
+            return
+        charged = (usage_totals.input_tokens or 0) + (usage_totals.output_tokens or 0)
+        self.budget_round_check(charged)
+
     def run_text_only(
         self,
         message: str,
@@ -402,6 +412,7 @@ class OpenAIAssistantProvider:
         input_items.append({"role": "user", "content": message})
 
         usage_totals = ResponsesUsageAccumulated()
+        self._check_budget(usage_totals)
         round_started = time.perf_counter()
         try:
             response = self._client.responses.create(

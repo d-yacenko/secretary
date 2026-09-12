@@ -31,11 +31,28 @@ from app.proactive.constants import (
 )
 from app.services.auto_label_constants import AUTO_LABEL_ENABLED_DEFAULT
 from app.services.errors import ValidationError
+from app.services.openai_daily_budget import (
+    MIN_OPENAI_DAILY_TOKEN_LIMIT,
+    validate_openai_daily_token_limit,
+)
 from app.services.user_openai_credential_store import UserOpenAICredentialStore
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def resolve_user_timezone(session: Session, user_id: UUID) -> str:
+    """Effective IANA timezone for local-day semantics, without touching credentials."""
+    row = session.get(UserSettings, user_id)
+    return _resolve_timezone_from_row(row)
+
+
+def _resolve_timezone_from_row(row: UserSettings | None) -> str:
+    if row is not None and row.timezone:
+        return row.timezone.strip()
+    server_tz = settings.secretary_timezone.strip()
+    return server_tz if server_tz else "Europe/Amsterdam"
 
 
 @dataclass(frozen=True)
@@ -52,6 +69,7 @@ class EffectiveUserSettings:
     proactive_enabled: bool = PROACTIVE_ENABLED_DEFAULT
     proactive_interval_minutes: int = PROACTIVE_INTERVAL_MINUTES_DEFAULT
     auto_label_enabled: bool = AUTO_LABEL_ENABLED_DEFAULT
+    openai_daily_token_limit: int | None = None
 
 
 class EffectiveUserSettingsService:
@@ -89,6 +107,7 @@ class EffectiveUserSettingsService:
             proactive_enabled=self._resolve_proactive_enabled(row),
             proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
             auto_label_enabled=self._resolve_auto_label_enabled(row),
+            openai_daily_token_limit=self._resolve_openai_daily_token_limit(row),
         )
 
     def get_settings_view(self, user_id: UUID) -> EffectiveUserSettings:
@@ -112,6 +131,7 @@ class EffectiveUserSettingsService:
             proactive_enabled=self._resolve_proactive_enabled(row),
             proactive_interval_minutes=self._resolve_proactive_interval_minutes(row),
             auto_label_enabled=self._resolve_auto_label_enabled(row),
+            openai_daily_token_limit=self._resolve_openai_daily_token_limit(row),
         )
 
     def get_or_create_settings_row(self, user_id: UUID) -> UserSettings:
@@ -134,6 +154,8 @@ class EffectiveUserSettingsService:
         proactive_enabled: bool | None = None,
         proactive_interval_minutes: int | None = None,
         auto_label_enabled: bool | None = None,
+        openai_daily_token_limit: int | None = None,
+        openai_daily_token_limit_set: bool = False,
     ) -> EffectiveUserSettings:
         row = self.get_or_create_settings_row(user_id)
         allowed_models = settings.allowed_assistant_models
@@ -174,6 +196,13 @@ class EffectiveUserSettingsService:
             )
         if auto_label_enabled is not None:
             row.auto_label_enabled = bool(auto_label_enabled)
+        if openai_daily_token_limit_set:
+            if openai_daily_token_limit is None:
+                row.openai_daily_token_limit = None
+            else:
+                row.openai_daily_token_limit = validate_openai_daily_token_limit(
+                    openai_daily_token_limit
+                )
         row.updated_at = utcnow()
         self._session.flush()
         return self.get_settings_view(user_id)
@@ -252,10 +281,7 @@ class EffectiveUserSettingsService:
         return value
 
     def _resolve_timezone(self, row: UserSettings | None) -> str:
-        if row is not None and row.timezone:
-            return row.timezone.strip()
-        server_tz = settings.secretary_timezone.strip()
-        return server_tz if server_tz else "Europe/Amsterdam"
+        return _resolve_timezone_from_row(row)
 
     def _resolve_proactive_enabled(self, row: UserSettings | None) -> bool:
         if row is None:
@@ -282,6 +308,14 @@ class EffectiveUserSettingsService:
         if row is None:
             return AUTO_LABEL_ENABLED_DEFAULT
         return bool(row.auto_label_enabled)
+
+    def _resolve_openai_daily_token_limit(self, row: UserSettings | None) -> int | None:
+        if row is None or row.openai_daily_token_limit is None:
+            return None
+        stored = int(row.openai_daily_token_limit)
+        if stored < MIN_OPENAI_DAILY_TOKEN_LIMIT:
+            return None
+        return stored
 
     def _validate_timezone(self, timezone: str) -> str:
         text = timezone.strip()

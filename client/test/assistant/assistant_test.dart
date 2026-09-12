@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:personal_secretary/api/api_error.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
@@ -383,6 +384,50 @@ void main() {
     await assistant.sendMessage('complex query');
 
     expect(assistant.errorMessage, roundLimitMessage);
+    expect(assistant.sendState, AssistantSendState.error);
+    assistant.dispose();
+  });
+
+  test('assistant shows local daily budget exhausted message', () async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'detail': {
+                'code': openAiDailyBudgetExhaustedCode,
+                'message': 'server text',
+                'exhausted': true,
+                'reset_at': '2026-09-13T00:00:00+00:00',
+              },
+            }),
+          ),
+          429,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(
+        directory: Directory.systemTemp.createTempSync('assistant_budget_test'),
+      ),
+    );
+
+    await assistant.sendMessage('hello');
+
+    expect(assistant.errorMessage, openAiDailyBudgetExhaustedMessage);
     expect(assistant.sendState, AssistantSendState.error);
     assistant.dispose();
   });

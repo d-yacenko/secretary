@@ -71,6 +71,8 @@ class SecretaryApiClient {
     int? assistantMaxRounds,
     bool patchAssistantMaxRounds = false,
     bool? autoLabelEnabled,
+    int? openaiDailyTokenLimit,
+    bool patchOpenaiDailyTokenLimit = false,
   }) async {
     final jsonBody = <String, dynamic>{};
     if (timezone != null) {
@@ -90,6 +92,9 @@ class SecretaryApiClient {
     }
     if (autoLabelEnabled != null) {
       jsonBody['auto_label_enabled'] = autoLabelEnabled;
+    }
+    if (patchOpenaiDailyTokenLimit) {
+      jsonBody['openai_daily_token_limit'] = openaiDailyTokenLimit;
     }
     final body = await _request('PATCH', '/me/settings', jsonBody: jsonBody);
     return UserSettings.fromJson(body);

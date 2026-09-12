@@ -41,7 +41,10 @@ from app.jobs.source_sync_handlers import (
 )
 from app.jobs.types import JobHandler
 from app.llm.correlation_judge import create_correlation_judge_from_effective
-from app.llm.embedding_service import create_embedding_service_for_api_key
+from app.llm.embedding_service import (
+    OpenAIEmbeddingService,
+    create_embedding_service_for_api_key,
+)
 from app.llm.embedding_text import canonical_embedding_text, embedding_input_signature
 from app.llm.openai_summarizer import create_openai_summarizer_from_effective
 from app.local.constants import POLICY_UPLOAD_COPY
@@ -63,6 +66,7 @@ from app.services.embedding_index import (
     object_has_current_embedding_provenance,
 )
 from app.services.local_file_sync_service import copy_local_file_to_upload
+from app.services.openai_daily_budget import OpenAIDailyBudgetGuard
 from app.services.pipeline_enqueue import (
     enqueue_correlate_object,
     enqueue_embed_object,
@@ -212,7 +216,10 @@ def _resolve_embedding_service(session: Session, user_id: UUID, embedding_servic
         return embedding_service
     settings_service = EffectiveUserSettingsService.build(session)
     api_key = settings_service.resolve_openai_api_key(user_id)
-    return create_embedding_service_for_api_key(api_key)
+    service = create_embedding_service_for_api_key(api_key)
+    if not isinstance(service, OpenAIEmbeddingService):
+        return service
+    return OpenAIDailyBudgetGuard.build(session, user_id).guard_embedding_service(service)
 
 
 def _enqueue_embed_downstream(
@@ -300,7 +307,9 @@ def handle_summarize_resource(
             ):
                 return
             effective = _background_effective_settings(lookup_session, user_id)
-            summarizer = create_openai_summarizer_from_effective(effective)
+            summarizer = OpenAIDailyBudgetGuard.build(
+                lookup_session, user_id
+            ).guard_summarizer(create_openai_summarizer_from_effective(effective))
             summary = SemanticSummaryService(
                 lookup_session, user_id, summarizer=summarizer
             ).update_summary_for_object(
@@ -350,7 +359,9 @@ def handle_correlate_object(
                 enqueue_correlate_object(session, object_id, user_id, obj.kind)
                 return
             effective = _background_effective_settings(session, user_id)
-            judge = create_correlation_judge_from_effective(effective)
+            judge = OpenAIDailyBudgetGuard.build(
+                work_session, user_id
+            ).guard_correlation_judge(create_correlation_judge_from_effective(effective))
             CorrelationService(work_session, user_id, judge).run_correlation(object_id)
             work_session.commit()
         finally:

@@ -538,6 +538,7 @@ class UserSettings(Base):
     assistant_reasoning_effort: Mapped[str | None] = mapped_column(nullable=True)
     assistant_verbosity: Mapped[str | None] = mapped_column(nullable=True)
     assistant_max_rounds: Mapped[int | None] = mapped_column(nullable=True)
+    openai_daily_token_limit: Mapped[int | None] = mapped_column(nullable=True)
     proactive_enabled: Mapped[bool] = mapped_column(
         nullable=False,
         default=False,

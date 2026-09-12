@@ -213,7 +213,7 @@ class AssistantController extends ChangeNotifier {
     } on ApiException catch (e) {
       _pendingRetryMessage = trimmed;
       sendState = AssistantSendState.error;
-      errorMessage = e.message;
+      errorMessage = localOpenAiDailyBudgetMessage(e) ?? e.message;
       notifyListeners();
     }
   }
@@ -272,7 +272,7 @@ class AssistantController extends ChangeNotifier {
       notifyListeners();
     } on ApiException catch (e) {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
-      actionPlanErrorMessage = e.message;
+      actionPlanErrorMessage = localOpenAiDailyBudgetMessage(e) ?? e.message;
       notifyListeners();
     } finally {
       _approveInFlight = false;
@@ -317,7 +317,7 @@ class AssistantController extends ChangeNotifier {
       notifyListeners();
     } on ApiException catch (e) {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
-      actionPlanErrorMessage = e.message;
+      actionPlanErrorMessage = localOpenAiDailyBudgetMessage(e) ?? e.message;
       notifyListeners();
     }
   }
@@ -373,7 +373,7 @@ class AssistantController extends ChangeNotifier {
     } on ApiException catch (e) {
       actionPlan.resumeFailed = true;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
-      actionPlanErrorMessage = e.message;
+      actionPlanErrorMessage = localOpenAiDailyBudgetMessage(e) ?? e.message;
       notifyListeners();
     }
   }

@@ -41,6 +41,10 @@ Map<String, dynamic> accountSettingsJson({
   bool openaiKeyConfigured = false,
   List<String> allowedAssistantModels = const ['gpt-5.6-luna', 'gpt-5.6-terra'],
   bool autoLabelEnabled = false,
+  int? openaiDailyTokenLimit,
+  int tokensUsedToday = 0,
+  bool budgetExhausted = false,
+  String budgetResetAt = '2026-09-13T00:00:00+00:00',
 }) {
   return {
     'timezone': timezone,
@@ -55,6 +59,15 @@ Map<String, dynamic> accountSettingsJson({
     'openai_key_configured': openaiKeyConfigured,
     'allowed_assistant_models': allowedAssistantModels,
     'auto_label_enabled': autoLabelEnabled,
+    'openai_daily_token_limit': openaiDailyTokenLimit,
+    'min_openai_daily_token_limit': 1,
+    'max_openai_daily_token_limit': 1000000000,
+    'openai_daily_budget': {
+      'daily_token_limit': openaiDailyTokenLimit,
+      'tokens_used_today': tokensUsedToday,
+      'exhausted': budgetExhausted,
+      'reset_at': budgetResetAt,
+    },
   };
 }
 

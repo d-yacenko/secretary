@@ -14,6 +14,10 @@ from app.services.job_queue_service import (
     is_job_error_retryable,
     sanitize_job_error,
 )
+from app.services.openai_daily_budget import (
+    OpenAIDailyBudgetExhaustedError,
+    OpenAIDailyBudgetGuard,
+)
 from app.services.source_sync_preference_service import SourceSyncPreferenceService
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,27 @@ def process_one_job(
         except Exception:
             session.rollback()
             raise
+        finally:
+            session.close()
+    except OpenAIDailyBudgetExhaustedError as exc:
+        logger.info(
+            "job %s (%s) parked until OpenAI daily budget reset %s",
+            claimed.id,
+            claimed.type,
+            exc.reset_at.isoformat(),
+        )
+        session = SessionLocal()
+        try:
+            queue = JobQueueService(session)
+            queue.park_until_openai_budget_reset(claimed.id, exc.reset_at)
+            OpenAIDailyBudgetGuard(
+                session,
+                claimed.user_id,
+            ).ensure_exhausted_notification()
+            session.commit()
+        except Exception:
+            session.rollback()
+            logger.exception("failed to park budget-blocked job %s", claimed.id)
         finally:
             session.close()
     except Exception as exc:  # noqa: BLE001

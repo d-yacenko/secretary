@@ -330,8 +330,9 @@ def test_get_transcription_provider_uses_resolve_openai_api_key(
         "app.services.transcription_service.OpenAITranscriptionProvider",
         _TrackingTranscriptionProvider,
     ):
-        provider = get_transcription_provider(session=db_session, current_user=current_user)
+        guarded = get_transcription_provider(session=db_session, current_user=current_user)
         get_effective_mock.assert_not_called()
 
+    provider = guarded.inner
     assert isinstance(provider, _TrackingTranscriptionProvider)
     assert provider.api_key == USER_A_KEY

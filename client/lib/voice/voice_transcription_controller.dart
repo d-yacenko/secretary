@@ -227,7 +227,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
     } on NetworkException catch (e) {
       _setVoiceError(e.message);
     } on ApiException catch (e) {
-      _setVoiceError(e.message);
+      _setVoiceError(localOpenAiDailyBudgetMessage(e) ?? e.message);
     }
   }
 
