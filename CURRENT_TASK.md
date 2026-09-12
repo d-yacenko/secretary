@@ -6,7 +6,7 @@
 
 Branch: `review/scheduled-work-a`
 Exact base/parent: `9dd26f271fa4bab94b3e60d6cbc840ff19b4f04d`
-Exact implementation SHA: `PLACEHOLDER_IMPLEMENTATION_SHA`
+Exact implementation SHA: `bae22631b2455aa6583721089231133e65ba8481`
 Migration: **0038 → 0037** (`objects.planned_start_at`, `objects.planned_end_at`)
 No deploy.
 
