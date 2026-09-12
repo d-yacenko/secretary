@@ -377,6 +377,29 @@ class WeekOut(BaseModel):
     days: list[WeekDayOut]
 
 
+class AvailabilityBusyIntervalOut(BaseModel):
+    start_at: datetime
+    end_at: datetime
+    event_ids: list[UUID]
+
+
+class AvailabilityFreeIntervalOut(BaseModel):
+    start_at: datetime
+    end_at: datetime
+    duration_minutes: int
+
+
+class AvailabilityOut(BaseModel):
+    timezone: str
+    window_start: datetime
+    window_end: datetime
+    min_duration_minutes: int
+    availability_complete: bool
+    busy_intervals: list[AvailabilityBusyIntervalOut]
+    free_intervals: list[AvailabilityFreeIntervalOut]
+    unknown_end_event_ids: list[UUID]
+
+
 class InboxSourceObjectOut(BaseModel):
     id: UUID
     title: str

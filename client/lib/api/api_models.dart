@@ -1006,6 +1006,90 @@ class WeekOut {
   }
 }
 
+class AvailabilityBusyInterval {
+  AvailabilityBusyInterval({
+    required this.startAt,
+    required this.endAt,
+    required this.eventIds,
+  });
+
+  final String startAt;
+  final String endAt;
+  final List<String> eventIds;
+
+  factory AvailabilityBusyInterval.fromJson(Map<String, dynamic> json) {
+    return AvailabilityBusyInterval(
+      startAt: json['start_at'] as String,
+      endAt: json['end_at'] as String,
+      eventIds: (json['event_ids'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+    );
+  }
+}
+
+class AvailabilityFreeInterval {
+  AvailabilityFreeInterval({
+    required this.startAt,
+    required this.endAt,
+    required this.durationMinutes,
+  });
+
+  final String startAt;
+  final String endAt;
+  final int durationMinutes;
+
+  factory AvailabilityFreeInterval.fromJson(Map<String, dynamic> json) {
+    return AvailabilityFreeInterval(
+      startAt: json['start_at'] as String,
+      endAt: json['end_at'] as String,
+      durationMinutes: json['duration_minutes'] as int,
+    );
+  }
+}
+
+class AvailabilityOut {
+  AvailabilityOut({
+    required this.timezone,
+    required this.windowStart,
+    required this.windowEnd,
+    required this.minDurationMinutes,
+    required this.availabilityComplete,
+    required this.busyIntervals,
+    required this.freeIntervals,
+    required this.unknownEndEventIds,
+  });
+
+  final String timezone;
+  final String windowStart;
+  final String windowEnd;
+  final int minDurationMinutes;
+  final bool availabilityComplete;
+  final List<AvailabilityBusyInterval> busyIntervals;
+  final List<AvailabilityFreeInterval> freeIntervals;
+  final List<String> unknownEndEventIds;
+
+  factory AvailabilityOut.fromJson(Map<String, dynamic> json) {
+    return AvailabilityOut(
+      timezone: json['timezone'] as String,
+      windowStart: json['window_start'] as String,
+      windowEnd: json['window_end'] as String,
+      minDurationMinutes: json['min_duration_minutes'] as int,
+      availabilityComplete: json['availability_complete'] as bool? ?? false,
+      busyIntervals: (json['busy_intervals'] as List<dynamic>? ?? const [])
+          .map((e) => AvailabilityBusyInterval.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      freeIntervals: (json['free_intervals'] as List<dynamic>? ?? const [])
+          .map((e) => AvailabilityFreeInterval.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      unknownEndEventIds:
+          (json['unknown_end_event_ids'] as List<dynamic>? ?? const [])
+              .map((e) => e.toString())
+              .toList(),
+    );
+  }
+}
+
 class CaptureContextRef {
   const CaptureContextRef({
     required this.id,

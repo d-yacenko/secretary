@@ -7,6 +7,8 @@ import 'package:personal_secretary/api/api_error.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 
+import '../test_secretary_api_client.dart';
+
 void main() {
   const baseUrl = 'https://secretary.example';
   const token = 'opaque-test-token-abc123';
@@ -387,6 +389,66 @@ void main() {
       expect(bodyText, contains('name="audio"'));
       expect(bodyText, contains('secretary_voice.wav'));
       expect(bodyText.toLowerCase(), contains('content-type: audio/wav'));
+    });
+
+    test('parses /availability and sends UTC timezone parameters', () async {
+      Uri? captured;
+      final client = testSecretaryApiClient(
+        MockClient((request) async {
+          captured = request.url;
+          return http.Response(
+            jsonEncode({
+              'timezone': 'Europe/Amsterdam',
+              'window_start': '2026-09-10T07:00:00Z',
+              'window_end': '2026-09-10T16:00:00Z',
+              'min_duration_minutes': 30,
+              'availability_complete': true,
+              'busy_intervals': [
+                {
+                  'start_at': '2026-09-10T08:00:00Z',
+                  'end_at': '2026-09-10T09:00:00Z',
+                  'event_ids': ['evt-1'],
+                },
+              ],
+              'free_intervals': [
+                {
+                  'start_at': '2026-09-10T07:00:00Z',
+                  'end_at': '2026-09-10T08:00:00Z',
+                  'duration_minutes': 60,
+                },
+              ],
+              'unknown_end_event_ids': <String>[],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      client.configure(baseUrl: baseUrl, token: token);
+      final start = DateTime(2026, 9, 10, 9, 0);
+      final end = DateTime(2026, 9, 10, 18, 0);
+      final result = await client.getAvailability(
+        startAt: start,
+        endAt: end,
+        minDurationMinutes: 30,
+      );
+      expect(captured!.path, '/availability');
+      expect(captured!.queryParameters['client_timezone_id'], 'Europe/Amsterdam');
+      expect(captured!.queryParameters['client_utc_offset_minutes'], '120');
+      expect(captured!.queryParameters['min_duration_minutes'], '30');
+      final sentStart = DateTime.parse(captured!.queryParameters['start_at']!);
+      final sentEnd = DateTime.parse(captured!.queryParameters['end_at']!);
+      expect(captured!.queryParameters['start_at']!.contains('Z'), isTrue);
+      expect(captured!.queryParameters['end_at']!.contains('Z'), isTrue);
+      expect(sentStart.isUtc, isTrue);
+      expect(sentEnd.isUtc, isTrue);
+      expect(sentStart.toLocal(), start);
+      expect(sentEnd.toLocal(), end);
+      expect(result.timezone, 'Europe/Amsterdam');
+      expect(result.availabilityComplete, isTrue);
+      expect(result.busyIntervals.single.eventIds, ['evt-1']);
+      expect(result.freeIntervals.single.durationMinutes, 60);
+      expect(result.unknownEndEventIds, isEmpty);
     });
 
     group('safe URL composition', () {

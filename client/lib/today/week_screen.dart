@@ -12,6 +12,7 @@ import '../navigation/secretary_navigation.dart';
 import '../ui/date_format.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/passive_snapshot_refresh.dart';
+import 'availability_sheet.dart';
 import 'week_kalender_events.dart';
 import 'week_time_grid.dart';
 
@@ -209,6 +210,19 @@ class _WeekScreenState extends State<WeekScreen> {
     _bookmarks.forget(result.deletedObjectId);
   }
 
+  Future<void> _openAvailability() async {
+    final week = _week;
+    if (week == null || !mounted) {
+      return;
+    }
+    await showAvailabilitySheet(
+      context: context,
+      apiClient: widget.apiClient,
+      authController: widget.authController,
+      week: week,
+    );
+  }
+
   void _goRelative(int days) {
     final current = _week?.weekStart;
     if (current == null) {
@@ -227,6 +241,7 @@ class _WeekScreenState extends State<WeekScreen> {
           onPrevious: () => _goRelative(-7),
           onNext: () => _goRelative(7),
           onCurrent: () => _loadWeek(),
+          onAvailability: _openAvailability,
         ),
         Expanded(child: _buildBody()),
       ],
@@ -271,6 +286,7 @@ class _WeekNavigationBar extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onCurrent,
+    required this.onAvailability,
   });
 
   final WeekOut? week;
@@ -278,6 +294,7 @@ class _WeekNavigationBar extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onCurrent;
+  final VoidCallback onAvailability;
 
   @override
   Widget build(BuildContext context) {
@@ -308,6 +325,12 @@ class _WeekNavigationBar extends StatelessWidget {
               onPressed: enabled ? onCurrent : null,
               child: const Text('Эта неделя'),
             ),
+          IconButton(
+            key: const Key('week_availability_action'),
+            tooltip: 'Свободное время',
+            onPressed: enabled && week != null ? onAvailability : null,
+            icon: const Icon(Icons.event_available_outlined),
+          ),
           IconButton(
             key: const Key('week_nav_next'),
             tooltip: 'Следующая неделя',

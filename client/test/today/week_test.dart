@@ -3028,9 +3028,13 @@ void main() {
         .readAsStringSync();
     final screen = File('${root.path}/lib/today/week_screen.dart')
         .readAsStringSync();
+    final availability = File('${root.path}/lib/today/availability_sheet.dart')
+        .readAsStringSync();
     expect(timeGrid.contains('Timer'), isFalse);
     expect(screen.contains('Timer.periodic'), isFalse);
     expect(screen.contains('PassiveSnapshotRefresh'), isTrue);
+    expect(availability.contains('Timer.periodic'), isFalse);
+    expect(availability.contains('PassiveSnapshotRefresh'), isFalse);
   });
 
   testWidgets('week renders scheduled work distinct from events and hints', (

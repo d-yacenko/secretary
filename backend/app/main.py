@@ -7,6 +7,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.ai_audit import router as ai_audit_router
 from app.api.assistant import router as assistant_router
+from app.api.availability import router as availability_router
 from app.api.capture import router as capture_router
 from app.api.connections import router as connections_router
 from app.api.google import router as google_router
@@ -99,6 +100,7 @@ app.include_router(yandex_router)
 app.include_router(mattermost_router)
 app.include_router(today_router)
 app.include_router(week_router)
+app.include_router(availability_router)
 
 
 if settings.mcp_enabled:

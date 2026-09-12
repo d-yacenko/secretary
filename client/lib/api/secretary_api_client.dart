@@ -427,6 +427,24 @@ class SecretaryApiClient {
     return WeekOut.fromJson(body);
   }
 
+  Future<AvailabilityOut> getAvailability({
+    required DateTime startAt,
+    required DateTime endAt,
+    int minDurationMinutes = 30,
+  }) async {
+    final timezone = await _timezoneProvider.current();
+    final query = timezone.queryParameters();
+    query['start_at'] = startAt.toUtc().toIso8601String();
+    query['end_at'] = endAt.toUtc().toIso8601String();
+    query['min_duration_minutes'] = minDurationMinutes.toString();
+    final body = await _request(
+      'GET',
+      '/availability',
+      queryParameters: query,
+    );
+    return AvailabilityOut.fromJson(body);
+  }
+
   Future<SecretaryObject> getObject(String objectId) async {
     final body = await _request('GET', '/objects/$objectId');
     return SecretaryObject.fromJson(body);

@@ -131,6 +131,19 @@ String formatCalendarDate(DateTime value) {
   return '$year-$month-$day';
 }
 
+String formatDurationMinutes(int minutes) {
+  final safe = minutes < 0 ? 0 : minutes;
+  final hours = safe ~/ 60;
+  final rest = safe % 60;
+  if (hours > 0 && rest > 0) {
+    return '$hours ч $rest мин';
+  }
+  if (hours > 0) {
+    return '$hours ч';
+  }
+  return '$rest мин';
+}
+
 String formatWeekRange(String weekStartIso) {
   final start = parseCalendarDate(weekStartIso);
   final end = addCalendarDays(start, 6);
