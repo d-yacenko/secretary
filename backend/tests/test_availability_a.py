@@ -460,6 +460,150 @@ def test_unknown_end_hard_event_fails_closed(db_session) -> None:
     assert stored.due_at is None
 
 
+def test_unknown_end_hard_event_starting_before_window_fails_closed(db_session) -> None:
+    graph = _graph(db_session)
+    unknown = _event(
+        graph,
+        title="Unknown before window",
+        start_at=DAY + timedelta(hours=8),
+        due_at=None,
+    )
+    result = _query(db_session)
+    assert result["availability_complete"] is False
+    assert result["unknown_end_event_ids"] == [unknown.id]
+    assert result["free_intervals"] == []
+    stored = db_session.get(Object, unknown.id)
+    assert stored is not None
+    assert stored.due_at is None
+    assert stored.start_at == DAY + timedelta(hours=8)
+
+
+def test_unknown_end_hard_event_at_or_after_window_end_is_irrelevant(db_session) -> None:
+    graph = _graph(db_session)
+    at_end = _event(
+        graph,
+        title="Unknown at window end",
+        start_at=WINDOW_END,
+        due_at=None,
+    )
+    after_end = _event(
+        graph,
+        title="Unknown after window end",
+        start_at=WINDOW_END + timedelta(hours=1),
+        due_at=None,
+    )
+    result = _query(db_session)
+    assert result["availability_complete"] is True
+    assert result["unknown_end_event_ids"] == []
+    assert result["free_intervals"][0]["start_at"] == WINDOW_START
+    assert result["free_intervals"][0]["end_at"] == WINDOW_END
+    leftover_at = db_session.get(Object, at_end.id)
+    leftover_after = db_session.get(Object, after_end.id)
+    assert leftover_at is not None and leftover_at.due_at is None
+    assert leftover_after is not None and leftover_after.due_at is None
+
+
+def test_known_end_event_starting_before_window_clips_and_blocks(db_session) -> None:
+    graph = _graph(db_session)
+    event = _event(
+        graph,
+        title="Starts before window",
+        start_at=DAY + timedelta(hours=8),
+        due_at=DAY + timedelta(hours=10, minutes=30),
+    )
+    result = _query(db_session)
+    assert result["availability_complete"] is True
+    busy = result["busy_intervals"][0]
+    assert busy["start_at"] == WINDOW_START
+    assert busy["end_at"] == DAY + timedelta(hours=10, minutes=30)
+    assert busy["event_ids"] == [event.id]
+    assert result["free_intervals"][0]["start_at"] == DAY + timedelta(hours=10, minutes=30)
+
+
+def test_more_than_five_hundred_hard_events_cannot_cause_false_free(db_session) -> None:
+    late_start = DAY + timedelta(hours=17)
+    late_end = DAY + timedelta(hours=18)
+    fillers = [
+        Object(
+            user_id=BOOTSTRAP_USER_ID,
+            kind="event",
+            title=f"Filler {index}",
+            origin="source",
+            state="observed",
+            provider="google_calendar",
+            start_at=DAY + timedelta(hours=9, seconds=index),
+            due_at=DAY + timedelta(hours=9, seconds=index + 1),
+            external_id=f"filler-{index}",
+            metadata_={},
+        )
+        for index in range(500)
+    ]
+    late = Object(
+        user_id=BOOTSTRAP_USER_ID,
+        kind="event",
+        title="Late blocker",
+        origin="source",
+        state="observed",
+        provider="google_calendar",
+        start_at=late_start,
+        due_at=late_end,
+        external_id="late-blocker",
+        metadata_={},
+    )
+    db_session.add_all([*fillers, late])
+    db_session.flush()
+
+    result = _query(db_session)
+    assert result["availability_complete"] is True
+    late_utc_start = late_start.astimezone(UTC)
+    late_utc_end = late_end.astimezone(UTC)
+    covering = [
+        row
+        for row in result["busy_intervals"]
+        if late.id in row["event_ids"]
+        and row["start_at"] == late_utc_start
+        and row["end_at"] == late_utc_end
+    ]
+    assert covering, "event beyond the former 500-cap must occupy 17:00–18:00"
+    for row in result["free_intervals"]:
+        overlaps_late = row["start_at"] < late_utc_end and row["end_at"] > late_utc_start
+        assert not overlaps_late
+
+
+def test_week_unknown_end_hard_events_remain_start_in_window(db_session) -> None:
+    graph = _graph(db_session)
+    before_week = _event(
+        graph,
+        title="Unknown before week",
+        start_at=DAY - timedelta(hours=4),
+        due_at=None,
+    )
+    inside_week = _event(
+        graph,
+        title="Unknown inside week",
+        start_at=DAY + timedelta(hours=10),
+        due_at=None,
+    )
+    after_week = _event(
+        graph,
+        title="Unknown after week",
+        start_at=DAY + timedelta(days=7),
+        due_at=None,
+    )
+    snapshot = WeekService(db_session, BOOTSTRAP_USER_ID).snapshot(
+        week_start=WEEK_START,
+        timezone="Europe/Amsterdam",
+        reference_at=DAY + timedelta(hours=12),
+    )
+    week_ids = [obj.id for day in snapshot["days"] for obj in day["events"]]
+    assert inside_week.id in week_ids
+    assert before_week.id not in week_ids
+    assert after_week.id not in week_ids
+    leftover = db_session.get(Object, before_week.id)
+    assert leftover is not None
+    assert leftover.due_at is None
+
+
 def test_http_naive_start_rejected(auth_client) -> None:
     response = auth_client.get(
         "/availability",

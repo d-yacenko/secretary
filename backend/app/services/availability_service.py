@@ -11,22 +11,40 @@ not treated as a fixed 24-hour civil day.
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Object
 from app.services.calendar_event_query import (
     WEEK_CALENDAR_PROVIDERS,
     active_event_predicates,
-    event_overlaps_window,
 )
 from app.services.errors import ValidationError
 
-AVAILABILITY_MAX_EVENTS = 500
 MIN_DURATION_MINUTES_MIN = 5
 MIN_DURATION_MINUTES_MAX = 1440
 DEFAULT_MIN_DURATION_MINUTES = 30
 MAX_WINDOW = timedelta(days=7)
+
+
+def availability_hard_event_overlaps_window(window_start: datetime, window_end: datetime):
+    """Availability overlap: unknown-end events fail closed if they started before window_end.
+
+    Known-end uses ordinary half-open interval overlap. Unknown-end has no lower bound
+    at window_start because the event cannot be proven finished. This is intentionally
+    stricter than Week/Today ``event_overlaps_window``.
+    """
+    return or_(
+        and_(
+            Object.due_at.is_(None),
+            Object.start_at < window_end,
+        ),
+        and_(
+            Object.due_at.is_not(None),
+            Object.start_at < window_end,
+            Object.due_at > window_start,
+        ),
+    )
 
 
 def parse_aware_instant(raw: str, field: str) -> datetime:
@@ -190,9 +208,8 @@ class AvailabilityService:
             .where(
                 *active_event_predicates(self._user_id),
                 Object.provider.in_(WEEK_CALENDAR_PROVIDERS),
-                event_overlaps_window(window_start, window_end),
+                availability_hard_event_overlaps_window(window_start, window_end),
             )
             .order_by(Object.start_at.asc(), Object.id.asc())
-            .limit(AVAILABILITY_MAX_EVENTS)
         )
         return list(self._session.scalars(stmt))
