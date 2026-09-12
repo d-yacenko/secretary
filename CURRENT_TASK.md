@@ -1,21 +1,22 @@
-# Current task — Temporal Signals A — integration onto Cost Guard C lineage
+# Current task — Temporal Signals A
 
 ## Status
 
-**Temporal Signals A integration: CODE ACCEPTED / awaiting deploy**
+**Temporal Signals A: CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**
 
-Exact accepted SHA: `6cf1c04fb87dc99b050b6d83d0995db5c2f9e876`
+Exact accepted/deployed application SHA: `6cf1c04fb87dc99b050b6d83d0995db5c2f9e876`
 Branch: `review/temporal-signals-a-integration`
-Exact parent SHA: `bd6ebebc4d6475e45b8b7a91f3da253890d75ae2`
-Accepted Temporal source head: `a9dc8c9c9e74dc4b8857fface89e803f493d21fd`
+Production Alembic: **0037 / 0037**
+Migration: **0037 → 0036** (`user_settings.temporal_signals_enabled`)
 
-Alembic on this branch: **0037 → 0036** (`user_settings.temporal_signals_enabled`)
+Real-user `temporal_signals_enabled=true`. No historical backfill. Cost Guards A+B+C remain intact / production accepted.
 
-Production application remains `7b580d955085ae7a5b3ae8c0a80b7f580cb938b1`.
-Production Alembic remains **0036 / 0036**.
+Current real-user `openai_daily_token_limit=1500000`. Assistant model `gpt-5.6-luna`. Proactive **false** / interval 60. `auto_label_enabled=true`. Source sync intervals unchanged.
 
-Temporal is **not deployed**. `temporal_signals_enabled` remains default FALSE. No historical backfill. Cost Guards A+B+C remain **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**.
+## Production acceptance
+
+New real Gmail processed through normal source sync. Exact-time signal for 14 Sep 2026 15:30 Europe/Moscow. Result: `hint_created`. `due_at=NULL`. `participation=expected`. Source evidence signature/version correctly bound. Week exposes the object only through `temporal_hints`, not events/busy. One paid Temporal extraction for that source revision; no duplicate extraction for unchanged `source_signature` during ~22 min observation. No Temporal hot loop. No new FAILED jobs. Source sync healthy. Cost Guard remained not exhausted. No manual enqueue / synthetic job / backfill.
 
 ## Out of this phase
 
-Enabling `temporal_signals_enabled`, historical backfill, Telegram Temporal, Cost Guard D, dollar pricing, anomaly detection. Do not invent the next phase.
+Historical backfill, Telegram Temporal, Cost Guard D, dollar pricing, anomaly detection. Do not invent the next phase.
