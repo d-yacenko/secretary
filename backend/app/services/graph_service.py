@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import EdgeCreate, ObjectCreate, ObjectUpdate
 from app.db.models import Edge, Object
 from app.domain.object_visibility import is_object_hidden_from_active_reads, object_is_active
+from app.domain.planned_execution import validate_planned_execution_interval
 from app.llm.embedding_service import EmbeddingService
 from app.services.db_errors import is_external_object_unique_violation
 from app.services.embedding_index import refresh_object_embedding
@@ -61,6 +62,9 @@ class GraphService:
             state = default_object_state(data.origin, data.state)
             validate_state(state, "object")
             validate_agent_proposal(data.origin, state, data.confidence, "object")
+            validate_planned_execution_interval(
+                data.kind, data.planned_start_at, data.planned_end_at
+            )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
 
@@ -77,6 +81,8 @@ class GraphService:
             status=data.status,
             start_at=data.start_at,
             due_at=data.due_at,
+            planned_start_at=data.planned_start_at,
+            planned_end_at=data.planned_end_at,
             metadata_=data.metadata,
             confidence=data.confidence,
         )
@@ -113,6 +119,12 @@ class GraphService:
         if "state" in updates:
             validate_state(updates["state"], "object")
         self._validate_object_provenance(obj)
+        try:
+            validate_planned_execution_interval(
+                obj.kind, obj.planned_start_at, obj.planned_end_at
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         self._maybe_refresh_embedding(obj, changed_fields)
         self._flush_object()
         return obj

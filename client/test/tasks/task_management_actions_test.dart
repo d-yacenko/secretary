@@ -16,6 +16,8 @@ SecretaryObject taskObject({
   String title = 'Original title',
   String? body = 'Body text',
   String? dueAt,
+  String? plannedStartAt,
+  String? plannedEndAt,
   String status = 'open',
 }) {
   return SecretaryObject(
@@ -28,6 +30,8 @@ SecretaryObject taskObject({
     state: 'confirmed',
     status: status,
     dueAt: dueAt,
+    plannedStartAt: plannedStartAt,
+    plannedEndAt: plannedEndAt,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   );
@@ -45,6 +49,8 @@ Map<String, dynamic> taskJson(SecretaryObject task) {
     'status': task.status,
     'start_at': null,
     'due_at': task.dueAt,
+    'planned_start_at': task.plannedStartAt,
+    'planned_end_at': task.plannedEndAt,
     'metadata': {},
     'origin': task.origin,
     'state': task.state,
@@ -399,5 +405,151 @@ void main() {
     final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
     expect(payload['due_at'], isNotNull);
     expect(payload['due_at'], isNot('2026-09-01T10:00:00Z'));
+  });
+
+  testWidgets('set planned interval sends timezone-aware Object PATCH', (
+    tester,
+  ) async {
+    tester.binding.platformDispatcher.localeTestValue = const Locale('en', 'US');
+    addTearDown(() {
+      tester.binding.platformDispatcher.clearLocaleTestValue();
+    });
+
+    String? path;
+    String? patchBody;
+    await tester.pumpWidget(
+      buildActions(
+        task: taskObject(),
+        mock: MockClient((request) async {
+          if (request.method == 'PATCH') {
+            path = request.url.path;
+            patchBody = request.body;
+            return http.Response(
+              jsonEncode(
+                taskJson(
+                  taskObject(
+                    plannedStartAt: '2026-10-15T14:30:00Z',
+                    plannedEndAt: '2026-10-15T15:30:00Z',
+                  ),
+                ),
+              ),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      ),
+    );
+
+    await tester.tap(find.text('Редактировать'));
+    await tester.pumpAndSettle();
+    expect(find.text('Запланированное время'), findsOneWidget);
+    expect(find.text('Не задано'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('task_planned_interval_set')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+
+    expect(path, '/objects/task-1');
+    final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
+    expect(payload['planned_start_at'], isA<String>());
+    expect(payload['planned_end_at'], isA<String>());
+    expect(payload['planned_start_at'].toString().contains('T'), isTrue);
+    expect(payload.containsKey('due_at'), isFalse);
+  });
+
+  testWidgets('change planned interval sends updated instants', (tester) async {
+    tester.binding.platformDispatcher.localeTestValue = const Locale('en', 'US');
+    addTearDown(() {
+      tester.binding.platformDispatcher.clearLocaleTestValue();
+    });
+
+    String? patchBody;
+    await tester.pumpWidget(
+      buildActions(
+        task: taskObject(
+          plannedStartAt: '2026-09-01T10:00:00Z',
+          plannedEndAt: '2026-09-01T11:00:00Z',
+        ),
+        mock: MockClient((request) async {
+          if (request.method == 'PATCH') {
+            patchBody = request.body;
+            return http.Response(
+              jsonEncode(
+                taskJson(
+                  taskObject(
+                    plannedStartAt: '2026-09-15T10:00:00Z',
+                    plannedEndAt: '2026-09-15T11:00:00Z',
+                  ),
+                ),
+              ),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      ),
+    );
+
+    await tester.tap(find.text('Редактировать'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('task_planned_interval_set')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+
+    final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
+    expect(payload['planned_start_at'], isNot('2026-09-01T10:00:00Z'));
+    expect(payload['planned_end_at'], isNotNull);
+  });
+
+  testWidgets('remove planned interval sends null pair', (tester) async {
+    String? patchBody;
+    await tester.pumpWidget(
+      buildActions(
+        task: taskObject(
+          plannedStartAt: '2026-09-01T10:00:00Z',
+          plannedEndAt: '2026-09-01T11:00:00Z',
+        ),
+        mock: MockClient((request) async {
+          if (request.method == 'PATCH') {
+            patchBody = request.body;
+            return http.Response(
+              jsonEncode(taskJson(taskObject())),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      ),
+    );
+
+    await tester.tap(find.text('Редактировать'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('task_planned_interval_clear')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+
+    final payload = jsonDecode(patchBody!) as Map<String, dynamic>;
+    expect(payload['planned_start_at'], isNull);
+    expect(payload['planned_end_at'], isNull);
+    expect(payload.containsKey('due_at'), isFalse);
   });
 }

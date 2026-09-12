@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.planned_execution import validate_planned_execution_interval
 from app.services.provenance import (
     Origin,
     State,
@@ -27,6 +28,8 @@ class ObjectCreate(BaseModel):
     state: State | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
+    planned_start_at: datetime | None = None
+    planned_end_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
 
@@ -37,6 +40,9 @@ class ObjectCreate(BaseModel):
         validate_state(state, "object")
         validate_confidence(self.confidence, "object")
         validate_agent_proposal(self.origin, state, self.confidence, "object")
+        validate_planned_execution_interval(
+            self.kind, self.planned_start_at, self.planned_end_at
+        )
         return self
 
 
@@ -51,6 +57,8 @@ class ObjectUpdate(BaseModel):
     state: State | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
+    planned_start_at: datetime | None = None
+    planned_end_at: datetime | None = None
     metadata: dict[str, Any] | None = None
     confidence: float | None = None
 
@@ -69,6 +77,17 @@ class ObjectUpdate(BaseModel):
             validate_state(self.state, "object")
         return self
 
+    @model_validator(mode="after")
+    def validate_planned_interval_payload(self) -> Self:
+        start_set = "planned_start_at" in self.model_fields_set
+        end_set = "planned_end_at" in self.model_fields_set
+        if start_set and end_set:
+            kind = self.kind if "kind" in self.model_fields_set else "task"
+            validate_planned_execution_interval(
+                kind, self.planned_start_at, self.planned_end_at
+            )
+        return self
+
 
 class ObjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -83,6 +102,8 @@ class ObjectOut(BaseModel):
     status: str | None
     start_at: datetime | None
     due_at: datetime | None
+    planned_start_at: datetime | None = None
+    planned_end_at: datetime | None = None
     occurred_at: datetime | None
     deleted_at: datetime | None = None
     metadata: dict[str, Any]
@@ -105,6 +126,8 @@ class ObjectOut(BaseModel):
             status=obj.status,
             start_at=obj.start_at,
             due_at=obj.due_at,
+            planned_start_at=obj.planned_start_at,
+            planned_end_at=obj.planned_end_at,
             occurred_at=obj.occurred_at,
             deleted_at=obj.deleted_at,
             metadata=obj.metadata_,
@@ -317,10 +340,29 @@ class WeekTemporalHintOut(BaseModel):
         )
 
 
+class WeekScheduledWorkOut(BaseModel):
+    id: UUID
+    title: str
+    planned_start_at: datetime
+    planned_end_at: datetime
+    status: str | None = None
+
+    @classmethod
+    def from_task(cls, obj: Any) -> "WeekScheduledWorkOut":
+        return cls(
+            id=obj.id,
+            title=obj.title,
+            planned_start_at=obj.planned_start_at,
+            planned_end_at=obj.planned_end_at,
+            status=obj.status,
+        )
+
+
 class WeekDayOut(BaseModel):
     date: str
     is_today: bool
     events: list[WeekEventOut]
+    scheduled_work: list[WeekScheduledWorkOut] = Field(default_factory=list)
     temporal_hints: list[WeekTemporalHintOut] = Field(default_factory=list)
 
 

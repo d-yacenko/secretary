@@ -66,3 +66,23 @@ String objectPrimaryDateDisplayValue(SecretaryObject object) {
   }
   return formatUserDateTime(iso);
 }
+
+String? objectPlannedIntervalDisplayValue(SecretaryObject object) {
+  if (object.kind != 'task') {
+    return null;
+  }
+  final startIso = object.plannedStartAt;
+  final endIso = object.plannedEndAt;
+  if (startIso == null ||
+      startIso.trim().isEmpty ||
+      endIso == null ||
+      endIso.trim().isEmpty) {
+    return null;
+  }
+  final start = DateTime.tryParse(startIso);
+  final end = DateTime.tryParse(endIso);
+  if (start == null || end == null) {
+    return null;
+  }
+  return formatPlannedExecutionInterval(start: start, end: end);
+}

@@ -339,6 +339,7 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
       case ObjectDetailLoadState.ready:
         final object = _object!;
         final primaryDateValue = objectPrimaryDateDisplayValue(object);
+        final plannedIntervalValue = objectPlannedIntervalDisplayValue(object);
         final wide = isWideLayout(context);
         final bookmarkColor = _bookmarks.colorFor(object.id);
         return SelectionArea(
@@ -379,6 +380,12 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   if (primaryDateValue.isNotEmpty)
                     Text(
                       primaryDateValue,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  if (plannedIntervalValue != null)
+                    Text(
+                      key: const Key('object_planned_interval'),
+                      'Запланированное время: $plannedIntervalValue',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   if (object.status != null)

@@ -1056,4 +1056,4 @@ def test_pass_c_did_not_add_label_migration() -> None:
     assert any(name.startswith("0032") for name in versions)
     assert any(name.startswith("0033") for name in versions)
     assert any(name.startswith("0034") for name in versions)
-    assert versions[-1].startswith("0037")
+    assert versions[-1].startswith("0038")

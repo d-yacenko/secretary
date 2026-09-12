@@ -143,6 +143,7 @@ class _WeekScreenState extends State<WeekScreen> {
       final ids = [
         for (final day in snapshot.days) ...[
           for (final event in day.events) event.object.id,
+          for (final work in day.scheduledWork) work.id,
           for (final hint in day.temporalHints) hint.id,
         ],
       ];
@@ -194,6 +195,9 @@ class _WeekScreenState extends State<WeekScreen> {
               isToday: day.isToday,
               events: day.events
                   .where((event) => event.object.id != result.deletedObjectId)
+                  .toList(),
+              scheduledWork: day.scheduledWork
+                  .where((work) => work.id != result.deletedObjectId)
                   .toList(),
               temporalHints: day.temporalHints
                   .where((hint) => hint.id != result.deletedObjectId)

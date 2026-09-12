@@ -18,6 +18,7 @@ class SecretaryWeekEvent extends CalendarEvent {
     this.provider,
     this.itemType = WeekTemporalItemType.calendarCommitment,
     this.endUnknown = false,
+    this.status,
     super.isAllDay = false,
   }) : super(id: objectId, interaction: EventInteraction.allowNone());
 
@@ -25,8 +26,11 @@ class SecretaryWeekEvent extends CalendarEvent {
   final String? provider;
   final WeekTemporalItemType itemType;
   final bool endUnknown;
+  final String? status;
 
   String get objectId => id;
+
+  bool get completed => status == 'done' || status == 'completed';
 
   @override
   SecretaryWeekEvent copyWithData({required DateTimeRange dateTimeRange}) {
@@ -37,6 +41,7 @@ class SecretaryWeekEvent extends CalendarEvent {
       provider: provider,
       itemType: itemType,
       endUnknown: endUnknown,
+      status: status,
       isAllDay: isAllDay,
     );
   }
@@ -48,12 +53,13 @@ class SecretaryWeekEvent extends CalendarEvent {
         other.title == title &&
         other.provider == provider &&
         other.itemType == itemType &&
-        other.endUnknown == endUnknown;
+        other.endUnknown == endUnknown &&
+        other.status == status;
   }
 
   @override
   int get hashCode =>
-      Object.hash(super.hashCode, title, provider, itemType, endUnknown);
+      Object.hash(super.hashCode, title, provider, itemType, endUnknown, status);
 }
 
 /// Deterministic rendered-projection identity for Week layout updates.
@@ -106,6 +112,20 @@ String weekPresentationSignature(WeekOut week) {
         ..write(hint.endPrecision)
         ..write('\t')
         ..write(hint.evidenceCount)
+        ..write(';');
+    }
+    buffer.write('#s');
+    for (final work in day.scheduledWork) {
+      buffer
+        ..write(work.id)
+        ..write('\t')
+        ..write(work.title)
+        ..write('\t')
+        ..write(work.plannedStartAt)
+        ..write('\t')
+        ..write(work.plannedEndAt)
+        ..write('\t')
+        ..write(work.status ?? '')
         ..write(';');
     }
   }
@@ -175,6 +195,28 @@ List<SecretaryWeekEvent> weekOutToKalenderEvents(WeekOut week) {
         provider: hint.primaryProvider,
         itemType: WeekTemporalItemType.temporalHint,
         endUnknown: endUnknown,
+      ),
+    );
+  }
+  final firstWork = <String, WeekScheduledWork>{};
+  for (final day in week.days) {
+    for (final work in day.scheduledWork) {
+      firstWork.putIfAbsent(work.id, () => work);
+    }
+  }
+  for (final work in firstWork.values) {
+    final start = DateTime.tryParse(work.plannedStartAt);
+    final end = DateTime.tryParse(work.plannedEndAt);
+    if (start == null || end == null || !end.isAfter(start)) {
+      continue;
+    }
+    events.add(
+      SecretaryWeekEvent(
+        objectId: work.id,
+        dateTimeRange: DateTimeRange(start: start, end: end),
+        title: work.title,
+        itemType: WeekTemporalItemType.scheduledWork,
+        status: work.status,
       ),
     );
   }

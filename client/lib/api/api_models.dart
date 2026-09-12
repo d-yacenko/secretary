@@ -415,6 +415,8 @@ class SecretaryObject {
     this.status,
     this.startAt,
     this.dueAt,
+    this.plannedStartAt,
+    this.plannedEndAt,
     this.occurredAt,
     this.deletedAt,
     required this.metadata,
@@ -435,6 +437,8 @@ class SecretaryObject {
   final String? status;
   final String? startAt;
   final String? dueAt;
+  final String? plannedStartAt;
+  final String? plannedEndAt;
   final String? occurredAt;
   final String? deletedAt;
   final Map<String, dynamic> metadata;
@@ -456,6 +460,8 @@ class SecretaryObject {
       status: json['status'] as String?,
       startAt: json['start_at'] as String?,
       dueAt: json['due_at'] as String?,
+      plannedStartAt: json['planned_start_at'] as String?,
+      plannedEndAt: json['planned_end_at'] as String?,
       occurredAt: json['occurred_at'] as String?,
       deletedAt: json['deleted_at'] as String?,
       metadata: Map<String, dynamic>.from(
@@ -903,17 +909,47 @@ class WeekTemporalHint {
   }
 }
 
+class WeekScheduledWork {
+  WeekScheduledWork({
+    required this.id,
+    required this.title,
+    required this.plannedStartAt,
+    required this.plannedEndAt,
+    this.status,
+  });
+
+  final String id;
+  final String title;
+  final String plannedStartAt;
+  final String plannedEndAt;
+  final String? status;
+
+  bool get completed => status == 'done' || status == 'completed';
+
+  factory WeekScheduledWork.fromJson(Map<String, dynamic> json) {
+    return WeekScheduledWork(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      plannedStartAt: json['planned_start_at'] as String,
+      plannedEndAt: json['planned_end_at'] as String,
+      status: json['status'] as String?,
+    );
+  }
+}
+
 class WeekDay {
   WeekDay({
     required this.date,
     required this.isToday,
     required this.events,
+    this.scheduledWork = const [],
     this.temporalHints = const [],
   });
 
   final String date;
   final bool isToday;
   final List<WeekEvent> events;
+  final List<WeekScheduledWork> scheduledWork;
   final List<WeekTemporalHint> temporalHints;
 
   factory WeekDay.fromJson(Map<String, dynamic> json) {
@@ -922,6 +958,9 @@ class WeekDay {
       isToday: json['is_today'] as bool? ?? false,
       events: (json['events'] as List<dynamic>? ?? const [])
           .map((e) => WeekEvent.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      scheduledWork: (json['scheduled_work'] as List<dynamic>? ?? const [])
+          .map((e) => WeekScheduledWork.fromJson(e as Map<String, dynamic>))
           .toList(),
       temporalHints: (json['temporal_hints'] as List<dynamic>? ?? const [])
           .map((e) => WeekTemporalHint.fromJson(e as Map<String, dynamic>))

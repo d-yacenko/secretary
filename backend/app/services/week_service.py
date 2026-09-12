@@ -13,6 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import Object, UserSettings
+from app.domain.planned_execution import KIND_TASK
+from app.domain.task_lifecycle import (
+    TASK_STATUS_ARCHIVED,
+    TASK_STATUS_CANCELLED,
+    TASK_STATUS_DELETED,
+)
 from app.domain.temporal_hint import KIND_TEMPORAL_HINT, LIFECYCLE_UNRESOLVED
 from app.services.calendar_event_query import (
     WEEK_CALENDAR_PROVIDERS,
@@ -29,6 +35,14 @@ from app.services.temporal_signals_constants import (
 )
 
 WEEK_MAX_EVENTS = 500
+WEEK_MAX_SCHEDULED_WORK = 500
+HIDDEN_SCHEDULED_WORK_STATUSES = frozenset(
+    {
+        TASK_STATUS_CANCELLED,
+        TASK_STATUS_ARCHIVED,
+        TASK_STATUS_DELETED,
+    }
+)
 
 
 def monday_of(day: date) -> date:
@@ -82,6 +96,17 @@ def _event_sort_key(obj: Object) -> tuple[bool, datetime, str]:
     return (not event_is_all_day(obj), start, str(obj.id))
 
 
+def scheduled_work_occupies_day(obj: Object, day_start: datetime, day_end: datetime) -> bool:
+    if obj.planned_start_at is None or obj.planned_end_at is None:
+        return False
+    return obj.planned_start_at < day_end and obj.planned_end_at > day_start
+
+
+def _scheduled_work_sort_key(obj: Object) -> tuple[datetime, str]:
+    start = obj.planned_start_at or datetime.min.replace(tzinfo=UTC)
+    return (start, str(obj.id))
+
+
 def _hint_sort_key(obj: Object) -> tuple[datetime, str]:
     start = obj.start_at or datetime.min.replace(tzinfo=UTC)
     return (start, str(obj.id))
@@ -107,6 +132,7 @@ class WeekService:
         start_date = parse_week_start(week_start, tz, now_local=now_local)
         window_start, window_end = local_week_window(start_date, tz)
         events = self._events_for_window(window_start, window_end)
+        scheduled = self._scheduled_work_for_window(window_start, window_end)
         hints = (
             self._hints_for_window(window_start, window_end)
             if self._temporal_hints_enabled()
@@ -122,6 +148,12 @@ class WeekService:
                 obj for obj in events if event_occupies_day(obj, day_date, day_start, day_end)
             ]
             day_events.sort(key=_event_sort_key)
+            day_scheduled = [
+                obj
+                for obj in scheduled
+                if scheduled_work_occupies_day(obj, day_start, day_end)
+            ]
+            day_scheduled.sort(key=_scheduled_work_sort_key)
             day_hints = [
                 obj for obj in hints if event_occupies_day(obj, day_date, day_start, day_end)
             ]
@@ -131,6 +163,7 @@ class WeekService:
                     "date": day_date.isoformat(),
                     "is_today": day_date == today_date,
                     "events": day_events,
+                    "scheduled_work": day_scheduled,
                     "temporal_hints": day_hints,
                 }
             )
@@ -161,6 +194,29 @@ class WeekService:
             )
             .order_by(Object.start_at.asc(), Object.id.asc())
             .limit(WEEK_MAX_EVENTS)
+        )
+        return list(self._session.scalars(stmt))
+
+    def _scheduled_work_for_window(
+        self, window_start: datetime, window_end: datetime
+    ) -> list[Object]:
+        stmt = (
+            select(Object)
+            .where(
+                Object.user_id == self._user_id,
+                Object.kind == KIND_TASK,
+                Object.deleted_at.is_(None),
+                or_(
+                    Object.status.is_(None),
+                    Object.status.notin_(HIDDEN_SCHEDULED_WORK_STATUSES),
+                ),
+                Object.planned_start_at.is_not(None),
+                Object.planned_end_at.is_not(None),
+                Object.planned_start_at < window_end,
+                Object.planned_end_at > window_start,
+            )
+            .order_by(Object.planned_start_at.asc(), Object.id.asc())
+            .limit(WEEK_MAX_SCHEDULED_WORK)
         )
         return list(self._session.scalars(stmt))
 

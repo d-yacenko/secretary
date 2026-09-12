@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -91,11 +92,28 @@ void main() {
     };
   }
 
+  Map<String, dynamic> weekScheduledWorkJson({
+    required String id,
+    required String title,
+    required String plannedStartAt,
+    required String plannedEndAt,
+    String? status = 'open',
+  }) {
+    return {
+      'id': id,
+      'title': title,
+      'planned_start_at': plannedStartAt,
+      'planned_end_at': plannedEndAt,
+      'status': status,
+    };
+  }
+
   Map<String, dynamic> weekPayload({
     String weekStart = '2026-09-07',
     bool isCurrentWeek = true,
     String todayDate = '2026-09-10',
     Map<String, List<Map<String, dynamic>>> eventsByDate = const {},
+    Map<String, List<Map<String, dynamic>>> scheduledWorkByDate = const {},
     Map<String, List<Map<String, dynamic>>> hintsByDate = const {},
   }) {
     return {
@@ -112,6 +130,9 @@ void main() {
             'date': shiftCalendarDate(weekStart, i),
             'is_today': shiftCalendarDate(weekStart, i) == todayDate,
             'events': eventsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
+            'scheduled_work':
+                scheduledWorkByDate[shiftCalendarDate(weekStart, i)] ??
+                    const [],
             'temporal_hints':
                 hintsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
           },
@@ -2910,5 +2931,284 @@ void main() {
     );
     expect(after.top, closeTo(before.top, 0.5));
     expect(after.left, closeTo(before.left, 0.5));
+  });
+
+  test('scheduled work is a separate Week layer', () {
+    final week = WeekOut.fromJson(
+      weekPayload(
+        eventsByDate: {
+          '2026-09-07': [
+            secretaryObjectJson(
+              id: 'google',
+              title: 'Google review',
+              startAt: '2026-09-07T10:00:00+02:00',
+              dueAt: '2026-09-07T11:00:00+02:00',
+            ),
+          ],
+        },
+        scheduledWorkByDate: {
+          '2026-09-07': [
+            weekScheduledWorkJson(
+              id: 'task-1',
+              title: 'Desk work',
+              plannedStartAt: '2026-09-07T10:00:00+02:00',
+              plannedEndAt: '2026-09-07T11:00:00+02:00',
+            ),
+          ],
+        },
+        hintsByDate: {
+          '2026-09-07': [
+            weekTemporalHintJson(
+              id: 'hint-1',
+              title: 'Possible call',
+              startAt: '2026-09-07T10:00:00+02:00',
+            ),
+          ],
+        },
+      ),
+    );
+    expect(week.days.first.events.single.object.id, 'google');
+    expect(week.days.first.scheduledWork.single.id, 'task-1');
+    expect(week.days.first.temporalHints.single.id, 'hint-1');
+    final events = weekOutToKalenderEvents(week);
+    expect(events.map((e) => e.objectId).toSet(), {
+      'google',
+      'task-1',
+      'hint-1',
+    });
+    expect(
+      events.singleWhere((e) => e.objectId == 'task-1').itemType,
+      WeekTemporalItemType.scheduledWork,
+    );
+    expect(events.singleWhere((e) => e.objectId == 'task-1').provider, isNull);
+    expect(
+      events.singleWhere((e) => e.objectId == 'google').itemType,
+      WeekTemporalItemType.calendarCommitment,
+    );
+    expect(
+      events.singleWhere((e) => e.objectId == 'hint-1').itemType,
+      WeekTemporalItemType.temporalHint,
+    );
+    expect(
+      weekPresentationSignature(week),
+      isNot(weekPresentationSignature(WeekOut.fromJson(weekPayload()))),
+    );
+  });
+
+  test('deadline-only task is not scheduled work', () {
+    final week = WeekOut.fromJson(
+      weekPayload(
+        eventsByDate: {
+          '2026-09-07': [
+            secretaryObjectJson(
+              id: 'task-due',
+              title: 'Deadline only',
+              kind: 'task',
+              provider: null,
+              dueAt: '2026-09-07T10:00:00+02:00',
+              includeAllDay: false,
+            ),
+          ],
+        },
+      ),
+    );
+    expect(week.days.first.scheduledWork, isEmpty);
+    expect(
+      weekOutToKalenderEvents(week)
+          .where((e) => e.itemType == WeekTemporalItemType.scheduledWork),
+      isEmpty,
+    );
+  });
+
+  test('week has no second passive-refresh timer', () {
+    final root = Directory.current.path.endsWith('client')
+        ? Directory.current
+        : Directory('client');
+    final timeGrid = File('${root.path}/lib/today/week_time_grid.dart')
+        .readAsStringSync();
+    final screen = File('${root.path}/lib/today/week_screen.dart')
+        .readAsStringSync();
+    expect(timeGrid.contains('Timer'), isFalse);
+    expect(screen.contains('Timer.periodic'), isFalse);
+    expect(screen.contains('PassiveSnapshotRefresh'), isTrue);
+  });
+
+  testWidgets('week renders scheduled work distinct from events and hints', (
+    tester,
+  ) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var openedId = '';
+    final mock = MockClient((request) async {
+      if (request.url.path == '/week') {
+        return jsonOk(
+          weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'google-evt',
+                  title: 'Google review',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+            scheduledWorkByDate: {
+              '2026-09-07': [
+                weekScheduledWorkJson(
+                  id: 'task-desk',
+                  title: 'Desk work',
+                  plannedStartAt: '2026-09-07T10:00:00+02:00',
+                  plannedEndAt: '2026-09-07T11:00:00+02:00',
+                ),
+                weekScheduledWorkJson(
+                  id: 'task-done',
+                  title: 'Finished memo',
+                  plannedStartAt: '2026-09-07T12:00:00+02:00',
+                  plannedEndAt: '2026-09-07T13:00:00+02:00',
+                  status: 'done',
+                ),
+              ],
+            },
+            hintsByDate: {
+              '2026-09-07': [
+                weekTemporalHintJson(
+                  id: 'hint-known',
+                  title: 'Possible call',
+                  startAt: '2026-09-07T10:30:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+          ),
+        );
+      }
+      if (request.url.path == '/labels/by-objects' ||
+          request.url.path == '/object-bookmarks/by-objects') {
+        return jsonOk({'objects': {}});
+      }
+      if (request.url.path.endsWith('/neighbors')) {
+        return jsonOk({'object_id': 'task-desk', 'neighbors': []});
+      }
+      if (request.url.path.endsWith('/context')) {
+        return jsonOk({
+          'object': secretaryObjectJson(
+            id: 'task-desk',
+            title: 'Desk work',
+            kind: 'task',
+            provider: null,
+            includeAllDay: false,
+          ),
+          'edges': [],
+          'neighbors': [],
+        });
+      }
+      if (request.url.path.endsWith('/labels')) {
+        return jsonOk({'labels': []});
+      }
+      if (request.url.path == '/objects/task-desk') {
+        openedId = 'task-desk';
+        return jsonOk(
+          secretaryObjectJson(
+            id: 'task-desk',
+            title: 'Desk work',
+            kind: 'task',
+            provider: null,
+            includeAllDay: false,
+          ),
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    await tester.pumpWidget(buildWeek(mock, size: desktopSize));
+    await pumpCalendar(tester);
+    expect(find.text('Google review'), findsOneWidget);
+    expect(find.text('Desk work'), findsOneWidget);
+    expect(find.text('Finished memo'), findsOneWidget);
+    expect(find.text('Possible call'), findsOneWidget);
+    expect(find.byKey(const Key('week_type_task_task-desk')), findsOneWidget);
+    expect(find.byKey(const Key('week_scheduled_style_task-desk')), findsOneWidget);
+    expect(find.byKey(const Key('week_scheduled_done_task-done')), findsOneWidget);
+    expect(find.byKey(const Key('week_hint_style_hint-known')), findsOneWidget);
+    expect(
+      weekTemporalItemTypeIcon(WeekTemporalItemType.scheduledWork),
+      Icons.check_box_outlined,
+    );
+    expect(
+      weekTemporalItemTypeIcon(WeekTemporalItemType.temporalHint),
+      isNot(weekTemporalItemTypeIcon(WeekTemporalItemType.scheduledWork)),
+    );
+    expect(
+      weekTemporalItemTypeIcon(WeekTemporalItemType.calendarCommitment),
+      isNot(weekTemporalItemTypeIcon(WeekTemporalItemType.scheduledWork)),
+    );
+    await tester.ensureVisible(find.text('Desk work'));
+    await tester.tap(find.text('Desk work'));
+    await pumpCalendar(tester);
+    expect(openedId, 'task-desk');
+    expect(find.byType(ObjectDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('task-only day still renders the grid', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final mock = weekClient(
+      week: (_) => weekPayload(
+        scheduledWorkByDate: {
+          '2026-09-07': [
+            weekScheduledWorkJson(
+              id: 'solo-task',
+              title: 'Only planned work',
+              plannedStartAt: '2026-09-07T09:00:00+02:00',
+              plannedEndAt: '2026-09-07T10:00:00+02:00',
+            ),
+          ],
+        },
+      ),
+    );
+    await tester.pumpWidget(buildWeek(mock, size: desktopSize));
+    await pumpCalendar(tester);
+    expect(find.text('Only planned work'), findsOneWidget);
+    expect(find.text('На этой неделе событий нет'), findsNothing);
+  });
+
+  testWidgets('hint-only and event-only days stay distinct', (tester) async {
+    tester.view.physicalSize = desktopSize;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final mock = weekClient(
+      week: (_) => weekPayload(
+        eventsByDate: {
+          '2026-09-08': [
+            secretaryObjectJson(
+              id: 'tue-event',
+              title: 'Tuesday event',
+              startAt: '2026-09-08T10:00:00+02:00',
+              dueAt: '2026-09-08T11:00:00+02:00',
+            ),
+          ],
+        },
+        hintsByDate: {
+          '2026-09-09': [
+            weekTemporalHintJson(
+              id: 'wed-hint',
+              title: 'Wednesday hint',
+              startAt: '2026-09-09T10:00:00+02:00',
+            ),
+          ],
+        },
+      ),
+    );
+    await tester.pumpWidget(buildWeek(mock, size: desktopSize));
+    await pumpCalendar(tester);
+    expect(find.text('Tuesday event'), findsOneWidget);
+    expect(find.text('Wednesday hint'), findsOneWidget);
+    expect(find.byKey(const Key('week_hint_style_wed-hint')), findsOneWidget);
+    expect(find.byKey(const Key('week_scheduled_style_tue-event')), findsNothing);
   });
 }

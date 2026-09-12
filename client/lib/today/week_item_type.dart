@@ -7,6 +7,9 @@ enum WeekTemporalItemType {
   /// Confirmed provider calendar event.
   calendarCommitment,
 
+  /// User-planned task execution interval. Not busy time.
+  scheduledWork,
+
   /// Derived exact-time hint. Not busy time.
   temporalHint,
 }
@@ -19,6 +22,8 @@ IconData weekTemporalItemTypeIcon(WeekTemporalItemType type) {
   switch (type) {
     case WeekTemporalItemType.calendarCommitment:
       return Icons.calendar_today_outlined;
+    case WeekTemporalItemType.scheduledWork:
+      return Icons.check_box_outlined;
     case WeekTemporalItemType.temporalHint:
       return Icons.schedule_outlined;
   }
@@ -28,6 +33,8 @@ String weekTemporalItemTypeSemantics(WeekTemporalItemType type) {
   switch (type) {
     case WeekTemporalItemType.calendarCommitment:
       return 'Календарное событие';
+    case WeekTemporalItemType.scheduledWork:
+      return 'Запланированная задача';
     case WeekTemporalItemType.temporalHint:
       return 'Возможное время';
   }
@@ -37,6 +44,8 @@ Key weekTemporalItemTypeKey(WeekTemporalItemType type, String objectId) {
   switch (type) {
     case WeekTemporalItemType.calendarCommitment:
       return Key('week_type_calendar_$objectId');
+    case WeekTemporalItemType.scheduledWork:
+      return Key('week_type_task_$objectId');
     case WeekTemporalItemType.temporalHint:
       return Key('week_type_hint_$objectId');
   }

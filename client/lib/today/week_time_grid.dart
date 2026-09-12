@@ -183,7 +183,10 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
         MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
     _syncViewConfiguration(compact: compact);
     final empty = widget.week.days.every(
-      (day) => day.events.isEmpty && day.temporalHints.isEmpty,
+      (day) =>
+          day.events.isEmpty &&
+          day.scheduledWork.isEmpty &&
+          day.temporalHints.isEmpty,
     );
     final tiles = TileComponents(tileBuilder: _tileBuilder);
     return Column(
@@ -279,6 +282,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       compact: compact,
       itemType: secretary?.itemType ?? WeekTemporalItemType.calendarCommitment,
       endUnknown: secretary?.endUnknown ?? false,
+      completed: secretary?.completed ?? false,
     );
   }
 }
@@ -355,6 +359,7 @@ class WeekKalenderEventTile extends StatelessWidget {
     this.compact = false,
     this.itemType = WeekTemporalItemType.calendarCommitment,
     this.endUnknown = false,
+    this.completed = false,
   });
 
   final String objectId;
@@ -366,18 +371,28 @@ class WeekKalenderEventTile extends StatelessWidget {
   final bool compact;
   final WeekTemporalItemType itemType;
   final bool endUnknown;
+  final bool completed;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isHint = itemType == WeekTemporalItemType.temporalHint;
+    final isScheduled = itemType == WeekTemporalItemType.scheduledWork;
     final tone = weekOverlapTone(scheme, allDay ? 1 : depth);
     final fill = isHint
         ? scheme.onSurface.withValues(alpha: 0.08)
+        : isScheduled
+        ? scheme.secondaryContainer.withValues(alpha: completed ? 0.32 : 0.74)
         : tone.fill.withValues(alpha: 0.92);
-    final foreground = isHint ? scheme.onSurface : tone.foreground;
+    final foreground = isHint
+        ? scheme.onSurface
+        : isScheduled
+        ? scheme.onSecondaryContainer.withValues(alpha: completed ? 0.62 : 1)
+        : tone.foreground;
     final outline = isHint
         ? scheme.onSurface.withValues(alpha: 0.48)
+        : isScheduled
+        ? scheme.outline.withValues(alpha: 0.68)
         : scheme.outline.withValues(alpha: 0.42);
     final denseTitle = !compact && !allDay;
     final tokenColor = bookmarkColor == null
@@ -407,6 +422,8 @@ class WeekKalenderEventTile extends StatelessWidget {
                     Theme.of(context).textTheme,
                     color: foreground,
                     compact: !denseTitle,
+                  ).copyWith(
+                    decoration: completed ? TextDecoration.lineThrough : null,
                   ),
                 ),
               ),
@@ -490,13 +507,25 @@ class WeekKalenderEventTile extends StatelessWidget {
         ),
       );
     }
-    return Material(
+    final tile = Material(
       color: fill,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(4),
         side: BorderSide(color: outline, width: 0.8),
       ),
       child: content,
+    );
+    if (!isScheduled) {
+      return tile;
+    }
+    return KeyedSubtree(
+      key: Key('week_scheduled_style_$objectId'),
+      child: completed
+          ? KeyedSubtree(
+              key: Key('week_scheduled_done_$objectId'),
+              child: tile,
+            )
+          : tile,
     );
   }
 }

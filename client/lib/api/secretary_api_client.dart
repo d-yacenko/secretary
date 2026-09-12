@@ -432,6 +432,18 @@ class SecretaryApiClient {
     return SecretaryObject.fromJson(body);
   }
 
+  Future<SecretaryObject> patchObject(
+    String objectId,
+    Map<String, dynamic> jsonBody,
+  ) async {
+    final body = await _request(
+      'PATCH',
+      '/objects/$objectId',
+      jsonBody: jsonBody,
+    );
+    return SecretaryObject.fromJson(body);
+  }
+
   Future<NeighborsResponse> getObjectNeighbors(String objectId) async {
     final body = await _request('GET', '/objects/$objectId/neighbors');
     return NeighborsResponse.fromJson(body);

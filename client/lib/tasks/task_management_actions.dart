@@ -89,9 +89,18 @@ class TaskManagementActions extends StatelessWidget {
     final bodyController = TextEditingController(text: task.body ?? '');
     DateTime? dueAt = task.dueAt == null ? null : DateTime.tryParse(task.dueAt!);
     final originalDueAt = dueAt;
+    DateTime? plannedStart = task.plannedStartAt == null
+        ? null
+        : DateTime.tryParse(task.plannedStartAt!);
+    DateTime? plannedEnd = task.plannedEndAt == null
+        ? null
+        : DateTime.tryParse(task.plannedEndAt!);
+    final originalPlannedStart = plannedStart;
+    final originalPlannedEnd = plannedEnd;
     bool clearBody = false;
     bool clearDue = false;
     bool dueAtChanged = false;
+    bool plannedChanged = false;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -178,6 +187,102 @@ class TaskManagementActions extends StatelessWidget {
                         ],
                       ),
                     ),
+                    ListTile(
+                      key: const Key('task_planned_interval'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Запланированное время'),
+                      subtitle: Text(
+                        plannedStart == null || plannedEnd == null
+                            ? 'Не задано'
+                            : formatPlannedExecutionInterval(
+                                start: plannedStart!,
+                                end: plannedEnd!,
+                              ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            key: const Key('task_planned_interval_set'),
+                            tooltip: 'Установить запланированное время',
+                            onPressed: () async {
+                              final initialStart =
+                                  plannedStart?.toLocal() ?? DateTime.now();
+                              final pickedDate = await showDatePicker(
+                                context: context,
+                                initialDate: initialStart,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime(2100),
+                              );
+                              if (pickedDate == null) {
+                                return;
+                              }
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final pickedStart = await showTimePicker(
+                                context: context,
+                                initialTime: TimeOfDay.fromDateTime(initialStart),
+                              );
+                              if (pickedStart == null) {
+                                return;
+                              }
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final initialEnd = plannedEnd?.toLocal() ??
+                                  DateTime(
+                                    pickedDate.year,
+                                    pickedDate.month,
+                                    pickedDate.day,
+                                    pickedStart.hour,
+                                    pickedStart.minute,
+                                  ).add(const Duration(hours: 1));
+                              final pickedEnd = await showTimePicker(
+                                context: context,
+                                initialTime: TimeOfDay.fromDateTime(initialEnd),
+                              );
+                              if (pickedEnd == null) {
+                                return;
+                              }
+                              final start = DateTime(
+                                pickedDate.year,
+                                pickedDate.month,
+                                pickedDate.day,
+                                pickedStart.hour,
+                                pickedStart.minute,
+                              );
+                              var end = DateTime(
+                                pickedDate.year,
+                                pickedDate.month,
+                                pickedDate.day,
+                                pickedEnd.hour,
+                                pickedEnd.minute,
+                              );
+                              if (!end.isAfter(start)) {
+                                end = end.add(const Duration(days: 1));
+                              }
+                              setState(() {
+                                plannedStart = start;
+                                plannedEnd = end;
+                                plannedChanged = true;
+                              });
+                            },
+                            icon: const Icon(Icons.schedule_outlined),
+                          ),
+                          IconButton(
+                            key: const Key('task_planned_interval_clear'),
+                            tooltip: 'Очистить запланированное время',
+                            onPressed: () => setState(() {
+                              plannedStart = null;
+                              plannedEnd = null;
+                              plannedChanged = true;
+                            }),
+                            icon: const Icon(Icons.timer_off_outlined),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -225,13 +330,34 @@ class TaskManagementActions extends StatelessWidget {
       }
     }
 
-    if (request.isEmpty) {
+    var plannedPayload = <String, dynamic>{};
+    if (plannedChanged) {
+      final newStartIso = plannedStart?.toUtc().toIso8601String();
+      final newEndIso = plannedEnd?.toUtc().toIso8601String();
+      final oldStartIso = originalPlannedStart?.toUtc().toIso8601String();
+      final oldEndIso = originalPlannedEnd?.toUtc().toIso8601String();
+      if (newStartIso != oldStartIso || newEndIso != oldEndIso) {
+        plannedPayload = {
+          'planned_start_at': newStartIso,
+          'planned_end_at': newEndIso,
+        };
+      }
+    }
+
+    if (request.isEmpty && plannedPayload.isEmpty) {
       return;
     }
 
     try {
-      final response = await apiClient.patchTask(task.id, request);
-      onTaskUpdated(response.object);
+      SecretaryObject updated = task;
+      if (!request.isEmpty) {
+        final response = await apiClient.patchTask(task.id, request);
+        updated = response.object;
+      }
+      if (plannedPayload.isNotEmpty) {
+        updated = await apiClient.patchObject(task.id, plannedPayload);
+      }
+      onTaskUpdated(updated);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Задача обновлена')),

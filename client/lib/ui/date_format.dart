@@ -36,6 +36,21 @@ String formatUserTime(String? iso) {
   return '$hour:$minute';
 }
 
+String formatPlannedExecutionInterval({
+  required DateTime start,
+  required DateTime end,
+}) {
+  final startLocal = start.toLocal();
+  final endLocal = end.toLocal();
+  final startText = formatUserDateTimeFromDateTime(start);
+  if (startLocal.year == endLocal.year &&
+      startLocal.month == endLocal.month &&
+      startLocal.day == endLocal.day) {
+    return '$startText – ${formatRussianClockTime(endLocal)}';
+  }
+  return '$startText – ${formatUserDateTimeFromDateTime(end)}';
+}
+
 const _monthGenitive = [
   'января',
   'февраля',
