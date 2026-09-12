@@ -2,6 +2,8 @@
 
 ## Current phase
 
+OpenAI Cost Guard C-R1 — in-flight usage + transcription accounting + timezone reset: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-c` (parent `27e0c097c43a81bbb9925f13a83734cc722a3201`). Not deployed. Alembic **0036** unchanged. Same-trace sequential paid calls include uncommitted actual tokens. Transcription records SDK token usage when present. Timezone settings changes release budget-parked jobs. Flutter untouched in C-R1.
+
 OpenAI Cost Guard C — per-user daily OpenAI token hard cap: **implemented / awaiting Architect review** on `hotfix/openai-cost-guard-c` (parent `cefe358063095d6d11a63e753f910c7b146851a1`). Not deployed. Alembic **0036** (`user_settings.openai_daily_token_limit`). Production remains `04f20f21d5460c9901d811ebd53863a370f85eda` / **0035 / 0035**. Temporal Signals A is **not merged**. Cost Guard A+B remain production. Flutter Account/Assistant show the fuse. No dollar pricing, anomaly detection, or Cost Guard D.
 
 OpenAI Cost Guard B — embedding revision idempotency: **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at `04f20f21d5460c9901d811ebd53863a370f85eda` (previous production `f20a68256b2a3061a4aaf9143893d7187a90a3d3`). Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A remains **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**; its unpublished 0035 now conflicts with production 0035 and must be rebased/renumbered before any future Temporal deploy. Flutter untouched. User assistant model unchanged (`gpt-5.6-luna`). Source sync intervals unchanged. No embedding backfill. No Cost Guard C.

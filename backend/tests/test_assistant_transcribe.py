@@ -205,7 +205,9 @@ def test_openai_transcription_provider_passes_model_and_file_metadata(monkeypatc
         "audio/webm",
     )
 
-    assert text == "hello from openai"
+    assert text.text == "hello from openai"
+    assert text.input_tokens is None
+    assert text.output_tokens is None
     assert captured["model"] == "gpt-4o-mini-transcribe"
     file_payload = captured["file"]
     assert file_payload[0] == "recording.webm"

@@ -316,7 +316,9 @@ def patch_my_settings(
         ProactiveScheduler(session).sync_user(current_user.user_id)
 
     budget = _budget_status(session, current_user.user_id)
-    if "openai_daily_token_limit" in payload.model_fields_set and not budget.exhausted:
+    if "timezone" in payload.model_fields_set or (
+        "openai_daily_token_limit" in payload.model_fields_set and not budget.exhausted
+    ):
         JobQueueService(session).release_budget_parked_jobs(current_user.user_id)
     return _serialize_settings(effective, budget)
 

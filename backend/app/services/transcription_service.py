@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.llm.fake_transcription_provider import FakeTranscriptionProvider
 from app.llm.openai_transcription_provider import (
     OpenAITranscriptionProvider,
+    TranscriptionCallResult,
     TranscriptionProviderError,
 )
 
@@ -46,6 +47,7 @@ async def transcribe_audio_upload(
             filename,
             content_type,
         )
+        transcript, token_usage = _normalize_transcription_result(text)
     except TranscriptionProviderError as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if get_active_trace() is not None:
@@ -71,18 +73,20 @@ async def transcribe_audio_upload(
         raise
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
+    extra = {
+        "audio_bytes": len(audio_bytes),
+        "filename": filename,
+        "content_type": content_type,
+        **token_usage,
+    }
     if get_active_trace() is not None:
         record_simple_model_call(
             model=model,
             input_chars=len(audio_bytes),
-            output_chars=len(text),
+            output_chars=len(transcript),
             elapsed_ms=elapsed_ms,
-            extra={
-                "audio_bytes": len(audio_bytes),
-                "filename": filename,
-                "content_type": content_type,
-            },
-            diagnostic_payloads={"transcript_output": text},
+            extra=extra,
+            diagnostic_payloads={"transcript_output": transcript},
         )
     log_transcription_telemetry(
         model=model,
@@ -90,7 +94,24 @@ async def transcribe_audio_upload(
         elapsed_ms=elapsed_ms,
         success=True,
     )
-    return text
+    return transcript
+
+
+def _normalize_transcription_result(result: object) -> tuple[str, dict[str, int]]:
+    """Keep actual billed tokens if the provider returned them. Never estimate."""
+    if isinstance(result, str):
+        return result, {}
+    if isinstance(result, TranscriptionCallResult):
+        extra: dict[str, int] = {}
+        if result.input_tokens is not None:
+            extra["input_tokens"] = result.input_tokens
+        if result.output_tokens is not None:
+            extra["output_tokens"] = result.output_tokens
+        return result.text, extra
+    text = getattr(result, "text", None)
+    if isinstance(text, str) and text:
+        return text, {}
+    raise TranscriptionProviderError("transcription returned empty text")
 
 
 def _provider_model(provider: TranscriptionProvider) -> str:

@@ -10,7 +10,12 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.ai_audit.constants import EVENT_TRACE_FINISHED, EVENT_TRACE_STARTED
+from app.ai_audit.constants import (
+    EVENT_MODEL_ROUND,
+    EVENT_MODEL_ROUND_FAILED,
+    EVENT_TRACE_FINISHED,
+    EVENT_TRACE_STARTED,
+)
 from app.ai_audit.sanitizer import bounded_json_text, sanitize_for_audit
 from app.ai_audit.trace_service import AITraceService
 from app.db.session import SessionLocal
@@ -18,6 +23,42 @@ from app.llm.assistant_provider_errors import audit_error_category
 
 _active_trace: ContextVar["ActiveTrace | None"] = ContextVar("ai_audit_active_trace", default=None)
 _current_job_id: ContextVar[UUID | None] = ContextVar("ai_audit_current_job_id", default=None)
+
+_BUDGET_EVENT_TYPES = (EVENT_MODEL_ROUND, EVENT_MODEL_ROUND_FAILED)
+_BUDGET_TOKEN_FIELDS = ("input_tokens", "output_tokens")
+
+
+def _numeric_token(value: Any) -> int | None:
+    """Actual billed tokens only. Booleans and estimates are not usage."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def budget_tokens_from_metadata(event_type: str, metadata: dict[str, Any]) -> int:
+    """Sum input+output only when the event actually reported numeric usage."""
+    if event_type not in _BUDGET_EVENT_TYPES:
+        return 0
+    charged = 0
+    saw_usage = False
+    for field in _BUDGET_TOKEN_FIELDS:
+        token = _numeric_token(metadata.get(field))
+        if token is None:
+            continue
+        charged += token
+        saw_usage = True
+    return charged if saw_usage else 0
+
+
+def active_trace_in_flight_budget_tokens() -> int:
+    active = get_active_trace()
+    if active is None:
+        return 0
+    return active.in_flight_budget_tokens
 
 
 @dataclass
@@ -29,6 +70,7 @@ class ActiveTrace:
     sequence: int = 0
     capture_payloads: bool = False
     payload_retention_until: datetime | None = None
+    in_flight_budget_tokens: int = 0
 
     def record_event(self, event_type: str, metadata: dict[str, Any]) -> None:
         self.sequence += 1
@@ -40,6 +82,7 @@ class ActiveTrace:
             if payloads is not None:
                 stored_meta["payloads"] = sanitize_for_audit(payloads)
                 payload_expires_at = self.payload_retention_until
+        self.in_flight_budget_tokens += budget_tokens_from_metadata(event_type, stored_meta)
         service.record_event(
             trace_id=self.trace_id,
             user_id=self.user_id,

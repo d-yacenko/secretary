@@ -109,9 +109,11 @@ class OpenAIDailyBudgetGuard:
     def ensure_allowed(self, extra_tokens: int = 0) -> OpenAIDailyBudgetStatus:
         """Allow or block before a paid provider call.
 
-        `extra_tokens` carries actual usage already charged inside the current
-        in-flight run that the audit has not committed yet (Assistant tool
-        rounds), so a single turn cannot overrun the cap round after round.
+        `extra_tokens` is Assistant's already-charged Responses usage for the
+        current turn. Those same tokens are also recorded on the active trace.
+        The guard takes the larger of extra vs in-flight so they are never
+        summed twice, while still covering tool/embedding usage recorded on the
+        same unfinished trace.
         """
         status = self.status(extra_tokens=extra_tokens)
         if status.exhausted:
@@ -119,9 +121,23 @@ class OpenAIDailyBudgetGuard:
         return status
 
     def status(self, extra_tokens: int = 0) -> OpenAIDailyBudgetStatus:
+        from app.ai_audit.context import (
+            active_trace_in_flight_budget_tokens,
+            get_active_trace,
+        )
+
         day_start, reset_at = self.local_day_window()
         limit = self.daily_token_limit()
-        used = self.tokens_used_between(day_start, reset_at) + max(extra_tokens, 0)
+        active = get_active_trace()
+        exclude_trace_id = active.trace_id if active is not None else None
+        used = self.tokens_used_between(
+            day_start, reset_at, exclude_trace_id=exclude_trace_id
+        )
+        in_flight = active_trace_in_flight_budget_tokens()
+        extra = max(extra_tokens, 0)
+        # Assistant extra_tokens and ActiveTrace in-flight describe the same
+        # already-recorded rounds; take max so they are not double-counted.
+        used += max(extra, in_flight)
         exhausted = limit is not None and used >= limit
         return OpenAIDailyBudgetStatus(
             daily_token_limit=limit,
@@ -140,17 +156,26 @@ class OpenAIDailyBudgetGuard:
             return None
         return stored
 
-    def tokens_used_between(self, start: datetime, end: datetime) -> int:
+    def tokens_used_between(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        exclude_trace_id: UUID | None = None,
+    ) -> int:
         charged = _usage_token_expression(BUDGET_USAGE_FIELDS[0])
         for field in BUDGET_USAGE_FIELDS[1:]:
             charged = charged + _usage_token_expression(field)
+        conditions = [
+            AITraceEvent.user_id == self._user_id,
+            AITraceEvent.event_type.in_(BUDGET_USAGE_EVENT_TYPES),
+            AITraceEvent.created_at >= start,
+            AITraceEvent.created_at < end,
+        ]
+        if exclude_trace_id is not None:
+            conditions.append(AITraceEvent.trace_id != exclude_trace_id)
         total = self._session.scalar(
-            select(func.coalesce(func.sum(charged), 0)).where(
-                AITraceEvent.user_id == self._user_id,
-                AITraceEvent.event_type.in_(BUDGET_USAGE_EVENT_TYPES),
-                AITraceEvent.created_at >= start,
-                AITraceEvent.created_at < end,
-            )
+            select(func.coalesce(func.sum(charged), 0)).where(*conditions)
         )
         return int(total or 0)
 
