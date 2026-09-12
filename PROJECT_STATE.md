@@ -2,7 +2,11 @@
 
 ## Current phase
 
-OpenAI Cost Guard B-R3 — close synchronous embedding idempotency bypass: **corrected / awaiting Architect review** on `hotfix/openai-cost-guard-b` (not deployed). Exact parent `b11e373704a8aa0b20716142a5139229921154f5`. Production remains `f20a68256b2a3061a4aaf9143893d7187a90a3d3`. Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A is **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**. Flutter untouched. User assistant model unchanged. Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+OpenAI Cost Guard B — embedding revision idempotency: **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at `04f20f21d5460c9901d811ebd53863a370f85eda` (previous production `f20a68256b2a3061a4aaf9143893d7187a90a3d3`). Alembic **0035 / 0035** (`objects.embedding_signature`). Cost Guard A remains **CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**. Temporal Signals A `a9dc8c9c9e74dc4b8857fface89e803f493d21fd` is **not merged**; its unpublished 0035 now conflicts with production 0035 and must be rebased/renumbered before any future Temporal deploy. Flutter untouched. User assistant model unchanged (`gpt-5.6-luna`). Source sync intervals unchanged. No embedding backfill. No Cost Guard C.
+
+Post-deploy observation `2026-09-11T20:42:32Z`–`2026-09-11T21:15:24Z` (~32m52s): Yandex embeddings 51 calls / 25 objects versus pre-B 400 / 25. 24 objects had exactly 1 call; one object had 27 calls with 27 distinct `embedding_input_signature` values (NONBLOCKING connector / canonicalization debt, not Cost Guard B). 382 unsigned legacy embed jobs caused zero paid embedding calls. Correlation model calls: 0. All 25 touched Yandex objects ended with vector + `embedding_signature`. Final 15 minutes: remaining embedding activity only from that one changing-signature object.
+
+OpenAI Cost Guard B-R3 — close synchronous embedding idempotency bypass: **CODE ACCEPTED** (included in production SHA `04f20f21d5460c9901d811ebd53863a370f85eda`; parent `b11e373704a8aa0b20716142a5139229921154f5`).
 
 Synchronous GraphService `refresh_object_embedding()` skips the provider when the stored vector already has current `embedding_signature` provenance. Request-time embedding remains synchronous.
 
