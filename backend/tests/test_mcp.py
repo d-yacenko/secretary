@@ -151,6 +151,20 @@ async def test_mcp_send_email_requires_approval(mcp_server) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_send_message_requires_approval(mcp_server) -> None:
+    async with Client(mcp_server) as client:
+        result = await client.call_tool(
+            "send_message",
+            {
+                "body": "Short Mattermost status.",
+                "conversation_object_id": str(uuid.uuid4()),
+            },
+        )
+    assert result.is_error
+    assert "Traceback" not in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_mcp_list_notifications(db_session, mcp_server) -> None:
     from app.services.notification_service import NotificationService
 

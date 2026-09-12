@@ -14,6 +14,8 @@ def classify_tool_execution_effect(tool_name: str, output: dict[str, Any] | None
         return "created" if output.get("changed") else "no_op"
     if tool_name == "send_email":
         return "created" if output.get("changed") else "no_op"
+    if tool_name == "send_message":
+        return "created" if output.get("changed") else "no_op"
     if tool_name == "remove_relation":
         return "removed" if output.get("changed") else "no_op"
     if tool_name == "link_objects":
@@ -54,6 +56,13 @@ def describe_execution_effect(tool_name: str, output: dict[str, Any] | None) -> 
             return (
                 f"send_email: sent via {(output or {}).get('provider')} "
                 f"from {(output or {}).get('account_email')}; changed=true"
+            )
+        if tool_name == "send_message":
+            return (
+                f"send_message: sent via {(output or {}).get('provider')} "
+                f"mode={(output or {}).get('mode')} "
+                f"provider_message_id={(output or {}).get('provider_message_id')}; "
+                f"changed=true"
             )
         obj = (output or {}).get("object") or {}
         return f"{tool_name}: created object {obj.get('id')} ({obj.get('kind')})"
@@ -104,6 +113,11 @@ def describe_execution_effect(tool_name: str, output: dict[str, Any] | None) -> 
         if tool_name == "send_email":
             return (
                 f"send_email: already delivered "
+                f"{(output or {}).get('provider_message_id')}; changed=false"
+            )
+        if tool_name == "send_message":
+            return (
+                f"send_message: already sent "
                 f"{(output or {}).get('provider_message_id')}; changed=false"
             )
         return f"{tool_name}: no state change; changed=false"

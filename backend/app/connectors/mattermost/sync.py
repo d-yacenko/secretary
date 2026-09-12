@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.connectors.mattermost.constants import (
@@ -24,6 +23,7 @@ from app.connectors.mattermost.errors import (
     MattermostConnectorError,
     MattermostEndpointNotFoundError,
 )
+from app.connectors.mattermost.materialize import MattermostObjectMaterializer
 from app.connectors.mattermost.mattermost_history_state import (
     complete_active_history,
     continue_active_scan,
@@ -39,7 +39,6 @@ from app.connectors.mattermost.mattermost_history_state import (
 )
 from app.connectors.mattermost.normalize import (
     MattermostChannelContext,
-    normalize_mattermost_post,
 )
 from app.connectors.mattermost.transport import (
     MattermostHttpTransport,
@@ -47,7 +46,6 @@ from app.connectors.mattermost.transport import (
     MattermostTransport,
 )
 from app.db.models import Object
-from app.domain.object_visibility import passive_sync_should_skip_existing
 from app.services.job_queue_service import JobQueueService
 
 
@@ -91,6 +89,7 @@ class MattermostSyncService:
         self._overlap_seconds = min(max(overlap_seconds, 0), MAX_SYNC_OVERLAP_SECONDS)
         self._transport_factory = transport_factory
         self._now_factory = now_factory or utcnow
+        self._materializer = MattermostObjectMaterializer(session)
 
     def sync_account(
         self,
@@ -697,85 +696,22 @@ class MattermostSyncService:
     ) -> str:
         author_id = str(post.get("user_id") or "").strip()
         author = author_map.get(author_id)
-        normalized = normalize_mattermost_post(
-            post=post,
+        result = self._materializer.upsert_post(
+            user_id=snapshot.user_id,
             normalized_server_url=snapshot.normalized_server_url,
             account_id=snapshot.account_id,
             channel=channel_context,
+            post=post,
             author=author,
+            skip_hidden=True,
         )
-        if normalized is None:
-            return "unchanged"
-
-        existing = self._find_existing(snapshot.user_id, normalized["external_id"])
-        if existing is not None and passive_sync_should_skip_existing(existing):
-            return "unchanged"
-        if existing is None:
-            obj = Object(
-                user_id=snapshot.user_id,
-                kind=normalized["kind"],
-                provider=normalized["provider"],
-                external_id=normalized["external_id"],
-                origin=normalized["origin"],
-                state=normalized["state"],
-                title=normalized["title"],
-                body=normalized.get("body"),
-                metadata_=normalized["metadata"],
-                occurred_at=normalized.get("occurred_at"),
-            )
-            self._session.add(obj)
-            self._session.flush()
-            self._job_queue.enqueue(
-                "embed_object",
-                {"object_id": str(obj.id)},
-                user_id=snapshot.user_id,
-            )
-            return "created"
-
-        object_changed = self._object_changed(existing, normalized)
-        if not object_changed:
-            return "unchanged"
-
-        semantic_changed = self._semantic_content_changed(existing, normalized)
-        self._apply_normalized(existing, normalized)
-        if semantic_changed:
-            self._job_queue.enqueue(
-                "embed_object",
-                {"object_id": str(existing.id)},
-                user_id=snapshot.user_id,
-            )
-            return "updated"
-        return "metadata_updated"
+        return result.change
 
     def _find_existing(self, user_id: UUID, external_id: str) -> Object | None:
-        return self._session.scalar(
-            select(Object).where(
-                Object.user_id == user_id,
-                Object.provider == "mattermost",
-                Object.kind == "chat_message",
-                Object.external_id == external_id,
-            )
-        )
-
-    def _object_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
-        if obj.title != normalized["title"]:
-            return True
-        if obj.body != normalized.get("body"):
-            return True
-        if obj.occurred_at != normalized.get("occurred_at"):
-            return True
-        return obj.metadata_ != normalized["metadata"]
-
-    def _semantic_content_changed(self, obj: Object, normalized: dict[str, Any]) -> bool:
-        if obj.title != normalized["title"]:
-            return True
-        return obj.body != normalized.get("body")
+        return self._materializer.find_existing(user_id, external_id)
 
     def _apply_normalized(self, obj: Object, normalized: dict[str, Any]) -> None:
-        obj.title = normalized["title"]
-        obj.body = normalized.get("body")
-        obj.metadata_ = normalized["metadata"]
-        obj.occurred_at = normalized.get("occurred_at")
+        self._materializer._apply_normalized(obj, normalized)
 
     def _merge_totals(self, totals: _SyncTotals, batch: _SyncTotals) -> None:
         totals.synchronized += batch.synchronized

@@ -51,6 +51,7 @@ _MUTATION_TOOLS = frozenset(
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
+        "send_message",
         "create_label",
         "rename_label",
         "assign_label",
