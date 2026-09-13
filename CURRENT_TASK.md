@@ -2,32 +2,30 @@
 
 ## Status
 
-**Telegram A: implemented / awaiting Architect review**
+**Telegram A: CODE ACCEPTED / DEPLOYED / AWAITING TELEGRAM ACTIVATION**
 
 Branch: `review/telegram-a`
 
-Base / parent: `f0ee2b7045f4fc8459139945d5153e3528f5dfe0` (docs-only closure of Integration A)
+Deployed application SHA: `c5d288444cc5053e79c0942cdbc23af3eebbbb50`
 
-Current production application remains: `acf035a8665f0020209b460255156ac0bde5faf6`
+Production Alembic: **0039 / 0039**
 
-Production Alembic remains: **0038 / 0038**
+Migration **0038 → 0039** applied on production (`telegram_accounts`, `telegram_link_states`). No `0040`. No backfill.
 
-No production deploy. No real Telegram bot configuration, setWebhook, account linking, or send.
+Previous production: `acf035a8665f0020209b460255156ac0bde5faf6` (Alembic **0038 / 0038**).
 
-## Scope delivered
+No Telegram activation in this step. Bot credentials were not created or filled. No setWebhook. No identity link. No Telegram send.
 
-Telegram Bot API + Business / Secretary Mode via authenticated webhook.
+## Lineage
 
-Private 1:1 business chats only. New inbound since active connection. No historical backfill. No mark-read. Ordinary Telegram mute is not mirrored; managed-chat selection in Telegram is the ingestion boundary.
+Base: `f0ee2b7045f4fc8459139945d5153e3528f5dfe0`
 
-`send_message` remains the only model-facing communication tool. Assistant continues to address conversations by Secretary Object IDs.
+Telegram A initial: `374d232279e2e3e1ac6e897ed8adfb87ec71333a`
 
-## Migration
+Docs awaiting-review: `9268649877d272665c3a9a5534629b22ebb585ac`
 
-**0039** parent **0038**. Tables: `telegram_accounts`, `telegram_link_states`. No 0040. No data backfill.
-
-Local Alembic: **0038 → 0039** succeeded; **0039 → 0038** succeeded; re-upgrade to **0039**.
+Telegram A-R1 / CODE ACCEPTED / deployed: `c5d288444cc5053e79c0942cdbc23af3eebbbb50`
 
 ## Stop
 
-Await Architect review. Do not deploy. Do not start the next phase.
+Await Telegram activation (separate bounded continuation after the user creates and configures the real Secretary bot). Do not mark CLOSED. Do not start the next phase.
