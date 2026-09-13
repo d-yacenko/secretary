@@ -2,7 +2,13 @@
 
 ## Current phase
 
-Integration A: **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at `acf035a8665f0020209b460255156ac0bde5faf6` on `review/unified-communications-a-integration`. Production Alembic **0038 / 0038**. Migration **NONE**. No `0039`. No backfill. Docs-only closure is not deployed.
+Telegram A: **implemented / awaiting Architect review** on `review/telegram-a`. Base `f0ee2b7045f4fc8459139945d5153e3528f5dfe0`. Migration **0039** parent **0038** (`telegram_accounts`, `telegram_link_states`). No `0040`. No backfill. No production deploy. No real Telegram provider action.
+
+Production application remains `acf035a8665f0020209b460255156ac0bde5faf6`. Production Alembic remains **0038 / 0038**. Encrypted Architect context untouched.
+
+Telegram A adds Bot API + Business/Secretary Mode inbound and `send_message` compose/reply for known private chats, with webhook ingress, explicit approval, and no native mute mirroring.
+
+Integration A: **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at `acf035a8665f0020209b460255156ac0bde5faf6` on `review/unified-communications-a-integration`. Production Alembic **0038 / 0038**. Migration **NONE**. No `0039` on production. No backfill. Docs-only closure is not deployed.
 
 Deployed from exact application SHA `acf035a8665f0020209b460255156ac0bde5faf6` (detached on VDS `/opt/secretary`). Docs tip `d76c4c84fdada7b96ec7b92a3368258c241dea7f` was not deployed. Procedure: `git checkout --detach acf035a8665f0020209b460255156ac0bde5faf6` then `cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`. Previous production `e535adfb9857d2407fac06998a1a5a14c2b73502`. Lineage: Design Quality Pass D application `9b433013c9651a38d1d4f3127e3d44189982d6b5`; Unified Communications A `a58c77ad394995067b682157275c5c9026382484`.
 
