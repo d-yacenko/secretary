@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Pre-Voice UI Corrective A: **IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/pre-voice-ui-corrective-a`. Client-only. Canonical base `999f3668468826585e965c27488db2ea49f83cb9` (`review/teams-a` docs tip after the Teams external-blocker transition). Not CODE ACCEPTED. Not deployed. No Voice Assistant A. Encrypted Architect context untouched.
+Pre-Voice UI Corrective A: **CODE ACCEPTED / MANUALLY VERIFIED** on `review/pre-voice-ui-corrective-a`. Client-only. CODE ACCEPTED application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Canonical base `999f3668468826585e965c27488db2ea49f83cb9` (`review/teams-a` docs tip after the Teams external-blocker transition). No backend/schema changes. No migration. No standalone production server deploy; the accepted client tree remains in the canonical lineage for the next client release. Voice Assistant A is **unblocked** and is not started from this record. Encrypted Architect context untouched.
 
 Inbox timestamp: `ObjectCompactHeaderRow` trailing `Flexible` left-aligned the short timestamp inside a shared flex slot, so on wide cards it drifted toward the center. Trailing text is now right-aligned inside that slot (`Align.centerRight`) so it pins to the header’s right edge before bookmark reserve. Title still `Expanded` + ellipsis. Phone overflow still uses `Flexible`.
 

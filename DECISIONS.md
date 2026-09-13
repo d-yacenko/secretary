@@ -537,6 +537,6 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Inbox timestamp:** `ObjectCompactHeaderRow` keeps title `Expanded` and trailing metadata in `Flexible` with `Align.centerRight`, so the timestamp pins to the right of the usable header (before bookmark reserve) on wide and compact widths.
 - **Swipe-delete:** touch Inbox rows and `InboxSwipeToRemove` are keyed by object id; `_deleteInFlight` / `_armed` do not transfer between objects.
 - **Phone Week:** width < 600dp uses kalender 0.29.1 `MultiDayViewConfiguration.custom(numberOfDays: 3)`. Width >= 600dp keeps the existing seven-day `MultiDayViewConfiguration.week`. Current-week compact initial page contains today; non-current week opens Mon/Tue/Wed. No custom calendar engine.
-- **Constraints:** client-only; no migration; no backend feature work; no Teams redesign; no Voice A.
-- **Status:** **implemented / awaiting Architect review** on `review/pre-voice-ui-corrective-a`.
+- **Constraints:** client-only; no migration; no backend feature work; no Teams redesign; no standalone production server deploy.
+- **Status:** **CODE ACCEPTED / MANUALLY VERIFIED** at application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d` on `review/pre-voice-ui-corrective-a`. Voice Assistant A is unblocked and is not started from this record.
 
