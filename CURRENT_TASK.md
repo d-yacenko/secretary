@@ -1,53 +1,36 @@
-# Current task — Telegram A
+# Current task — Teams A + Communication Action Plan Integrity
 
 ## Status
 
-**Telegram A: CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED**
+**Teams A: IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/teams-a`.
 
-Branch: `review/telegram-a`
+Authorized work in this phase only:
 
-Deployed application SHA: `c5d288444cc5053e79c0942cdbc23af3eebbbb50`
+1. Communication Action Plan Integrity corrective for the observed post-Telegram-A missing approval-card defect.
+2. Microsoft Teams personal-chat (work/school, delegated OAuth) on the existing unified communications architecture.
 
-Docs-only closure parent: `7e58d4286196bcf1d6d4ef48aefd803d50697347`
+Do not mark CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED / CLOSED from this chat.
 
-Production Alembic: **0039 / 0039**
+## Canonical base
 
-Migration **0038 → 0039** applied on production (`telegram_accounts`, `telegram_link_states`). No `0040`. No backfill.
+SHA: `fd5d1497215e4c72033274908b69aebe42e175a9`  
+Branch: `review/telegram-a`  
+Commit: `Close Telegram A after production activation`
 
-Previous production: `acf035a8665f0020209b460255156ac0bde5faf6` (Alembic **0038 / 0038**).
+Do not use an Architect branch as implementation base.
 
-## Production activation (accepted)
+Known production application before this phase: `c5d288444cc5053e79c0942cdbc23af3eebbbb50`  
+Known production Alembic: **0039 / 0039**
 
-Live inbound/link/Business path proven. Webhook configured by accepted CLI `python -m app.cli.telegram_webhook configure`.
+Telegram A remains CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED. Do not reopen or redesign Telegram A.
 
-Bot username: `personal_secretary_assistant_bot`
+## Scope (this phase only)
 
-Webhook URL: `https://web-itx.duckdns.org/secretary/integrations/telegram/webhook`
+- Provider-neutral Assistant communication instructions and Action Plan integrity: prose such as «Подтвердите отправку» is not an approval proposal. Only a persisted Pending Action Plan renders the approval card.
+- Microsoft Graph v1.0 delegated OAuth (`organizations`), oneOnOne and group chats, inbound polling, compose + `replyWithQuote`, existing `send_message`, existing approval/ExternalActionAttempt replay.
 
-`GET /connections` telegram: `configured=true`, `identity_linked=true`, `business_connected=true`, `can_reply=true`.
-
-Identity: `telegram_accounts=1`; link state consumed; `/start` did not materialize as `chat_message`.
-
-Live inbound Object `402c3b51-6f58-43a4-9d7e-236024b5cce5` visible in Inbox. User-originated Telegram outbound Objects stored as conversation context and excluded from Inbox. No history backfill. No mark-read. No Telegram temporal extraction.
-
-Real Secretary-originated Telegram `send_message` production write: **DEFERRED BY USER CHOICE / NON-BLOCKING**. Not executed. Not claimed as tested. Assistant/provider outbound remains CODE ACCEPTED and test-covered.
-
-Real Mattermost `send_message` production write: also deferred; no unsolicited provider write.
-
-This docs-only closure commit is not deployed.
-
-## Lineage
-
-Base: `f0ee2b7045f4fc8459139945d5153e3528f5dfe0`
-
-Telegram A initial: `374d232279e2e3e1ac6e897ed8adfb87ec71333a`
-
-Docs awaiting-review: `9268649877d272665c3a9a5534629b22ebb585ac`
-
-Telegram A-R1 / CODE ACCEPTED / deployed: `c5d288444cc5053e79c0942cdbc23af3eebbbb50`
-
-Docs deployed-awaiting-activation: `7e58d4286196bcf1d6d4ef48aefd803d50697347`
+Out of this phase: Teams channels, meetings, consumer Microsoft accounts, Graph webhooks/subscriptions, live Teams write, deploy.
 
 ## Stop
 
-Closed. Do not start the next phase from this chat.
+Implementation + tests + commit + push + report are done. No live Teams write. No deploy. Do not start the next phase.
