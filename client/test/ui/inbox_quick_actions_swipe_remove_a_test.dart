@@ -204,7 +204,8 @@ Widget pumpHarness(
 }) {
   final apiClient = harness.apiClient;
   apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
-  final auth = authController ??
+  final auth =
+      authController ??
       AuthController(
         apiClient: apiClient,
         tokenStore: FakeTokenStore(),
@@ -274,26 +275,17 @@ void main() {
   });
 
   test('activation threshold is usable on phone and tablet widths', () {
-    expect(
-      inboxSwipeRemoveDismissThreshold(324),
-      closeTo(96 / 324, 0.001),
-    );
+    expect(inboxSwipeRemoveDismissThreshold(324), closeTo(96 / 324, 0.001));
     expect(inboxSwipeRemoveDismissThreshold(764), 0.18);
     expect(inboxSwipeRemoveDismissThreshold(764) * 764, closeTo(137.5, 0.2));
     expect(inboxSwipeRemoveDismissThreshold(360), lessThan(0.4));
   });
 
   test('direct-delete threshold is ~180px on phone and tablet', () {
-    expect(
-      inboxSwipeDirectDeleteThreshold(308),
-      closeTo(180 / 308, 0.001),
-    );
+    expect(inboxSwipeDirectDeleteThreshold(308), closeTo(180 / 308, 0.001));
     expect(inboxSwipeDirectDeleteThreshold(308) * 308, closeTo(180, 0.5));
     expect(inboxSwipeDirectDeleteThreshold(324), closeTo(180 / 324, 0.001));
-    expect(
-      inboxSwipeDirectDeleteThreshold(748),
-      closeTo(180 / 748, 0.001),
-    );
+    expect(inboxSwipeDirectDeleteThreshold(748), closeTo(180 / 748, 0.001));
     expect(inboxSwipeDirectDeleteThreshold(748) * 748, closeTo(180, 0.5));
     expect(inboxSwipeDirectDeleteThreshold(764), 0.24);
     expect(inboxSwipeDirectDeleteThreshold(764) * 764, closeTo(183.4, 0.5));
@@ -345,8 +337,9 @@ void main() {
     );
   });
 
-  testWidgets('A: below armed threshold restores with no dialog or DELETE',
-      (tester) async {
+  testWidgets('A: below armed threshold restores with no dialog or DELETE', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -372,8 +365,9 @@ void main() {
     );
   });
 
-  testWidgets('B: armed visual appears after crossing the direct threshold',
-      (tester) async {
+  testWidgets('B: armed visual appears after crossing the direct threshold', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -401,8 +395,9 @@ void main() {
     );
   });
 
-  testWidgets('C: dragging back below armed threshold does not delete',
-      (tester) async {
+  testWidgets('C: dragging back below armed threshold does not delete', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -429,8 +424,9 @@ void main() {
     );
   });
 
-  testWidgets('D: armed full swipe deletes without a dialog or Inbox reload',
-      (tester) async {
+  testWidgets('D: armed full swipe deletes without a dialog or Inbox reload', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -439,20 +435,16 @@ void main() {
           hasMore: true,
           cursor: 'cursor-1',
           continuation: [
-            sourceRow(
-              id: 'd',
-              title: 'Card D',
-              feedAt: '2026-09-08T09:00:00Z',
-            ),
+            sourceRow(id: 'd', title: 'Card D', feedAt: '2026-09-08T09:00:00Z'),
           ],
           bookmarks: const {'b': 'red'},
         );
         await tester.pumpWidget(pumpHarness(harness));
         await tester.pumpAndSettle();
         if (find.text('Card D').evaluate().isEmpty) {
-          inboxFeedPosition(tester).jumpTo(
-            inboxFeedPosition(tester).maxScrollExtent,
-          );
+          inboxFeedPosition(
+            tester,
+          ).jumpTo(inboxFeedPosition(tester).maxScrollExtent);
           await tester.pumpAndSettle();
         }
 
@@ -475,8 +467,41 @@ void main() {
     );
   });
 
-  testWidgets('E: direct swipe API failure restores the card without a modal',
-      (tester) async {
+  testWidgets(
+    'adjacent provider-backed cards can be swipe-deleted in succession',
+    (tester) async {
+      await withPlatform(
+        tester,
+        platform: TargetPlatform.android,
+        body: () async {
+          final harness = InboxHarness();
+          await tester.pumpWidget(pumpHarness(harness));
+          await tester.pumpAndSettle();
+
+          await swipeEndToStart(tester, find.text('Card A'));
+          expect(harness.deletedIds, ['a']);
+          expect(find.text('Card A'), findsNothing);
+          expect(find.text('Card B'), findsOneWidget);
+          expect(find.text('Card C'), findsOneWidget);
+
+          await swipeEndToStart(tester, find.text('Card B'));
+          expect(harness.deletedIds, ['a', 'b']);
+          expect(find.text('Card B'), findsNothing);
+          expect(find.text('Card C'), findsOneWidget);
+
+          await swipeEndToStart(tester, find.text('Card C'));
+          expect(harness.deleteCalls, 3);
+          expect(harness.deletedIds, ['a', 'b', 'c']);
+          expect(find.text('Card C'), findsNothing);
+          expect(find.byType(AlertDialog), findsNothing);
+        },
+      );
+    },
+  );
+
+  testWidgets('E: direct swipe API failure restores the card without a modal', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -504,8 +529,9 @@ void main() {
     );
   });
 
-  testWidgets('F: vertical drag on a card scrolls and does not delete',
-      (tester) async {
+  testWidgets('F: vertical drag on a card scrolls and does not delete', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -535,8 +561,9 @@ void main() {
     );
   });
 
-  testWidgets('G: rail tap still PUTs; card swipe does not move the marker',
-      (tester) async {
+  testWidgets('G: rail tap still PUTs; card swipe does not move the marker', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -553,8 +580,9 @@ void main() {
         expect(harness.deleteCalls, 0);
         expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
 
-        final markerY =
-            tester.getTopLeft(find.byKey(const Key('inbox_review_marker'))).dy;
+        final markerY = tester
+            .getTopLeft(find.byKey(const Key('inbox_review_marker')))
+            .dy;
         await swipeEndToStart(tester, find.text('Card A'), dx: -100);
         expect(find.byType(AlertDialog), findsNothing);
         expect(harness.deleteCalls, 0);
@@ -568,44 +596,48 @@ void main() {
     );
   });
 
-  testWidgets('H: deleting marker anchor keeps interpolated marker, no marker API',
-      (tester) async {
-    await withPlatform(
-      tester,
-      platform: TargetPlatform.android,
-      body: () async {
-        final harness = InboxHarness(
-          reviewMarker: {
-            'anchor_feed_at': '2026-09-09T11:00:00Z',
-            'anchor_object_id': 'b',
-            'updated_at': '2026-09-09T13:00:00Z',
-          },
-        );
-        await tester.pumpWidget(pumpHarness(harness));
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+  testWidgets(
+    'H: deleting marker anchor keeps interpolated marker, no marker API',
+    (tester) async {
+      await withPlatform(
+        tester,
+        platform: TargetPlatform.android,
+        body: () async {
+          final harness = InboxHarness(
+            reviewMarker: {
+              'anchor_feed_at': '2026-09-09T11:00:00Z',
+              'anchor_object_id': 'b',
+              'updated_at': '2026-09-09T13:00:00Z',
+            },
+          );
+          await tester.pumpWidget(pumpHarness(harness));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
 
-        await swipeEndToStart(tester, find.text('Card B'));
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.text('Card B'), findsNothing);
-        expect(find.text('Card A'), findsOneWidget);
-        expect(find.text('Card C'), findsOneWidget);
-        expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
-        expect(harness.markerPutCalls, 0);
-        expect(harness.markerDeleteCalls, 0);
+          await swipeEndToStart(tester, find.text('Card B'));
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.text('Card B'), findsNothing);
+          expect(find.text('Card A'), findsOneWidget);
+          expect(find.text('Card C'), findsOneWidget);
+          expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+          expect(harness.markerPutCalls, 0);
+          expect(harness.markerDeleteCalls, 0);
 
-        final aBottom = tester.getRect(find.text('Card A')).bottom;
-        final marker =
-            tester.getRect(find.byKey(const Key('inbox_review_marker')));
-        final cTop = tester.getRect(find.text('Card C')).top;
-        expect(marker.top, greaterThan(aBottom));
-        expect(marker.bottom, lessThan(cTop));
-      },
-    );
-  });
+          final aBottom = tester.getRect(find.text('Card A')).bottom;
+          final marker = tester.getRect(
+            find.byKey(const Key('inbox_review_marker')),
+          );
+          final cTop = tester.getRect(find.text('Card C')).top;
+          expect(marker.top, greaterThan(aBottom));
+          expect(marker.bottom, lessThan(cTop));
+        },
+      );
+    },
+  );
 
-  testWidgets('I: bookmark tap still opens palette; swipe forgets cache',
-      (tester) async {
+  testWidgets('I: bookmark tap still opens palette; swipe forgets cache', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -649,7 +681,9 @@ void main() {
     );
   });
 
-  testWidgets('J: tablet swipe still activates without overflow', (tester) async {
+  testWidgets('J: tablet swipe still activates without overflow', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -662,23 +696,19 @@ void main() {
 
         final list = tester.getRect(find.byKey(const Key('inbox_feed_list')));
         final card = tester.getRect(swipeCard('b'));
-        final rail = tester.getRect(find.byKey(const Key('inbox_review_rail_b')));
+        final rail = tester.getRect(
+          find.byKey(const Key('inbox_review_rail_b')),
+        );
         expect(card.left, closeTo(rail.right, 0.5));
         expect(card.right, lessThanOrEqualTo(list.right + 0.5));
         expect(card.width, greaterThan(600));
         expect(
           inboxSwipeDirectDeleteThreshold(card.width),
-          closeTo(
-            (180 / card.width).clamp(0.24, 0.60),
-            0.001,
-          ),
+          closeTo((180 / card.width).clamp(0.24, 0.60), 0.001),
         );
         expect(
           inboxSwipeDirectDeleteThreshold(card.width) * card.width,
-          closeTo(
-            card.width <= 180 / 0.24 ? 180 : 0.24 * card.width,
-            1,
-          ),
+          closeTo(card.width <= 180 / 0.24 ? 180 : 0.24 * card.width, 1),
         );
 
         await swipeEndToStart(tester, find.text('Card B'), dx: -220);
@@ -692,7 +722,9 @@ void main() {
     );
   });
 
-  testWidgets('note swipe keeps the existing confirmation dialog', (tester) async {
+  testWidgets('note swipe keeps the existing confirmation dialog', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -706,11 +738,7 @@ void main() {
               provider: 'gmail',
               feedAt: '2026-09-09T12:00:00Z',
             ),
-            sourceRow(
-              id: 'a',
-              title: 'Card A',
-              feedAt: '2026-09-09T11:00:00Z',
-            ),
+            sourceRow(id: 'a', title: 'Card A', feedAt: '2026-09-09T11:00:00Z'),
           ],
         );
         await tester.pumpWidget(pumpHarness(harness));
@@ -729,8 +757,9 @@ void main() {
     );
   });
 
-  testWidgets('unknown provider swipe is fail-closed to the dialog',
-      (tester) async {
+  testWidgets('unknown provider swipe is fail-closed to the dialog', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.android,
@@ -760,8 +789,9 @@ void main() {
     );
   });
 
-  testWidgets('Linux keeps DragTarget Review Marker and has no swipe wrapper',
-      (tester) async {
+  testWidgets('Linux keeps DragTarget Review Marker and has no swipe wrapper', (
+    tester,
+  ) async {
     await withPlatform(
       tester,
       platform: TargetPlatform.linux,
@@ -777,8 +807,14 @@ void main() {
           find.byKey(const Key('inbox_review_marker_handle')),
           findsOneWidget,
         );
-        expect(find.byKey(const Key('inbox_review_marker_card_a')), findsOneWidget);
-        expect(find.byKey(const Key('inbox_review_marker_gap_a')), findsOneWidget);
+        expect(
+          find.byKey(const Key('inbox_review_marker_card_a')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('inbox_review_marker_gap_a')),
+          findsOneWidget,
+        );
         expect(find.byKey(const Key('object_bookmark_tab')), findsOneWidget);
 
         await tester.tap(find.byKey(const Key('object_bookmark_tab')));

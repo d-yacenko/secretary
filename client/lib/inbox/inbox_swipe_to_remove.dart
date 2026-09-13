@@ -72,9 +72,9 @@ class InboxSwipeRemoveBackground extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: scheme.onError,
-                        fontWeight: armed ? FontWeight.w600 : FontWeight.w500,
-                      ),
+                    color: scheme.onError,
+                    fontWeight: armed ? FontWeight.w600 : FontWeight.w500,
+                  ),
                 ),
               ),
             ],
@@ -113,6 +113,15 @@ class InboxSwipeToRemove extends StatefulWidget {
 class _InboxSwipeToRemoveState extends State<InboxSwipeToRemove> {
   var _armed = false;
   var _deleteInFlight = false;
+
+  @override
+  void didUpdateWidget(covariant InboxSwipeToRemove oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.objectId != widget.objectId) {
+      _armed = false;
+      _deleteInFlight = false;
+    }
+  }
 
   double _thresholdFor(double width) {
     return widget.directDelete

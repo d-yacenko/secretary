@@ -132,7 +132,7 @@ void main() {
             'events': eventsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
             'scheduled_work':
                 scheduledWorkByDate[shiftCalendarDate(weekStart, i)] ??
-                    const [],
+                const [],
             'temporal_hints':
                 hintsByDate[shiftCalendarDate(weekStart, i)] ?? const [],
           },
@@ -308,6 +308,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
+  }
+
+  bool weekDayHeaderVisible(WidgetTester tester, String iso) {
+    final finder = find.byKey(Key('week_day_$iso'));
+    if (finder.evaluate().isEmpty) {
+      return false;
+    }
+    final grid = tester.getRect(find.byKey(const Key('week_time_grid')));
+    final rect = tester.getRect(finder);
+    return rect.overlaps(grid) &&
+        rect.left < grid.right - 8 &&
+        rect.right > grid.left + 8;
   }
 
   test('formatWeekRange uses Monday-Sunday local dates', () {
@@ -541,6 +553,26 @@ void main() {
     },
   );
 
+  test('compact 3-day viewport keeps today on screen', () {
+    final monday = DateTime.utc(2026, 9, 7);
+    DateTime start({required DateTime today, bool current = true}) {
+      return weekCompactViewportStart(
+        weekStart: monday,
+        isCurrentWeek: current,
+        today: today,
+      );
+    }
+
+    expect(start(today: monday, current: false), monday);
+    expect(start(today: monday), monday);
+    expect(start(today: DateTime.utc(2026, 9, 8)), monday);
+    expect(start(today: DateTime.utc(2026, 9, 9)), DateTime.utc(2026, 9, 8));
+    expect(start(today: DateTime.utc(2026, 9, 10)), DateTime.utc(2026, 9, 9));
+    expect(start(today: DateTime.utc(2026, 9, 11)), DateTime.utc(2026, 9, 10));
+    expect(start(today: DateTime.utc(2026, 9, 12)), DateTime.utc(2026, 9, 11));
+    expect(start(today: DateTime.utc(2026, 9, 13)), DateTime.utc(2026, 9, 11));
+  });
+
   test('today header label uses weekday and day-month helpers', () {
     expect(weekDayHeaderLabel(DateTime(2026, 9, 11)), 'Пт 11 сентября');
     expect(weekDayHeaderLabel(DateTime(2026, 9, 7)), 'Пн 7 сентября');
@@ -699,8 +731,10 @@ void main() {
     expect(find.text('На этой неделе событий нет'), findsNothing);
   });
 
-  testWidgets('phone week does not squeeze seven day columns', (tester) async {
-    const phone = Size(360, 760);
+  testWidgets('phone week shows three day columns, not one or seven', (
+    tester,
+  ) async {
+    const phone = Size(390, 844);
     tester.view.physicalSize = phone;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -709,8 +743,69 @@ void main() {
       buildWeek(weekClient(week: (_) => weekPayload()), size: phone),
     );
     await pumpCalendar(tester);
-    expect(find.text('Пн 7 сентября'), findsOneWidget);
-    expect(find.text('Вс 13 сентября'), findsNothing);
+
+    expect(weekDayHeaderVisible(tester, '2026-09-09'), isTrue);
+    expect(weekDayHeaderVisible(tester, '2026-09-10'), isTrue);
+    expect(weekDayHeaderVisible(tester, '2026-09-11'), isTrue);
+    expect(weekDayHeaderVisible(tester, '2026-09-07'), isFalse);
+    expect(weekDayHeaderVisible(tester, '2026-09-13'), isFalse);
+    final wed = tester.getRect(find.byKey(const Key('week_day_2026-09-09')));
+    final thu = tester.getRect(find.byKey(const Key('week_day_2026-09-10')));
+    final fri = tester.getRect(find.byKey(const Key('week_day_2026-09-11')));
+    expect(thu.left, greaterThan(wed.left));
+    expect(fri.left, greaterThan(thu.left));
+    expect(thu.width, lessThan(phone.width * 0.5));
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
+  });
+
+  testWidgets('phone non-current week opens Mon/Tue/Wed', (tester) async {
+    const phone = Size(390, 844);
+    tester.view.physicalSize = phone;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(
+          week: (_) => weekPayload(
+            weekStart: '2026-08-31',
+            isCurrentWeek: false,
+            todayDate: '2026-09-10',
+          ),
+        ),
+        size: phone,
+      ),
+    );
+    await pumpCalendar(tester);
+    expect(weekDayHeaderVisible(tester, '2026-08-31'), isTrue);
+    expect(weekDayHeaderVisible(tester, '2026-09-01'), isTrue);
+    expect(weekDayHeaderVisible(tester, '2026-09-02'), isTrue);
+    expect(weekDayHeaderVisible(tester, '2026-09-03'), isFalse);
+  });
+
+  testWidgets('wide week keeps seven day columns', (tester) async {
+    tester.view.physicalSize = const Size(600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildWeek(
+        weekClient(week: (_) => weekPayload()),
+        size: const Size(600, 900),
+      ),
+    );
+    await pumpCalendar(tester);
+    for (final iso in [
+      '2026-09-07',
+      '2026-09-08',
+      '2026-09-09',
+      '2026-09-10',
+      '2026-09-11',
+      '2026-09-12',
+      '2026-09-13',
+    ]) {
+      expect(weekDayHeaderVisible(tester, iso), isTrue);
+    }
   });
 
   testWidgets('previous and next week query Monday starts', (tester) async {
@@ -1034,6 +1129,7 @@ void main() {
         buildWeek(
           weekClient(
             week: (_) => weekPayload(
+              todayDate: '2026-09-07',
               eventsByDate: {
                 '2026-09-07': [
                   secretaryObjectJson(
@@ -1462,6 +1558,7 @@ void main() {
         buildWeek(
           weekClient(
             week: (_) => weekPayload(
+              todayDate: '2026-09-07',
               eventsByDate: {
                 '2026-09-07': [
                   secretaryObjectJson(
@@ -1764,19 +1861,28 @@ void main() {
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
     expect(find.byKey(const Key('week_today_header_badge')), findsNothing);
+  });
 
-    tester.view.physicalSize = const Size(360, 760);
+  testWidgets('phone current week has no seven-column today tint', (
+    tester,
+  ) async {
+    const phone = Size(360, 760);
+    tester.view.physicalSize = phone;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       buildWeek(
         weekClient(week: (_) => weekPayload()),
-        size: const Size(360, 760),
+        size: phone,
       ),
     );
     await pumpCalendar(tester);
     expect(find.byKey(const Key('week_today_column_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_header_highlight')), findsNothing);
     expect(find.byKey(const Key('week_today_date_badge')), findsNothing);
-    expect(find.byKey(const Key('week_today_header_badge')), findsNothing);
+    expect(weekDayHeaderVisible(tester, '2026-09-10'), isTrue);
+    expect(find.byKey(const Key('week_today_header_badge')), findsOneWidget);
   });
 
   testWidgets('phone today header uses the full blue date label', (
@@ -2636,74 +2742,81 @@ void main() {
     expect(after.top, closeTo(before.top, 0.5));
   });
 
-  test('weekOutToKalenderEvents projects hints without inventing factual end', () {
-    final week = WeekOut.fromJson(
-      weekPayload(
-        eventsByDate: {
-          '2026-09-07': [
-            secretaryObjectJson(
-              id: 'google',
-              title: 'Google review',
-              startAt: '2026-09-07T10:00:00+02:00',
-              dueAt: '2026-09-07T11:00:00+02:00',
-            ),
-            secretaryObjectJson(
-              id: 'yandex',
-              title: 'Yandex standup',
-              provider: 'yandex_calendar',
-              startAt: '2026-09-07T09:00:00+02:00',
-              dueAt: '2026-09-07T09:30:00+02:00',
-            ),
-          ],
-        },
-        hintsByDate: {
-          '2026-09-07': [
-            weekTemporalHintJson(
-              id: 'hint-known',
-              title: 'Known duration call',
-              startAt: '2026-09-07T14:00:00+02:00',
-              dueAt: '2026-09-07T15:00:00+02:00',
-            ),
-            weekTemporalHintJson(
-              id: 'hint-unknown',
-              title: 'Unknown duration call',
-              startAt: '2026-09-07T16:00:00+02:00',
-              endPrecision: 'unknown',
-            ),
-          ],
-        },
-      ),
-    );
-    final events = weekOutToKalenderEvents(week);
-    expect(week.days.first.temporalHints.singleWhere((h) => h.id == 'hint-unknown').dueAt, isNull);
-    expect(events.map((e) => e.objectId).toSet(), {
-      'google',
-      'yandex',
-      'hint-known',
-      'hint-unknown',
-    });
-    expect(
-      events.where((e) => e.isAllDay),
-      isEmpty,
-    );
-    final known = events.singleWhere((e) => e.objectId == 'hint-known');
-    final unknown = events.singleWhere((e) => e.objectId == 'hint-unknown');
-    expect(known.itemType, WeekTemporalItemType.temporalHint);
-    expect(known.endUnknown, isFalse);
-    expect(known.dateTimeRange.duration, const Duration(hours: 1));
-    expect(known.provider, 'gmail');
-    expect(unknown.itemType, WeekTemporalItemType.temporalHint);
-    expect(unknown.endUnknown, isTrue);
-    expect(unknown.dateTimeRange.duration, kWeekUnknownEndVisualDuration);
-    expect(
-      events.where((e) => e.itemType == WeekTemporalItemType.calendarCommitment).length,
-      2,
-    );
-    final signatureWithout = weekPresentationSignature(
-      WeekOut.fromJson(weekPayload()),
-    );
-    expect(weekPresentationSignature(week), isNot(signatureWithout));
-  });
+  test(
+    'weekOutToKalenderEvents projects hints without inventing factual end',
+    () {
+      final week = WeekOut.fromJson(
+        weekPayload(
+          eventsByDate: {
+            '2026-09-07': [
+              secretaryObjectJson(
+                id: 'google',
+                title: 'Google review',
+                startAt: '2026-09-07T10:00:00+02:00',
+                dueAt: '2026-09-07T11:00:00+02:00',
+              ),
+              secretaryObjectJson(
+                id: 'yandex',
+                title: 'Yandex standup',
+                provider: 'yandex_calendar',
+                startAt: '2026-09-07T09:00:00+02:00',
+                dueAt: '2026-09-07T09:30:00+02:00',
+              ),
+            ],
+          },
+          hintsByDate: {
+            '2026-09-07': [
+              weekTemporalHintJson(
+                id: 'hint-known',
+                title: 'Known duration call',
+                startAt: '2026-09-07T14:00:00+02:00',
+                dueAt: '2026-09-07T15:00:00+02:00',
+              ),
+              weekTemporalHintJson(
+                id: 'hint-unknown',
+                title: 'Unknown duration call',
+                startAt: '2026-09-07T16:00:00+02:00',
+                endPrecision: 'unknown',
+              ),
+            ],
+          },
+        ),
+      );
+      final events = weekOutToKalenderEvents(week);
+      expect(
+        week.days.first.temporalHints
+            .singleWhere((h) => h.id == 'hint-unknown')
+            .dueAt,
+        isNull,
+      );
+      expect(events.map((e) => e.objectId).toSet(), {
+        'google',
+        'yandex',
+        'hint-known',
+        'hint-unknown',
+      });
+      expect(events.where((e) => e.isAllDay), isEmpty);
+      final known = events.singleWhere((e) => e.objectId == 'hint-known');
+      final unknown = events.singleWhere((e) => e.objectId == 'hint-unknown');
+      expect(known.itemType, WeekTemporalItemType.temporalHint);
+      expect(known.endUnknown, isFalse);
+      expect(known.dateTimeRange.duration, const Duration(hours: 1));
+      expect(known.provider, 'gmail');
+      expect(unknown.itemType, WeekTemporalItemType.temporalHint);
+      expect(unknown.endUnknown, isTrue);
+      expect(unknown.dateTimeRange.duration, kWeekUnknownEndVisualDuration);
+      expect(
+        events
+            .where((e) => e.itemType == WeekTemporalItemType.calendarCommitment)
+            .length,
+        2,
+      );
+      final signatureWithout = weekPresentationSignature(
+        WeekOut.fromJson(weekPayload()),
+      );
+      expect(weekPresentationSignature(week), isNot(signatureWithout));
+    },
+  );
 
   testWidgets('week renders mixed calendar and temporal hints', (tester) async {
     tester.view.physicalSize = desktopSize;
@@ -2802,12 +2915,23 @@ void main() {
     expect(find.text('Yandex standup'), findsOneWidget);
     expect(find.text('Known duration call'), findsOneWidget);
     expect(find.text('Unknown duration call'), findsOneWidget);
-    expect(find.byKey(const Key('week_type_calendar_google-evt')), findsOneWidget);
-    expect(find.byKey(const Key('week_type_calendar_yandex-evt')), findsOneWidget);
-    expect(find.byKey(const Key('week_type_hint_hint-known')), findsOneWidget);
-    expect(find.byKey(const Key('week_type_hint_hint-unknown')), findsOneWidget);
     expect(
-      tester.widget<Icon>(find.byKey(const Key('week_type_hint_hint-known'))).icon,
+      find.byKey(const Key('week_type_calendar_google-evt')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_type_calendar_yandex-evt')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('week_type_hint_hint-known')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_type_hint_hint-unknown')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Icon>(find.byKey(const Key('week_type_hint_hint-known')))
+          .icon,
       weekTemporalItemTypeIcon(WeekTemporalItemType.temporalHint),
     );
     expect(
@@ -2817,9 +2941,18 @@ void main() {
       weekTemporalItemTypeIcon(WeekTemporalItemType.calendarCommitment),
     );
     expect(find.byKey(const Key('week_hint_style_hint-known')), findsOneWidget);
-    expect(find.byKey(const Key('week_hint_style_hint-unknown')), findsOneWidget);
-    expect(find.byKey(const Key('week_hint_unknown_end_hint-unknown')), findsOneWidget);
-    expect(find.byKey(const Key('week_hint_unknown_end_hint-known')), findsNothing);
+    expect(
+      find.byKey(const Key('week_hint_style_hint-unknown')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_hint_unknown_end_hint-unknown')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_hint_unknown_end_hint-known')),
+      findsNothing,
+    );
     expect(find.byKey(const Key('source_mark_google')), findsOneWidget);
     expect(find.byKey(const Key('source_mark_yandex')), findsNWidgets(2));
     expect(find.byKey(const Key('source_mark_mattermost')), findsOneWidget);
@@ -2871,67 +3004,68 @@ void main() {
     expect(find.text('Hint only call'), findsOneWidget);
   });
 
-  testWidgets('passive refresh shows a new hint without moving calendar tiles', (
-    tester,
-  ) async {
-    tester.view.physicalSize = desktopSize;
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    var weekCalls = 0;
-    final mock = weekClient(
-      week: (_) {
-        weekCalls += 1;
-        return weekPayload(
-          eventsByDate: {
-            '2026-09-07': [
-              secretaryObjectJson(
-                id: 'stable',
-                title: 'Stable meeting',
-                startAt: '2026-09-07T10:00:00+02:00',
-                dueAt: '2026-09-07T11:00:00+02:00',
-              ),
-            ],
-          },
-          hintsByDate: weekCalls == 1
-              ? const {}
-              : {
-                  '2026-09-07': [
-                    weekTemporalHintJson(
-                      id: 'hint-new',
-                      title: 'New temporal hint',
-                      startAt: '2026-09-07T16:00:00+02:00',
-                      endPrecision: 'unknown',
-                    ),
-                  ],
-                },
-        );
-      },
-    );
-    await tester.pumpWidget(
-      buildWeek(
-        mock,
-        size: desktopSize,
-        passiveRefreshInterval: const Duration(milliseconds: 500),
-      ),
-    );
-    await pumpCalendar(tester);
-    final before = tester.getRect(
-      find.byKey(const Key('week_event_2026-09-07_stable')),
-    );
-    expect(find.text('New temporal hint'), findsNothing);
+  testWidgets(
+    'passive refresh shows a new hint without moving calendar tiles',
+    (tester) async {
+      tester.view.physicalSize = desktopSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var weekCalls = 0;
+      final mock = weekClient(
+        week: (_) {
+          weekCalls += 1;
+          return weekPayload(
+            eventsByDate: {
+              '2026-09-07': [
+                secretaryObjectJson(
+                  id: 'stable',
+                  title: 'Stable meeting',
+                  startAt: '2026-09-07T10:00:00+02:00',
+                  dueAt: '2026-09-07T11:00:00+02:00',
+                ),
+              ],
+            },
+            hintsByDate: weekCalls == 1
+                ? const {}
+                : {
+                    '2026-09-07': [
+                      weekTemporalHintJson(
+                        id: 'hint-new',
+                        title: 'New temporal hint',
+                        startAt: '2026-09-07T16:00:00+02:00',
+                        endPrecision: 'unknown',
+                      ),
+                    ],
+                  },
+          );
+        },
+      );
+      await tester.pumpWidget(
+        buildWeek(
+          mock,
+          size: desktopSize,
+          passiveRefreshInterval: const Duration(milliseconds: 500),
+        ),
+      );
+      await pumpCalendar(tester);
+      final before = tester.getRect(
+        find.byKey(const Key('week_event_2026-09-07_stable')),
+      );
+      expect(find.text('New temporal hint'), findsNothing);
 
-    await tester.pump(const Duration(milliseconds: 550));
-    await pumpCalendar(tester);
-    expect(find.text('New temporal hint'), findsOneWidget);
-    expect(find.byKey(const Key('week_type_hint_hint-new')), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-    final after = tester.getRect(
-      find.byKey(const Key('week_event_2026-09-07_stable')),
-    );
-    expect(after.top, closeTo(before.top, 0.5));
-    expect(after.left, closeTo(before.left, 0.5));
-  });
+      await tester.pump(const Duration(milliseconds: 550));
+      await pumpCalendar(tester);
+      expect(find.text('New temporal hint'), findsOneWidget);
+      expect(find.byKey(const Key('week_type_hint_hint-new')), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      final after = tester.getRect(
+        find.byKey(const Key('week_event_2026-09-07_stable')),
+      );
+      expect(after.top, closeTo(before.top, 0.5));
+      expect(after.left, closeTo(before.left, 0.5));
+    },
+  );
 
   test('scheduled work is a separate Week layer', () {
     final week = WeekOut.fromJson(
@@ -3014,8 +3148,9 @@ void main() {
     );
     expect(week.days.first.scheduledWork, isEmpty);
     expect(
-      weekOutToKalenderEvents(week)
-          .where((e) => e.itemType == WeekTemporalItemType.scheduledWork),
+      weekOutToKalenderEvents(
+        week,
+      ).where((e) => e.itemType == WeekTemporalItemType.scheduledWork),
       isEmpty,
     );
   });
@@ -3024,12 +3159,15 @@ void main() {
     final root = Directory.current.path.endsWith('client')
         ? Directory.current
         : Directory('client');
-    final timeGrid = File('${root.path}/lib/today/week_time_grid.dart')
-        .readAsStringSync();
-    final screen = File('${root.path}/lib/today/week_screen.dart')
-        .readAsStringSync();
-    final availability = File('${root.path}/lib/today/availability_sheet.dart')
-        .readAsStringSync();
+    final timeGrid = File(
+      '${root.path}/lib/today/week_time_grid.dart',
+    ).readAsStringSync();
+    final screen = File(
+      '${root.path}/lib/today/week_screen.dart',
+    ).readAsStringSync();
+    final availability = File(
+      '${root.path}/lib/today/availability_sheet.dart',
+    ).readAsStringSync();
     expect(timeGrid.contains('Timer'), isFalse);
     expect(screen.contains('Timer.periodic'), isFalse);
     expect(screen.contains('PassiveSnapshotRefresh'), isTrue);
@@ -3133,8 +3271,14 @@ void main() {
     expect(find.text('Finished memo'), findsOneWidget);
     expect(find.text('Possible call'), findsOneWidget);
     expect(find.byKey(const Key('week_type_task_task-desk')), findsOneWidget);
-    expect(find.byKey(const Key('week_scheduled_style_task-desk')), findsOneWidget);
-    expect(find.byKey(const Key('week_scheduled_done_task-done')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_scheduled_style_task-desk')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('week_scheduled_done_task-done')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('week_hint_style_hint-known')), findsOneWidget);
     expect(
       weekTemporalItemTypeIcon(WeekTemporalItemType.scheduledWork),
@@ -3213,6 +3357,9 @@ void main() {
     expect(find.text('Tuesday event'), findsOneWidget);
     expect(find.text('Wednesday hint'), findsOneWidget);
     expect(find.byKey(const Key('week_hint_style_wed-hint')), findsOneWidget);
-    expect(find.byKey(const Key('week_scheduled_style_tue-event')), findsNothing);
+    expect(
+      find.byKey(const Key('week_scheduled_style_tue-event')),
+      findsNothing,
+    );
   });
 }

@@ -61,8 +61,7 @@ const Map<String, String> providerCompactGlyphs = {
   'teams': 'Ms',
 };
 
-String objectKindLabel(String kind) =>
-    objectKindLabels[kind] ?? kind;
+String objectKindLabel(String kind) => objectKindLabels[kind] ?? kind;
 
 String providerLabel(String? provider) {
   if (provider == null || provider.isEmpty) {
@@ -165,9 +164,9 @@ class ObjectCompactHeaderRow extends StatelessWidget {
     final kindLabel = objectKindLabel(kind);
     final providerName = providerLabel(provider);
     final label = semanticsLabel ?? '$kindLabel, $providerName';
-    final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        );
+    final titleStyle = Theme.of(
+      context,
+    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600);
     final metadataStyle = Theme.of(context).textTheme.bodySmall;
     final wide = isWideLayout(context);
     final maxLines = titleMaxLines ?? (wide ? 1 : 2);
@@ -211,15 +210,18 @@ class ObjectCompactHeaderRow extends StatelessWidget {
           if (trailingText.isNotEmpty) ...[
             const SizedBox(width: AppSpacing.sm),
             Flexible(
-              child: Tooltip(
-                message: trailingTooltip ?? trailingText,
-                child: Text(
-                  key: const Key('object_compact_header_timestamp'),
-                  trailingText,
-                  style: metadataStyle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Tooltip(
+                  message: trailingTooltip ?? trailingText,
+                  child: Text(
+                    key: const Key('object_compact_header_timestamp'),
+                    trailingText,
+                    style: metadataStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                  ),
                 ),
               ),
             ),

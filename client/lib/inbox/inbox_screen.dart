@@ -77,7 +77,7 @@ class InboxScreen extends StatefulWidget {
   final AssistantController? assistantController;
   final AskSecretaryHandler? onAskSecretary;
   final void Function(NotificationOut notification)?
-      onAskSecretaryAboutNotification;
+  onAskSecretaryAboutNotification;
   final ShowInGraphHandler? onShowInGraph;
   final Duration passiveRefreshInterval;
   final Duration? sourceRefreshTimeout;
@@ -112,8 +112,9 @@ class InboxScreenState extends State<InboxScreen> {
   final TextEditingController _intakeController = TextEditingController();
   late final VoiceTranscriptionController _voice;
 
-  late final SourceRefreshService _sourceRefreshService =
-      SourceRefreshService(apiClient: widget.apiClient);
+  late final SourceRefreshService _sourceRefreshService = SourceRefreshService(
+    apiClient: widget.apiClient,
+  );
   late final SourceNavigationService _sourceNavigation =
       SourceNavigationService(apiClient: widget.apiClient);
   late final PassiveSnapshotRefresh _passiveRefresh;
@@ -231,8 +232,10 @@ class InboxScreenState extends State<InboxScreen> {
     await _loadInbox(showFullLoader: false);
   }
 
-  Future<void> _loadInbox(
-      {bool showFullLoader = true, bool passive = false}) async {
+  Future<void> _loadInbox({
+    bool showFullLoader = true,
+    bool passive = false,
+  }) async {
     if (!mounted) {
       return;
     }
@@ -252,9 +255,11 @@ class InboxScreenState extends State<InboxScreen> {
       if (!mounted) {
         return;
       }
-      final firstPageIds =
-          snapshot.recentSourceObjects.map((item) => item.id).toSet();
-      final preserveTail = _loadedContinuation ||
+      final firstPageIds = snapshot.recentSourceObjects
+          .map((item) => item.id)
+          .toSet();
+      final preserveTail =
+          _loadedContinuation ||
           _isLoadingMore ||
           _feedObjects.any((item) => !firstPageIds.contains(item.id));
       final mergedFeed = mergeInboxFeedHead(
@@ -273,9 +278,9 @@ class InboxScreenState extends State<InboxScreen> {
         _loadState = InboxLoadState.ready;
         _refreshStatusMessage =
             SourceRefreshService.clearSyncContinuesMessageIfSettled(
-          message: _refreshStatusMessage,
-          statuses: snapshot.sourceSyncStatus,
-        );
+              message: _refreshStatusMessage,
+              statuses: snapshot.sourceSyncStatus,
+            );
       });
       _scheduleFeedPrefetch();
       final labelIds = preserveTail
@@ -450,7 +455,8 @@ class InboxScreenState extends State<InboxScreen> {
       final result = await _sourceRefreshService.refreshSources(
         timeout:
             widget.sourceRefreshTimeout ?? SourceRefreshService.defaultTimeout,
-        pollInterval: widget.sourceRefreshPollInterval ??
+        pollInterval:
+            widget.sourceRefreshPollInterval ??
             SourceRefreshService.pollInterval,
       );
       if (!mounted) {
@@ -542,7 +548,7 @@ class InboxScreenState extends State<InboxScreen> {
       }
       return 'Добавлено, содержимое проиндексировано';
     }
-  switch (contentStatus) {
+    switch (contentStatus) {
       case 'pending':
         return 'Добавлено, содержимое обрабатывается';
       case 'metadata_only':
@@ -567,8 +573,9 @@ class InboxScreenState extends State<InboxScreen> {
   }
 
   void _showIntakeSnackBar(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _accept(NotificationOut notification) async {
@@ -652,14 +659,16 @@ class InboxScreenState extends State<InboxScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } on ApiException catch (e) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -801,16 +810,19 @@ class InboxScreenState extends State<InboxScreen> {
           final card = _sourceObjectCard(sourceObject);
           if (touch) {
             final object = _secretaryObjectFromInboxSource(sourceObject);
-            final direct =
-                objectSupportsDeliberateSwipeDeleteWithoutDialog(object);
+            final direct = objectSupportsDeliberateSwipeDeleteWithoutDialog(
+              object,
+            );
             widgets.add(
               _InboxTouchRailGutter(
+                key: Key('inbox_touch_row_${sourceObject.id}'),
                 cardGap: kInboxTouchSourceCardGap,
                 rail: _InboxReviewRailSegment(
                   segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
                   onTap: () => _onTouchRailTap(sourceObject.id),
                 ),
                 child: InboxSwipeToRemove(
+                  key: ValueKey(sourceObject.id),
                   objectId: sourceObject.id,
                   directDelete: direct,
                   onConfirmRemove: () => direct
@@ -936,11 +948,11 @@ class InboxScreenState extends State<InboxScreen> {
       style: IconButton.styleFrom(
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
-      onPressed: _isIntakePending &&
-              _voice.voiceState != VoiceState.recording
+      onPressed: _isIntakePending && _voice.voiceState != VoiceState.recording
           ? null
           : _onVoicePressed,
-      icon: _voice.voiceState == VoiceState.transcribing ||
+      icon:
+          _voice.voiceState == VoiceState.transcribing ||
               _voice.voiceState == VoiceState.starting
           ? const SizedBox(
               width: 18,
@@ -1021,7 +1033,8 @@ class InboxScreenState extends State<InboxScreen> {
     final voiceBusy = _voice.isVoiceBusy;
     final inputDisabled = _isIntakePending || voiceBusy;
     final wide = isWideLayout(context);
-    final fieldEnabled = !_isIntakePending &&
+    final fieldEnabled =
+        !_isIntakePending &&
         _voice.voiceState != VoiceState.starting &&
         _voice.voiceState != VoiceState.transcribing;
     return Padding(
@@ -1136,9 +1149,7 @@ class InboxScreenState extends State<InboxScreen> {
           return;
         }
         setState(() => _isDragHovering = false);
-        final paths = [
-          for (final file in detail.files) file.path,
-        ];
+        final paths = [for (final file in detail.files) file.path];
         handleDroppedPaths(paths);
       },
       child: child,
@@ -1219,27 +1230,27 @@ class InboxScreenState extends State<InboxScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: _NotificationCard(
-                    notification: notification,
-                    isMutating: _mutatingNotificationId == notification.id,
-                    onAccept: () => _accept(notification),
-                    onIgnore: () => _ignore(notification),
-                    onOpenContext: () => openNotificationContext(
-                      context,
                       notification: notification,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                      captureController: widget.captureController,
-                      assistantController: widget.assistantController,
-                      onAskSecretary: widget.onAskSecretary,
-                      onAskSecretaryAboutNotification:
-                          widget.onAskSecretaryAboutNotification,
-                      onShowInGraph: widget.onShowInGraph,
-                      bookmarkController: _bookmarks,
+                      isMutating: _mutatingNotificationId == notification.id,
+                      onAccept: () => _accept(notification),
+                      onIgnore: () => _ignore(notification),
+                      onOpenContext: () => openNotificationContext(
+                        context,
+                        notification: notification,
+                        apiClient: widget.apiClient,
+                        authController: widget.authController,
+                        captureController: widget.captureController,
+                        assistantController: widget.assistantController,
+                        onAskSecretary: widget.onAskSecretary,
+                        onAskSecretaryAboutNotification:
+                            widget.onAskSecretaryAboutNotification,
+                        onShowInGraph: widget.onShowInGraph,
+                        bookmarkController: _bookmarks,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
             const SizedBox(height: 16),
             _touchContentInset(
               const _SectionHeader(title: 'Последние входящие'),
@@ -1282,10 +1293,7 @@ class InboxScreenState extends State<InboxScreen> {
                   padding: const EdgeInsets.only(bottom: 16),
                   child: Column(
                     children: [
-                      Text(
-                        _loadMoreError!,
-                        textAlign: TextAlign.center,
-                      ),
+                      Text(_loadMoreError!, textAlign: TextAlign.center),
                       TextButton(
                         key: const Key('inbox_load_more_retry'),
                         onPressed: _loadMore,
@@ -1370,8 +1378,8 @@ class _NotificationCard extends StatelessWidget {
       color: urgent
           ? colorScheme.errorContainer.withValues(alpha: isNew ? 0.35 : 0.2)
           : isNew
-              ? colorScheme.surfaceContainerHighest
-              : null,
+          ? colorScheme.surfaceContainerHighest
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1383,7 +1391,8 @@ class _NotificationCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-                'Приоритет: ${notificationPriorityLabel(notification.priority)}'),
+              'Приоритет: ${notificationPriorityLabel(notification.priority)}',
+            ),
             if (notification.proposalType != null)
               Text(
                 'Тип: ${notificationProposalTypeLabel(notification.proposalType!)}',
@@ -1448,9 +1457,10 @@ class _SourceObjectCard extends StatelessWidget {
     final when = formatUserDateTime(sourceObject.primaryAt);
     final feedDate = parseLocalInboxDate(sourceObject.feedStamp);
     final primaryDate = parseLocalInboxDate(sourceObject.primaryAt);
-    final isEvent = sourceObject.kind == 'event' ||
-        sourceObject.kind == 'calendar_event';
-    final trailingTooltip = isEvent &&
+    final isEvent =
+        sourceObject.kind == 'event' || sourceObject.kind == 'calendar_event';
+    final trailingTooltip =
+        isEvent &&
             feedDate != null &&
             primaryDate != null &&
             feedDate != primaryDate
@@ -1466,10 +1476,8 @@ class _SourceObjectCard extends StatelessWidget {
           onSelect: onBookmarkSelect!,
           onClear: onBookmarkClear!,
         ),
-      if (onAskSecretary != null)
-        AskSecretaryAction(onPressed: onAskSecretary),
-      if (onShowInGraph != null)
-        OpenInGraphAction(onPressed: onShowInGraph),
+      if (onAskSecretary != null) AskSecretaryAction(onPressed: onAskSecretary),
+      if (onShowInGraph != null) OpenInGraphAction(onPressed: onShowInGraph),
     ];
     return ObjectBookmarkRibbon(
       color: bookmarkColor,
@@ -1494,8 +1502,9 @@ class _SourceObjectCard extends StatelessWidget {
                   trailingText: when,
                   trailingTooltip: trailingTooltip,
                   onProviderTap: onOpenSource,
-                  trailingReserve:
-                      bookmarkColor != null ? kBookmarkRibbonReserve : 0,
+                  trailingReserve: bookmarkColor != null
+                      ? kBookmarkRibbonReserve
+                      : 0,
                 ),
                 if (sourceObject.excerpt != null)
                   Padding(
@@ -1506,10 +1515,7 @@ class _SourceObjectCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ObjectMetaActionRow(
-                  actions: actionChildren,
-                  labels: labels,
-                ),
+                ObjectMetaActionRow(actions: actionChildren, labels: labels),
               ],
             ),
           ),
@@ -1552,6 +1558,7 @@ class _InboxMarkerCardTarget extends StatelessWidget {
 
 class _InboxTouchRailGutter extends StatelessWidget {
   const _InboxTouchRailGutter({
+    super.key,
     required this.child,
     this.rail,
     this.cardGap = 0,
@@ -1661,9 +1668,7 @@ class _ReviewRailGuidePainter extends CustomPainter {
 }
 
 class _InboxReviewMarkerBar extends StatelessWidget {
-  const _InboxReviewMarkerBar({
-    required this.unplaced,
-  });
+  const _InboxReviewMarkerBar({required this.unplaced});
 
   final bool unplaced;
 
@@ -1675,28 +1680,20 @@ class _InboxReviewMarkerBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Divider(
-              height: 1,
-              thickness: 1,
-              color: scheme.outline,
-            ),
+            child: Divider(height: 1, thickness: 1, color: scheme.outline),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(
               unplaced ? 'Маркер просмотра' : 'Просмотрено досюда',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w500,
-                  ),
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
           Expanded(
-            child: Divider(
-              height: 1,
-              thickness: 1,
-              color: scheme.outline,
-            ),
+            child: Divider(height: 1, thickness: 1, color: scheme.outline),
           ),
         ],
       ),
@@ -1713,9 +1710,7 @@ class _InboxReviewMarkerBar extends StatelessWidget {
               key: unplaced ? null : const Key('inbox_review_rail_notch'),
               width: kInboxReviewRailHitWidth,
               height: 28,
-              child: IgnorePointer(
-                child: _ReviewRailGuide(notch: !unplaced),
-              ),
+              child: IgnorePointer(child: _ReviewRailGuide(notch: !unplaced)),
             ),
             lines,
           ],
@@ -1731,14 +1726,13 @@ class _InboxReviewMarkerBar extends StatelessWidget {
       child: handle,
     );
     return SizedBox(
-      key: Key(unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker'),
+      key: Key(
+        unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker',
+      ),
       height: 28,
       child: Row(
         children: [
-          MouseRegion(
-            cursor: SystemMouseCursors.grab,
-            child: draggable,
-          ),
+          MouseRegion(cursor: SystemMouseCursors.grab, child: draggable),
           const SizedBox(width: 6),
           lines,
         ],
@@ -1821,7 +1815,8 @@ class _InboxMarkerDropGap extends StatelessWidget {
   Widget build(BuildContext context) {
     return DragTarget<String>(
       key: Key('inbox_review_marker_gap_${afterObjectId ?? 'top'}'),
-      onWillAcceptWithDetails: (details) => details.data == 'inbox-review-marker',
+      onWillAcceptWithDetails: (details) =>
+          details.data == 'inbox-review-marker',
       onAcceptWithDetails: (_) => onAccept(),
       builder: (context, candidate, rejected) {
         final hovering = candidate.isNotEmpty;

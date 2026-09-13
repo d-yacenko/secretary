@@ -201,6 +201,7 @@ void main() {
 
   Map<String, dynamic> layeredMonday() {
     return weekPayload(
+      todayDate: '2026-09-07',
       eventsByDate: {
         '2026-09-07': [
           secretaryObjectJson(
@@ -270,29 +271,40 @@ void main() {
     String? openedPath;
     await tester.pumpWidget(
       buildWeek(
-        weekClient(payload: layeredMonday(), onObjectGet: (path) {
-          openedPath = path;
-        }, bookmarks: {'hint-known': 'red'}),
+        weekClient(
+          payload: layeredMonday(),
+          onObjectGet: (path) {
+            openedPath = path;
+          },
+          bookmarks: {'hint-known': 'red'},
+        ),
         size: desktopSize,
       ),
     );
     await pumpCalendar(tester);
 
     final hardMaterial = tester.widget<Material>(
-      find.descendant(
-        of: find.byKey(const Key('week_event_2026-09-07_cal-hard')),
-        matching: find.byType(Material),
-      ).first,
+      find
+          .descendant(
+            of: find.byKey(const Key('week_event_2026-09-07_cal-hard')),
+            matching: find.byType(Material),
+          )
+          .first,
     );
     expect(hardMaterial.shape, isA<RoundedRectangleBorder>());
     expect(hardMaterial.shape, isNot(isA<StadiumBorder>()));
 
-    expect(find.byKey(const Key('week_scheduled_style_soft-work')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_scheduled_style_soft-work')),
+      findsOneWidget,
+    );
     final softMaterial = tester.widget<Material>(
-      find.descendant(
-        of: find.byKey(const Key('week_scheduled_style_soft-work')),
-        matching: find.byType(Material),
-      ).first,
+      find
+          .descendant(
+            of: find.byKey(const Key('week_scheduled_style_soft-work')),
+            matching: find.byType(Material),
+          )
+          .first,
     );
     expect(softMaterial.shape, isA<RoundedRectangleBorder>());
 
@@ -317,7 +329,9 @@ void main() {
 
     expect(find.byKey(const Key('week_type_hint_hint-known')), findsOneWidget);
     expect(
-      tester.widget<Icon>(find.byKey(const Key('week_type_hint_hint-known'))).icon,
+      tester
+          .widget<Icon>(find.byKey(const Key('week_type_hint_hint-known')))
+          .icon,
       weekTemporalItemTypeIcon(WeekTemporalItemType.temporalHint),
     );
     expect(
@@ -327,7 +341,10 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.byKey(const Key('week_hint_unknown_end_hint-unknown')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_hint_unknown_end_hint-unknown')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('week_bookmark_hint-known')), findsOneWidget);
 
     await tester.ensureVisible(find.text('Possible call'));
@@ -337,34 +354,37 @@ void main() {
     expect(find.byType(ObjectDetailScreen), findsOneWidget);
   });
 
-  testWidgets('compact hint pill is narrower than the lane but still readable', (
-    tester,
-  ) async {
-    tester.view.physicalSize = phoneSize;
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'compact hint pill is narrower than the lane but still readable',
+    (tester) async {
+      tester.view.physicalSize = phoneSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      buildWeek(weekClient(payload: layeredMonday()), size: phoneSize),
-    );
-    await pumpCalendar(tester);
+      await tester.pumpWidget(
+        buildWeek(weekClient(payload: layeredMonday()), size: phoneSize),
+      );
+      await pumpCalendar(tester);
 
-    final lane = tester.getRect(
-      find.byKey(const Key('week_event_2026-09-07_hint-known')),
-    );
-    final pill = tester.getRect(
-      find.byKey(const Key('week_hint_visual_hint-known')),
-    );
-    expect(pill.width / lane.width, inInclusiveRange(0.88, 0.92));
-    expect((pill.center.dx - lane.center.dx).abs(), lessThan(2));
-    expect(
-      tester
-          .widget<Material>(find.byKey(const Key('week_hint_style_hint-known')))
-          .shape,
-      isA<StadiumBorder>(),
-    );
-  });
+      final lane = tester.getRect(
+        find.byKey(const Key('week_event_2026-09-07_hint-known')),
+      );
+      final pill = tester.getRect(
+        find.byKey(const Key('week_hint_visual_hint-known')),
+      );
+      expect(pill.width / lane.width, inInclusiveRange(0.88, 0.92));
+      expect((pill.center.dx - lane.center.dx).abs(), lessThan(2));
+      expect(
+        tester
+            .widget<Material>(
+              find.byKey(const Key('week_hint_style_hint-known')),
+            )
+            .shape,
+        isA<StadiumBorder>(),
+      );
+    },
+  );
 
   testWidgets('wide Week uses hourly cadence and exact 13:30 geometry', (
     tester,
@@ -385,7 +405,10 @@ void main() {
     expect(find.byKey(weekHourLineKey(13)), findsOneWidget);
     expect(find.byKey(weekHourLineKey(14)), findsOneWidget);
     expect(find.byKey(const Key('week_hour_line_13_30')), findsNothing);
-    expect(find.byKey(const Key('week_today_column_highlight')), findsOneWidget);
+    expect(
+      find.byKey(const Key('week_today_column_highlight')),
+      findsOneWidget,
+    );
     expect(find.byType(TimeIndicator), findsWidgets);
 
     final thirteen = tester.getRect(find.byKey(weekHourLineKey(13)));

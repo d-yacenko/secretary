@@ -22,6 +22,8 @@ final _readOnlyInteraction = CalendarInteraction(
 
 const TimeOfDay kWeekMorningInitialTime = TimeOfDay(hour: 8, minute: 0);
 
+const int kWeekCompactVisibleDays = 3;
+
 const double kWeekTemporalHintWideWidthFactor = 0.725;
 const double kWeekTemporalHintCompactWidthFactor = 0.90;
 
@@ -49,6 +51,45 @@ TimeOfDay weekInitialTimeOfDay({
     return TimeOfDay(hour: now.hour, minute: now.minute);
   }
   return kWeekMorningInitialTime;
+}
+
+/// First civil day of the compact 3-day page that should be visible initially.
+///
+/// Current week keeps today on screen: Monday opens Mon/Tue/Wed, Sunday
+/// opens Fri/Sat/Sun, and other weekdays prefer previous/current/next.
+/// A non-current week opens on Mon/Tue/Wed.
+DateTime weekCompactViewportStart({
+  required DateTime weekStart,
+  required bool isCurrentWeek,
+  required DateTime today,
+}) {
+  final monday = DateTime.utc(weekStart.year, weekStart.month, weekStart.day);
+  if (!isCurrentWeek) {
+    return monday;
+  }
+  final todayCivil = DateTime.utc(today.year, today.month, today.day);
+  if (todayCivil.weekday == DateTime.monday) {
+    return monday;
+  }
+  if (todayCivil.weekday == DateTime.sunday) {
+    return addCalendarDays(monday, 4);
+  }
+  return addCalendarDays(todayCivil, -1);
+}
+
+DateTimeRange weekCompactDisplayRange(DateTime viewportStart) {
+  const pages = 240;
+  final start = DateTime(
+    viewportStart.year,
+    viewportStart.month,
+    viewportStart.day - (kWeekCompactVisibleDays * pages),
+  );
+  final end = DateTime(
+    viewportStart.year,
+    viewportStart.month,
+    viewportStart.day + (kWeekCompactVisibleDays * pages),
+  );
+  return DateTimeRange(start: start, end: end);
 }
 
 String weekDayHeaderLabel(DateTime date) {
@@ -84,6 +125,10 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   String? _configWeekStart;
   bool? _configCompact;
   bool? _configCurrentWeek;
+  String? _configViewportStart;
+  String? _pageRequestedWeekStart;
+  DateTime? _pageRequestedVisibleStart;
+  var _didJumpInitialCompact = false;
 
   DateTime _nowCallback() => (widget.now ?? DateTime.now)();
 
@@ -112,7 +157,10 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
         if (!_calendar.isAttached) {
           return;
         }
-        _calendar.jumpToDate(_civilLocal(widget.week.weekStart));
+        final compact =
+            MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
+        final jump = _jumpDateAfterWeekChange(compact: compact);
+        _calendar.jumpToDate(jump);
       });
     }
   }
@@ -136,21 +184,55 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     return DateTime(civil.year, civil.month, civil.day);
   }
 
+  DateTime _civilFromDateTime(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  DateTime _compactViewportStart() {
+    return _civilFromDateTime(
+      weekCompactViewportStart(
+        weekStart: parseCalendarDate(widget.week.weekStart),
+        isCurrentWeek: widget.week.isCurrentWeek,
+        today: parseCalendarDate(widget.week.todayDate),
+      ),
+    );
+  }
+
+  DateTime _jumpDateAfterWeekChange({required bool compact}) {
+    final requestedIso = _pageRequestedWeekStart;
+    final requestedStart = _pageRequestedVisibleStart;
+    _pageRequestedWeekStart = null;
+    _pageRequestedVisibleStart = null;
+    if (compact &&
+        requestedIso == widget.week.weekStart &&
+        requestedStart != null) {
+      return _civilFromDateTime(requestedStart);
+    }
+    if (compact) {
+      return _compactViewportStart();
+    }
+    return _civilLocal(widget.week.weekStart);
+  }
+
   ViewConfiguration _buildViewConfiguration({
     required bool compact,
     required TimeOfDay initialTime,
   }) {
-    final initial = _civilLocal(widget.week.weekStart);
     if (compact) {
-      return MultiDayViewConfiguration.singleDay(
-        initialDateTime: initial,
+      final viewportStart = _compactViewportStart();
+      return MultiDayViewConfiguration.custom(
+        name: '3-day',
+        numberOfDays: kWeekCompactVisibleDays,
+        initialDateTime: viewportStart,
+        displayRange: weekCompactDisplayRange(viewportStart),
+        firstDayOfWeek: DateTime.monday,
         initialTimeOfDay: initialTime,
         initialHeightPerMinute: 0.9,
         nowCallback: _nowCallback,
       );
     }
     return MultiDayViewConfiguration.week(
-      initialDateTime: initial,
+      initialDateTime: _civilLocal(widget.week.weekStart),
       firstDayOfWeek: DateTime.monday,
       initialTimeOfDay: initialTime,
       initialHeightPerMinute: 0.9,
@@ -161,10 +243,14 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   void _syncViewConfiguration({required bool compact}) {
     final weekStart = widget.week.weekStart;
     final isCurrent = widget.week.isCurrentWeek;
+    final viewportStart = compact
+        ? formatCalendarDate(_compactViewportStart())
+        : weekStart;
     if (_viewConfiguration != null &&
         _configWeekStart == weekStart &&
         _configCompact == compact &&
-        _configCurrentWeek == isCurrent) {
+        _configCurrentWeek == isCurrent &&
+        _configViewportStart == viewportStart) {
       return;
     }
     final initialTime = weekInitialTimeOfDay(
@@ -175,6 +261,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     _configWeekStart = weekStart;
     _configCompact = compact;
     _configCurrentWeek = isCurrent;
+    _configViewportStart = viewportStart;
     _viewConfiguration = _buildViewConfiguration(
       compact: compact,
       initialTime: initialTime,
@@ -190,6 +277,8 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final monday = addCalendarDays(civil, 1 - civil.weekday);
     final iso = formatCalendarDate(monday);
     if (iso != widget.week.weekStart) {
+      _pageRequestedWeekStart = iso;
+      _pageRequestedVisibleStart = range.start;
       onRequest(iso);
     }
   }
@@ -199,6 +288,20 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final compact =
         MediaQuery.sizeOf(context).width < AppSpacing.wideBreakpoint;
     _syncViewConfiguration(compact: compact);
+    if (!compact) {
+      _didJumpInitialCompact = false;
+    } else if (!_didJumpInitialCompact) {
+      _didJumpInitialCompact = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_calendar.isAttached) {
+          return;
+        }
+        _calendar.jumpToDate(_compactViewportStart());
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    }
     final empty = widget.week.days.every(
       (day) =>
           day.events.isEmpty &&
@@ -441,13 +544,16 @@ class WeekKalenderEventTile extends StatelessWidget {
                   title,
                   maxLines: allDay ? 1 : 3,
                   overflow: TextOverflow.ellipsis,
-                  style: weekEventTitleStyle(
-                    Theme.of(context).textTheme,
-                    color: foreground,
-                    compact: !denseTitle,
-                  ).copyWith(
-                    decoration: completed ? TextDecoration.lineThrough : null,
-                  ),
+                  style:
+                      weekEventTitleStyle(
+                        Theme.of(context).textTheme,
+                        color: foreground,
+                        compact: !denseTitle,
+                      ).copyWith(
+                        decoration: completed
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
                 ),
               ),
               if (allDay)
@@ -551,10 +657,7 @@ class WeekKalenderEventTile extends StatelessWidget {
     return KeyedSubtree(
       key: Key('week_scheduled_style_$objectId'),
       child: completed
-          ? KeyedSubtree(
-              key: Key('week_scheduled_done_$objectId'),
-              child: tile,
-            )
+          ? KeyedSubtree(key: Key('week_scheduled_done_$objectId'), child: tile)
           : tile,
     );
   }

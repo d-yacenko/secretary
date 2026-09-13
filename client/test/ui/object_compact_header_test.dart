@@ -6,15 +6,14 @@ void main() {
   Widget wrap(Widget child, {double width = 320}) {
     return MaterialApp(
       home: Scaffold(
-        body: SizedBox(
-          width: width,
-          child: child,
-        ),
+        body: SizedBox(width: width, child: child),
       ),
     );
   }
 
-  testWidgets('compact header places kind and provider before title', (tester) async {
+  testWidgets('compact header places kind and provider before title', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       wrap(
         ObjectCompactHeaderRow(
@@ -27,7 +26,9 @@ void main() {
     );
 
     final iconBox = tester.getRect(find.byIcon(Icons.email_outlined));
-    final providerBox = tester.getRect(find.byKey(const Key('source_mark_google')));
+    final providerBox = tester.getRect(
+      find.byKey(const Key('source_mark_google')),
+    );
     final titleBox = tester.getRect(find.text('Тема письма'));
     final timeBox = tester.getRect(find.text('09:42'));
 
@@ -37,7 +38,9 @@ void main() {
     expect(timeBox.left, greaterThan(titleBox.right));
   });
 
-  testWidgets('compact header supports calendar event and missing provider', (tester) async {
+  testWidgets('compact header supports calendar event and missing provider', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       wrap(
         Column(
@@ -67,20 +70,88 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('compact header long russian title does not overflow on narrow width', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        ObjectCompactHeaderRow(
-          title: 'Очень длинное русское название письма которое должно сокращаться',
-          kind: 'email',
-          provider: 'yandex_mail',
-          trailingText: 'вчера 18:30',
+  testWidgets(
+    'compact header long russian title does not overflow on narrow width',
+    (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          ObjectCompactHeaderRow(
+            title:
+                'Очень длинное русское название письма которое должно сокращаться',
+            kind: 'email',
+            provider: 'yandex_mail',
+            trailingText: 'вчера 18:30',
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(tester.takeException(), isNull);
-    expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
-    expect(find.textContaining('вчера'), findsOneWidget);
-  });
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('source_mark_yandex')), findsOneWidget);
+      expect(find.textContaining('вчера'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'wide header pins timestamp to the right for short and long titles',
+    (tester) async {
+      Future<void> pumpHeader({
+        required String title,
+        required double width,
+        double trailingReserve = 0,
+      }) async {
+        await tester.pumpWidget(
+          wrap(
+            ObjectCompactHeaderRow(
+              title: title,
+              kind: 'email',
+              provider: 'gmail',
+              trailingText: '09:42',
+              trailingReserve: trailingReserve,
+            ),
+            width: width,
+          ),
+        );
+      }
+
+      await pumpHeader(title: 'Тема', width: 800);
+      var header = tester.getRect(find.byType(ObjectCompactHeaderRow));
+      var stamp = tester.getRect(
+        find.byKey(const Key('object_compact_header_timestamp')),
+      );
+      var titleBox = tester.getRect(find.text('Тема'));
+      expect(stamp.right, closeTo(header.right, 1.5));
+      expect(stamp.left, greaterThan(titleBox.right));
+      expect(header.right - stamp.right, lessThan(8));
+
+      await pumpHeader(
+        title:
+            'Очень длинное русское название письма которое должно сокращаться на широкой карточке',
+        width: 800,
+      );
+      header = tester.getRect(find.byType(ObjectCompactHeaderRow));
+      stamp = tester.getRect(
+        find.byKey(const Key('object_compact_header_timestamp')),
+      );
+      titleBox = tester.getRect(find.textContaining('Очень длинное'));
+      expect(stamp.right, closeTo(header.right, 1.5));
+      expect(stamp.left, greaterThan(titleBox.left));
+      expect(titleBox.right, lessThanOrEqualTo(stamp.left + 0.5));
+
+      await pumpHeader(title: 'Тема', width: 800, trailingReserve: 18);
+      header = tester.getRect(find.byType(ObjectCompactHeaderRow));
+      stamp = tester.getRect(
+        find.byKey(const Key('object_compact_header_timestamp')),
+      );
+      expect(stamp.right, closeTo(header.right - 18, 1.5));
+
+      await pumpHeader(title: 'Тема', width: 360);
+      header = tester.getRect(find.byType(ObjectCompactHeaderRow));
+      stamp = tester.getRect(
+        find.byKey(const Key('object_compact_header_timestamp')),
+      );
+      titleBox = tester.getRect(find.text('Тема'));
+      expect(stamp.left, greaterThan(titleBox.right));
+      expect(stamp.right, closeTo(header.right, 1.5));
+    },
+  );
 }
