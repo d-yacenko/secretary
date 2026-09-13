@@ -70,6 +70,13 @@ def _normalize_body(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _normalize_provider_root_id(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 class CommunicationExternalActionService:
     def __init__(
         self,
@@ -358,10 +365,9 @@ class CommunicationExternalActionService:
         returned_pending = str(created.get("pending_post_id") or "").strip()
         if returned_pending and returned_pending != payload.pending_post_id:
             return _UNCERTAIN_DELIVERY_MESSAGE
-        if payload.root_id:
-            returned_root = str(created.get("root_id") or "").strip()
-            if returned_root != payload.root_id:
-                return _UNCERTAIN_DELIVERY_MESSAGE
+        returned_root = _normalize_provider_root_id(created.get("root_id"))
+        if returned_root != payload.root_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
         return None
 
     def _materialize_created(

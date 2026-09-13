@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 
+from app.assistant.tool_runner import PerTurnToolBudget
 from app.connectors.mattermost.constants import MAX_MESSAGE_BODY_CHARS
 from app.connectors.mattermost.credentials import MattermostAccountStore
 from app.connectors.mattermost.errors import (
@@ -42,6 +43,7 @@ from app.services.provenance import REJECTED_STATE
 from app.tools.assistant_contracts import ASSISTANT_FUNCTION_SCHEMAS
 from app.tools.policy import ToolPermission
 from app.tools.registry import TOOL_REGISTRY
+from app.tools.results import ToolExecutionResult, ToolExecutionStatus
 from app.tools.schemas import SendMessageCanonicalInput, SendMessageInput, ToolError
 
 ALLOWED_URL = "https://mm.example.com"
@@ -1124,3 +1126,316 @@ def test_send_email_still_registered_separately() -> None:
     assert "send_teams_message" not in TOOL_REGISTRY
     with pytest.raises(KeyError):
         TOOL_REGISTRY["send_telegram"]
+
+
+# --------------------------------------------------------------------------- A-R1: assistant seen-object anchor allowlist
+
+
+def _patch_session_spy(monkeypatch: pytest.MonkeyPatch, *, approval: bool = True):
+    calls: list[tuple[object, str, dict]] = []
+
+    def _run(user_id, tool_name, arguments):
+        calls.append((user_id, tool_name, dict(arguments)))
+        if not approval:
+            raise AssertionError("run_assistant_tool must not be called")
+        return ToolExecutionResult(
+            success=False,
+            tool_name=tool_name,
+            status=ToolExecutionStatus.APPROVAL_REQUIRED,
+            approval_required=True,
+            staged_action={"tool_name": tool_name, "arguments": dict(arguments)},
+        )
+
+    monkeypatch.setattr("app.assistant.session.run_assistant_tool", _run)
+    return calls
+
+
+def test_unseen_conversation_anchor_is_tool_error_without_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_session_spy(monkeypatch, approval=False)
+    budget = PerTurnToolBudget()
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "буду завтра в 10", "conversation_object_id": str(uuid4())},
+    )
+    assert result.success is False
+    assert result.status == ToolExecutionStatus.TOOL_ERROR
+    assert "not exposed" in (result.error or "")
+    assert calls == []
+
+
+def test_unseen_reply_anchor_is_tool_error_without_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_session_spy(monkeypatch, approval=False)
+    budget = PerTurnToolBudget()
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "буду завтра в 10", "reply_to_object_id": str(uuid4())},
+    )
+    assert result.success is False
+    assert result.status == ToolExecutionStatus.TOOL_ERROR
+    assert "not exposed" in (result.error or "")
+    assert calls == []
+
+
+def test_malformed_conversation_anchor_is_tool_error_without_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _patch_session_spy(monkeypatch, approval=False)
+    budget = PerTurnToolBudget()
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "hi", "conversation_object_id": "not-a-uuid"},
+    )
+    assert result.status == ToolExecutionStatus.TOOL_ERROR
+    assert "invalid" in (result.error or "")
+    assert calls == []
+
+
+def test_malformed_reply_anchor_is_tool_error_without_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_session_spy(monkeypatch, approval=False)
+    budget = PerTurnToolBudget()
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "hi", "reply_to_object_id": "also-not-a-uuid"},
+    )
+    assert result.status == ToolExecutionStatus.TOOL_ERROR
+    assert "invalid" in (result.error or "")
+    assert calls == []
+
+
+def test_malformed_both_or_zero_anchors_rejected_without_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _patch_session_spy(monkeypatch, approval=False)
+    budget = PerTurnToolBudget()
+    zero = budget.run(uuid4(), "send_message", {"body": "hi"})
+    both = budget.run(
+        uuid4(),
+        "send_message",
+        {
+            "body": "hi",
+            "conversation_object_id": str(uuid4()),
+            "reply_to_object_id": str(uuid4()),
+        },
+    )
+    assert zero.status == ToolExecutionStatus.TOOL_ERROR
+    assert both.status == ToolExecutionStatus.TOOL_ERROR
+    assert "exactly one" in (zero.error or "")
+    assert "exactly one" in (both.error or "")
+    assert calls == []
+
+
+def test_seen_conversation_anchor_proceeds_to_approval_staging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _patch_session_spy(monkeypatch)
+    anchor = uuid4()
+    budget = PerTurnToolBudget()
+    budget.seed_seen_object_ids([anchor])
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "встреча переносится", "conversation_object_id": str(anchor)},
+    )
+    assert result.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert result.staged_action is not None
+    assert len(calls) == 1
+    assert calls[0][1] == "send_message"
+    assert budget.staged_actions
+
+
+def test_seen_reply_anchor_proceeds_to_approval_staging(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_session_spy(monkeypatch)
+    anchor = uuid4()
+    budget = PerTurnToolBudget()
+    budget.seed_seen_object_ids([anchor])
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "буду завтра в 10", "reply_to_object_id": str(anchor)},
+    )
+    assert result.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert len(calls) == 1
+    assert calls[0][2]["reply_to_object_id"] == str(anchor)
+
+
+def test_initial_seen_object_ids_seed_trusted_ui_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_session_spy(monkeypatch)
+    anchor = uuid4()
+    budget = PerTurnToolBudget(initial_seen_object_ids=[anchor])
+    result = budget.run(
+        uuid4(),
+        "send_message",
+        {"body": "из UI контекста", "conversation_object_id": str(anchor)},
+    )
+    assert result.status == ToolExecutionStatus.APPROVAL_REQUIRED
+    assert len(calls) == 1
+
+
+# --------------------------------------------------------------------------- A-R1: exact provider root_id equality
+
+
+_OMIT_ROOT = object()
+
+
+def _success_provider_post(
+    frozen: SendMessageCanonicalInput,
+    *,
+    root_id: object = _OMIT_ROOT,
+) -> dict:
+    payload = {
+        "id": "created-root",
+        "channel_id": CHANNEL_ID,
+        "message": frozen.body,
+        "user_id": "user-1",
+        "pending_post_id": frozen.pending_post_id,
+    }
+    if root_id is not _OMIT_ROOT:
+        payload["root_id"] = root_id
+    return payload
+
+
+def _send_with_provider_root(
+    db_session,
+    credential_key: str,
+    *,
+    mode: str,
+    source_root: str | None,
+    response_root: object,
+):
+    user = User(id=uuid4(), display_name="uc-a-r1")
+    db_session.add(user)
+    db_session.flush()
+    account = _connect_account(db_session, credential_key, user.id)
+    anchor = _anchor_object(db_session, user.id, account, root_id=source_root)
+    fake = FakeMattermostTransport()
+    service = _execute_service(db_session, user.id, fake)
+    if mode == "compose":
+        frozen = service.prepare_send_message(
+            SendMessageInput(body="hello root", conversation_object_id=anchor.id)
+        )
+    else:
+        frozen = service.prepare_send_message(
+            SendMessageInput(body="hello root", reply_to_object_id=anchor.id)
+        )
+    fake.create_post_response = _success_provider_post(frozen, root_id=response_root)
+    return service, fake, frozen, user
+
+
+def test_compose_empty_root_response_is_success(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session, credential_key, mode="compose", source_root=None, response_root=""
+    )
+    result = service.send_message(frozen)
+    assert result.delivery_status == "sent"
+    assert frozen.root_id is None
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_SUCCEEDED
+    assert len(fake.create_post_calls) == 1
+
+
+def test_compose_omitted_root_response_is_success(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session, credential_key, mode="compose", source_root=None, response_root=_OMIT_ROOT
+    )
+    result = service.send_message(frozen)
+    assert result.delivery_status == "sent"
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_SUCCEEDED
+    assert len(fake.create_post_calls) == 1
+
+
+def test_compose_unexpected_root_is_uncertain_and_does_not_retry(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session,
+        credential_key,
+        mode="compose",
+        source_root=None,
+        response_root="unexpected",
+    )
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_UNCERTAIN
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert len(fake.create_post_calls) == 1
+
+
+def test_top_level_reply_unexpected_root_is_uncertain_and_does_not_retry(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session,
+        credential_key,
+        mode="reply",
+        source_root=None,
+        response_root="unexpected",
+    )
+    assert frozen.mode == "reply"
+    assert frozen.root_id is None
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_UNCERTAIN
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert len(fake.create_post_calls) == 1
+
+
+def test_threaded_reply_exact_root_is_success(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session,
+        credential_key,
+        mode="reply",
+        source_root="root-99",
+        response_root="root-99",
+    )
+    result = service.send_message(frozen)
+    assert frozen.root_id == "root-99"
+    assert result.delivery_status == "sent"
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_SUCCEEDED
+    assert len(fake.create_post_calls) == 1
+
+
+def test_threaded_reply_empty_root_is_uncertain_and_does_not_retry(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session,
+        credential_key,
+        mode="reply",
+        source_root="root-99",
+        response_root="",
+    )
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_UNCERTAIN
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert len(fake.create_post_calls) == 1
+
+
+def test_threaded_reply_different_root_is_uncertain_and_does_not_retry(
+    db_session, credential_key: str, mattermost_settings
+) -> None:
+    service, fake, frozen, user = _send_with_provider_root(
+        db_session,
+        credential_key,
+        mode="reply",
+        source_root="root-99",
+        response_root="root-other",
+    )
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert _load_attempt(db_session, user.id, frozen.operation_id).state == ATTEMPT_UNCERTAIN
+    with pytest.raises(ToolError, match="could not confirm"):
+        service.send_message(frozen)
+    assert len(fake.create_post_calls) == 1
