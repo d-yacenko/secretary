@@ -4,8 +4,9 @@
 
 **Teams A: IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/teams-a`.
 
-A-R2 application: `6fee41b57b8421699cefc1443c2e8e639f1214fe`  
-Parent: `e8c0d65d6e4450a00efc028c6e6bc424f8539153`  
+A-R3 application: `eb3af922f804e6faf1d895fd14c0973981ce515e`  
+Parent: `fb980a886e406e816570603391f8319988271ab9`  
+Accepted R2 application: `6fee41b57b8421699cefc1443c2e8e639f1214fe`  
 Accepted R1 application: `49396cad686cc4631254ec389657b7a52d0dcf8f`
 
 Do not mark CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED / CLOSED from this chat.
@@ -16,6 +17,7 @@ Authorized work in this phase only:
 2. Microsoft Teams personal-chat (work/school, delegated OAuth) on the existing unified communications architecture.
 3. Architect R1 corrections (OAuth ID-token validation, Graph contracts, account uniqueness/disconnect, shared token refresh, invalid_grant reconnect-required, createdDateTime watermark, 429/Retry-After).
 4. Architect R2 corrections (Microsoft multitenant signing-key issuer validation, GUID identity canonicalization, required ID-token time claims).
+5. Architect R3 corrections (Graph replyWithQuote messageReference provenance; `replyToId` remains Graph fact; Secretary `quoted_message_id` is quote provenance).
 
 ## Canonical base
 
@@ -39,4 +41,4 @@ Out of this phase: Teams channels, meetings, consumer Microsoft accounts, Graph 
 
 ## Stop
 
-A-R2 implementation + tests + commit + push + report are done. No live Teams OAuth/write. No deploy. Do not start the next phase.
+A-R3 implementation + tests + commit + push + report are done. No live Teams OAuth/write. No deploy. Do not start the next phase.
