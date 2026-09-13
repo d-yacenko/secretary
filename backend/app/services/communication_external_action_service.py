@@ -25,6 +25,28 @@ from app.connectors.mattermost.normalize import (
     validate_server_url_allowlist,
 )
 from app.connectors.mattermost.transport import MattermostHttpTransport, MattermostTransport
+from app.connectors.teams.account_store import TeamsAccountStore
+from app.connectors.teams.constants import (
+    ACCEPTED_CHAT_TYPES,
+    AUTH_STATUS_RECONNECT_REQUIRED,
+)
+from app.connectors.teams.constants import (
+    MAX_MESSAGE_BODY_CHARS as MAX_TEAMS_MESSAGE_BODY_CHARS,
+)
+from app.connectors.teams.errors import (
+    TeamsConfigurationError,
+    TeamsOAuthError,
+    TeamsWriteDefiniteError,
+    TeamsWriteUncertainError,
+)
+from app.connectors.teams.html_text import teams_body_to_plain_text
+from app.connectors.teams.materialize import TeamsObjectMaterializer
+from app.connectors.teams.normalize import build_external_id as build_teams_external_id
+from app.connectors.teams.normalize import provider_id_str as teams_provider_id_str
+from app.connectors.teams.normalize import sender_from_message
+from app.connectors.teams.oauth_service import TeamsOAuthService
+from app.connectors.teams.token_service import TeamsTokenService
+from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
 from app.connectors.telegram.account_store import TelegramAccountStore
 from app.connectors.telegram.constants import (
     DIRECTION_INBOUND,
@@ -43,24 +65,14 @@ from app.connectors.telegram.normalize import build_external_id as build_telegra
 from app.connectors.telegram.normalize import provider_id_str
 from app.connectors.telegram.transport import TelegramHttpTransport, TelegramTransport
 from app.connectors.telegram.webhook_service import can_reply_from_rights, telegram_is_configured
-from app.connectors.teams.account_store import TeamsAccountStore
-from app.connectors.teams.constants import (
-    ACCEPTED_CHAT_TYPES,
-    MAX_MESSAGE_BODY_CHARS as MAX_TEAMS_MESSAGE_BODY_CHARS,
-)
-from app.connectors.teams.errors import (
-    TeamsConfigurationError,
-    TeamsWriteDefiniteError,
-    TeamsWriteUncertainError,
-)
-from app.connectors.teams.materialize import TeamsObjectMaterializer
-from app.connectors.teams.normalize import build_external_id as build_teams_external_id
-from app.connectors.teams.normalize import provider_id_str as teams_provider_id_str
-from app.connectors.teams.normalize import sender_from_message
-from app.connectors.teams.html_text import teams_body_to_plain_text
-from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
 from app.core.config import settings
-from app.db.models import ExternalActionAttempt, MattermostAccount, Object, TeamsAccount, TelegramAccount
+from app.db.models import (
+    ExternalActionAttempt,
+    MattermostAccount,
+    Object,
+    TeamsAccount,
+    TelegramAccount,
+)
 from app.db.session import SessionLocal
 from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.domain.task_lifecycle import TASK_STATUS_DELETED
@@ -126,6 +138,7 @@ class CommunicationExternalActionService:
         transport: MattermostTransport | None = None,
         telegram_transport: TelegramTransport | None = None,
         teams_transport: TeamsTransport | None = None,
+        teams_oauth_service: TeamsOAuthService | None = None,
         attempt_session_factory=SessionLocal,
     ) -> None:
         self._session = session
@@ -133,6 +146,7 @@ class CommunicationExternalActionService:
         self._transport = transport
         self._telegram_transport = telegram_transport
         self._teams_transport = teams_transport
+        self._teams_oauth_service = teams_oauth_service
         self._attempt_session_factory = attempt_session_factory
         self._materializer = MattermostObjectMaterializer(session)
         self._telegram_materializer = TelegramObjectMaterializer(session)
@@ -757,6 +771,8 @@ class CommunicationExternalActionService:
             route = payload.teams_route
             account = self._require_teams_account(route.account_id)
             self._assert_frozen_teams_account(account, route)
+            if account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
+                raise ToolError("Microsoft Teams reconnect is required")
         except ToolError as exc:
             return self._definite_failure(payload, exc.message)
         return self._write_teams_once(payload, account)
@@ -772,7 +788,7 @@ class CommunicationExternalActionService:
         if transport is None:
             try:
                 transport = self._open_teams_http_transport(account)
-            except (ToolError, TeamsConfigurationError) as exc:
+            except (ToolError, TeamsConfigurationError, TeamsOAuthError) as exc:
                 return self._definite_failure(payload, exc.message)
             owns_transport = True
         try:
@@ -876,7 +892,11 @@ class CommunicationExternalActionService:
             self._session,
             TeamsAccountStore.build_encryption(settings.secretary_credential_key),
         )
-        token = store.get_access_token(account)
+        token = TeamsTokenService(
+            self._session,
+            store,
+            self._teams_oauth_service,
+        ).acquire_access_token(account)
         return TeamsHttpTransport(token)
 
     def _reconcile_local(self, payload: SendMessageCanonicalInput) -> Object | None:

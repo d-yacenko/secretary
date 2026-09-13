@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app.connectors.google.calendar_sync import build_calendar_sync_service
 from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.mattermost.sync import build_mattermost_sync_service
+from app.connectors.teams.account_store import TeamsAccountStore
+from app.connectors.teams.constants import AUTH_STATUS_RECONNECT_REQUIRED
 from app.connectors.teams.sync import build_teams_sync_service
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
@@ -183,4 +185,13 @@ def handle_sync_teams(
     user_id: UUID,
 ) -> None:
     account_id = UUID(str(payload["account_id"]))
+    if not settings.secretary_credential_key:
+        return
+    store = TeamsAccountStore(
+        session,
+        TeamsAccountStore.build_encryption(settings.secretary_credential_key),
+    )
+    account = store.get_by_id_for_user(account_id, user_id)
+    if account is None or account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
+        return
     _teams_sync_service(session, user_id).sync_account(account_id, user_id=user_id)

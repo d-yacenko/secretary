@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.teams.constants import (
+    AUTH_STATUS_RECONNECT_REQUIRED,
     CHATS_STATE_KEY,
     DEFAULT_MAX_CHAT_PAGES,
     DEFAULT_MAX_MESSAGE_PAGES_PER_CHAT,
@@ -16,14 +17,17 @@ from app.connectors.teams.constants import (
     MAX_MAX_MESSAGE_PAGES_PER_CHAT,
     MAX_SYNC_OVERLAP_SECONDS,
     SYNC_START_AT_KEY,
-    TOKEN_REFRESH_SKEW_SECONDS,
 )
-from app.connectors.teams.errors import TeamsConfigurationError, TeamsOAuthError, TeamsSyncError
+from app.connectors.teams.errors import TeamsConfigurationError, TeamsSyncError
 from app.connectors.teams.materialize import TeamsObjectMaterializer
-from app.connectors.teams.normalize import accepted_chat_type, display_title_for_chat, parse_graph_datetime
-from app.connectors.teams.oauth_service import TeamsOAuthService, parse_token_expiry
+from app.connectors.teams.normalize import (
+    accepted_chat_type,
+    display_title_for_chat,
+    parse_graph_datetime,
+)
+from app.connectors.teams.oauth_service import TeamsOAuthService
+from app.connectors.teams.token_service import TeamsTokenService
 from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
-from app.core.config import settings
 from app.db.models import TeamsAccount
 from app.services.job_queue_service import JobQueueService
 
@@ -67,11 +71,25 @@ class TeamsSyncService:
         self._oauth_service = oauth_service
         self._now_factory = now_factory or utcnow
         self._materializer = TeamsObjectMaterializer(session)
+        self._token_service = TeamsTokenService(
+            session,
+            account_store,
+            oauth_service,
+            now_factory=self._now_factory,
+        )
 
     def sync_account(self, account_id: UUID, user_id: UUID) -> dict[str, Any]:
         account = self._account_store.get_by_id_for_user(account_id, user_id)
         if account is None:
             raise TeamsConfigurationError("Teams account not found")
+        if account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
+            return {
+                "synchronized": 0,
+                "created": 0,
+                "updated": 0,
+                "unchanged": 0,
+                "jobs_enqueued": 0,
+            }
         transport, owns = self._open_transport(account)
         try:
             return self._sync_with_transport(account, transport)
@@ -210,31 +228,8 @@ class TeamsSyncService:
     def _open_transport(self, account: TeamsAccount) -> tuple[TeamsTransport, bool]:
         if self._transport is not None:
             return self._transport, False
-        token = self._valid_access_token(account)
+        token = self._token_service.acquire_access_token(account)
         return TeamsHttpTransport(token), True
-
-    def _valid_access_token(self, account: TeamsAccount) -> str:
-        now = self._now_factory()
-        expiry = account.token_expiry
-        if expiry is None or expiry - timedelta(seconds=TOKEN_REFRESH_SKEW_SECONDS) > now:
-            return self._account_store.get_access_token(account)
-        refresh_token = self._account_store.get_refresh_token(account)
-        oauth = self._oauth_service or TeamsOAuthService(
-            settings.microsoft_oauth_client_id,
-            settings.microsoft_oauth_client_secret,
-            settings.microsoft_redirect_uri,
-        )
-        payload = oauth.refresh_access_token(refresh_token)
-        access_token = str(payload["access_token"])
-        new_refresh = payload.get("refresh_token")
-        self._account_store.update_tokens_from_refresh(
-            account,
-            access_token,
-            str(new_refresh) if new_refresh else None,
-            parse_token_expiry(payload.get("expires_in")),
-        )
-        self._session.commit()
-        return access_token
 
 
 def build_teams_sync_service(

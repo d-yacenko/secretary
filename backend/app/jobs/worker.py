@@ -1,7 +1,10 @@
 import logging
 from collections.abc import Collection
+from datetime import UTC, datetime, timedelta
 
 from app.ai_audit.context import reset_current_job_id, set_current_job_id
+from app.connectors.teams.constants import DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+from app.connectors.teams.errors import TeamsRateLimitedError
 from app.db.session import SessionLocal
 from app.jobs.handlers import get_handler
 from app.jobs.recurring_job_finalization import (
@@ -118,6 +121,43 @@ def process_one_job(
         except Exception:
             session.rollback()
             logger.exception("failed to park budget-blocked job %s", claimed.id)
+        finally:
+            session.close()
+    except TeamsRateLimitedError as exc:
+        delay = exc.retry_after_seconds
+        if delay is None:
+            delay = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+        run_after = datetime.now(UTC) + timedelta(seconds=delay)
+        logger.warning(
+            "job %s (%s) rate limited; retry after %ss",
+            claimed.id,
+            claimed.type,
+            delay,
+        )
+        session = SessionLocal()
+        try:
+            queue = JobQueueService(session)
+            if queue.is_recurring_source_job(claimed.type):
+                finalize_recurring_job_failure(
+                    session,
+                    claimed.id,
+                    claimed.user_id,
+                    claimed.type,
+                    sanitize_job_error(exc),
+                    retryable=True,
+                    run_after=run_after,
+                )
+            else:
+                queue.mark_retry(
+                    claimed.id,
+                    sanitize_job_error(exc),
+                    retryable=True,
+                    run_after=run_after,
+                )
+            session.commit()
+        except Exception:
+            session.rollback()
+            logger.exception("failed to record rate-limit retry for %s", claimed.id)
         finally:
             session.close()
     except Exception as exc:  # noqa: BLE001

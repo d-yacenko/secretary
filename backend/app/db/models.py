@@ -749,6 +749,10 @@ class TeamsAccount(Base):
     tenant_id: Mapped[str] = mapped_column(nullable=False)
     upn: Mapped[str | None] = mapped_column(nullable=True)
     display_name: Mapped[str | None] = mapped_column(nullable=True)
+    auth_status: Mapped[str] = mapped_column(
+        nullable=False,
+        server_default=text("'active'"),
+    )
     access_token_encrypted: Mapped[str] = mapped_column(nullable=False)
     refresh_token_encrypted: Mapped[str] = mapped_column(nullable=False)
     token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -776,6 +780,11 @@ class TeamsAccount(Base):
 
     __table_args__ = (
         sa.UniqueConstraint("user_id", name="uq_teams_accounts_user_id"),
+        sa.UniqueConstraint(
+            "tenant_id",
+            "microsoft_user_id",
+            name="uq_teams_accounts_tenant_microsoft_user",
+        ),
     )
 
 
@@ -788,6 +797,7 @@ class TeamsOAuthState(Base):
         nullable=False,
     )
     state_hash: Mapped[str] = mapped_column(nullable=False)
+    nonce_hash: Mapped[str] = mapped_column(nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

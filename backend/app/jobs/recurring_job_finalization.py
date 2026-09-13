@@ -32,6 +32,7 @@ def finalize_recurring_job_failure(
     error: str,
     *,
     retryable: bool,
+    run_after=None,
 ) -> None:
     queue = JobQueueService(session)
     preferences = SourceSyncPreferenceService.build(session)
@@ -41,4 +42,4 @@ def finalize_recurring_job_failure(
     if not preferences.is_job_type_enabled(user_id, job_type):
         queue.retire_recurring_source_job(job)
         return
-    queue.mark_retry(job_id, error, retryable=retryable)
+    queue.mark_retry(job_id, error, retryable=retryable, run_after=run_after)

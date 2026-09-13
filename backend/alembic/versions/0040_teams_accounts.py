@@ -28,6 +28,12 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.Text(), nullable=False),
         sa.Column("upn", sa.Text(), nullable=True),
         sa.Column("display_name", sa.Text(), nullable=True),
+        sa.Column(
+            "auth_status",
+            sa.Text(),
+            nullable=False,
+            server_default=sa.text("'active'"),
+        ),
         sa.Column("access_token_encrypted", sa.Text(), nullable=False),
         sa.Column("refresh_token_encrypted", sa.Text(), nullable=False),
         sa.Column("token_expiry", sa.DateTime(timezone=True), nullable=True),
@@ -58,12 +64,18 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", name="uq_teams_accounts_user_id"),
+        sa.UniqueConstraint(
+            "tenant_id",
+            "microsoft_user_id",
+            name="uq_teams_accounts_tenant_microsoft_user",
+        ),
     )
     op.create_table(
         "teams_oauth_states",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("state_hash", sa.Text(), nullable=False),
+        sa.Column("nonce_hash", sa.Text(), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(

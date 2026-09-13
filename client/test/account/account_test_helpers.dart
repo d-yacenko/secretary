@@ -41,6 +41,7 @@ Map<String, dynamic> accountConnectionsJson({
         {
           'configured': false,
           'connected': false,
+          'reconnect_required': false,
           'display_name': null,
           'upn': null,
           'tenant_id': null,

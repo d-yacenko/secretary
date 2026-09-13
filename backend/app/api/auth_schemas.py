@@ -59,6 +59,7 @@ class TelegramConnectionOut(BaseModel):
 class TeamsConnectionOut(BaseModel):
     configured: bool = False
     connected: bool = False
+    reconnect_required: bool = False
     display_name: str | None = None
     upn: str | None = None
     tenant_id: str | None = None

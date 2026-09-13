@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:personal_secretary/account/account_screen.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
@@ -19,6 +20,7 @@ import 'account_test_helpers.dart';
 Map<String, dynamic> _teamsJson({
   bool configured = true,
   bool connected = false,
+  bool reconnectRequired = false,
   String? displayName,
   String? upn,
   String? tenantId,
@@ -26,6 +28,7 @@ Map<String, dynamic> _teamsJson({
   return {
     'configured': configured,
     'connected': connected,
+    'reconnect_required': reconnectRequired,
     'display_name': displayName,
     'upn': upn,
     'tenant_id': tenantId,
@@ -96,6 +99,7 @@ void main() {
     expect(connection.displayName, 'Ada');
     expect(connection.upn, 'ada@contoso.com');
     expect(connection.tenantId, 'tenant-1');
+    expect(connection.reconnectRequired, isFalse);
   });
 
   test('teams provider presentation', () {
@@ -194,5 +198,83 @@ void main() {
       contains('login.microsoftonline.com/organizations'),
     );
     expect(launcher.lastMode, PreferredLaunchMode.externalApplication);
+  });
+
+  test('reconnect required tells the user to reconnect', () {
+    final connection = TeamsConnection.fromJson(
+      _teamsJson(connected: true, reconnectRequired: true),
+    );
+    expect(connection.reconnectRequired, isTrue);
+    expect(
+      teamsConnectionLabel(connection),
+      'Microsoft Teams: требуется повторное подключение',
+    );
+    expect(teamsSetupHelpText(connection), contains('Переподключите'));
+    expect(teamsConnectButtonLabel(connection), 'Переподключить Microsoft Teams');
+  });
+
+  testWidgets('connected teams disconnect confirms and calls API', (tester) async {
+    var disconnectCalled = false;
+    final client = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/connections')) {
+          return http.Response(
+            jsonEncode(
+              accountConnectionsJson(
+                teams: _teamsJson(
+                  connected: true,
+                  displayName: 'Ada',
+                  upn: 'ada@contoso.com',
+                ),
+              ),
+            ),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/auth/teams/disconnect')) {
+          expect(request.method, 'POST');
+          disconnectCalled = true;
+          return http.Response(jsonEncode({'status': 'disconnected'}), 200);
+        }
+        if (isAccountSettingsRequest(request.url)) {
+          return http.Response(jsonEncode(accountSettingsJson()), 200);
+        }
+        if (isAccountSourcePreferencesRequest(request.url)) {
+          return http.Response(jsonEncode(accountSourcePreferencesJson()), 200);
+        }
+        if (isAccountIdentityRequest(request.url)) {
+          return http.Response(jsonEncode(accountIdentityJson()), 200);
+        }
+        if (isAccountSemanticContextRequest(request.url)) {
+          return http.Response(jsonEncode(accountSemanticContextJson()), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    client.configure(baseUrl: 'https://secretary.example', token: 'opaque-test-token');
+    await pumpAccountReady(
+      tester,
+      buildAccountScreen(
+        apiClient: client,
+        authController: _buildAuth(client),
+        connectionsJson: accountConnectionsJson(
+          teams: _teamsJson(
+            connected: true,
+            displayName: 'Ada',
+            upn: 'ada@contoso.com',
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('teams_disconnect_button')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('teams_disconnect_button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('teams_disconnect_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('teams_disconnect_dialog')), findsOneWidget);
+    expect(disconnectCalled, isFalse);
+    await tester.tap(find.byKey(const Key('teams_disconnect_confirm')));
+    await tester.pumpAndSettle();
+    expect(disconnectCalled, isTrue);
   });
 }

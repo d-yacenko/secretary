@@ -233,6 +233,10 @@ class SecretaryApiClient {
     return TeamsAuthorizationUrl.fromJson(body);
   }
 
+  Future<void> disconnectTeams() async {
+    await _request('POST', '/auth/teams/disconnect', jsonBody: {});
+  }
+
   Future<YandexConnectResult> connectYandexMail({
     required String email,
     required String appPassword,

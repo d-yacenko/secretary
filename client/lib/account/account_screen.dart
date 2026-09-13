@@ -50,6 +50,7 @@ class _AccountScreenState extends State<AccountScreen>
   bool _googleOAuthPending = false;
   bool _telegramLinkPending = false;
   bool _teamsOAuthPending = false;
+  bool _teamsDisconnectPending = false;
   bool _profileSaving = false;
   bool _settingsSaving = false;
   bool _identityLoading = false;
@@ -626,7 +627,7 @@ class _AccountScreenState extends State<AccountScreen>
   }
 
   Future<void> _startTeamsOAuth() async {
-    if (_teamsOAuthPending) {
+    if (_teamsOAuthPending || _teamsDisconnectPending) {
       return;
     }
     setState(() => _teamsOAuthPending = true);
@@ -653,6 +654,37 @@ class _AccountScreenState extends State<AccountScreen>
     } finally {
       if (mounted) {
         setState(() => _teamsOAuthPending = false);
+      }
+    }
+  }
+
+  Future<void> _disconnectTeams() async {
+    if (_teamsDisconnectPending || _teamsOAuthPending) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => _TeamsDisconnectDialog(
+        onCancel: () => Navigator.of(dialogContext).pop(false),
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() => _teamsDisconnectPending = true);
+    try {
+      await widget.apiClient.disconnectTeams();
+      await _loadAccountData();
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _teamsDisconnectPending = false);
       }
     }
   }
@@ -1093,11 +1125,13 @@ class _AccountScreenState extends State<AccountScreen>
                       googleOAuthPending: _googleOAuthPending,
                       telegramLinkPending: _telegramLinkPending,
                       teamsOAuthPending: _teamsOAuthPending,
+                      teamsDisconnectPending: _teamsDisconnectPending,
                       onConnectGoogle: _startGoogleOAuth,
                       onConnectYandex: _showConnectYandexDialog,
                       onConnectMattermost: _showConnectMattermostDialog,
                       onConnectTelegram: _startTelegramLink,
                       onConnectTeams: _startTeamsOAuth,
+                      onDisconnectTeams: _disconnectTeams,
                     ),
                 ],
               ),
@@ -1216,22 +1250,26 @@ class _ConnectionsList extends StatelessWidget {
     required this.googleOAuthPending,
     required this.telegramLinkPending,
     required this.teamsOAuthPending,
+    required this.teamsDisconnectPending,
     required this.onConnectGoogle,
     required this.onConnectYandex,
     required this.onConnectMattermost,
     required this.onConnectTelegram,
     required this.onConnectTeams,
+    required this.onDisconnectTeams,
   });
 
   final Connections connections;
   final bool googleOAuthPending;
   final bool telegramLinkPending;
   final bool teamsOAuthPending;
+  final bool teamsDisconnectPending;
   final VoidCallback onConnectGoogle;
   final VoidCallback onConnectYandex;
   final VoidCallback onConnectMattermost;
   final VoidCallback onConnectTelegram;
   final VoidCallback onConnectTeams;
+  final VoidCallback onDisconnectTeams;
 
   @override
   Widget build(BuildContext context) {
@@ -1344,14 +1382,32 @@ class _ConnectionsList extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         if (connections.teams.configured)
-          OutlinedButton(
-            key: const Key('teams_connect_button'),
-            onPressed: teamsOAuthPending ? null : onConnectTeams,
-            child: Text(
-              connections.teams.connected
-                  ? 'Переподключить Microsoft Teams'
-                  : 'Подключить Microsoft Teams',
-            ),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                key: const Key('teams_connect_button'),
+                onPressed: teamsOAuthPending || teamsDisconnectPending
+                    ? null
+                    : onConnectTeams,
+                child: Text(teamsConnectButtonLabel(connections.teams)),
+              ),
+              if (connections.teams.connected)
+                OutlinedButton(
+                  key: const Key('teams_disconnect_button'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                    side: BorderSide(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                  onPressed: teamsOAuthPending || teamsDisconnectPending
+                      ? null
+                      : onDisconnectTeams,
+                  child: const Text('Отключить Microsoft Teams'),
+                ),
+            ],
           )
         else
           Text(
@@ -1415,6 +1471,9 @@ String teamsConnectionLabel(TeamsConnection teams) {
   if (!teams.connected) {
     return 'Microsoft Teams: аккаунт не подключён';
   }
+  if (teams.reconnectRequired) {
+    return 'Microsoft Teams: требуется повторное подключение';
+  }
   return 'Microsoft Teams: подключён';
 }
 
@@ -1431,9 +1490,60 @@ String? teamsConnectionDetail(TeamsConnection teams) {
 }
 
 String teamsSetupHelpText(TeamsConnection teams) {
+  if (teams.reconnectRequired) {
+    return 'Microsoft отозвал доступ. Переподключите тот же рабочий или учебный аккаунт. '
+        'Уже сохранённые сообщения Teams не удаляются.';
+  }
   return 'Подключите рабочий или учебный аккаунт Microsoft. '
       'Личные (consumer) аккаунты Microsoft не поддерживаются. '
       'Секретарь синхронизирует только личные и групповые чаты Teams, не каналы.';
+}
+
+String teamsConnectButtonLabel(TeamsConnection teams) {
+  if (teams.connected) {
+    return 'Переподключить Microsoft Teams';
+  }
+  return 'Подключить Microsoft Teams';
+}
+
+class _TeamsDisconnectDialog extends StatelessWidget {
+  const _TeamsDisconnectDialog({
+    required this.onCancel,
+    required this.onConfirm,
+  });
+
+  final VoidCallback onCancel;
+  final VoidCallback onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      key: const Key('teams_disconnect_dialog'),
+      title: const Text('Отключить Microsoft Teams?'),
+      content: const Text(
+        'Локальные учётные данные Teams будут удалены, повторная синхронизация остановится. '
+        'Уже сохранённые сообщения останутся. '
+        'Это не удаляет данные в Microsoft Teams.',
+      ),
+      actions: [
+        TextButton(
+          key: const Key('teams_disconnect_cancel'),
+          onPressed: onCancel,
+          child: const Text('Отмена'),
+        ),
+        OutlinedButton(
+          key: const Key('teams_disconnect_confirm'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.error,
+            side: BorderSide(color: scheme.error),
+          ),
+          onPressed: onConfirm,
+          child: const Text('Отключить'),
+        ),
+      ],
+    );
+  }
 }
 
 class _YandexConnectDialog extends StatefulWidget {

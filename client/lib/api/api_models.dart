@@ -327,6 +327,7 @@ class TeamsConnection {
   TeamsConnection({
     required this.configured,
     required this.connected,
+    this.reconnectRequired = false,
     this.displayName,
     this.upn,
     this.tenantId,
@@ -334,6 +335,7 @@ class TeamsConnection {
 
   final bool configured;
   final bool connected;
+  final bool reconnectRequired;
   final String? displayName;
   final String? upn;
   final String? tenantId;
@@ -346,6 +348,7 @@ class TeamsConnection {
     return TeamsConnection(
       configured: json['configured'] as bool? ?? false,
       connected: json['connected'] as bool? ?? false,
+      reconnectRequired: json['reconnect_required'] as bool? ?? false,
       displayName: json['display_name'] as String?,
       upn: json['upn'] as String?,
       tenantId: json['tenant_id'] as String?,

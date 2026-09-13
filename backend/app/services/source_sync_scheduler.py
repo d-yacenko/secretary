@@ -8,6 +8,7 @@ from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
 from app.connectors.teams.account_store import TeamsAccountStore
+from app.connectors.teams.constants import AUTH_STATUS_RECONNECT_REQUIRED
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
@@ -129,6 +130,8 @@ class SourceSyncScheduler:
                 triggered.append(f"mattermost:{account.id}")
         teams_store = TeamsAccountStore(self._session, encryption)
         for account in teams_store.list_accounts(user_id):
+            if account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
+                continue
             if (
                 self._preferences.is_job_type_enabled(user_id, JOB_TYPE_SYNC_TEAMS)
                 and self._queue.trigger_recurring_source_job(
@@ -186,7 +189,11 @@ class SourceSyncScheduler:
             return [account.id for account in store.list_accounts(user_id)]
         if source == SOURCE_TEAMS:
             store = TeamsAccountStore(self._session, encryption)
-            return [account.id for account in store.list_accounts(user_id)]
+            return [
+                account.id
+                for account in store.list_accounts(user_id)
+                if account.auth_status != AUTH_STATUS_RECONNECT_REQUIRED
+            ]
         return []
 
     def _maintain_recurring_job(
@@ -250,6 +257,13 @@ class SourceSyncScheduler:
     def _maintain_teams_accounts(self, _store: TeamsAccountStore) -> None:
         accounts = list(self._session.scalars(select(TeamsAccount)))
         for account in accounts:
+            if account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
+                job = self._queue.find_recurring_source_job(
+                    account.user_id, JOB_TYPE_SYNC_TEAMS, account.id
+                )
+                if job is not None and job.status != JOB_STATUS_RUNNING:
+                    self._queue.retire_recurring_source_job(job)
+                continue
             self._maintain_recurring_job(
                 JOB_TYPE_SYNC_TEAMS,
                 account.id,
@@ -299,6 +313,8 @@ class SourceSyncScheduler:
             ):
                 expected.add((JOB_TYPE_SYNC_MATTERMOST, account.id, account.user_id))
         for account in self._session.scalars(select(TeamsAccount)):
+            if account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
+                continue
             if self._preferences.is_job_type_enabled(
                 account.user_id, JOB_TYPE_SYNC_TEAMS
             ):

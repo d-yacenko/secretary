@@ -25,7 +25,7 @@ from app.services.communication_external_action_service import (
 from app.services.recent_source_service import RecentSourceService
 from app.tools.registry import TOOL_REGISTRY
 from app.tools.schemas import SendMessageCanonicalInput, SendMessageInput, ToolError
-from tests.test_teams_a import CHAT_ONE, TENANT_ID, TEAMS_USER_ID, _connect_account, _graph_message
+from tests.test_teams_a import CHAT_ONE, TEAMS_USER_ID, TENANT_ID, _connect_account, _graph_message
 from tests.test_telegram_a_send import _service as _telegram_service
 from tests.test_telegram_a_send import _tg_account, _tg_object
 from tests.test_unified_communications_a import ALLOWED_URL
@@ -405,3 +405,53 @@ def test_legacy_mattermost_canonical_still_parses_with_teams_union() -> None:
     assert parsed.provider == "mattermost"
     assert parsed.mattermost_route.channel_id == "channel-1"
     assert parsed.pending_post_id == "secretary:abcde12345"
+
+
+def test_teams_write_429_is_failed_definite_not_uncertain(db_session, teams_settings) -> None:
+    user = User(id=uuid4(), display_name="teams")
+    db_session.add(user)
+    db_session.flush()
+    account = _connect_account(db_session, teams_settings, user.id)
+    inbound = _teams_object(db_session, user.id, account)
+    fake = FakeTeamsTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    fake.send_message_error = TeamsWriteDefiniteError("Teams rate limited")
+    with pytest.raises(ToolError, match="rate limited"):
+        service.send_message(frozen)
+    fake.send_message_error = None
+    with pytest.raises(ToolError, match="previously failed"):
+        service.send_message(frozen)
+    assert len(fake.send_message_calls) == 1
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt.state == ATTEMPT_FAILED_DEFINITE
+
+
+def test_send_blocked_when_reconnect_required(db_session, teams_settings) -> None:
+    user = User(id=uuid4(), display_name="teams")
+    db_session.add(user)
+    db_session.flush()
+    account = _connect_account(db_session, teams_settings, user.id)
+    inbound = _teams_object(db_session, user.id, account)
+    fake = FakeTeamsTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    from app.connectors.teams.account_store import TeamsAccountStore
+    from app.core.config import settings
+
+    store = TeamsAccountStore(
+        db_session,
+        TeamsAccountStore.build_encryption(settings.secretary_credential_key),
+    )
+    store.mark_reconnect_required(account)
+    db_session.flush()
+    with pytest.raises(ToolError, match="reconnect"):
+        service.send_message(frozen)
+    assert fake.send_message_calls == []
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt.state == ATTEMPT_FAILED_DEFINITE
+

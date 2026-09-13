@@ -3,18 +3,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.teams.config import teams_is_configured
-from app.connectors.teams.constants import TEAMS_OAUTH_SCOPES
-from app.connectors.teams.errors import TeamsConfigurationError, TeamsConnectorError, TeamsOAuthError
-from app.connectors.teams.oauth_service import (
-    TeamsOAuthService,
-    parse_token_expiry,
-    work_school_identity_from_id_token,
+from app.connectors.teams.errors import (
+    TeamsConfigurationError,
+    TeamsConnectorError,
+    TeamsIdentityConflictError,
+    TeamsIdentitySwitchError,
+    TeamsOAuthError,
+    TeamsReconnectRequiredError,
 )
+from app.connectors.teams.oauth_service import TeamsOAuthService
 from app.connectors.teams.oauth_state import TeamsOAuthStateService
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
@@ -28,6 +31,10 @@ router = APIRouter(tags=["teams"])
 
 class TeamsAuthorizationUrlOut(BaseModel):
     authorization_url: str
+
+
+class TeamsDisconnectOut(BaseModel):
+    status: str
 
 
 def _teams_oauth_service() -> TeamsOAuthService:
@@ -49,10 +56,29 @@ def _start_teams_oauth(session: Session, user_id: UUID) -> str:
     if not teams_is_configured():
         raise TeamsConfigurationError("Microsoft Teams is not configured")
     oauth_service = _teams_oauth_service()
-    state_service = TeamsOAuthStateService(session)
-    state = state_service.create_state(user_id)
+    created = TeamsOAuthStateService(session).create_state(user_id)
     session.flush()
-    return oauth_service.build_authorization_url(state)
+    return oauth_service.build_authorization_url(created.state, created.nonce)
+
+
+def _enable_teams_sync(session: Session, user_id: UUID, account_id: UUID) -> None:
+    SourceSyncPreferenceService.build(session).get_effective_preference(
+        user_id, SOURCE_TEAMS
+    )
+    JobQueueService(session).ensure_recurring_source_job(
+        JOB_TYPE_SYNC_TEAMS, account_id, user_id
+    )
+    JobQueueService(session).trigger_recurring_source_job(
+        user_id, JOB_TYPE_SYNC_TEAMS, account_id
+    )
+
+
+def _disable_teams_sync(session: Session, user_id: UUID, account_id: UUID) -> None:
+    job = JobQueueService(session).find_recurring_source_job(
+        user_id, JOB_TYPE_SYNC_TEAMS, account_id
+    )
+    if job is not None:
+        JobQueueService(session).retire_recurring_source_job(job)
 
 
 @router.post("/auth/teams/authorization-url")
@@ -67,6 +93,25 @@ def teams_oauth_authorization_url(
     return TeamsAuthorizationUrlOut(authorization_url=url)
 
 
+@router.post("/auth/teams/disconnect", response_model=TeamsDisconnectOut)
+def teams_disconnect(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> TeamsDisconnectOut:
+    if not teams_is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Microsoft Teams is not configured",
+        )
+    store = _account_store(session)
+    account = store.get_by_user_id(current_user.user_id)
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Microsoft Teams is not connected")
+    _disable_teams_sync(session, current_user.user_id, account.id)
+    store.disconnect(current_user.user_id)
+    return TeamsDisconnectOut(status="disconnected")
+
+
 @router.get("/auth/teams/callback")
 def teams_oauth_callback(
     code: str | None = None,
@@ -78,38 +123,39 @@ def teams_oauth_callback(
     try:
         if not teams_is_configured():
             raise TeamsConfigurationError("Microsoft Teams is not configured")
-        owner_user_id = TeamsOAuthStateService(session).consume_state(state)
+        consumed = TeamsOAuthStateService(session).consume_state(state)
         session.commit()
         oauth_service = _teams_oauth_service()
-        token_payload = oauth_service.exchange_code(code)
-        identity = work_school_identity_from_id_token(str(token_payload["id_token"]))
-        granted_scope = token_payload.get("scope")
-        scopes = str(granted_scope).split() if granted_scope else list(TEAMS_OAUTH_SCOPES)
+        login = oauth_service.complete_login(code, nonce_hash=consumed.nonce_hash)
         store = _account_store(session)
-        account = store.upsert_tokens(
-            owner_user_id,
-            microsoft_user_id=identity["microsoft_user_id"],
-            tenant_id=identity["tenant_id"],
-            upn=identity["upn"] or None,
-            display_name=identity["display_name"] or None,
-            scopes=scopes,
-            access_token=str(token_payload["access_token"]),
-            refresh_token=str(token_payload["refresh_token"]),
-            token_expiry=parse_token_expiry(token_payload.get("expires_in")),
-        )
+        try:
+            account = store.upsert_tokens(
+                consumed.user_id,
+                microsoft_user_id=str(login["microsoft_user_id"]),
+                tenant_id=str(login["tenant_id"]),
+                upn=login.get("upn"),
+                display_name=login.get("display_name"),
+                scopes=list(login["scopes"]),
+                access_token=str(login["access_token"]),
+                refresh_token=str(login["refresh_token"]),
+                token_expiry=login.get("token_expiry"),
+            )
+        except IntegrityError as exc:
+            session.rollback()
+            raise TeamsIdentityConflictError(
+                "Microsoft Teams identity is already connected"
+            ) from exc
         session.commit()
-        SourceSyncPreferenceService.build(session).get_effective_preference(
-            owner_user_id, SOURCE_TEAMS
-        )
-        JobQueueService(session).ensure_recurring_source_job(
-            JOB_TYPE_SYNC_TEAMS, account.id, owner_user_id
-        )
-        JobQueueService(session).trigger_recurring_source_job(
-            owner_user_id, JOB_TYPE_SYNC_TEAMS, account.id
-        )
+        _enable_teams_sync(session, consumed.user_id, account.id)
         session.commit()
     except TeamsConfigurationError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.message)
+    except TeamsIdentityConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    except TeamsIdentitySwitchError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    except TeamsReconnectRequiredError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
     except TeamsOAuthError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
     except TeamsConnectorError as exc:

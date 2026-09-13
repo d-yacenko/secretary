@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.connectors.google.api_errors import format_google_api_error
 from app.connectors.google.errors import GoogleApiError, GoogleConnectorError
+from app.connectors.teams.errors import TeamsRateLimitedError, TeamsReconnectRequiredError
 from app.connectors.yandex.caldav_api_errors import format_yandex_caldav_error
 from app.connectors.yandex.errors import (
     YandexCalDavError,
@@ -85,6 +86,10 @@ def is_job_error_retryable(exc: BaseException) -> bool:
         return True
     if isinstance(exc, GoogleConnectorError):
         return exc.retryable
+    if isinstance(exc, TeamsReconnectRequiredError):
+        return False
+    if isinstance(exc, TeamsRateLimitedError):
+        return True
     return True
 
 
@@ -240,7 +245,14 @@ class JobQueueService:
         self._session.flush()
         return len(parked)
 
-    def mark_retry(self, job_id: UUID, error: str, *, retryable: bool = True) -> None:
+    def mark_retry(
+        self,
+        job_id: UUID,
+        error: str,
+        *,
+        retryable: bool = True,
+        run_after: datetime | None = None,
+    ) -> None:
         job = self._require_job(job_id)
         job.last_error = error[:MAX_LAST_ERROR_LENGTH]
         job.updated_at = utcnow()
@@ -250,20 +262,24 @@ class JobQueueService:
                 job.attempts = 0
                 job.locked_at = None
                 self._apply_recurring_failure_cooldown(job)
+                self._session.flush()
                 return
             job.status = JOB_STATUS_FAILED
             job.locked_at = None
+            self._session.flush()
             return
         if job.attempts >= MAX_JOB_ATTEMPTS:
             job.status = JOB_STATUS_FAILED
             job.locked_at = None
             self._apply_recurring_failure_cooldown(job)
+            self._session.flush()
             return
 
         backoff = RETRY_BACKOFF_SECONDS.get(job.attempts, RETRY_BACKOFF_SECONDS[2])
         job.status = JOB_STATUS_PENDING
         job.locked_at = None
-        job.run_after = utcnow() + timedelta(seconds=backoff)
+        job.run_after = run_after if run_after is not None else utcnow() + timedelta(seconds=backoff)
+        self._session.flush()
 
     def find_recurring_source_job(
         self,

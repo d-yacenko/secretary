@@ -13,8 +13,13 @@ from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
 from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.teams.config import teams_is_configured
+from app.connectors.teams.constants import AUTH_STATUS_RECONNECT_REQUIRED
 from app.connectors.telegram.account_store import TelegramAccountStore
-from app.connectors.telegram.webhook_service import bot_username, can_reply_from_rights, telegram_is_configured
+from app.connectors.telegram.webhook_service import (
+    bot_username,
+    can_reply_from_rights,
+    telegram_is_configured,
+)
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
@@ -66,6 +71,7 @@ class TelegramConnectionStatus:
 class TeamsConnectionStatus:
     configured: bool = False
     connected: bool = False
+    reconnect_required: bool = False
     display_name: str | None = None
     upn: str | None = None
     tenant_id: str | None = None
@@ -191,6 +197,7 @@ class ConnectionStatusService:
         return TeamsConnectionStatus(
             configured=configured,
             connected=True,
+            reconnect_required=account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED,
             display_name=account.display_name,
             upn=account.upn,
             tenant_id=account.tenant_id,

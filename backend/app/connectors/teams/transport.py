@@ -1,15 +1,38 @@
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol, Self
 from urllib.parse import quote
 
 import httpx
 
-from app.connectors.teams.constants import GRAPH_API_BASE
+from app.connectors.teams.constants import GRAPH_API_BASE, MAX_RETRY_AFTER_SECONDS
 from app.connectors.teams.errors import (
     TeamsConfigurationError,
+    TeamsRateLimitedError,
     TeamsSecurityError,
     TeamsWriteDefiniteError,
     TeamsWriteUncertainError,
 )
+
+
+def parse_retry_after_seconds(header: str | None) -> int | None:
+    if header is None:
+        return None
+    raw = header.strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return min(int(raw), MAX_RETRY_AFTER_SECONDS)
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    delay = int((when - datetime.now(UTC)).total_seconds())
+    if delay < 0:
+        return 0
+    return min(delay, MAX_RETRY_AFTER_SECONDS)
 
 
 class TeamsTransport(Protocol):
@@ -83,7 +106,7 @@ class TeamsHttpTransport:
         payload = self._request_json(
             "GET",
             f"/chats/{encoded}/messages",
-            params=None if url else {"$top": "50"},
+            params=None if url else {"$top": "50", "$orderby": "createdDateTime desc"},
             absolute_url=url,
         )
         if not isinstance(payload, dict):
@@ -107,8 +130,13 @@ class TeamsHttpTransport:
             "POST",
             f"/chats/{encoded}/messages/replyWithQuote",
             json_body={
-                "message": {"body": {"contentType": "text", "content": body}},
-                "quotedMessageId": quoted_message_id,
+                "messageIds": [quoted_message_id],
+                "replyMessage": {
+                    "body": {
+                        "contentType": "text",
+                        "content": body,
+                    }
+                },
             },
         )
         if not isinstance(payload, dict):
@@ -162,6 +190,14 @@ class TeamsHttpTransport:
             if write:
                 raise TeamsWriteDefiniteError("Teams redirect rejected")
             raise TeamsSecurityError("Microsoft Graph redirect rejected")
+        if response.status_code == 429:
+            retry_after = parse_retry_after_seconds(response.headers.get("Retry-After"))
+            if write:
+                raise TeamsWriteDefiniteError("Teams rate limited")
+            raise TeamsRateLimitedError(
+                "Microsoft Graph rate limited",
+                retry_after_seconds=retry_after,
+            )
         if 400 <= response.status_code < 500:
             if write:
                 raise TeamsWriteDefiniteError("Teams write rejected")

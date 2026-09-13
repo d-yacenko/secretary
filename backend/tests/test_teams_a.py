@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,14 +18,12 @@ from app.api.deps import get_db
 from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.teams.config import teams_is_configured
 from app.connectors.teams.constants import (
-    CONSUMER_TENANT_ID,
     GRAPH_API_BASE,
     TEAMS_OAUTH_SCOPES,
 )
 from app.connectors.teams.errors import TeamsOAuthError, TeamsSyncError
 from app.connectors.teams.html_text import teams_body_to_plain_text
 from app.connectors.teams.normalize import build_external_id
-from app.connectors.teams.oauth_service import work_school_identity_from_id_token
 from app.connectors.teams.oauth_state import TeamsOAuthStateService, hash_oauth_state
 from app.connectors.teams.sync import TeamsSyncService
 from app.connectors.teams.transport import FakeTeamsTransport, TeamsHttpTransport
@@ -135,20 +132,6 @@ def _graph_message(
     return payload
 
 
-def _id_token(*, tid: str, oid: str, upn: str = "user@contoso.com", name: str = "User") -> str:
-    payload = base64.urlsafe_b64encode(
-        json.dumps(
-            {
-                "tid": tid,
-                "oid": oid,
-                "preferred_username": upn,
-                "name": name,
-            }
-        ).encode("utf-8")
-    ).rstrip(b"=").decode("ascii")
-    return f"eyJhbGciOiJub25lIn0.{payload}.sig"
-
-
 def test_migration_0040_revises_0039(db_session) -> None:
     versions = sorted(
         path.name
@@ -166,6 +149,11 @@ def test_migration_0040_revises_0039(db_session) -> None:
     assert "teams_oauth_states" in tables
     uniques = {item["name"] for item in inspector.get_unique_constraints("teams_accounts")}
     assert "uq_teams_accounts_user_id" in uniques
+    assert "uq_teams_accounts_tenant_microsoft_user" in uniques
+    account_cols = {col["name"] for col in inspector.get_columns("teams_accounts")}
+    assert "auth_status" in account_cols
+    oauth_cols = {col["name"] for col in inspector.get_columns("teams_oauth_states")}
+    assert "nonce_hash" in oauth_cols
 
 
 def test_unconfigured_app_boots_and_teams_unavailable(auth_client) -> None:
@@ -197,38 +185,28 @@ def test_oauth_scopes_are_least_privilege() -> None:
     assert "Chat.Read.All" not in joined
 
 
-def test_work_school_identity_rejects_consumer_accounts() -> None:
-    identity = work_school_identity_from_id_token(
-        _id_token(tid=TENANT_ID, oid=TEAMS_USER_ID, upn="user@contoso.com", name="Ada")
-    )
-    assert identity["tenant_id"] == TENANT_ID
-    assert identity["microsoft_user_id"] == TEAMS_USER_ID
-    with pytest.raises(TeamsOAuthError, match="personal"):
-        work_school_identity_from_id_token(
-            _id_token(tid=CONSUMER_TENANT_ID, oid="consumer-user")
-        )
-
-
 def test_oauth_state_ttl_and_replay(db_session, teams_settings) -> None:
     user = _user(db_session)
     service = TeamsOAuthStateService(db_session)
-    state = service.create_state(user.id)
+    created = service.create_state(user.id)
     row = db_session.scalar(select(TeamsOAuthState))
     assert row is not None
-    assert row.state_hash != state
-    owner = service.consume_state(state)
-    assert owner == user.id
+    assert row.state_hash != created.state
+    assert row.nonce_hash != created.nonce
+    owner = service.consume_state(created.state)
+    assert owner.user_id == user.id
+    assert owner.nonce_hash == row.nonce_hash
     with pytest.raises(TeamsOAuthError, match="already used"):
-        service.consume_state(state)
+        service.consume_state(created.state)
     expired = service.create_state(user.id)
     expired_row = db_session.scalar(
-        select(TeamsOAuthState).where(TeamsOAuthState.state_hash == hash_oauth_state(expired))
+        select(TeamsOAuthState).where(TeamsOAuthState.state_hash == hash_oauth_state(expired.state))
     )
     assert expired_row is not None
     expired_row.expires_at = _utcnow() - timedelta(minutes=1)
     db_session.flush()
     with pytest.raises(TeamsOAuthError, match="expired"):
-        service.consume_state(expired)
+        service.consume_state(expired.state)
 
 
 def test_authorization_url_uses_organizations_authority(db_session, teams_settings, issue_bearer) -> None:
@@ -250,6 +228,7 @@ def test_authorization_url_uses_organizations_authority(db_session, teams_settin
     assert url.startswith("https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize")
     assert "Chat.Read" in url
     assert "ChatMessage.Send" in url
+    assert "nonce=" in url
     assert "client-secret" not in url
 
 
@@ -272,6 +251,7 @@ def test_connections_serialize_safe_teams_fields(db_session, teams_settings, iss
     assert teams["display_name"] == "Secretary User"
     assert teams["upn"] == "user@contoso.com"
     assert teams["tenant_id"] == TENANT_ID
+    assert teams["reconnect_required"] is False
     dumped = json.dumps(body)
     assert "access-token" not in dumped
     assert "refresh-token" not in dumped
@@ -554,8 +534,18 @@ def test_graph_http_transport_uses_v1_paths() -> None:
     transport.send_message(CHAT_ONE, "hi")
     transport.reply_with_quote(CHAT_ONE, "src", "reply")
     assert captured[0]["url"] == f"{GRAPH_API_BASE}/chats/19%3Aone-on-one%40thread.v2/messages"
+    assert json.loads(captured[0]["body"]) == {
+        "body": {"contentType": "text", "content": "hi"}
+    }
     assert captured[1]["url"].endswith("/messages/replyWithQuote")
-    assert b"quotedMessageId" in captured[1]["body"]
+    reply_body = json.loads(captured[1]["body"])
+    assert reply_body == {
+        "messageIds": ["src"],
+        "replyMessage": {
+            "body": {"contentType": "text", "content": "reply"}
+        },
+    }
+    assert "quotedMessageId" not in reply_body
     assert "beta" not in captured[0]["url"]
 
 

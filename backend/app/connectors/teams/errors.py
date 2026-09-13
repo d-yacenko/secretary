@@ -12,6 +12,26 @@ class TeamsOAuthError(TeamsConnectorError):
     pass
 
 
+class TeamsReconnectRequiredError(TeamsOAuthError):
+    """Authorization was revoked; Graph writes and token refresh must stop."""
+
+
+class TeamsIdentityConflictError(TeamsOAuthError):
+    """The Microsoft identity is already bound to another Secretary user."""
+
+
+class TeamsIdentitySwitchError(TeamsOAuthError):
+    """A different Microsoft identity is already connected for this user."""
+
+
+class TeamsRateLimitedError(TeamsConnectorError):
+    """HTTP 429; caller must schedule retry and must not advance watermarks."""
+
+    def __init__(self, message: str, retry_after_seconds: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class TeamsSecurityError(TeamsConnectorError):
     pass
 

@@ -62,6 +62,7 @@ def get_connections(
         teams=TeamsConnectionOut(
             configured=snapshot.teams.configured,
             connected=snapshot.teams.connected,
+            reconnect_required=snapshot.teams.reconnect_required,
             display_name=snapshot.teams.display_name,
             upn=snapshot.teams.upn,
             tenant_id=snapshot.teams.tenant_id,
