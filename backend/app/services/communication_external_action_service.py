@@ -46,8 +46,8 @@ from app.connectors.teams.id_token import (
 )
 from app.connectors.teams.materialize import TeamsObjectMaterializer
 from app.connectors.teams.normalize import build_external_id as build_teams_external_id
+from app.connectors.teams.normalize import extract_message_reference_ids, sender_from_message
 from app.connectors.teams.normalize import provider_id_str as teams_provider_id_str
-from app.connectors.teams.normalize import sender_from_message
 from app.connectors.teams.oauth_service import TeamsOAuthService
 from app.connectors.teams.token_service import TeamsTokenService
 from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
@@ -864,10 +864,15 @@ class CommunicationExternalActionService:
         if sender_id and try_canonical_microsoft_guid(sender_id) != route.teams_user_id:
             return _UNCERTAIN_DELIVERY_MESSAGE
         returned_reply = teams_provider_id_str(created.get("replyToId"))
-        if payload.mode == "compose" and returned_reply is not None:
+        referenced_ids = extract_message_reference_ids(created)
+        if payload.mode == "compose" and (returned_reply is not None or referenced_ids):
             return _UNCERTAIN_DELIVERY_MESSAGE
-        if payload.mode == "reply" and returned_reply and returned_reply != route.quoted_message_id:
-            return _UNCERTAIN_DELIVERY_MESSAGE
+        if payload.mode == "reply":
+            frozen_quoted = teams_provider_id_str(route.quoted_message_id)
+            if returned_reply and returned_reply != frozen_quoted:
+                return _UNCERTAIN_DELIVERY_MESSAGE
+            if any(item != frozen_quoted for item in referenced_ids):
+                return _UNCERTAIN_DELIVERY_MESSAGE
         return None
 
     def _materialize_teams_created(
@@ -879,8 +884,7 @@ class CommunicationExternalActionService:
         route = payload.teams_route
         message = dict(created)
         message.setdefault("chatId", route.chat_id)
-        if payload.mode == "reply":
-            message.setdefault("replyToId", route.quoted_message_id)
+        frozen_quoted = route.quoted_message_id if payload.mode == "reply" else None
         result = self._teams_materializer.upsert_message(
             user_id=self._user_id,
             account_id=account.id,
@@ -891,6 +895,7 @@ class CommunicationExternalActionService:
             chat_display_title=route.chat_display_title,
             message=message,
             skip_hidden=False,
+            frozen_quoted_message_id=frozen_quoted,
         )
         return result.obj
 

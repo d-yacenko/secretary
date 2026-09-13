@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -13,6 +14,7 @@ from app.connectors.teams.constants import (
     MAX_DISPLAY_NAME_CHARS,
     MAX_MESSAGE_BODY_CHARS,
     MAX_TITLE_CHARS,
+    MESSAGE_REFERENCE_CONTENT_TYPE,
     MESSAGE_TYPE_MESSAGE,
     TEAMS_KIND,
     TEAMS_ORIGIN,
@@ -39,6 +41,65 @@ def provider_id_str(value: object) -> str | None:
         return str(value)
     text = str(value).strip()
     return text or None
+
+
+def _parse_message_reference_content(content: object) -> dict[str, Any] | None:
+    if isinstance(content, dict):
+        return content
+    if not isinstance(content, str):
+        return None
+    text = content.strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def extract_message_reference_ids(message: dict[str, Any] | None) -> list[str]:
+    if not isinstance(message, dict):
+        return []
+    attachments = message.get("attachments")
+    if not isinstance(attachments, list):
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        content_type = str(attachment.get("contentType") or "").strip()
+        if content_type != MESSAGE_REFERENCE_CONTENT_TYPE:
+            continue
+        parsed = _parse_message_reference_content(attachment.get("content"))
+        if parsed is None:
+            continue
+        message_id = provider_id_str(parsed.get("messageId"))
+        if not message_id or message_id in seen:
+            continue
+        seen.add(message_id)
+        found.append(message_id)
+    return found
+
+
+def quoted_message_id_from_attachments(message: dict[str, Any] | None) -> str | None:
+    found = extract_message_reference_ids(message)
+    if len(found) == 1:
+        return found[0]
+    return None
+
+
+def merge_quoted_message_provenance(
+    existing_quoted: str | None, incoming_quoted: str | None
+) -> str | None:
+    existing = provider_id_str(existing_quoted)
+    incoming = provider_id_str(incoming_quoted)
+    if existing and incoming and existing != incoming:
+        return existing
+    if existing and not incoming:
+        return existing
+    return incoming
 
 
 def parse_graph_datetime(value: object) -> datetime | None:
@@ -146,6 +207,7 @@ def normalize_teams_message(
     chat_id: str,
     chat_type: str,
     chat_display_title: str | None,
+    frozen_quoted_message_id: str | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(message, dict):
         return None
@@ -174,6 +236,8 @@ def normalize_teams_message(
     title_name = sender_name or ("Вы" if direction == DIRECTION_OUTBOUND else chat_display_title or "Teams")
     preview = text.replace("\n", " ").strip() or "(без текста)"
     title = _clip(f"{title_name}: {preview}", MAX_TITLE_CHARS) or "Teams"
+    graph_quoted = quoted_message_id_from_attachments(message)
+    quoted_message_id = provider_id_str(frozen_quoted_message_id) or graph_quoted
     return {
         "provider": TEAMS_PROVIDER,
         "kind": TEAMS_KIND,
@@ -197,5 +261,6 @@ def normalize_teams_message(
             "created_at": occurred_at.isoformat() if occurred_at else None,
             "modified_at": modified_at.isoformat() if modified_at else None,
             "reply_to_message_id": provider_id_str(message.get("replyToId")),
+            "quoted_message_id": quoted_message_id,
         },
     }

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Protocol, Self
@@ -276,18 +277,45 @@ class FakeTeamsTransport:
             raise self.reply_with_quote_error
         if self.reply_with_quote_response is not None:
             return dict(self.reply_with_quote_response)
-        created = _fake_graph_message(
+        created = _fake_graph_reply_with_quote(
             chat_id,
             body,
             "created-reply",
             from_id=str(self.me.get("id")),
-            reply_to_id=quoted_message_id,
+            quoted_message_id=quoted_message_id,
         )
         self.messages_by_chat.setdefault(chat_id, []).insert(0, dict(created))
         return dict(created)
 
     def close(self) -> None:
         return None
+
+
+def _fake_graph_reply_with_quote(
+    chat_id: str,
+    body: str,
+    message_id: str,
+    *,
+    from_id: str | None,
+    quoted_message_id: str,
+) -> dict[str, Any]:
+    attachment_id = "quoted-message-ref"
+    payload = _fake_graph_message(chat_id, body, message_id, from_id=from_id)
+    payload["replyToId"] = None
+    payload["body"] = {
+        "contentType": "html",
+        "content": (
+            f"<p>{body}</p><attachment id=\"{attachment_id}\"></attachment>"
+        ),
+    }
+    payload["attachments"] = [
+        {
+            "id": attachment_id,
+            "contentType": "messageReference",
+            "content": json.dumps({"messageId": quoted_message_id}),
+        }
+    ]
+    return payload
 
 
 def _fake_graph_message(

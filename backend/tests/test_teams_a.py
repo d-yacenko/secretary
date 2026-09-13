@@ -133,6 +133,45 @@ def _graph_message(
     return payload
 
 
+def _graph_reply_with_quote(
+    *,
+    message_id: str,
+    chat_id: str,
+    body: str,
+    created: str,
+    from_id: str,
+    quoted_message_id: str,
+    reply_to_id: object = None,
+    attachment_content: object | None = None,
+    include_attachment: bool = True,
+) -> dict:
+    payload = _graph_message(
+        message_id=message_id,
+        chat_id=chat_id,
+        body=body,
+        created=created,
+        from_id=from_id,
+        html=True,
+    )
+    payload["replyToId"] = reply_to_id
+    payload["body"] = {
+        "contentType": "html",
+        "content": f'<p>{body}</p><attachment id="quoted-message-ref"></attachment>',
+    }
+    if include_attachment:
+        content = attachment_content
+        if content is None:
+            content = json.dumps({"messageId": quoted_message_id})
+        payload["attachments"] = [
+            {
+                "id": "quoted-message-ref",
+                "contentType": "messageReference",
+                "content": content,
+            }
+        ]
+    return payload
+
+
 def test_migration_0040_revises_0039(db_session) -> None:
     versions = sorted(
         path.name

@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.connectors.teams.constants import TEAMS_KIND, TEAMS_PROVIDER
-from app.connectors.teams.normalize import normalize_teams_message
+from app.connectors.teams.normalize import merge_quoted_message_provenance, normalize_teams_message
 from app.db.models import Object
 from app.domain.object_visibility import passive_sync_should_skip_existing
 from app.services.pipeline_enqueue import enqueue_embed_object
@@ -46,6 +46,7 @@ class TeamsObjectMaterializer:
         chat_display_title: str | None,
         message: dict[str, Any],
         skip_hidden: bool = True,
+        frozen_quoted_message_id: str | None = None,
     ) -> TeamsMaterializeResult:
         normalized = normalize_teams_message(
             message=message,
@@ -55,6 +56,7 @@ class TeamsObjectMaterializer:
             chat_id=chat_id,
             chat_type=chat_type,
             chat_display_title=chat_display_title,
+            frozen_quoted_message_id=frozen_quoted_message_id,
         )
         if normalized is None:
             return TeamsMaterializeResult(obj=None, change="unchanged", jobs_enqueued=0)
@@ -99,13 +101,19 @@ class TeamsObjectMaterializer:
     ) -> TeamsMaterializeResult:
         if skip_hidden and passive_sync_should_skip_existing(existing):
             return TeamsMaterializeResult(obj=existing, change="unchanged", jobs_enqueued=0)
+        incoming_meta = dict(normalized["metadata"])
+        existing_meta = dict(existing.metadata_ or {})
+        incoming_meta["quoted_message_id"] = merge_quoted_message_provenance(
+            existing_meta.get("quoted_message_id"),
+            incoming_meta.get("quoted_message_id"),
+        )
         semantic_changed = (
             existing.title != normalized["title"]
             or (existing.body or "") != (normalized.get("body") or "")
         )
         existing.title = normalized["title"]
         existing.body = normalized.get("body")
-        existing.metadata_ = normalized["metadata"]
+        existing.metadata_ = incoming_meta
         existing.occurred_at = normalized.get("occurred_at")
         self._session.flush()
         if semantic_changed:

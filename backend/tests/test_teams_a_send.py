@@ -25,7 +25,14 @@ from app.services.communication_external_action_service import (
 from app.services.recent_source_service import RecentSourceService
 from app.tools.registry import TOOL_REGISTRY
 from app.tools.schemas import SendMessageCanonicalInput, SendMessageInput, ToolError
-from tests.test_teams_a import CHAT_ONE, TEAMS_USER_ID, TENANT_ID, _connect_account, _graph_message
+from tests.test_teams_a import (
+    CHAT_ONE,
+    TEAMS_USER_ID,
+    TENANT_ID,
+    _connect_account,
+    _graph_message,
+    _graph_reply_with_quote,
+)
 from tests.test_telegram_a_send import _service as _telegram_service
 from tests.test_telegram_a_send import _tg_account, _tg_object
 from tests.test_unified_communications_a import ALLOWED_URL
@@ -106,6 +113,7 @@ def _teams_object(
         "created_at": _utcnow().isoformat(),
         "modified_at": None,
         "reply_to_message_id": None,
+        "quoted_message_id": None,
     }
     if extra_meta:
         meta.update(extra_meta)
@@ -247,19 +255,30 @@ def test_approve_compose_and_reply_write_once(db_session, teams_settings) -> Non
     replied = service.prepare_send_message(
         SendMessageInput(body="ответ", reply_to_object_id=inbound.id)
     )
-    fake.reply_with_quote_response = _graph_message(
+    fake.reply_with_quote_response = _graph_reply_with_quote(
         message_id="out-2",
         chat_id=CHAT_ONE,
         body="ответ",
         created="2026-09-13T14:01:00Z",
         from_id=TEAMS_USER_ID,
-        reply_to=SOURCE_MESSAGE_ID,
+        quoted_message_id=SOURCE_MESSAGE_ID,
+        reply_to_id=None,
     )
     result = service.send_message(replied)
     assert result.delivery_status == "sent"
     assert fake.reply_with_quote_calls == [
         {"chat_id": CHAT_ONE, "quoted_message_id": SOURCE_MESSAGE_ID, "body": "ответ"}
     ]
+    outbound_reply = db_session.scalar(
+        select(Object).where(
+            Object.external_id == build_external_id(TENANT_ID, TEAMS_USER_ID, CHAT_ONE, "out-2")
+        )
+    )
+    assert outbound_reply is not None
+    assert outbound_reply.body == "ответ"
+    assert "attachment" not in (outbound_reply.body or "").lower()
+    assert outbound_reply.metadata_["reply_to_message_id"] is None
+    assert outbound_reply.metadata_["quoted_message_id"] == SOURCE_MESSAGE_ID
 
 
 def test_uncertain_and_failed_definite_do_not_blind_retry(db_session, teams_settings) -> None:

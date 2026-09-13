@@ -11,6 +11,7 @@ DIRECTION_INBOUND = "inbound"
 DIRECTION_OUTBOUND = "outbound"
 
 MESSAGE_TYPE_MESSAGE = "message"
+MESSAGE_REFERENCE_CONTENT_TYPE = "messageReference"
 
 OAUTH_STATE_TTL_MINUTES = 10
 MICROSOFT_AUTHORITY = "https://login.microsoftonline.com/organizations"
