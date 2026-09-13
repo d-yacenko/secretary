@@ -7,7 +7,6 @@ from uuid import UUID
 from app.connectors.teams.constants import (
     ACCEPTED_CHAT_TYPES,
     CHAT_TYPE_GROUP,
-    CHAT_TYPE_ONE_ON_ONE,
     DIRECTION_INBOUND,
     DIRECTION_OUTBOUND,
     MAX_CHAT_TITLE_CHARS,
@@ -21,10 +20,16 @@ from app.connectors.teams.constants import (
     TEAMS_STATE,
 )
 from app.connectors.teams.html_text import teams_body_to_plain_text
+from app.connectors.teams.id_token import (
+    canonicalize_microsoft_guid,
+    try_canonical_microsoft_guid,
+)
 
 
 def build_external_id(tenant_id: str, microsoft_user_id: str, chat_id: str, message_id: str) -> str:
-    return f"{tenant_id}|{microsoft_user_id}|{chat_id}|{message_id}"
+    tenant = canonicalize_microsoft_guid(tenant_id, claim="tenant id")
+    user = canonicalize_microsoft_guid(microsoft_user_id, claim="user id")
+    return f"{tenant}|{user}|{chat_id}|{message_id}"
 
 
 def provider_id_str(value: object) -> str | None:
@@ -98,7 +103,9 @@ def _member_display_names(chat: dict[str, Any], *, exclude_user_id: str | None) 
         if not isinstance(member, dict):
             continue
         user_id = provider_id_str(member.get("userId") or _nested_user_id(member))
-        if exclude_user_id and user_id == exclude_user_id:
+        if exclude_user_id and try_canonical_microsoft_guid(
+            user_id
+        ) == try_canonical_microsoft_guid(exclude_user_id):
             continue
         name = _clip(provider_id_str(member.get("displayName")), MAX_DISPLAY_NAME_CHARS)
         if name:
@@ -157,8 +164,11 @@ def normalize_teams_message(
     )
     if len(text) > MAX_MESSAGE_BODY_CHARS:
         text = text[:MAX_MESSAGE_BODY_CHARS]
+    tenant_id = canonicalize_microsoft_guid(tenant_id, claim="tenant id")
+    microsoft_user_id = canonicalize_microsoft_guid(microsoft_user_id, claim="user id")
     sender_id, sender_name = sender_from_message(message)
-    direction = DIRECTION_OUTBOUND if sender_id == microsoft_user_id else DIRECTION_INBOUND
+    sender_identity = try_canonical_microsoft_guid(sender_id)
+    direction = DIRECTION_OUTBOUND if sender_identity == microsoft_user_id else DIRECTION_INBOUND
     occurred_at = parse_graph_datetime(message.get("createdDateTime"))
     modified_at = parse_graph_datetime(message.get("lastModifiedDateTime"))
     title_name = sender_name or ("Вы" if direction == DIRECTION_OUTBOUND else chat_display_title or "Teams")

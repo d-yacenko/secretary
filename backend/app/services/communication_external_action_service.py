@@ -40,6 +40,10 @@ from app.connectors.teams.errors import (
     TeamsWriteUncertainError,
 )
 from app.connectors.teams.html_text import teams_body_to_plain_text
+from app.connectors.teams.id_token import (
+    canonicalize_microsoft_guid,
+    try_canonical_microsoft_guid,
+)
 from app.connectors.teams.materialize import TeamsObjectMaterializer
 from app.connectors.teams.normalize import build_external_id as build_teams_external_id
 from app.connectors.teams.normalize import provider_id_str as teams_provider_id_str
@@ -712,6 +716,11 @@ class CommunicationExternalActionService:
         source_message_id = teams_provider_id_str(meta.get("message_id"))
         if not tenant_id or not teams_user_id or not chat_id or not chat_type or not source_message_id:
             raise ToolError("malformed Teams routing metadata")
+        try:
+            tenant_id = canonicalize_microsoft_guid(tenant_id, claim="tenant id")
+            teams_user_id = canonicalize_microsoft_guid(teams_user_id, claim="user id")
+        except TeamsOAuthError as exc:
+            raise ToolError("malformed Teams routing metadata") from exc
         if chat_type not in ACCEPTED_CHAT_TYPES:
             raise ToolError("unsupported Teams chat type")
 
@@ -852,7 +861,7 @@ class CommunicationExternalActionService:
             if _normalize_body(returned_text) != payload.body:
                 return _UNCERTAIN_DELIVERY_MESSAGE
         sender_id, _sender_name = sender_from_message(created)
-        if sender_id and sender_id != route.teams_user_id:
+        if sender_id and try_canonical_microsoft_guid(sender_id) != route.teams_user_id:
             return _UNCERTAIN_DELIVERY_MESSAGE
         returned_reply = teams_provider_id_str(created.get("replyToId"))
         if payload.mode == "compose" and returned_reply is not None:

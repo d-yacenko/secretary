@@ -31,7 +31,7 @@ from app.connectors.teams.errors import (
     TeamsReconnectRequiredError,
     TeamsWriteDefiniteError,
 )
-from app.connectors.teams.id_token import MicrosoftIdTokenValidator
+from app.connectors.teams.id_token import MicrosoftIdTokenValidator, ResolvedSigningKey
 from app.connectors.teams.oauth_service import TeamsOAuthService
 from app.connectors.teams.oauth_state import hash_oauth_secret
 from app.connectors.teams.sync import TeamsSyncService
@@ -52,6 +52,7 @@ from app.services.job_queue_service import JobQueueService, utcnow
 from app.tools.schemas import SendMessageInput
 from tests.test_teams_a import (
     CHAT_ONE,
+    OTHER_MICROSOFT_USER_ID,
     TEAMS_USER_ID,
     TENANT_ID,
     _connect_account,
@@ -80,15 +81,13 @@ def teams_settings(monkeypatch: pytest.MonkeyPatch, credential_key: str) -> str:
     return credential_key
 
 
-class _StubJwk:
-    def __init__(self, public_key) -> None:
+class _StubSigningKeys:
+    def __init__(self, public_key, issuer: str | None = None) -> None:
         self._public_key = public_key
+        self._issuer = issuer or "https://login.microsoftonline.com/{tenantid}/v2.0"
 
-    def get_signing_key_from_jwt(self, token: str):
-        class _Key:
-            key = self._public_key
-
-        return _Key()
+    def resolve_signing_key(self, token: str):
+        return ResolvedSigningKey(key=self._public_key, issuer=self._issuer)
 
 
 @pytest.fixture
@@ -107,6 +106,8 @@ def _signed_id_token(
     exp: datetime | None = None,
     nbf: datetime | None = None,
     extra: dict | None = None,
+    omit: set[str] | None = None,
+    headers: dict | None = None,
 ) -> str:
     now = datetime.now(UTC)
     claims = {
@@ -121,11 +122,16 @@ def _signed_id_token(
     }
     if extra:
         claims.update(extra)
-    return jwt.encode(claims, private_key, algorithm="RS256")
+    for key in omit or set():
+        claims.pop(key, None)
+    encode_kwargs: dict = {}
+    if headers:
+        encode_kwargs["headers"] = headers
+    return jwt.encode(claims, private_key, algorithm="RS256", **encode_kwargs)
 
 
-def _validator(public_key) -> MicrosoftIdTokenValidator:
-    return MicrosoftIdTokenValidator(_StubJwk(public_key))
+def _validator(public_key, issuer: str | None = None) -> MicrosoftIdTokenValidator:
+    return MicrosoftIdTokenValidator(_StubSigningKeys(public_key, issuer=issuer))
 
 
 def test_signed_id_token_and_me_binding_succeeds(rsa_keys) -> None:
@@ -284,7 +290,7 @@ def test_id_token_rejects_consumer_tenant(rsa_keys) -> None:
         private_key,
         aud="client-id",
         tid=CONSUMER_TENANT_ID,
-        oid="consumer-user",
+        oid="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         nonce=nonce,
     )
     with pytest.raises(TeamsOAuthError, match="personal"):
@@ -306,7 +312,7 @@ def test_complete_login_rejects_me_identity_mismatch(rsa_keys) -> None:
 
     class _Me:
         def get_me(self):
-            return {"id": "someone-else", "displayName": "Ada"}
+            return {"id": OTHER_MICROSOFT_USER_ID, "displayName": "Ada"}
 
         def close(self):
             return None
@@ -356,7 +362,7 @@ def test_different_identity_cannot_silently_overwrite(db_session, teams_settings
     with pytest.raises(TeamsIdentitySwitchError, match="disconnect"):
         store.upsert_tokens(
             user.id,
-            microsoft_user_id="other-user",
+            microsoft_user_id=OTHER_MICROSOFT_USER_ID,
             tenant_id=TENANT_ID,
             upn="other@contoso.com",
             display_name="Other",

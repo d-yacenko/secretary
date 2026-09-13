@@ -15,7 +15,11 @@ from app.connectors.teams.errors import (
     TeamsOAuthError,
     TeamsReconnectRequiredError,
 )
-from app.connectors.teams.id_token import MicrosoftIdTokenValidator, TeamsJWKClient
+from app.connectors.teams.id_token import (
+    MicrosoftIdTokenValidator,
+    TeamsSigningKeyResolver,
+    canonicalize_microsoft_guid,
+)
 from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
 
 
@@ -67,7 +71,7 @@ class TeamsOAuthService:
         http_client: httpx.Client | None = None,
         *,
         id_token_validator: MicrosoftIdTokenValidator | None = None,
-        jwks_client: TeamsJWKClient | None = None,
+        jwks_client: TeamsSigningKeyResolver | None = None,
         graph_transport_factory=None,
     ) -> None:
         self._client_id = client_id.strip()
@@ -147,8 +151,11 @@ class TeamsOAuthService:
             close = getattr(transport, "close", None)
             if callable(close) and transport is not self._http:
                 close()
-        me_id = str(me.get("id") or "").strip()
-        if not me_id or me_id != identity.oid:
+        try:
+            me_id = canonicalize_microsoft_guid(me.get("id"), claim="user id")
+        except TeamsOAuthError as exc:
+            raise TeamsOAuthError("Microsoft Graph identity does not match") from exc
+        if me_id != identity.oid:
             raise TeamsOAuthError("Microsoft Graph identity does not match")
         granted_scope = payload.get("scope")
         scopes = str(granted_scope).split() if granted_scope else list(TEAMS_OAUTH_SCOPES)

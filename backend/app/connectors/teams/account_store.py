@@ -20,6 +20,7 @@ from app.connectors.teams.errors import (
     TeamsIdentitySwitchError,
     TeamsOAuthError,
 )
+from app.connectors.teams.id_token import canonicalize_microsoft_guid
 from app.db.models import TeamsAccount
 from app.services.user_serialization_gate import lock_user_serialization_row
 
@@ -62,6 +63,8 @@ class TeamsAccountStore:
     def get_by_microsoft_identity(
         self, tenant_id: str, microsoft_user_id: str
     ) -> TeamsAccount | None:
+        tenant_id = canonicalize_microsoft_guid(tenant_id, claim="tenant id")
+        microsoft_user_id = canonicalize_microsoft_guid(microsoft_user_id, claim="user id")
         return self._session.scalar(
             select(TeamsAccount).where(
                 TeamsAccount.tenant_id == tenant_id,
@@ -86,6 +89,8 @@ class TeamsAccountStore:
         refresh_token: str,
         token_expiry: datetime | None,
     ) -> TeamsAccount:
+        tenant_id = canonicalize_microsoft_guid(tenant_id, claim="tenant id")
+        microsoft_user_id = canonicalize_microsoft_guid(microsoft_user_id, claim="user id")
         conflict = self.get_by_microsoft_identity(tenant_id, microsoft_user_id)
         if conflict is not None and conflict.user_id != user_id:
             raise TeamsIdentityConflictError("Microsoft Teams identity is already connected")

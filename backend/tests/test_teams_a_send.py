@@ -189,7 +189,11 @@ def test_prepare_rejects_wrong_user_account_provider_and_chat_type(db_session, t
     db_session.flush()
     with pytest.raises(ToolError, match="chat type"):
         service.prepare_send_message(SendMessageInput(body="hi", conversation_object_id=inbound.id))
-    inbound.metadata_ = {**inbound.metadata_, "chat_type": "oneOnOne", "tenant_id": "other-tenant"}
+    inbound.metadata_ = {
+        **inbound.metadata_,
+        "chat_type": "oneOnOne",
+        "tenant_id": "44444444-4444-4444-4444-444444444444",
+    }
     db_session.flush()
     with pytest.raises(ToolError, match="tenant"):
         service.prepare_send_message(SendMessageInput(body="hi", conversation_object_id=inbound.id))
