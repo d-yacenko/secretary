@@ -531,3 +531,12 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Production smoke:** `GET /me/settings` **200** with `assistant_max_rounds`; simple Assistant **200** after deploy.
 - **Status:** **implemented / deployed** at `1401351e4fd146e376b3b702352bc10deac00e1b`.
 
+## Pre-Voice UI Corrective A
+
+- **Motivation:** three client regressions observed before Voice Assistant A: wide Inbox timestamp drifting toward the center, consecutive adjacent swipe-delete spring-back, and phone Week showing a single day column.
+- **Inbox timestamp:** `ObjectCompactHeaderRow` keeps title `Expanded` and trailing metadata in `Flexible` with `Align.centerRight`, so the timestamp pins to the right of the usable header (before bookmark reserve) on wide and compact widths.
+- **Swipe-delete:** touch Inbox rows and `InboxSwipeToRemove` are keyed by object id; `_deleteInFlight` / `_armed` do not transfer between objects.
+- **Phone Week:** width < 600dp uses kalender 0.29.1 `MultiDayViewConfiguration.custom(numberOfDays: 3)`. Width >= 600dp keeps the existing seven-day `MultiDayViewConfiguration.week`. Current-week compact initial page contains today; non-current week opens Mon/Tue/Wed. No custom calendar engine.
+- **Constraints:** client-only; no migration; no backend feature work; no Teams redesign; no Voice A.
+- **Status:** **implemented / awaiting Architect review** on `review/pre-voice-ui-corrective-a`.
+

@@ -1,69 +1,25 @@
-# Current task — Teams A + Communication Action Plan Integrity
+# Current task — Pre-Voice UI Corrective A
 
 ## Status
 
-**Teams A: CODE ACCEPTED / DEPLOYED / PRODUCTION ACTIVATION DEFERRED — EXTERNAL ENTRA ADMIN CONSENT REQUIRED** on `review/teams-a`.
+**Pre-Voice UI Corrective A: IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/pre-voice-ui-corrective-a`.
 
-Not CLOSED. Not PRODUCTION ACCEPTED.
+Not CODE ACCEPTED. Not deployed. Do not start Voice Assistant A.
 
-CODE ACCEPTED application SHA: `eb3af922f804e6faf1d895fd14c0973981ce515e`  
-Exact deployed production SHA: `eb3af922f804e6faf1d895fd14c0973981ce515e`  
-Previous production SHA: `c5d288444cc5053e79c0942cdbc23af3eebbbb50`  
-Alembic: **0040 / 0040**  
-Migration: `0040_teams_accounts.py`. No `0041`.
+Canonical base: `review/teams-a` docs tip after the Teams external-blocker transition:
 
-This ledger transition is docs-only. Do not change application code. Do not deploy. Do not touch production configuration.
+`999f3668468826585e965c27488db2ea49f83cb9`
 
-## Canonical base
+Teams A remains **CODE ACCEPTED / DEPLOYED / PRODUCTION ACTIVATION DEFERRED — EXTERNAL ENTRA ADMIN CONSENT REQUIRED** at application SHA `eb3af922f804e6faf1d895fd14c0973981ce515e`. Alembic **0040 / 0040**. This corrective does not reopen Teams A.
 
-SHA: `fd5d1497215e4c72033274908b69aebe42e175a9`  
-Branch: `review/telegram-a`  
-Commit: `Close Telegram A after production activation`
+## Scope
 
-Telegram A remains CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED. Do not reopen or redesign Telegram A.
+Client-only. No DB migration. No backend feature work. No Teams redesign. No Voice A.
 
-## Production application (unchanged this record)
-
-Exact application SHA `eb3af922f804e6faf1d895fd14c0973981ce515e` remains detached on VDS `/opt/secretary`. Alembic remains **0040 / 0040**. Docs-only commits are not deployed.
-
-## Microsoft runtime configuration
-
-Microsoft production credentials are present. Runtime:
-
-- `teams_is_configured()` == true
-- `GET /connections` Teams `configured=true`
-- `connected=false`
-- `reconnect_required=false`
-
-Redirect remains `https://web-itx.duckdns.org/secretary/auth/teams/callback`. Secret values are not recorded here.
-
-## Microsoft OAuth / live E2E
-
-The user initiated real Microsoft OAuth with a work/school account. Microsoft successfully recognized the Secretary Entra application and that account.
-
-OAuth was then blocked by the organization's Microsoft Entra tenant policy with **Need admin approval**.
-
-This is an **EXTERNAL TENANT ADMIN-CONSENT BLOCKER**, not a Secretary code defect.
-
-Required configured Graph delegated permissions:
-
-- `User.Read`
-- `Chat.Read`
-- `ChatMessage.Send`
-- plus OIDC `openid` / `profile` / `offline_access`
-
-The accidental `ChatMessage.Read` permission was removed from Entra.
-
-No Teams account or token was created. No Teams send occurred. Recurring Teams sync, inbound Teams object, first-turn Pending Action Plan, and no-write-before-approval were not reached. Real Secretary-originated Teams send: **not executed, not claimed as production-tested**.
-
-## Subsequent phases
-
-This external Entra admin-consent blocker **no longer blocks subsequent Secretary development phases**.
-
-Teams production activation may be resumed later from the accepted/deployed SHA `eb3af922f804e6faf1d895fd14c0973981ce515e` after tenant admin consent becomes available.
-
-Do not mark CLOSED / PRODUCTION ACCEPTED from this record.
+1. Inbox wide/tablet timestamp pinned to the right of the usable card header.
+2. Consecutive touch swipe-delete of adjacent Inbox items.
+3. Phone Week shows three adjacent day columns (kalender 0.29.1 `MultiDayViewConfiguration.custom(numberOfDays: 3)`). Tablet/desktop >= 600dp keep the seven-day Week.
 
 ## Stop
 
-Docs-only ledger updated. No code change. No deploy. No production configuration change. Encrypted Architect context untouched.
+Implementation + widget tests + docs are done. Push `review/pre-voice-ui-corrective-a` and wait for Architect review. Do not deploy. Do not start Voice Assistant A.
