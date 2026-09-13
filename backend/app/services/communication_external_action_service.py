@@ -1,10 +1,10 @@
-"""Bounded Mattermost send_message execution after approval."""
+"""Bounded Mattermost and Telegram send_message execution after approval."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -25,15 +25,36 @@ from app.connectors.mattermost.normalize import (
     validate_server_url_allowlist,
 )
 from app.connectors.mattermost.transport import MattermostHttpTransport, MattermostTransport
+from app.connectors.telegram.account_store import TelegramAccountStore
+from app.connectors.telegram.constants import (
+    DIRECTION_INBOUND,
+    MAX_TELEGRAM_MESSAGE_BODY_CHARS,
+    RECENT_INBOUND_WINDOW_SECONDS,
+    TELEGRAM_KIND,
+    TELEGRAM_PROVIDER,
+)
+from app.connectors.telegram.errors import (
+    TelegramConfigurationError,
+    TelegramWriteDefiniteError,
+    TelegramWriteUncertainError,
+)
+from app.connectors.telegram.materialize import TelegramObjectMaterializer
+from app.connectors.telegram.normalize import build_external_id as build_telegram_external_id
+from app.connectors.telegram.normalize import provider_id_str
+from app.connectors.telegram.transport import TelegramHttpTransport, TelegramTransport
+from app.connectors.telegram.webhook_service import can_reply_from_rights, telegram_is_configured
 from app.core.config import settings
-from app.db.models import ExternalActionAttempt, MattermostAccount, Object
+from app.db.models import ExternalActionAttempt, MattermostAccount, Object, TelegramAccount
 from app.db.session import SessionLocal
 from app.domain.object_visibility import is_object_hidden_from_active_reads
+from app.domain.task_lifecycle import TASK_STATUS_DELETED
 from app.services.provenance import REJECTED_STATE
 from app.tools.schemas import (
+    MattermostSendRoute,
     SendMessageCanonicalInput,
     SendMessageInput,
     SendMessageOutput,
+    TelegramSendRoute,
     ToolError,
 )
 
@@ -48,7 +69,8 @@ PENDING_POST_ID_PREFIX = "secretary:"
 _UNCERTAIN_DELIVERY_MESSAGE = "could not confirm message delivery; not retrying send"
 _FAILED_DEFINITE_MESSAGE = "message send previously failed; create a new plan"
 _KIND_REQUIRED = "chat_message"
-_PROVIDER_REQUIRED = "mattermost"
+_PROVIDER_MATTERMOST = "mattermost"
+_PROVIDER_TELEGRAM = "telegram"
 
 
 def generate_operation_id() -> str:
@@ -84,13 +106,16 @@ class CommunicationExternalActionService:
         user_id: UUID,
         *,
         transport: MattermostTransport | None = None,
+        telegram_transport: TelegramTransport | None = None,
         attempt_session_factory=SessionLocal,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._transport = transport
+        self._telegram_transport = telegram_transport
         self._attempt_session_factory = attempt_session_factory
         self._materializer = MattermostObjectMaterializer(session)
+        self._telegram_materializer = TelegramObjectMaterializer(session)
 
     def prepare_send_message(self, payload: SendMessageInput) -> SendMessageCanonicalInput:
         if payload.conversation_object_id is not None:
@@ -103,6 +128,10 @@ class CommunicationExternalActionService:
             anchor_id = payload.reply_to_object_id
 
         obj = self._load_anchor(anchor_id)
+        if obj.provider == _PROVIDER_TELEGRAM:
+            return self._prepare_telegram(payload, obj, mode)
+        if obj.provider != _PROVIDER_MATTERMOST:
+            raise ToolError("anchor provider is not mattermost")
         route = self._validated_route(obj)
         root_id = None
         if mode == "reply":
@@ -112,25 +141,29 @@ class CommunicationExternalActionService:
         return SendMessageCanonicalInput(
             provider="mattermost",
             mode=mode,
-            account_id=route["account_id"],
-            server_url=route["server_url"],
-            channel_id=route["channel_id"],
-            channel_type=route["channel_type"],
-            channel_name=route["channel_name"],
-            channel_display_name=route["channel_display_name"],
             anchor_object_id=obj.id,
-            source_post_id=route["post_id"],
-            root_id=root_id,
             body=payload.body,
             operation_id=operation_id,
-            pending_post_id=pending_post_id_from_operation_id(operation_id),
+            route=MattermostSendRoute(
+                account_id=route["account_id"],
+                server_url=route["server_url"],
+                channel_id=route["channel_id"],
+                channel_type=route["channel_type"],
+                channel_name=route["channel_name"],
+                channel_display_name=route["channel_display_name"],
+                source_post_id=route["post_id"],
+                root_id=root_id,
+                pending_post_id=pending_post_id_from_operation_id(operation_id),
+            ),
         )
 
     def send_message(self, payload: SendMessageCanonicalInput) -> SendMessageOutput:
+        if payload.provider == _PROVIDER_TELEGRAM:
+            return self._send_telegram(payload)
         expected_pending = pending_post_id_from_operation_id(payload.operation_id)
         if payload.pending_post_id != expected_pending:
             raise ToolError("pending_post_id does not match operation_id")
-        if payload.provider != "mattermost":
+        if payload.provider != _PROVIDER_MATTERMOST:
             raise ToolError("unsupported send_message provider")
         account = self._require_account(payload.account_id)
         self._assert_frozen_account(account, payload)
@@ -151,8 +184,6 @@ class CommunicationExternalActionService:
             raise ToolError("object is rejected")
         if obj.kind != _KIND_REQUIRED:
             raise ToolError("anchor must be a chat_message")
-        if obj.provider != _PROVIDER_REQUIRED:
-            raise ToolError("anchor provider is not mattermost")
         return obj
 
     def _validated_route(self, obj: Object) -> dict[str, Any]:
@@ -279,6 +310,8 @@ class CommunicationExternalActionService:
             )
         if attempt.state == ATTEMPT_FAILED_DEFINITE:
             raise ToolError(_FAILED_DEFINITE_MESSAGE)
+        if payload.provider == _PROVIDER_TELEGRAM:
+            raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
         matched = self._reconcile_local(payload)
         if matched is not None:
             provider_id = str((matched.metadata_ or {}).get("post_id") or "").strip() or None
@@ -308,6 +341,8 @@ class CommunicationExternalActionService:
             ATTEMPT_UNCERTAIN,
             error=error or _UNCERTAIN_DELIVERY_MESSAGE,
         )
+        if payload.provider == _PROVIDER_TELEGRAM:
+            raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
         matched = self._reconcile_local(payload)
         if matched is not None:
             provider_id = str((matched.metadata_ or {}).get("post_id") or "").strip() or None
@@ -333,6 +368,264 @@ class CommunicationExternalActionService:
             error=error,
         )
         raise ToolError(error or "Mattermost write rejected")
+
+    def _prepare_telegram(
+        self,
+        payload: SendMessageInput,
+        obj: Object,
+        mode: str,
+    ) -> SendMessageCanonicalInput:
+        if len(payload.body) > MAX_TELEGRAM_MESSAGE_BODY_CHARS:
+            raise ToolError("body exceeds Telegram maximum length")
+        route = self._validated_telegram_route(obj)
+        self._require_recent_inbound(
+            account_id=route["account_id"],
+            business_connection_id=route["business_connection_id"],
+            chat_id=route["chat_id"],
+        )
+        reply_to_message_id = route["source_message_id"] if mode == "reply" else None
+        return SendMessageCanonicalInput(
+            provider="telegram",
+            mode=mode,
+            anchor_object_id=obj.id,
+            body=payload.body,
+            operation_id=generate_operation_id(),
+            route=TelegramSendRoute(
+                account_id=route["account_id"],
+                business_connection_id=route["business_connection_id"],
+                business_user_id=route["business_user_id"],
+                chat_id=route["chat_id"],
+                source_message_id=route["source_message_id"],
+                reply_to_message_id=reply_to_message_id,
+                chat_display_name=route["chat_display_name"],
+                chat_username=route["chat_username"],
+            ),
+        )
+
+    def _validated_telegram_route(self, obj: Object) -> dict[str, Any]:
+        meta = dict(obj.metadata_ or {})
+        raw_account_id = meta.get("account_id")
+        try:
+            account_id = UUID(str(raw_account_id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ToolError("malformed Telegram account_id") from exc
+
+        business_connection_id = provider_id_str(meta.get("business_connection_id"))
+        business_user_id = provider_id_str(meta.get("business_user_id"))
+        chat_id = provider_id_str(meta.get("chat_id"))
+        source_message_id = provider_id_str(meta.get("message_id"))
+        if not business_connection_id or not business_user_id or not chat_id or not source_message_id:
+            raise ToolError("malformed Telegram routing metadata")
+        if not str(chat_id).lstrip("-").isdigit() or not str(source_message_id).isdigit():
+            raise ToolError("malformed Telegram provider IDs")
+
+        account = self._require_telegram_account(account_id)
+        if not account.business_connection_enabled:
+            raise ToolError("Telegram business connection is not active")
+        if provider_id_str(account.business_connection_id) != business_connection_id:
+            raise ToolError("Telegram business connection does not match")
+        if str(account.telegram_user_id) != business_user_id:
+            raise ToolError("Telegram account identity does not match")
+        if not can_reply_from_rights(account.business_rights):
+            raise ToolError("Telegram reply permission is required")
+
+        expected_external_id = build_telegram_external_id(
+            business_connection_id,
+            chat_id,
+            source_message_id,
+        )
+        if obj.external_id != expected_external_id:
+            raise ToolError("Telegram external_id does not match message routing")
+
+        return {
+            "account_id": account.id,
+            "business_connection_id": business_connection_id,
+            "business_user_id": str(account.telegram_user_id),
+            "chat_id": chat_id,
+            "source_message_id": source_message_id,
+            "chat_display_name": str(meta.get("chat_display_name") or "").strip() or None,
+            "chat_username": str(meta.get("chat_username") or "").strip() or None,
+        }
+
+    def _require_telegram_account(self, account_id: UUID) -> TelegramAccount:
+        account = TelegramAccountStore(self._session).get_by_id_for_user(account_id, self._user_id)
+        if account is None:
+            raise ToolError("Telegram account is not connected")
+        return account
+
+    def _require_recent_inbound(
+        self,
+        *,
+        account_id: UUID,
+        business_connection_id: str,
+        chat_id: str,
+    ) -> None:
+        cutoff = _utcnow() - timedelta(seconds=RECENT_INBOUND_WINDOW_SECONDS)
+        exists = self._session.scalar(
+            select(Object.id).where(
+                Object.user_id == self._user_id,
+                Object.provider == TELEGRAM_PROVIDER,
+                Object.kind == TELEGRAM_KIND,
+                Object.deleted_at.is_(None),
+                or_(Object.status.is_(None), Object.status != TASK_STATUS_DELETED),
+                Object.metadata_["direction"].as_string() == DIRECTION_INBOUND,
+                Object.metadata_["account_id"].as_string() == str(account_id),
+                Object.metadata_["business_connection_id"].as_string() == business_connection_id,
+                Object.metadata_["chat_id"].as_string() == chat_id,
+                Object.occurred_at.is_not(None),
+                Object.occurred_at >= cutoff,
+            ).limit(1)
+        )
+        if exists is None:
+            raise ToolError("Telegram chat is not eligible for outbound send")
+
+    def _assert_frozen_telegram_account(
+        self,
+        account: TelegramAccount,
+        route: TelegramSendRoute,
+    ) -> None:
+        if account.id != route.account_id or account.user_id != self._user_id:
+            raise ToolError("Telegram account is not connected")
+        if not account.business_connection_enabled:
+            raise ToolError("Telegram business connection is not active")
+        if provider_id_str(account.business_connection_id) != route.business_connection_id:
+            raise ToolError("Telegram business connection does not match")
+        if str(account.telegram_user_id) != route.business_user_id:
+            raise ToolError("Telegram account identity does not match")
+        if not can_reply_from_rights(account.business_rights):
+            raise ToolError("Telegram reply permission is required")
+
+    def _send_telegram(self, payload: SendMessageCanonicalInput) -> SendMessageOutput:
+        if payload.provider != _PROVIDER_TELEGRAM:
+            raise ToolError("unsupported send_message provider")
+        route = payload.telegram_route
+        account = self._require_telegram_account(route.account_id)
+        self._assert_frozen_telegram_account(account, route)
+        self._require_recent_inbound(
+            account_id=route.account_id,
+            business_connection_id=route.business_connection_id,
+            chat_id=route.chat_id,
+        )
+        attempt, claimed = self._claim_started(payload.operation_id)
+        if not claimed:
+            return self._resume_existing_attempt(payload, attempt)
+        return self._write_telegram_once(payload, account)
+
+    def _write_telegram_once(
+        self,
+        payload: SendMessageCanonicalInput,
+        account: TelegramAccount,
+    ) -> SendMessageOutput:
+        route = payload.telegram_route
+        owns_transport = False
+        transport = self._telegram_transport
+        if transport is None:
+            try:
+                transport = self._open_telegram_http_transport()
+            except (ToolError, TelegramConfigurationError) as exc:
+                return self._definite_failure(payload, exc.message)
+            owns_transport = True
+        try:
+            try:
+                created = transport.send_message(
+                    business_connection_id=route.business_connection_id,
+                    chat_id=route.chat_id,
+                    text=payload.body,
+                    reply_to_message_id=route.reply_to_message_id,
+                )
+            except TelegramWriteDefiniteError as exc:
+                return self._definite_failure(payload, exc.message)
+            except TelegramWriteUncertainError as exc:
+                return self._after_uncertain_write(payload, exc.message)
+        finally:
+            if owns_transport:
+                transport.close()
+
+        mismatch = self._telegram_success_mismatch(payload, created)
+        if mismatch is not None:
+            return self._after_uncertain_write(payload, mismatch)
+
+        provider_id = provider_id_str(created.get("message_id"))
+        self._persist_attempt_state(
+            payload.operation_id,
+            ATTEMPT_SUCCEEDED,
+            provider_external_id=provider_id,
+            delivery_status="sent",
+        )
+        obj = self._materialize_telegram_created(payload, account, created)
+        return self._output(
+            payload,
+            provider_id,
+            object_id=obj.id if obj is not None else None,
+            delivery_status="sent",
+            changed=True,
+        )
+
+    def _telegram_success_mismatch(
+        self,
+        payload: SendMessageCanonicalInput,
+        created: dict[str, Any],
+    ) -> str | None:
+        if not isinstance(created, dict):
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        route = payload.telegram_route
+        message_id = provider_id_str(created.get("message_id"))
+        if not message_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        returned_connection = provider_id_str(created.get("business_connection_id"))
+        if returned_connection != route.business_connection_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        chat = created.get("chat") if isinstance(created.get("chat"), dict) else None
+        returned_chat = provider_id_str(chat.get("id") if chat else None)
+        if returned_chat != route.chat_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        returned_text = created.get("text")
+        if not isinstance(returned_text, str) or _normalize_body(returned_text) != payload.body:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        sender_bot = created.get("sender_business_bot")
+        if isinstance(sender_bot, dict):
+            returned_username = str(sender_bot.get("username") or "").strip().lstrip("@").lower()
+            expected_username = settings.telegram_bot_username.strip().lstrip("@").lower()
+            if expected_username and returned_username and returned_username != expected_username:
+                return _UNCERTAIN_DELIVERY_MESSAGE
+        reply_to = created.get("reply_to_message") if isinstance(created.get("reply_to_message"), dict) else None
+        returned_reply = provider_id_str(reply_to.get("message_id") if reply_to else None)
+        if payload.mode == "compose" and returned_reply is not None:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        if payload.mode == "reply" and returned_reply != route.reply_to_message_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        return None
+
+    def _materialize_telegram_created(
+        self,
+        payload: SendMessageCanonicalInput,
+        account: TelegramAccount,
+        created: dict[str, Any],
+    ) -> Object | None:
+        route = payload.telegram_route
+        message = dict(created)
+        message.setdefault("business_connection_id", route.business_connection_id)
+        from_user = message.get("from") if isinstance(message.get("from"), dict) else None
+        if from_user is None:
+            message["from"] = {
+                "id": account.telegram_user_id,
+                "username": account.telegram_username,
+                "first_name": account.display_name or "",
+            }
+        result = self._telegram_materializer.upsert_business_message(
+            user_id=self._user_id,
+            account_id=account.id,
+            business_connection_id=route.business_connection_id,
+            business_user_id=str(account.telegram_user_id),
+            message=message,
+            skip_hidden=False,
+        )
+        return result.obj
+
+    def _open_telegram_http_transport(self) -> TelegramHttpTransport:
+        if not telegram_is_configured():
+            raise ToolError("telegram is not configured")
+        return TelegramHttpTransport(settings.telegram_bot_token)
 
     def _reconcile_local(self, payload: SendMessageCanonicalInput) -> Object | None:
         return self._materializer.find_by_pending_post_id(
@@ -407,6 +700,15 @@ class CommunicationExternalActionService:
         attempt: ExternalActionAttempt,
     ) -> UUID | None:
         provider_id = str(attempt.provider_external_id or "").strip()
+        if payload.provider == _PROVIDER_TELEGRAM:
+            if not provider_id:
+                return None
+            route = payload.telegram_route
+            existing = self._telegram_materializer.find_existing(
+                self._user_id,
+                build_telegram_external_id(route.business_connection_id, route.chat_id, provider_id),
+            )
+            return existing.id if existing is not None else None
         if not provider_id:
             matched = self._reconcile_local(payload)
             return matched.id if matched is not None else None
@@ -520,7 +822,7 @@ class CommunicationExternalActionService:
         changed: bool,
     ) -> SendMessageOutput:
         return SendMessageOutput(
-            provider="mattermost",
+            provider=payload.provider,
             mode=payload.mode,
             provider_message_id=provider_message_id,
             object_id=object_id,

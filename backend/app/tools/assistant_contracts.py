@@ -539,7 +539,8 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "send_message",
         "description": (
-            "Send an external message. Currently supports existing Mattermost conversations only. "
+            "Send an external message. Currently supports existing Mattermost conversations "
+            "and Telegram known private conversations. "
             "Requires explicit user approval before the provider write. "
             "Call ONLY when the user has asked to SEND. "
             "Do not call for drafting, research, or preparation. "
@@ -548,7 +549,8 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
             "Obtain the exact existing chat_message Object.id via retrieve, query_objects, "
             "or get_object. Never invent an Object.id. "
             "If the target conversation or person is ambiguous, ask instead of guessing. "
-            "Do not pass Mattermost channel_id, server_url, account_id, post_id, or root_id."
+            "Do not pass Mattermost channel_id, server_url, account_id, post_id, or root_id. "
+            "Do not pass Telegram chat_id, business_connection_id, message_id, user_id, or username."
         ),
         "parameters": {
             "type": "object",

@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     mattermost_sync_initial_posts_per_channel: int = 100
     mattermost_sync_max_posts_per_run: int = 500
     mattermost_sync_overlap_seconds: int = 300
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = ""
+    telegram_webhook_secret: str = ""
+    telegram_webhook_url: str = ""
     source_sync_gmail_interval_seconds: int = 120
     source_sync_yandex_mail_interval_seconds: int = 120
     source_sync_google_calendar_interval_seconds: int = 300

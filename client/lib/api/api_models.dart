@@ -268,6 +268,61 @@ class MattermostConnectResult {
   }
 }
 
+class TelegramConnection {
+  TelegramConnection({
+    required this.configured,
+    required this.identityLinked,
+    required this.businessConnected,
+    required this.canReply,
+    this.telegramUsername,
+    this.displayName,
+    this.botUsername,
+  });
+
+  final bool configured;
+  final bool identityLinked;
+  final bool businessConnected;
+  final bool canReply;
+  final String? telegramUsername;
+  final String? displayName;
+  final String? botUsername;
+
+  factory TelegramConnection.unavailable() {
+    return TelegramConnection(
+      configured: false,
+      identityLinked: false,
+      businessConnected: false,
+      canReply: false,
+    );
+  }
+
+  factory TelegramConnection.fromJson(Map<String, dynamic> json) {
+    return TelegramConnection(
+      configured: json['configured'] as bool? ?? false,
+      identityLinked: json['identity_linked'] as bool? ?? false,
+      businessConnected: json['business_connected'] as bool? ?? false,
+      canReply: json['can_reply'] as bool? ?? false,
+      telegramUsername: json['telegram_username'] as String?,
+      displayName: json['display_name'] as String?,
+      botUsername: json['bot_username'] as String?,
+    );
+  }
+}
+
+class TelegramLinkResult {
+  TelegramLinkResult({required this.telegramUrl, required this.expiresAt});
+
+  final String telegramUrl;
+  final String expiresAt;
+
+  factory TelegramLinkResult.fromJson(Map<String, dynamic> json) {
+    return TelegramLinkResult(
+      telegramUrl: json['telegram_url'] as String,
+      expiresAt: json['expires_at'] as String,
+    );
+  }
+}
+
 class YandexConnectResult {
   YandexConnectResult({
     required this.status,
@@ -294,15 +349,18 @@ class Connections {
     required this.yandexMail,
     required this.yandexCalendar,
     required this.mattermost,
+    required this.telegram,
   });
 
   final GoogleConnection google;
   final YandexMailConnection yandexMail;
   final YandexCalendarConnection yandexCalendar;
   final List<MattermostConnection> mattermost;
+  final TelegramConnection telegram;
 
   factory Connections.fromJson(Map<String, dynamic> json) {
     final mattermostRaw = json['mattermost'];
+    final telegramRaw = json['telegram'];
     return Connections(
       google: GoogleConnection.fromJson(json['google'] as Map<String, dynamic>),
       yandexMail: YandexMailConnection.fromJson(
@@ -316,6 +374,9 @@ class Connections {
                   MattermostConnection.fromJson(e as Map<String, dynamic>))
               .toList()
           : const [],
+      telegram: telegramRaw is Map<String, dynamic>
+          ? TelegramConnection.fromJson(telegramRaw)
+          : TelegramConnection.unavailable(),
     );
   }
 }
@@ -1252,6 +1313,8 @@ class PendingAction {
         return _calendarEventLabel(arguments);
       case 'send_email':
         return _sendEmailLabel(arguments);
+      case 'send_message':
+        return _sendMessageLabel(arguments);
       default:
         return toolName.replaceAll('_', ' ');
     }
@@ -1329,12 +1392,55 @@ class PendingAction {
     return parts.join('\n');
   }
 
+  static String _sendMessageLabel(Map<String, dynamic> arguments) {
+    final route = _sendMessageRoute(arguments);
+    final provider = arguments['provider']?.toString() ?? '';
+    final mode = arguments['mode']?.toString() ?? '';
+    final body = arguments['body']?.toString() ?? '';
+    final parts = <String>[];
+    if (provider == 'telegram') {
+      parts.add('Telegram');
+      final display = route['chat_display_name']?.toString().trim();
+      final username = route['chat_username']?.toString().trim();
+      if (display != null && display.isNotEmpty) {
+        parts.add(display);
+      } else if (username != null && username.isNotEmpty) {
+        parts.add('@$username');
+      }
+    } else {
+      parts.add('Mattermost');
+      final display = (route['channel_display_name'] ?? arguments['channel_display_name'])
+          ?.toString()
+          .trim();
+      if (display != null && display.isNotEmpty) {
+        parts.add(display);
+      }
+    }
+    parts.add(mode == 'reply' ? 'Ответ' : 'Новое сообщение');
+    if (body.isNotEmpty) {
+      parts.add(body);
+    }
+    return parts.join('\n');
+  }
+
+  static Map<String, dynamic> _sendMessageRoute(Map<String, dynamic> arguments) {
+    final raw = arguments['route'];
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return arguments;
+  }
+
   static String _externalProviderLabel(String provider) {
     switch (provider.trim().toLowerCase()) {
       case 'yandex':
         return 'Yandex';
       case 'google':
         return 'Google';
+      case 'telegram':
+        return 'Telegram';
+      case 'mattermost':
+        return 'Mattermost';
       default:
         return provider;
     }

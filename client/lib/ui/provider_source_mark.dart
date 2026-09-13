@@ -7,6 +7,7 @@ enum ProviderSourceMark {
   google,
   yandex,
   mattermost,
+  telegram,
   computer,
   cloud,
   web,
@@ -44,6 +45,13 @@ class ProviderSourceMarkView extends StatelessWidget {
           key: const Key('source_mark_mattermost'),
           size: Size.square(size),
           painter: const MattermostMarkPainter(),
+        );
+      case ProviderSourceMark.telegram:
+        return Icon(
+          Icons.telegram,
+          key: const Key('source_mark_telegram'),
+          size: size,
+          color: const Color(0xFF229ED9),
         );
       case ProviderSourceMark.computer:
         return Icon(

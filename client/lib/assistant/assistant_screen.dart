@@ -569,10 +569,12 @@ class _ActionPlanCard extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 4),
                   child: action.toolName == 'send_email'
                       ? _SendEmailPreview(action: action)
-                      : Text(
-                          action.displayLabel,
-                          softWrap: true,
-                        ),
+                      : action.toolName == 'send_message'
+                          ? _SendMessagePreview(action: action)
+                          : Text(
+                              action.displayLabel,
+                              softWrap: true,
+                            ),
                 ),
               ),
               if (cardState == ActionPlanCardState.pending &&
@@ -665,6 +667,23 @@ class _SendEmailPreview extends StatelessWidget {
             child: SelectableText(body),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _SendMessagePreview extends StatelessWidget {
+  const _SendMessagePreview({required this.action});
+
+  final PendingAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(action.displayLabel, style: textTheme.titleSmall, softWrap: true),
       ],
     );
   }

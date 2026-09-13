@@ -286,6 +286,7 @@ void main() {
     expect(providerSourceMark('yandex_calendar'), ProviderSourceMark.yandex);
     expect(providerSourceMark('yandex_disk'), ProviderSourceMark.yandex);
     expect(providerSourceMark('mattermost'), ProviderSourceMark.mattermost);
+    expect(providerSourceMark('telegram'), ProviderSourceMark.telegram);
     expect(providerSourceMark('local_device'), ProviderSourceMark.computer);
     expect(providerSourceMark('cloud'), ProviderSourceMark.cloud);
     expect(providerSourceMark('web'), ProviderSourceMark.web);

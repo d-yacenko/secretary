@@ -277,7 +277,7 @@ def test_migration_0037_temporal_signals_default_false(db_session: Session) -> N
         for path in (Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("*.py")
         if path.name[0].isdigit()
     )
-    assert versions[-1].startswith("0038")
+    assert versions[-1].startswith("0039")
     module_path = (
         Path(__file__).resolve().parents[1]
         / "alembic/versions/0037_user_settings_temporal_signals.py"
@@ -963,6 +963,18 @@ def test_eligible_gate_excludes_calendar_task_and_hint(db_session) -> None:
     assert object_is_temporal_source_eligible(event) is False
     assert object_is_temporal_source_eligible(task) is False
     assert object_is_temporal_source_eligible(note) is False
+    telegram = _source(
+        db_session,
+        title="Telegram date",
+        body="встреча завтра в 15:00",
+        provider="telegram",
+        kind="chat_message",
+        metadata={"direction": "inbound", "chat_id": "99", "message_id": "1"},
+    )
+    assert object_is_temporal_source_eligible(telegram) is False
+    from app.services.temporal_signals_constants import TEMPORAL_ELIGIBLE_PROVIDERS
+
+    assert "telegram" not in TEMPORAL_ELIGIBLE_PROVIDERS
 
 
 def test_embed_enqueues_extract_when_enabled(db_session, fake_embedding_service) -> None:

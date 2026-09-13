@@ -125,6 +125,7 @@ class DomainToolService:
         yandex_imap_transport=None,
         yandex_caldav_transport=None,
         mattermost_transport=None,
+        telegram_transport=None,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -138,6 +139,7 @@ class DomainToolService:
         self._yandex_imap_transport = yandex_imap_transport
         self._yandex_caldav_transport = yandex_caldav_transport
         self._mattermost_transport = mattermost_transport
+        self._telegram_transport = telegram_transport
         from app.core.client_timezone import get_request_timezone
 
         self._client_timezone = client_timezone or get_request_timezone()
@@ -860,6 +862,8 @@ class DomainToolService:
         kwargs = {}
         if self._mattermost_transport is not None:
             kwargs["transport"] = self._mattermost_transport
+        if self._telegram_transport is not None:
+            kwargs["telegram_transport"] = self._telegram_transport
         if self._attempt_session_factory is not None:
             kwargs["attempt_session_factory"] = self._attempt_session_factory
         return CommunicationExternalActionService(self._session, self._user_id, **kwargs)

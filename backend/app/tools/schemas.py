@@ -568,6 +568,18 @@ class SendEmailOutput(BaseModel):
 
 SendMessageMode = Literal["compose", "reply"]
 SendMessageDeliveryStatus = Literal["sent", "already_sent", "uncertain", "failed"]
+SendMessageProvider = Literal["mattermost", "telegram"]
+_LEGACY_MATTERMOST_ROUTE_KEYS = (
+    "account_id",
+    "server_url",
+    "channel_id",
+    "channel_type",
+    "channel_name",
+    "channel_display_name",
+    "source_post_id",
+    "root_id",
+    "pending_post_id",
+)
 
 
 def _normalize_message_body(value: object) -> object:
@@ -608,25 +620,26 @@ class SendMessageInput(BaseModel):
         return self
 
 
-class SendMessageCanonicalInput(BaseModel):
+class MattermostSendRoute(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["mattermost"] = "mattermost"
-    mode: SendMessageMode
     account_id: UUID
     server_url: str = Field(min_length=1)
     channel_id: str = Field(min_length=1)
     channel_type: str | None = None
     channel_name: str | None = None
     channel_display_name: str | None = None
-    anchor_object_id: UUID
     source_post_id: str = Field(min_length=1)
     root_id: str | None = None
-    body: str
-    operation_id: str = Field(min_length=5, max_length=1024)
     pending_post_id: str = Field(min_length=5, max_length=200)
 
-    @field_validator("server_url", "channel_id", "source_post_id", "operation_id", "pending_post_id", mode="before")
+    @field_validator(
+        "server_url",
+        "channel_id",
+        "source_post_id",
+        "pending_post_id",
+        mode="before",
+    )
     @classmethod
     def _strip_required(cls, value: object) -> object:
         if isinstance(value, str):
@@ -638,23 +651,161 @@ class SendMessageCanonicalInput(BaseModel):
     def _strip_optional(cls, value: object) -> object:
         return _strip_optional_text(value)
 
+
+class TelegramSendRoute(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    business_connection_id: str = Field(min_length=1)
+    business_user_id: str = Field(min_length=1)
+    chat_id: str = Field(min_length=1)
+    source_message_id: str = Field(min_length=1)
+    reply_to_message_id: str | None = None
+    chat_display_name: str | None = None
+    chat_username: str | None = None
+
+    @field_validator(
+        "business_connection_id",
+        "business_user_id",
+        "chat_id",
+        "source_message_id",
+        mode="before",
+    )
+    @classmethod
+    def _strip_required(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("reply_to_message_id", "chat_display_name", "chat_username", mode="before")
+    @classmethod
+    def _strip_optional(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+
+def _legacy_mattermost_route_from_flat(data: dict) -> dict:
+    route = {}
+    for key in _LEGACY_MATTERMOST_ROUTE_KEYS:
+        if key in data:
+            route[key] = data[key]
+    return route
+
+
+class SendMessageCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: SendMessageProvider
+    mode: SendMessageMode
+    anchor_object_id: UUID
+    body: str
+    operation_id: str = Field(min_length=5, max_length=1024)
+    route: MattermostSendRoute | TelegramSendRoute
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_legacy_mattermost(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if "route" in data:
+            return data
+        provider = data.get("provider", "mattermost")
+        if provider != "mattermost":
+            return data
+        if "pending_post_id" not in data and "channel_id" not in data:
+            return data
+        lifted = {
+            key: value
+            for key, value in data.items()
+            if key not in _LEGACY_MATTERMOST_ROUTE_KEYS
+        }
+        lifted["provider"] = "mattermost"
+        lifted["route"] = _legacy_mattermost_route_from_flat(data)
+        return lifted
+
+    @field_validator("operation_id", mode="before")
+    @classmethod
+    def _strip_operation_id(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
     @field_validator("body", mode="before")
     @classmethod
     def _normalize_body(cls, value: object) -> object:
         return _normalize_message_body(value)
 
     @model_validator(mode="after")
-    def _pending_post_id_matches_operation(self) -> Self:
-        expected = f"secretary:{self.operation_id.replace('-', '').lower()}"
-        if self.pending_post_id != expected:
-            raise ValueError("pending_post_id does not match operation_id")
-        if self.mode == "compose" and self.root_id is not None:
-            raise ValueError("compose mode must not include root_id")
-        return self
+    def _provider_route_invariants(self) -> Self:
+        if self.provider == "mattermost":
+            if not isinstance(self.route, MattermostSendRoute):
+                raise ValueError("mattermost send_message requires a Mattermost route")
+            expected = f"secretary:{self.operation_id.replace('-', '').lower()}"
+            if self.route.pending_post_id != expected:
+                raise ValueError("pending_post_id does not match operation_id")
+            if self.mode == "compose" and self.route.root_id is not None:
+                raise ValueError("compose mode must not include root_id")
+            return self
+        if self.provider == "telegram":
+            if not isinstance(self.route, TelegramSendRoute):
+                raise ValueError("telegram send_message requires a Telegram route")
+            if self.mode == "compose" and self.route.reply_to_message_id is not None:
+                raise ValueError("compose mode must not include reply_to_message_id")
+            if self.mode == "reply" and not self.route.reply_to_message_id:
+                raise ValueError("reply mode requires reply_to_message_id")
+            return self
+        raise ValueError("unsupported send_message provider")
+
+    @property
+    def mattermost_route(self) -> MattermostSendRoute:
+        if not isinstance(self.route, MattermostSendRoute):
+            raise TypeError("send_message route is not Mattermost")
+        return self.route
+
+    @property
+    def telegram_route(self) -> TelegramSendRoute:
+        if not isinstance(self.route, TelegramSendRoute):
+            raise TypeError("send_message route is not Telegram")
+        return self.route
+
+    @property
+    def account_id(self) -> UUID:
+        return self.route.account_id
+
+    @property
+    def server_url(self) -> str:
+        return self.mattermost_route.server_url
+
+    @property
+    def channel_id(self) -> str:
+        return self.mattermost_route.channel_id
+
+    @property
+    def channel_type(self) -> str | None:
+        return self.mattermost_route.channel_type
+
+    @property
+    def channel_name(self) -> str | None:
+        return self.mattermost_route.channel_name
+
+    @property
+    def channel_display_name(self) -> str | None:
+        return self.mattermost_route.channel_display_name
+
+    @property
+    def source_post_id(self) -> str:
+        return self.mattermost_route.source_post_id
+
+    @property
+    def root_id(self) -> str | None:
+        return self.mattermost_route.root_id
+
+    @property
+    def pending_post_id(self) -> str:
+        return self.mattermost_route.pending_post_id
 
 
 class SendMessageOutput(BaseModel):
-    provider: Literal["mattermost"] = "mattermost"
+    provider: SendMessageProvider
     mode: SendMessageMode
     provider_message_id: str | None = None
     object_id: UUID | None = None

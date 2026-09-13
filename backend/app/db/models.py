@@ -665,6 +665,78 @@ class MattermostAccount(Base):
     )
 
 
+class TelegramAccount(Base):
+    __tablename__ = "telegram_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    telegram_user_id: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    user_chat_id: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    telegram_username: Mapped[str | None] = mapped_column(nullable=True)
+    display_name: Mapped[str | None] = mapped_column(nullable=True)
+    business_connection_id: Mapped[str | None] = mapped_column(nullable=True)
+    business_user_chat_id: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
+    business_rights: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    business_connection_enabled: Mapped[bool] = mapped_column(
+        nullable=False,
+        server_default=text("false"),
+    )
+    business_connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("user_id", name="uq_telegram_accounts_user_id"),
+        sa.UniqueConstraint("telegram_user_id", name="uq_telegram_accounts_telegram_user_id"),
+        sa.UniqueConstraint(
+            "business_connection_id",
+            name="uq_telegram_accounts_business_connection_id",
+        ),
+    )
+
+
+class TelegramLinkState(Base):
+    __tablename__ = "telegram_link_states"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state_hash: Mapped[str] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("state_hash", name="uq_telegram_link_states_state_hash"),
+        Index("ix_telegram_link_states_user_id", "user_id"),
+    )
+
+
 class LocalDevice(Base):
     __tablename__ = "local_devices"
 

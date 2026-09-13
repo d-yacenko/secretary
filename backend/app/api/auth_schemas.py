@@ -46,11 +46,22 @@ class MattermostConnectionOut(BaseModel):
     email: str | None = None
 
 
+class TelegramConnectionOut(BaseModel):
+    configured: bool = False
+    identity_linked: bool = False
+    business_connected: bool = False
+    can_reply: bool = False
+    telegram_username: str | None = None
+    display_name: str | None = None
+    bot_username: str | None = None
+
+
 class ConnectionsOut(BaseModel):
     google: GoogleConnectionOut
     yandex_mail: YandexMailConnectionOut
     yandex_calendar: YandexCalendarConnectionOut
     mattermost: list[MattermostConnectionOut] = Field(default_factory=list)
+    telegram: TelegramConnectionOut = Field(default_factory=TelegramConnectionOut)
 
 
 class CaptureTaskRequest(BaseModel):

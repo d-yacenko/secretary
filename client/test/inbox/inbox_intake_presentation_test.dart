@@ -192,4 +192,36 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('inbound telegram chat_message renders Telegram mark in Inbox', (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode(inboxJson([
+              {
+                'id': 'tg-in-1',
+                'title': 'Ivan: hello',
+                'kind': 'chat_message',
+                'provider': 'telegram',
+                'origin': 'source',
+                'state': 'observed',
+                'status': null,
+                'primary_at': '2026-09-13T10:00:00Z',
+                'excerpt': 'hello',
+              },
+            ]))),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Ivan: hello'), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_telegram')), findsOneWidget);
+    expect(find.text('Исходящее Telegram'), findsNothing);
+  });
 }

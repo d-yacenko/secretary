@@ -11,6 +11,8 @@ from app.connectors.google.constants import (
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
+from app.connectors.telegram.account_store import TelegramAccountStore
+from app.connectors.telegram.webhook_service import bot_username, can_reply_from_rights, telegram_is_configured
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
@@ -48,11 +50,23 @@ class MattermostConnectionStatus:
 
 
 @dataclass(frozen=True)
+class TelegramConnectionStatus:
+    configured: bool = False
+    identity_linked: bool = False
+    business_connected: bool = False
+    can_reply: bool = False
+    telegram_username: str | None = None
+    display_name: str | None = None
+    bot_username: str | None = None
+
+
+@dataclass(frozen=True)
 class ConnectionStatusSnapshot:
     google: GoogleConnectionStatus
     yandex_mail: YandexMailConnectionStatus
     yandex_calendar: YandexCalendarConnectionStatus
     mattermost: list[MattermostConnectionStatus]
+    telegram: TelegramConnectionStatus
 
 
 class ConnectionStatusService:
@@ -65,11 +79,13 @@ class ConnectionStatusService:
         yandex_mail = self._yandex_mail_status()
         yandex_calendar = self._yandex_calendar_status()
         mattermost = self._mattermost_accounts()
+        telegram = self._telegram_status()
         return ConnectionStatusSnapshot(
             google=google,
             yandex_mail=yandex_mail,
             yandex_calendar=yandex_calendar,
             mattermost=mattermost,
+            telegram=telegram,
         )
 
     def _google_status(self) -> GoogleConnectionStatus:
@@ -126,3 +142,23 @@ class ConnectionStatusService:
             )
             for account in store.list_accounts(self._user_id)
         ]
+
+    def _telegram_status(self) -> TelegramConnectionStatus:
+        configured = telegram_is_configured()
+        bot = bot_username() if configured else None
+        account = TelegramAccountStore(self._session).get_by_user_id(self._user_id)
+        if account is None:
+            return TelegramConnectionStatus(
+                configured=configured,
+                bot_username=bot,
+            )
+        business_connected = bool(account.business_connection_enabled)
+        return TelegramConnectionStatus(
+            configured=configured,
+            identity_linked=True,
+            business_connected=business_connected,
+            can_reply=business_connected and can_reply_from_rights(account.business_rights),
+            telegram_username=account.telegram_username,
+            display_name=account.display_name,
+            bot_username=bot,
+        )

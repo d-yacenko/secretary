@@ -56,6 +56,7 @@ const Map<String, String> providerCompactGlyphs = {
   'google_drive': 'G',
   'yandex_disk': 'Я',
   'mattermost': 'M',
+  'telegram': 'T',
 };
 
 String objectKindLabel(String kind) =>
