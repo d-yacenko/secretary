@@ -96,6 +96,9 @@ from app.tools.schemas import (
     SendEmailCanonicalInput,
     SendEmailInput,
     SendEmailOutput,
+    SendMessageCanonicalInput,
+    SendMessageInput,
+    SendMessageOutput,
     SetTaskStatusInput,
     SetTaskStatusOutput,
     ToolError,
@@ -121,6 +124,7 @@ class DomainToolService:
         yandex_smtp_transport=None,
         yandex_imap_transport=None,
         yandex_caldav_transport=None,
+        mattermost_transport=None,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -133,6 +137,7 @@ class DomainToolService:
         self._yandex_smtp_transport = yandex_smtp_transport
         self._yandex_imap_transport = yandex_imap_transport
         self._yandex_caldav_transport = yandex_caldav_transport
+        self._mattermost_transport = mattermost_transport
         from app.core.client_timezone import get_request_timezone
 
         self._client_timezone = client_timezone or get_request_timezone()
@@ -846,3 +851,21 @@ class DomainToolService:
 
     def send_email(self, payload: SendEmailCanonicalInput) -> SendEmailOutput:
         return self._email_actions().send_email(payload)
+
+    def _communication_actions(self):
+        from app.services.communication_external_action_service import (
+            CommunicationExternalActionService,
+        )
+
+        kwargs = {}
+        if self._mattermost_transport is not None:
+            kwargs["transport"] = self._mattermost_transport
+        if self._attempt_session_factory is not None:
+            kwargs["attempt_session_factory"] = self._attempt_session_factory
+        return CommunicationExternalActionService(self._session, self._user_id, **kwargs)
+
+    def prepare_send_message(self, payload: SendMessageInput) -> SendMessageCanonicalInput:
+        return self._communication_actions().prepare_send_message(payload)
+
+    def send_message(self, payload: SendMessageCanonicalInput) -> SendMessageOutput:
+        return self._communication_actions().send_message(payload)

@@ -9,6 +9,8 @@ from app.connectors.mattermost.errors import (
     MattermostSecurityError,
     MattermostTransportError,
     MattermostUnauthorizedError,
+    MattermostWriteDefiniteError,
+    MattermostWriteUncertainError,
 )
 
 
@@ -67,6 +69,15 @@ class MattermostTransport(Protocol):
         ...
 
     def get_users_by_ids(self, user_ids: list[str]) -> list[dict[str, Any]]:
+        ...
+
+    def create_post(
+        self,
+        channel_id: str,
+        message: str,
+        pending_post_id: str,
+        root_id: str | None = None,
+    ) -> dict[str, Any]:
         ...
 
 
@@ -184,6 +195,57 @@ class MattermostHttpTransport:
             results.extend(payload)
         return results
 
+    def create_post(
+        self,
+        channel_id: str,
+        message: str,
+        pending_post_id: str,
+        root_id: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "channel_id": channel_id,
+            "message": message,
+            "pending_post_id": pending_post_id,
+        }
+        if root_id:
+            body["root_id"] = root_id
+        payload = self._request_write_json("POST", "/api/v4/posts", json_body=body)
+        if not isinstance(payload, dict):
+            raise MattermostWriteUncertainError("mattermost create post response malformed")
+        return payload
+
+    def _request_write_json(
+        self,
+        method: str,
+        path: str,
+        json_body: Any | None = None,
+    ) -> Any:
+        url = self._build_api_url(path)
+        headers = {"Authorization": f"Bearer {self._access_token}"}
+        try:
+            response = self._http_client.request(
+                method,
+                url,
+                headers=headers,
+                json=json_body,
+            )
+        except httpx.RequestError as exc:
+            raise MattermostWriteUncertainError("mattermost write request failed") from exc
+
+        if 300 <= response.status_code < 400:
+            raise MattermostSecurityError("mattermost redirect rejected")
+        if 400 <= response.status_code < 500:
+            raise MattermostWriteDefiniteError("mattermost write rejected")
+        if response.status_code >= 500:
+            raise MattermostWriteUncertainError("mattermost write response uncertain")
+
+        if not response.content:
+            raise MattermostWriteUncertainError("mattermost create post response malformed")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise MattermostWriteUncertainError("mattermost create post response malformed") from exc
+
     def _request_json(
         self,
         method: str,
@@ -263,6 +325,8 @@ class FakeMattermostTransport:
         redirect_on_me: bool = False,
         unauthorized_on_me: bool = False,
         my_channels_not_found: bool = False,
+        create_post_error: Exception | None = None,
+        create_post_response: Any | None = None,
     ) -> None:
         self.me = me or {
             "id": "user-1",
@@ -280,8 +344,11 @@ class FakeMattermostTransport:
         self.redirect_on_me = redirect_on_me
         self.unauthorized_on_me = unauthorized_on_me
         self.my_channels_not_found = my_channels_not_found
+        self.create_post_error = create_post_error
+        self.create_post_response = create_post_response
         self.close_invoked = False
         self.calls: list[tuple[str, str, dict[str, Any] | None]] = []
+        self.create_post_calls: list[dict[str, Any]] = []
 
     def close(self) -> None:
         self.close_invoked = True
@@ -393,6 +460,44 @@ class FakeMattermostTransport:
             for user_id in user_ids
             if user_id in self.users_by_id
         ]
+
+    def create_post(
+        self,
+        channel_id: str,
+        message: str,
+        pending_post_id: str,
+        root_id: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "channel_id": channel_id,
+            "message": message,
+            "pending_post_id": pending_post_id,
+        }
+        if root_id:
+            payload["root_id"] = root_id
+        self.calls.append(("POST", "/api/v4/posts", payload))
+        self.create_post_calls.append(payload)
+        if self.create_post_error is not None:
+            raise self.create_post_error
+        if self.create_post_response is not None:
+            if isinstance(self.create_post_response, dict):
+                return dict(self.create_post_response)
+            return self.create_post_response
+        post_id = f"created-{len(self.create_post_calls)}"
+        post = {
+            "id": post_id,
+            "channel_id": channel_id,
+            "user_id": str(self.me.get("id") or "user-1"),
+            "message": message,
+            "pending_post_id": pending_post_id,
+            "create_at": 1_700_000_000_000,
+            "update_at": 1_700_000_000_000,
+            "type": "",
+            "root_id": root_id or "",
+            "file_ids": [],
+        }
+        self.posts_by_channel.setdefault(channel_id, []).append(dict(post))
+        return dict(post)
 
     def _channel_posts(self, channel_id: str) -> list[dict[str, Any]]:
         return [dict(post) for post in self.posts_by_channel.get(channel_id, [])]

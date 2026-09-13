@@ -318,6 +318,16 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             "sent_copy_status": raw_output.get("sent_copy_status"),
         }
 
+    if tool_name == "send_message":
+        return {
+            "provider": raw_output.get("provider"),
+            "mode": raw_output.get("mode"),
+            "provider_message_id": raw_output.get("provider_message_id"),
+            "object_id": raw_output.get("object_id"),
+            "delivery_status": raw_output.get("delivery_status"),
+            "changed": raw_output.get("changed", False),
+        }
+
     return raw_output
 
 

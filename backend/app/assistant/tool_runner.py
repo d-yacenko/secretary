@@ -34,6 +34,8 @@ _EVIDENCE_WRITE_TOOLS = frozenset(
     {"create_task", "update_task", "set_task_status", "delete_task"}
 )
 _OBJECT_TARGET_TOOLS = frozenset({"update_task", "set_task_status", "delete_task"})
+_SEND_MESSAGE_ANCHOR_TOOLS = frozenset({"send_message"})
+_SEND_MESSAGE_ANCHOR_FIELDS = ("conversation_object_id", "reply_to_object_id")
 _ACTIVITY_TARGET_TOOLS = frozenset({"cancel_scheduled_activity"})
 # ANNOTATE tools execute without approval in the interactive turn, so both the
 # target object and the label must have been exposed to the model this turn.
@@ -51,6 +53,7 @@ _MUTATION_TOOLS = frozenset(
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
+        "send_message",
         "create_label",
         "rename_label",
         "assign_label",
@@ -156,6 +159,13 @@ class PerTurnToolBudget:
                 if self._telemetry is not None:
                     self._telemetry.tool_calls += 1
                 return target_error
+
+        if tool_name in _SEND_MESSAGE_ANCHOR_TOOLS:
+            anchor_error = self._validate_send_message_anchor_allowlist(tool_name, arguments)
+            if anchor_error is not None:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return anchor_error
 
         if tool_name in _ACTIVITY_TARGET_TOOLS:
             target_error = self._validate_activity_target_allowlist(tool_name, arguments)
@@ -296,6 +306,41 @@ class PerTurnToolBudget:
                 success=False,
                 tool_name=tool_name,
                 error="invalid object id",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        if parsed not in self._seen_object_ids:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="target object was not exposed in this Assistant turn",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        return None
+
+    def _validate_send_message_anchor_allowlist(
+        self, tool_name: str, arguments: dict
+    ) -> ToolExecutionResult | None:
+        supplied: list[tuple[str, object]] = []
+        for field in _SEND_MESSAGE_ANCHOR_FIELDS:
+            raw = arguments.get(field)
+            if raw is None:
+                continue
+            supplied.append((field, raw))
+        if len(supplied) != 1:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="exactly one of conversation_object_id or reply_to_object_id is required",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        _field, raw_id = supplied[0]
+        try:
+            parsed = UUID(str(raw_id))
+        except (ValueError, TypeError, AttributeError):
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="invalid send_message anchor object id",
                 status=ToolExecutionStatus.TOOL_ERROR,
             )
         if parsed not in self._seen_object_ids:

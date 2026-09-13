@@ -47,6 +47,7 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
+        "send_message",
     }
 )
 
@@ -92,6 +93,7 @@ def test_registry_covers_executor_dispatch_tools():
         "cancel_scheduled_activity",
         "create_calendar_event",
         "send_email",
+        "send_message",
     }
     assert registered_tool_names() == expected
 
@@ -163,6 +165,11 @@ def test_permission_classifications():
     assert TOOL_REGISTRY["send_email"].assistant_exposed is True
     assert TOOL_REGISTRY["send_email"].mcp_exposed is True
     assert TOOL_REGISTRY["send_email"].prepare_method == "prepare_send_email"
+    assert TOOL_REGISTRY["send_message"].permission == ToolPermission.COMMUNICATE
+    assert TOOL_REGISTRY["send_message"].assistant_exposed is True
+    assert TOOL_REGISTRY["send_message"].mcp_exposed is True
+    assert TOOL_REGISTRY["send_message"].prepare_method == "prepare_send_message"
+    assert TOOL_REGISTRY["send_message"].execution_input_model is not None
 
 
 def test_baseline_policy_allows_read_and_internal_write():

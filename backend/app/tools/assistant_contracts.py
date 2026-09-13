@@ -535,4 +535,31 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         },
         "strict": False,
     },
+    "send_message": {
+        "type": "function",
+        "name": "send_message",
+        "description": (
+            "Send an external message. Currently supports existing Mattermost conversations only. "
+            "Requires explicit user approval before the provider write. "
+            "Call ONLY when the user has asked to SEND. "
+            "Do not call for drafting, research, or preparation. "
+            "Supply exactly one anchor: conversation_object_id (new top-level post in that "
+            "same known conversation) OR reply_to_object_id (respond in that message context). "
+            "Obtain the exact existing chat_message Object.id via retrieve, query_objects, "
+            "or get_object. Never invent an Object.id. "
+            "If the target conversation or person is ambiguous, ask instead of guessing. "
+            "Do not pass Mattermost channel_id, server_url, account_id, post_id, or root_id."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "body": {"type": "string"},
+                "conversation_object_id": {"type": ["string", "null"]},
+                "reply_to_object_id": {"type": ["string", "null"]},
+            },
+            "required": ["body"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
 }

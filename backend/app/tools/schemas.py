@@ -566,6 +566,102 @@ class SendEmailOutput(BaseModel):
     sent_copy_status: Literal["stored", "already_present", "unconfirmed"] | None = None
 
 
+SendMessageMode = Literal["compose", "reply"]
+SendMessageDeliveryStatus = Literal["sent", "already_sent", "uncertain", "failed"]
+
+
+def _normalize_message_body(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    if "\x00" in normalized:
+        raise ValueError("body must not contain NUL")
+    if not normalized.strip():
+        raise ValueError("body must not be empty")
+    from app.connectors.mattermost.constants import MAX_MESSAGE_BODY_CHARS
+
+    if len(normalized) > MAX_MESSAGE_BODY_CHARS:
+        raise ValueError("body exceeds maximum length")
+    return normalized
+
+
+class SendMessageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str
+    conversation_object_id: UUID | None = None
+    reply_to_object_id: UUID | None = None
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _normalize_body(cls, value: object) -> object:
+        return _normalize_message_body(value)
+
+    @model_validator(mode="after")
+    def _exactly_one_anchor(self) -> Self:
+        has_conversation = self.conversation_object_id is not None
+        has_reply = self.reply_to_object_id is not None
+        if has_conversation == has_reply:
+            raise ValueError(
+                "exactly one of conversation_object_id or reply_to_object_id is required"
+            )
+        return self
+
+
+class SendMessageCanonicalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["mattermost"] = "mattermost"
+    mode: SendMessageMode
+    account_id: UUID
+    server_url: str = Field(min_length=1)
+    channel_id: str = Field(min_length=1)
+    channel_type: str | None = None
+    channel_name: str | None = None
+    channel_display_name: str | None = None
+    anchor_object_id: UUID
+    source_post_id: str = Field(min_length=1)
+    root_id: str | None = None
+    body: str
+    operation_id: str = Field(min_length=5, max_length=1024)
+    pending_post_id: str = Field(min_length=5, max_length=200)
+
+    @field_validator("server_url", "channel_id", "source_post_id", "operation_id", "pending_post_id", mode="before")
+    @classmethod
+    def _strip_required(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("root_id", "channel_type", "channel_name", "channel_display_name", mode="before")
+    @classmethod
+    def _strip_optional(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _normalize_body(cls, value: object) -> object:
+        return _normalize_message_body(value)
+
+    @model_validator(mode="after")
+    def _pending_post_id_matches_operation(self) -> Self:
+        expected = f"secretary:{self.operation_id.replace('-', '').lower()}"
+        if self.pending_post_id != expected:
+            raise ValueError("pending_post_id does not match operation_id")
+        if self.mode == "compose" and self.root_id is not None:
+            raise ValueError("compose mode must not include root_id")
+        return self
+
+
+class SendMessageOutput(BaseModel):
+    provider: Literal["mattermost"] = "mattermost"
+    mode: SendMessageMode
+    provider_message_id: str | None = None
+    object_id: UUID | None = None
+    delivery_status: SendMessageDeliveryStatus
+    changed: bool
+
+
 MAX_SCHEDULED_ACTIVITY_TITLE_CHARS = 300
 MAX_SCHEDULED_ACTIVITY_BODY_CHARS = 5000
 ScheduledActivityPriority = Literal["low", "normal", "high", "urgent"]

@@ -291,6 +291,9 @@ def normalize_mattermost_post(
         display_name = str(author.get("display_name") or "").strip()
         if display_name:
             metadata["author_display_name"] = display_name
+    pending_post_id = str(post.get("pending_post_id") or "").strip()
+    if pending_post_id:
+        metadata["pending_post_id"] = pending_post_id
 
     return {
         "provider": "mattermost",

@@ -39,6 +39,8 @@ from app.tools.schemas import (
     SearchObjectsInput,
     SendEmailCanonicalInput,
     SendEmailInput,
+    SendMessageCanonicalInput,
+    SendMessageInput,
     SetTaskStatusInput,
     ToolError,
     UpdateTaskInput,
@@ -307,6 +309,17 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         assistant_definition=_assistant_definition("send_email"),
         prepare_method="prepare_send_email",
         execution_input_model=SendEmailCanonicalInput,
+    ),
+    ToolSpec(
+        name="send_message",
+        permission=ToolPermission.COMMUNICATE,
+        input_model=SendMessageInput,
+        service_method="send_message",
+        assistant_exposed=True,
+        mcp_exposed=True,
+        assistant_definition=_assistant_definition("send_message"),
+        prepare_method="prepare_send_message",
+        execution_input_model=SendMessageCanonicalInput,
     ),
 )
 

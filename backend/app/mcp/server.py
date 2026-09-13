@@ -29,6 +29,7 @@ from app.tools.schemas import (
     RenameLabelOutput,
     SearchObjectsOutput,
     SendEmailOutput,
+    SendMessageOutput,
     SetTaskStatusOutput,
     ToolError,
     UpdateTaskOutput,
@@ -394,5 +395,19 @@ def create_mcp_server() -> MCPServer:
         if account_email is not None:
             arguments["account_email"] = account_email
         return _run_tool("send_email", "send_email", arguments)
+
+    @mcp.tool()
+    def send_message(
+        body: str,
+        conversation_object_id: str | None = None,
+        reply_to_object_id: str | None = None,
+    ) -> SendMessageOutput:
+        """Send a Mattermost message in an existing conversation (requires approval; MCP cannot execute the send)."""
+        arguments: dict = {"body": body}
+        if conversation_object_id is not None:
+            arguments["conversation_object_id"] = conversation_object_id
+        if reply_to_object_id is not None:
+            arguments["reply_to_object_id"] = reply_to_object_id
+        return _run_tool("send_message", "send_message", arguments)
 
     return mcp

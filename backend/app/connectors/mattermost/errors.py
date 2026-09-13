@@ -23,3 +23,11 @@ class MattermostEndpointNotFoundError(MattermostTransportError):
 class MattermostUnauthorizedError(MattermostTransportError):
     pass
 
+
+class MattermostWriteDefiniteError(MattermostConnectorError):
+    """Provider rejected a write; delivery did not occur."""
+
+
+class MattermostWriteUncertainError(MattermostConnectorError):
+    """Write may have been delivered; do not retry blindly."""
+

@@ -132,6 +132,7 @@ EXPECTED_REGISTRY_PERMISSIONS = {
     "cancel_scheduled_activity": ToolPermission.INTERNAL_WRITE,
     "create_calendar_event": ToolPermission.EXTERNAL_WRITE,
     "send_email": ToolPermission.COMMUNICATE,
+    "send_message": ToolPermission.COMMUNICATE,
 }
 
 HARDCODED_TAXONOMY_PREFIXES = ("Сфера ·", "Проект ·", "Роль ·", "Внимание ·", "Работа ·")
