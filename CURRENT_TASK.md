@@ -4,12 +4,16 @@
 
 **Teams A: IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/teams-a`.
 
+A-R1 application: `49396cad686cc4631254ec389657b7a52d0dcf8f`  
+Parent: `b3459a2890115d9fb4aac0f259a688bd2e5e09c1`
+
+Do not mark CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED / CLOSED from this chat.
+
 Authorized work in this phase only:
 
 1. Communication Action Plan Integrity corrective for the observed post-Telegram-A missing approval-card defect.
 2. Microsoft Teams personal-chat (work/school, delegated OAuth) on the existing unified communications architecture.
-
-Do not mark CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED / CLOSED from this chat.
+3. Architect R1 corrections (OAuth ID-token validation, Graph contracts, account uniqueness/disconnect, shared token refresh, invalid_grant reconnect-required, createdDateTime watermark, 429/Retry-After).
 
 ## Canonical base
 
@@ -33,4 +37,4 @@ Out of this phase: Teams channels, meetings, consumer Microsoft accounts, Graph 
 
 ## Stop
 
-Implementation + tests + commit + push + report are done. No live Teams write. No deploy. Do not start the next phase.
+A-R1 implementation + tests + commit + push + report are done. No live Teams OAuth/write. No deploy. Do not start the next phase.
