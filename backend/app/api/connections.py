@@ -5,6 +5,7 @@ from app.api.auth_schemas import (
     ConnectionsOut,
     GoogleConnectionOut,
     MattermostConnectionOut,
+    TeamsConnectionOut,
     TelegramConnectionOut,
     YandexCalendarConnectionOut,
     YandexMailConnectionOut,
@@ -57,5 +58,12 @@ def get_connections(
             telegram_username=snapshot.telegram.telegram_username,
             display_name=snapshot.telegram.display_name,
             bot_username=snapshot.telegram.bot_username,
+        ),
+        teams=TeamsConnectionOut(
+            configured=snapshot.teams.configured,
+            connected=snapshot.teams.connected,
+            display_name=snapshot.teams.display_name,
+            upn=snapshot.teams.upn,
+            tenant_id=snapshot.teams.tenant_id,
         ),
     )

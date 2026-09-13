@@ -220,6 +220,15 @@ def test_assistant_schema_does_not_expose_provider_routing_ids() -> None:
     assert "send" in description
     assert "draft" in description or "drafting" in description
     assert "mattermost" in description
+    assert "telegram" in description
+    assert "teams" in description
+    for forbidden in (
+        "chat_id",
+        "business_connection_id",
+        "tenant",
+        "microsoft user",
+    ):
+        assert forbidden in description
 
 
 # --------------------------------------------------------------------------- prepare / fail closed

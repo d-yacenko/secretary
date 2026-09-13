@@ -10,6 +10,7 @@ const Map<String, String> sourceSyncProviderLabels = {
   'yandex_mail': 'Yandex Mail',
   'yandex_calendar': 'Yandex Calendar',
   'mattermost': 'Mattermost',
+  'teams': 'Microsoft Teams',
 };
 
 const String _genericSyncErrorReason = 'Не удалось синхронизировать источник';

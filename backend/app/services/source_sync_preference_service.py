@@ -15,6 +15,7 @@ from app.source_sync.constants import (
     SOURCE_GMAIL,
     SOURCE_GOOGLE_CALENDAR,
     SOURCE_MATTERMOST,
+    SOURCE_TEAMS,
     SOURCE_YANDEX_CALENDAR,
     SOURCE_YANDEX_MAIL,
     SUPPORTED_SOURCE_KEYS,
@@ -47,6 +48,7 @@ def deployment_default_interval_seconds(source: str) -> int:
         SOURCE_YANDEX_MAIL: settings.source_sync_yandex_mail_interval_seconds,
         SOURCE_YANDEX_CALENDAR: settings.source_sync_yandex_calendar_interval_seconds,
         SOURCE_MATTERMOST: settings.source_sync_mattermost_interval_seconds,
+        SOURCE_TEAMS: settings.source_sync_teams_interval_seconds,
     }
     return mapping[source]
 
@@ -58,6 +60,7 @@ def deployment_default_history_days(source: str) -> int:
         SOURCE_YANDEX_MAIL: settings.yandex_mail_sync_days,
         SOURCE_YANDEX_CALENDAR: settings.calendar_sync_days_back,
         SOURCE_MATTERMOST: settings.mattermost_sync_days,
+        SOURCE_TEAMS: settings.source_sync_user_min_history_days,
     }
     return mapping[source]
 

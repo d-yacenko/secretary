@@ -36,6 +36,8 @@ ProviderSourceMark providerSourceMark(String? provider) {
       return ProviderSourceMark.mattermost;
     case 'telegram':
       return ProviderSourceMark.telegram;
+    case 'teams':
+      return ProviderSourceMark.teams;
     case 'local_device':
       return ProviderSourceMark.computer;
     case 'web':
@@ -66,6 +68,13 @@ ProviderVisual providerVisual(String? provider) {
         label: label,
         icon: Icons.telegram,
         color: const Color(0xFF229ED9),
+      );
+    case ProviderSourceMark.teams:
+      return ProviderVisual(
+        mark: mark,
+        label: label,
+        icon: Icons.groups,
+        color: const Color(0xFF6264A7),
       );
     case ProviderSourceMark.computer:
       return ProviderVisual(

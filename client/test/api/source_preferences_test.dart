@@ -47,6 +47,11 @@ Map<String, dynamic> _preferencesListJson() {
           syncIntervalSeconds: 120,
           historyDays: 14,
           defaultHistoryDays: 14),
+      _preferenceJson(
+          source: 'teams',
+          syncIntervalSeconds: 60,
+          historyDays: 1,
+          defaultHistoryDays: 1),
     ],
   };
 }
@@ -59,10 +64,10 @@ SecretaryApiClient _client(MockClient mock) {
 
 void main() {
   group('SourcePreference models', () {
-    test('parses five supported sources and history fields from list response',
+    test('parses supported sources and history fields from list response',
         () {
       final list = SourcePreferenceList.fromJson(_preferencesListJson());
-      expect(list.preferences.length, 5);
+      expect(list.preferences.length, 6);
       expect(
         list.preferences.map((p) => p.source).toList(),
         supportedSourcePreferenceKeys,

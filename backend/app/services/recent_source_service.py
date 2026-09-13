@@ -202,10 +202,10 @@ class RecentSourceService:
             model.kind != "task",
         )
 
-    def _not_outbound_telegram_clause(self, model=Object) -> object:
+    def _not_outbound_chat_clause(self, model=Object) -> object:
         direction = model.metadata_["direction"].as_string()
         return ~and_(
-            model.provider == "telegram",
+            model.provider.in_(("telegram", "teams")),
             model.kind == "chat_message",
             direction == "outbound",
         )
@@ -219,7 +219,7 @@ class RecentSourceService:
             or_(model.status.is_(None), model.status != "deleted"),
             self._gmail_feed_eligible_clause(model),
             self._not_child_email_attachment_clause(model),
-            self._not_outbound_telegram_clause(model),
+            self._not_outbound_chat_clause(model),
         )
 
     def _not_suppressed_future_recurrence_sibling(self) -> object:

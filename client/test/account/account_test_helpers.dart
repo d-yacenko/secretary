@@ -14,6 +14,7 @@ Map<String, dynamic> accountConnectionsJson({
   bool driveAvailable = false,
   List<Map<String, dynamic>> mattermost = const [],
   Map<String, dynamic>? telegram,
+  Map<String, dynamic>? teams,
 }) {
   return {
     'google': {
@@ -35,6 +36,14 @@ Map<String, dynamic> accountConnectionsJson({
           'telegram_username': null,
           'display_name': null,
           'bot_username': null,
+        },
+    'teams': teams ??
+        {
+          'configured': false,
+          'connected': false,
+          'display_name': null,
+          'upn': null,
+          'tenant_id': null,
         },
   };
 }
@@ -171,6 +180,7 @@ Map<String, dynamic> accountSourcePreferencesJson({
       pref('yandex_mail', 300, 30),
       pref('yandex_calendar', 300, 30),
       pref('mattermost', 120, 14),
+      pref('teams', 60, 1),
     ],
   };
 }

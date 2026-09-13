@@ -49,6 +49,7 @@ class _AccountScreenState extends State<AccountScreen>
   bool _sourcePreferencesLoading = false;
   bool _googleOAuthPending = false;
   bool _telegramLinkPending = false;
+  bool _teamsOAuthPending = false;
   bool _profileSaving = false;
   bool _settingsSaving = false;
   bool _identityLoading = false;
@@ -624,6 +625,38 @@ class _AccountScreenState extends State<AccountScreen>
     }
   }
 
+  Future<void> _startTeamsOAuth() async {
+    if (_teamsOAuthPending) {
+      return;
+    }
+    setState(() => _teamsOAuthPending = true);
+    try {
+      final result = await widget.apiClient.getTeamsAuthorizationUrl();
+      final uri = Uri.tryParse(result.authorizationUrl);
+      if (uri == null) {
+        throw ServerException('Не удалось открыть страницу авторизации Microsoft Teams');
+      }
+      final launched = await url_launcher.launchUrl(
+        uri,
+        mode: url_launcher.LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        setState(
+            () => _error = 'Не удалось открыть браузер для авторизации Microsoft Teams');
+      }
+    } on AuthenticationException {
+      widget.authController.handleAuthenticationFailure();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _teamsOAuthPending = false);
+      }
+    }
+  }
+
   Future<void> _showConnectMattermostDialog() async {
     await showDialog<void>(
       context: context,
@@ -1059,10 +1092,12 @@ class _AccountScreenState extends State<AccountScreen>
                       connections: _connections!,
                       googleOAuthPending: _googleOAuthPending,
                       telegramLinkPending: _telegramLinkPending,
+                      teamsOAuthPending: _teamsOAuthPending,
                       onConnectGoogle: _startGoogleOAuth,
                       onConnectYandex: _showConnectYandexDialog,
                       onConnectMattermost: _showConnectMattermostDialog,
                       onConnectTelegram: _startTelegramLink,
+                      onConnectTeams: _startTeamsOAuth,
                     ),
                 ],
               ),
@@ -1180,19 +1215,23 @@ class _ConnectionsList extends StatelessWidget {
     required this.connections,
     required this.googleOAuthPending,
     required this.telegramLinkPending,
+    required this.teamsOAuthPending,
     required this.onConnectGoogle,
     required this.onConnectYandex,
     required this.onConnectMattermost,
     required this.onConnectTelegram,
+    required this.onConnectTeams,
   });
 
   final Connections connections;
   final bool googleOAuthPending;
   final bool telegramLinkPending;
+  final bool teamsOAuthPending;
   final VoidCallback onConnectGoogle;
   final VoidCallback onConnectYandex;
   final VoidCallback onConnectMattermost;
   final VoidCallback onConnectTelegram;
+  final VoidCallback onConnectTeams;
 
   @override
   Widget build(BuildContext context) {
@@ -1290,6 +1329,35 @@ class _ConnectionsList extends StatelessWidget {
             'Telegram не настроен на сервере.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+        const Divider(height: 24),
+        Text('Microsoft Teams', style: sectionTitle),
+        const SizedBox(height: 4),
+        _ConnectionRow(
+          label: teamsConnectionLabel(connections.teams),
+          connected: connections.teams.connected,
+          detail: teamsConnectionDetail(connections.teams),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          teamsSetupHelpText(connections.teams),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        if (connections.teams.configured)
+          OutlinedButton(
+            key: const Key('teams_connect_button'),
+            onPressed: teamsOAuthPending ? null : onConnectTeams,
+            child: Text(
+              connections.teams.connected
+                  ? 'Переподключить Microsoft Teams'
+                  : 'Подключить Microsoft Teams',
+            ),
+          )
+        else
+          Text(
+            'Microsoft Teams не настроен на сервере.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
       ],
     );
   }
@@ -1338,6 +1406,34 @@ String telegramSetupHelpText(TelegramConnection telegram) {
       'Разрешите только нужные личные чаты и право ответа, если нужно отправлять сообщения. '
       'Секретарь получает только чаты, разрешённые ему в Telegram. '
       'Обычный mute Telegram сам по себе не является фильтром.';
+}
+
+String teamsConnectionLabel(TeamsConnection teams) {
+  if (!teams.configured) {
+    return 'Microsoft Teams не настроен на сервере';
+  }
+  if (!teams.connected) {
+    return 'Microsoft Teams: аккаунт не подключён';
+  }
+  return 'Microsoft Teams: подключён';
+}
+
+String? teamsConnectionDetail(TeamsConnection teams) {
+  final displayName = teams.displayName?.trim();
+  final upn = teams.upn?.trim();
+  if (displayName != null && displayName.isNotEmpty) {
+    return displayName;
+  }
+  if (upn != null && upn.isNotEmpty) {
+    return upn;
+  }
+  return teams.tenantId;
+}
+
+String teamsSetupHelpText(TeamsConnection teams) {
+  return 'Подключите рабочий или учебный аккаунт Microsoft. '
+      'Личные (consumer) аккаунты Microsoft не поддерживаются. '
+      'Секретарь синхронизирует только личные и групповые чаты Teams, не каналы.';
 }
 
 class _YandexConnectDialog extends StatefulWidget {

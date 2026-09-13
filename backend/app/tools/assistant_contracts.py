@@ -539,18 +539,21 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "send_message",
         "description": (
-            "Send an external message. Currently supports existing Mattermost conversations "
-            "and Telegram known private conversations. "
+            "Send an external message through the one provider-neutral send_message tool. "
+            "Mattermost, Telegram, and Teams all use this same tool. "
             "Requires explicit user approval before the provider write. "
-            "Call ONLY when the user has asked to SEND. "
+            "Call ONLY when the user has asked to SEND or REPLY. "
             "Do not call for drafting, research, or preparation. "
-            "Supply exactly one anchor: conversation_object_id (new top-level post in that "
+            "If the exact chat_message Object is already in this turn's UI context, use that "
+            "Object.id immediately. "
+            "Supply exactly one anchor: conversation_object_id (new message in that "
             "same known conversation) OR reply_to_object_id (respond in that message context). "
-            "Obtain the exact existing chat_message Object.id via retrieve, query_objects, "
-            "or get_object. Never invent an Object.id. "
-            "If the target conversation or person is ambiguous, ask instead of guessing. "
+            "Never invent an Object.id or provider routing metadata. "
             "Do not pass Mattermost channel_id, server_url, account_id, post_id, or root_id. "
-            "Do not pass Telegram chat_id, business_connection_id, message_id, user_id, or username."
+            "Do not pass Telegram chat_id, business_connection_id, message_id, user_id, or username. "
+            "Do not pass Teams chat_id, message_id, tenant id, Microsoft user id, or access tokens. "
+            "Do not ask the user to confirm in prose until this tool returns approval_required. "
+            "If the target conversation or person is ambiguous, ask instead of guessing."
         ),
         "parameters": {
             "type": "object",

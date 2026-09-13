@@ -56,12 +56,21 @@ class TelegramConnectionOut(BaseModel):
     bot_username: str | None = None
 
 
+class TeamsConnectionOut(BaseModel):
+    configured: bool = False
+    connected: bool = False
+    display_name: str | None = None
+    upn: str | None = None
+    tenant_id: str | None = None
+
+
 class ConnectionsOut(BaseModel):
     google: GoogleConnectionOut
     yandex_mail: YandexMailConnectionOut
     yandex_calendar: YandexCalendarConnectionOut
     mattermost: list[MattermostConnectionOut] = Field(default_factory=list)
     telegram: TelegramConnectionOut = Field(default_factory=TelegramConnectionOut)
+    teams: TeamsConnectionOut = Field(default_factory=TeamsConnectionOut)
 
 
 class CaptureTaskRequest(BaseModel):

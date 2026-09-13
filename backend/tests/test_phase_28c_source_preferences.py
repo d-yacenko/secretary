@@ -65,7 +65,7 @@ def test_defaults_all_sources_enabled_with_deployment_cadence(
     response = auth_client.get("/me/source-preferences")
     assert response.status_code == 200
     body = response.json()
-    assert len(body["preferences"]) == 5
+    assert len(body["preferences"]) == 6
     gmail = next(item for item in body["preferences"] if item["source"] == SOURCE_GMAIL)
     assert gmail["enabled"] is True
     assert gmail["sync_interval_seconds"] == settings.source_sync_gmail_interval_seconds

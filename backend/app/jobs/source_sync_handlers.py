@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.connectors.google.calendar_sync import build_calendar_sync_service
 from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.mattermost.sync import build_mattermost_sync_service
+from app.connectors.teams.sync import build_teams_sync_service
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
 from app.core.config import settings
@@ -98,6 +99,13 @@ def _mattermost_sync_service(session: Session, user_id: UUID):
     )
 
 
+def _teams_sync_service(session: Session, _user_id: UUID):
+    return build_teams_sync_service(
+        session,
+        credential_key=settings.secretary_credential_key,
+    )
+
+
 def handle_sync_google_gmail(
     session: Session,
     _embedding_service,
@@ -166,3 +174,13 @@ def handle_sync_mattermost(
         user_id=user_id,
         include_history_pass=True,
     )
+
+
+def handle_sync_teams(
+    session: Session,
+    _embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    account_id = UUID(str(payload["account_id"]))
+    _teams_sync_service(session, user_id).sync_account(account_id, user_id=user_id)

@@ -34,6 +34,7 @@ void main() {
     expect(providerCompactGlyph('gmail'), 'G');
     expect(providerCompactGlyph('mattermost'), 'M');
     expect(providerCompactGlyph('telegram'), 'T');
+    expect(providerCompactGlyph('teams'), 'Ms');
   });
 
   test('provider visuals use source marks not duplicated kind icons', () {
@@ -46,6 +47,7 @@ void main() {
     expect(providerVisual('yandex_disk').mark, ProviderSourceMark.yandex);
     expect(providerVisual('mattermost').mark, ProviderSourceMark.mattermost);
     expect(providerVisual('telegram').mark, ProviderSourceMark.telegram);
+    expect(providerVisual('teams').mark, ProviderSourceMark.teams);
     expect(providerVisual('local_device').icon, Icons.computer);
     expect(providerVisual('upload').icon, Icons.upload_file);
     expect(providerVisual('web').icon, Icons.language);

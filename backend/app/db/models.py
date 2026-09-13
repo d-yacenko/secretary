@@ -737,6 +737,71 @@ class TelegramLinkState(Base):
     )
 
 
+class TeamsAccount(Base):
+    __tablename__ = "teams_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    microsoft_user_id: Mapped[str] = mapped_column(nullable=False)
+    tenant_id: Mapped[str] = mapped_column(nullable=False)
+    upn: Mapped[str | None] = mapped_column(nullable=True)
+    display_name: Mapped[str | None] = mapped_column(nullable=True)
+    access_token_encrypted: Mapped[str] = mapped_column(nullable=False)
+    refresh_token_encrypted: Mapped[str] = mapped_column(nullable=False)
+    token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scopes: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
+    sync_state: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("user_id", name="uq_teams_accounts_user_id"),
+    )
+
+
+class TeamsOAuthState(Base):
+    __tablename__ = "teams_oauth_states"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state_hash: Mapped[str] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("state_hash", name="uq_teams_oauth_states_state_hash"),
+        Index("ix_teams_oauth_states_user_id", "user_id"),
+    )
+
+
 class LocalDevice(Base):
     __tablename__ = "local_devices"
 

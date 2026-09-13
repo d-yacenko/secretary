@@ -568,7 +568,7 @@ class SendEmailOutput(BaseModel):
 
 SendMessageMode = Literal["compose", "reply"]
 SendMessageDeliveryStatus = Literal["sent", "already_sent", "uncertain", "failed"]
-SendMessageProvider = Literal["mattermost", "telegram"]
+SendMessageProvider = Literal["mattermost", "telegram", "teams"]
 _LEGACY_MATTERMOST_ROUTE_KEYS = (
     "account_id",
     "server_url",
@@ -683,6 +683,38 @@ class TelegramSendRoute(BaseModel):
         return _strip_optional_text(value)
 
 
+class TeamsSendRoute(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    tenant_id: str = Field(min_length=1)
+    teams_user_id: str = Field(min_length=1)
+    chat_id: str = Field(min_length=1)
+    chat_type: str = Field(min_length=1)
+    source_message_id: str = Field(min_length=1)
+    quoted_message_id: str | None = None
+    chat_display_title: str | None = None
+
+    @field_validator(
+        "tenant_id",
+        "teams_user_id",
+        "chat_id",
+        "chat_type",
+        "source_message_id",
+        mode="before",
+    )
+    @classmethod
+    def _strip_required(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("quoted_message_id", "chat_display_title", mode="before")
+    @classmethod
+    def _strip_optional(cls, value: object) -> object:
+        return _strip_optional_text(value)
+
+
 def _legacy_mattermost_route_from_flat(data: dict) -> dict:
     route = {}
     for key in _LEGACY_MATTERMOST_ROUTE_KEYS:
@@ -699,7 +731,7 @@ class SendMessageCanonicalInput(BaseModel):
     anchor_object_id: UUID
     body: str
     operation_id: str = Field(min_length=5, max_length=1024)
-    route: MattermostSendRoute | TelegramSendRoute
+    route: MattermostSendRoute | TelegramSendRoute | TeamsSendRoute
 
     @model_validator(mode="before")
     @classmethod
@@ -753,6 +785,16 @@ class SendMessageCanonicalInput(BaseModel):
             if self.mode == "reply" and not self.route.reply_to_message_id:
                 raise ValueError("reply mode requires reply_to_message_id")
             return self
+        if self.provider == "teams":
+            if not isinstance(self.route, TeamsSendRoute):
+                raise ValueError("teams send_message requires a Teams route")
+            if self.route.chat_type not in {"oneOnOne", "group"}:
+                raise ValueError("unsupported Teams chat type")
+            if self.mode == "compose" and self.route.quoted_message_id is not None:
+                raise ValueError("compose mode must not include quoted_message_id")
+            if self.mode == "reply" and not self.route.quoted_message_id:
+                raise ValueError("reply mode requires quoted_message_id")
+            return self
         raise ValueError("unsupported send_message provider")
 
     @property
@@ -765,6 +807,12 @@ class SendMessageCanonicalInput(BaseModel):
     def telegram_route(self) -> TelegramSendRoute:
         if not isinstance(self.route, TelegramSendRoute):
             raise TypeError("send_message route is not Telegram")
+        return self.route
+
+    @property
+    def teams_route(self) -> TeamsSendRoute:
+        if not isinstance(self.route, TeamsSendRoute):
+            raise TypeError("send_message route is not Teams")
         return self.route
 
     @property

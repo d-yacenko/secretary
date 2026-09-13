@@ -7,6 +7,7 @@ from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READO
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
+from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
@@ -14,6 +15,7 @@ from app.db.models import (
     GoogleAccount,
     Job,
     MattermostAccount,
+    TeamsAccount,
     YandexCalendarAccount,
     YandexMailAccount,
 )
@@ -24,6 +26,7 @@ from app.jobs.constants import (
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
     JOB_TYPE_SYNC_MATTERMOST,
+    JOB_TYPE_SYNC_TEAMS,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_YANDEX_MAIL,
     RECURRING_SOURCE_JOB_TYPES,
@@ -34,6 +37,7 @@ from app.source_sync.constants import (
     SOURCE_GMAIL,
     SOURCE_GOOGLE_CALENDAR,
     SOURCE_MATTERMOST,
+    SOURCE_TEAMS,
     SOURCE_TO_JOB_TYPE,
     SOURCE_YANDEX_CALENDAR,
     SOURCE_YANDEX_MAIL,
@@ -59,6 +63,9 @@ class SourceSyncScheduler:
         )
         self._maintain_mattermost_accounts(
             MattermostAccountStore(self._session, encryption)
+        )
+        self._maintain_teams_accounts(
+            TeamsAccountStore(self._session, encryption)
         )
         self._retire_stale_recurring_jobs(encryption)
         self._rearm_failed_recurring_jobs()
@@ -120,6 +127,15 @@ class SourceSyncScheduler:
                 )
             ):
                 triggered.append(f"mattermost:{account.id}")
+        teams_store = TeamsAccountStore(self._session, encryption)
+        for account in teams_store.list_accounts(user_id):
+            if (
+                self._preferences.is_job_type_enabled(user_id, JOB_TYPE_SYNC_TEAMS)
+                and self._queue.trigger_recurring_source_job(
+                    user_id, JOB_TYPE_SYNC_TEAMS, account.id
+                )
+            ):
+                triggered.append(f"teams:{account.id}")
         return triggered
 
     def reconcile_user_source(self, user_id: UUID, source: str) -> None:
@@ -167,6 +183,9 @@ class SourceSyncScheduler:
             return [account.id for account in store.list_accounts(user_id)]
         if source == SOURCE_MATTERMOST:
             store = MattermostAccountStore(self._session, encryption)
+            return [account.id for account in store.list_accounts(user_id)]
+        if source == SOURCE_TEAMS:
+            store = TeamsAccountStore(self._session, encryption)
             return [account.id for account in store.list_accounts(user_id)]
         return []
 
@@ -228,6 +247,15 @@ class SourceSyncScheduler:
                 account.user_id,
             )
 
+    def _maintain_teams_accounts(self, _store: TeamsAccountStore) -> None:
+        accounts = list(self._session.scalars(select(TeamsAccount)))
+        for account in accounts:
+            self._maintain_recurring_job(
+                JOB_TYPE_SYNC_TEAMS,
+                account.id,
+                account.user_id,
+            )
+
     def _collect_expected_recurring_jobs(
         self,
         encryption: CredentialEncryption,
@@ -270,6 +298,11 @@ class SourceSyncScheduler:
                 account.user_id, JOB_TYPE_SYNC_MATTERMOST
             ):
                 expected.add((JOB_TYPE_SYNC_MATTERMOST, account.id, account.user_id))
+        for account in self._session.scalars(select(TeamsAccount)):
+            if self._preferences.is_job_type_enabled(
+                account.user_id, JOB_TYPE_SYNC_TEAMS
+            ):
+                expected.add((JOB_TYPE_SYNC_TEAMS, account.id, account.user_id))
         return expected
 
     def _retire_stale_recurring_jobs(self, encryption: CredentialEncryption) -> None:
@@ -317,6 +350,7 @@ class SourceSyncScheduler:
                             JOB_TYPE_SYNC_YANDEX_MAIL,
                             JOB_TYPE_SYNC_YANDEX_CALENDAR,
                             JOB_TYPE_SYNC_MATTERMOST,
+                            JOB_TYPE_SYNC_TEAMS,
                         )
                     ),
                     Job.status == JOB_STATUS_FAILED,

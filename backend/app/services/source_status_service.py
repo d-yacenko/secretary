@@ -9,6 +9,7 @@ from app.connectors.google.constants import CALENDAR_READONLY_SCOPE, GMAIL_READO
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
+from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
 from app.connectors.yandex.credentials import YandexMailAccountStore
 from app.core.config import settings
@@ -21,6 +22,7 @@ from app.jobs.constants import (
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
     JOB_TYPE_SYNC_MATTERMOST,
+    JOB_TYPE_SYNC_TEAMS,
     JOB_TYPE_SYNC_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_YANDEX_MAIL,
     RECURRING_SOURCE_JOB_TYPES,
@@ -31,6 +33,7 @@ from app.source_sync.constants import (
     SOURCE_GMAIL,
     SOURCE_GOOGLE_CALENDAR,
     SOURCE_MATTERMOST,
+    SOURCE_TEAMS,
     SOURCE_YANDEX_CALENDAR,
     SOURCE_YANDEX_MAIL,
 )
@@ -41,6 +44,7 @@ SOURCE_TYPE_LABELS = {
     JOB_TYPE_SYNC_YANDEX_MAIL: SOURCE_YANDEX_MAIL,
     JOB_TYPE_SYNC_YANDEX_CALENDAR: SOURCE_YANDEX_CALENDAR,
     JOB_TYPE_SYNC_MATTERMOST: SOURCE_MATTERMOST,
+    JOB_TYPE_SYNC_TEAMS: SOURCE_TEAMS,
 }
 
 _STATUS_PRIORITY = {
@@ -215,6 +219,16 @@ class SourceStatusService:
                     account_label=self._mattermost_account_label(account),
                 )
             )
+        teams_store = TeamsAccountStore(self._session, encryption)
+        for account in teams_store.list_accounts(self._user_id):
+            accounts.append(
+                _ConnectedSourceAccount(
+                    source_key=SOURCE_TEAMS,
+                    job_type=JOB_TYPE_SYNC_TEAMS,
+                    account_id=account.id,
+                    account_label=self._teams_account_label(account),
+                )
+            )
         return accounts
 
     @staticmethod
@@ -283,3 +297,11 @@ class SourceStatusService:
         if username:
             return username
         return server or str(account.id)
+
+    @staticmethod
+    def _teams_account_label(account) -> str:
+        display_name = (account.display_name or "").strip()
+        upn = (account.upn or "").strip()
+        if display_name and upn:
+            return f"{display_name} ({upn})"
+        return display_name or upn or str(account.id)

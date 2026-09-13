@@ -224,4 +224,35 @@ void main() {
     expect(find.byKey(const Key('source_mark_telegram')), findsOneWidget);
     expect(find.text('Исходящее Telegram'), findsNothing);
   });
+
+  testWidgets('inbound teams chat_message renders Teams mark in Inbox', (tester) async {
+    await tester.pumpWidget(
+      buildInbox(MockClient((request) async {
+        if (request.url.path == '/inbox') {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode(inboxJson([
+              {
+                'id': 'teams-in-1',
+                'title': 'Petrushin: hello',
+                'kind': 'chat_message',
+                'provider': 'teams',
+                'origin': 'source',
+                'state': 'observed',
+                'status': null,
+                'primary_at': '2026-09-13T10:00:00Z',
+                'excerpt': 'hello',
+              },
+            ]))),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      })),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Petrushin: hello'), findsOneWidget);
+    expect(find.byKey(const Key('source_mark_teams')), findsOneWidget);
+  });
 }

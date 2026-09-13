@@ -323,6 +323,48 @@ class TelegramLinkResult {
   }
 }
 
+class TeamsConnection {
+  TeamsConnection({
+    required this.configured,
+    required this.connected,
+    this.displayName,
+    this.upn,
+    this.tenantId,
+  });
+
+  final bool configured;
+  final bool connected;
+  final String? displayName;
+  final String? upn;
+  final String? tenantId;
+
+  factory TeamsConnection.unavailable() {
+    return TeamsConnection(configured: false, connected: false);
+  }
+
+  factory TeamsConnection.fromJson(Map<String, dynamic> json) {
+    return TeamsConnection(
+      configured: json['configured'] as bool? ?? false,
+      connected: json['connected'] as bool? ?? false,
+      displayName: json['display_name'] as String?,
+      upn: json['upn'] as String?,
+      tenantId: json['tenant_id'] as String?,
+    );
+  }
+}
+
+class TeamsAuthorizationUrl {
+  TeamsAuthorizationUrl({required this.authorizationUrl});
+
+  final String authorizationUrl;
+
+  factory TeamsAuthorizationUrl.fromJson(Map<String, dynamic> json) {
+    return TeamsAuthorizationUrl(
+      authorizationUrl: json['authorization_url'] as String,
+    );
+  }
+}
+
 class YandexConnectResult {
   YandexConnectResult({
     required this.status,
@@ -350,6 +392,7 @@ class Connections {
     required this.yandexCalendar,
     required this.mattermost,
     required this.telegram,
+    required this.teams,
   });
 
   final GoogleConnection google;
@@ -357,10 +400,12 @@ class Connections {
   final YandexCalendarConnection yandexCalendar;
   final List<MattermostConnection> mattermost;
   final TelegramConnection telegram;
+  final TeamsConnection teams;
 
   factory Connections.fromJson(Map<String, dynamic> json) {
     final mattermostRaw = json['mattermost'];
     final telegramRaw = json['telegram'];
+    final teamsRaw = json['teams'];
     return Connections(
       google: GoogleConnection.fromJson(json['google'] as Map<String, dynamic>),
       yandexMail: YandexMailConnection.fromJson(
@@ -377,6 +422,9 @@ class Connections {
       telegram: telegramRaw is Map<String, dynamic>
           ? TelegramConnection.fromJson(telegramRaw)
           : TelegramConnection.unavailable(),
+      teams: teamsRaw is Map<String, dynamic>
+          ? TeamsConnection.fromJson(teamsRaw)
+          : TeamsConnection.unavailable(),
     );
   }
 }
@@ -1398,7 +1446,13 @@ class PendingAction {
     final mode = arguments['mode']?.toString() ?? '';
     final body = arguments['body']?.toString() ?? '';
     final parts = <String>[];
-    if (provider == 'telegram') {
+    if (provider == 'teams') {
+      parts.add('Microsoft Teams');
+      final display = route['chat_display_title']?.toString().trim();
+      if (display != null && display.isNotEmpty) {
+        parts.add(display);
+      }
+    } else if (provider == 'telegram') {
       parts.add('Telegram');
       final display = route['chat_display_name']?.toString().trim();
       final username = route['chat_username']?.toString().trim();
@@ -1437,6 +1491,8 @@ class PendingAction {
         return 'Yandex';
       case 'google':
         return 'Google';
+      case 'teams':
+        return 'Microsoft Teams';
       case 'telegram':
         return 'Telegram';
       case 'mattermost':
@@ -1931,6 +1987,7 @@ const List<String> supportedSourcePreferenceKeys = [
   'yandex_mail',
   'yandex_calendar',
   'mattermost',
+  'teams',
 ];
 
 class SourcePreference {

@@ -11,6 +11,8 @@ from app.connectors.google.constants import (
 from app.connectors.google.credentials import GoogleAccountStore
 from app.connectors.google.encryption import CredentialEncryption
 from app.connectors.mattermost.credentials import MattermostAccountStore
+from app.connectors.teams.account_store import TeamsAccountStore
+from app.connectors.teams.config import teams_is_configured
 from app.connectors.telegram.account_store import TelegramAccountStore
 from app.connectors.telegram.webhook_service import bot_username, can_reply_from_rights, telegram_is_configured
 from app.connectors.yandex.calendar_credentials import YandexCalendarAccountStore
@@ -61,12 +63,22 @@ class TelegramConnectionStatus:
 
 
 @dataclass(frozen=True)
+class TeamsConnectionStatus:
+    configured: bool = False
+    connected: bool = False
+    display_name: str | None = None
+    upn: str | None = None
+    tenant_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ConnectionStatusSnapshot:
     google: GoogleConnectionStatus
     yandex_mail: YandexMailConnectionStatus
     yandex_calendar: YandexCalendarConnectionStatus
     mattermost: list[MattermostConnectionStatus]
     telegram: TelegramConnectionStatus
+    teams: TeamsConnectionStatus
 
 
 class ConnectionStatusService:
@@ -80,12 +92,14 @@ class ConnectionStatusService:
         yandex_calendar = self._yandex_calendar_status()
         mattermost = self._mattermost_accounts()
         telegram = self._telegram_status()
+        teams = self._teams_status()
         return ConnectionStatusSnapshot(
             google=google,
             yandex_mail=yandex_mail,
             yandex_calendar=yandex_calendar,
             mattermost=mattermost,
             telegram=telegram,
+            teams=teams,
         )
 
     def _google_status(self) -> GoogleConnectionStatus:
@@ -161,4 +175,23 @@ class ConnectionStatusService:
             telegram_username=account.telegram_username,
             display_name=account.display_name,
             bot_username=bot,
+        )
+
+    def _teams_status(self) -> TeamsConnectionStatus:
+        configured = teams_is_configured()
+        if not settings.secretary_credential_key:
+            return TeamsConnectionStatus(configured=configured)
+        store = TeamsAccountStore(
+            self._session,
+            TeamsAccountStore.build_encryption(settings.secretary_credential_key),
+        )
+        account = store.get_by_user_id(self._user_id)
+        if account is None:
+            return TeamsConnectionStatus(configured=configured)
+        return TeamsConnectionStatus(
+            configured=configured,
+            connected=True,
+            display_name=account.display_name,
+            upn=account.upn,
+            tenant_id=account.tenant_id,
         )

@@ -17,6 +17,7 @@ from app.api.labels import router as labels_router
 from app.api.local import router as local_router
 from app.api.mattermost import router as mattermost_router
 from app.api.telegram import router as telegram_router
+from app.api.teams import router as teams_router
 from app.api.me import router as me_router
 from app.api.object_bookmarks import router as object_bookmarks_router
 from app.api.routes.graph import router as graph_router
@@ -100,6 +101,7 @@ app.include_router(sources_router)
 app.include_router(yandex_router)
 app.include_router(mattermost_router)
 app.include_router(telegram_router)
+app.include_router(teams_router)
 app.include_router(today_router)
 app.include_router(week_router)
 app.include_router(availability_router)

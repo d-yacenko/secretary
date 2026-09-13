@@ -41,6 +41,7 @@ const Map<String, String> providerLabels = {
   'outlook': 'Outlook',
   'microsoft': 'Microsoft',
   'telegram': 'Telegram',
+  'teams': 'Microsoft Teams',
   'slack': 'Slack',
   'mattermost': 'Mattermost',
 };
@@ -57,6 +58,7 @@ const Map<String, String> providerCompactGlyphs = {
   'yandex_disk': 'Я',
   'mattermost': 'M',
   'telegram': 'T',
+  'teams': 'Ms',
 };
 
 String objectKindLabel(String kind) =>

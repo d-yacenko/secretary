@@ -10,6 +10,7 @@ const Map<String, String> sourcePreferenceLabels = {
   'yandex_mail': 'Яндекс Почта',
   'yandex_calendar': 'Яндекс Календарь',
   'mattermost': 'Mattermost',
+  'teams': 'Microsoft Teams',
 };
 
 bool sourcePreferenceConnected(String source, Connections connections) {
@@ -24,6 +25,8 @@ bool sourcePreferenceConnected(String source, Connections connections) {
       return connections.yandexCalendar.connected;
     case 'mattermost':
       return connections.mattermost.isNotEmpty;
+    case 'teams':
+      return connections.teams.connected;
     default:
       return false;
   }

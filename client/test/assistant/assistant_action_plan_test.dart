@@ -866,4 +866,119 @@ void main() {
     expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
     expect(find.text('Отклонить'), findsOneWidget);
   });
+
+  testWidgets(
+      'prose confirmation without pending_action_plan does not render approval card',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'answer':
+                  'Ответ Петрушину: «Да, это действительно обидно». Подтвердите отправку.',
+              'references': [],
+              'affected_objects': [],
+              'pending_action_plan': null,
+            }),
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = testSecretaryApiClient(mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Да, это действительно обидно, ответь это Петрушину.');
+    await tester.pumpAndSettle();
+
+    expect(assistant.hasPendingActionPlan, isFalse);
+    expect(assistant.messages.last.actionPlan, isNull);
+    expect(find.text('Подтвердить'), findsNothing);
+    expect(find.text('Отклонить'), findsNothing);
+    expect(find.text('Требует подтверждения'), findsNothing);
+    expect(find.textContaining('Подтвердите отправку'), findsOneWidget);
+  });
+
+  testWidgets('send_message pending_action_plan renders the normal approval card',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'answer': 'Отправка подготовлена.',
+              'references': [],
+              'affected_objects': [],
+              'pending_action_plan': {
+                'id': 'plan-send-1',
+                'status': 'pending',
+                'expires_at': '2026-09-13T15:00:00Z',
+                'actions': [
+                  {
+                    'tool_name': 'send_message',
+                    'arguments': {
+                      'provider': 'telegram',
+                      'mode': 'reply',
+                      'body': 'Да, это действительно обидно',
+                      'route': {
+                        'chat_display_name': 'Ivan Petrushin',
+                      },
+                    },
+                  },
+                ],
+              },
+            }),
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    final apiClient = testSecretaryApiClient(mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: FakeVoiceRecorder(),
+      voiceTempFiles: VoiceTempFiles(),
+    );
+
+    await pumpAssistant(tester, assistant, auth, capture, apiClient);
+    await assistant.sendMessage('Отправляй');
+    await tester.pumpAndSettle();
+
+    expect(assistant.hasPendingActionPlan, isTrue);
+    expect(find.text('Требует подтверждения'), findsOneWidget);
+    expect(find.text('Подтвердить'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
+    expect(find.textContaining('Telegram'), findsOneWidget);
+    expect(find.textContaining('Да, это действительно обидно'), findsWidgets);
+  });
 }

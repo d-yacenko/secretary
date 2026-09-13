@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     telegram_webhook_secret: str = ""
     telegram_webhook_url: str = ""
+    microsoft_oauth_client_id: str = ""
+    microsoft_oauth_client_secret: str = ""
+    microsoft_redirect_uri: str = "http://localhost:18080/auth/teams/callback"
+    source_sync_teams_interval_seconds: int = 60
     source_sync_gmail_interval_seconds: int = 120
     source_sync_yandex_mail_interval_seconds: int = 120
     source_sync_google_calendar_interval_seconds: int = 300
@@ -92,6 +96,7 @@ class Settings(BaseSettings):
         "source_sync_google_calendar_interval_seconds",
         "source_sync_yandex_calendar_interval_seconds",
         "source_sync_mattermost_interval_seconds",
+        "source_sync_teams_interval_seconds",
     )
     @classmethod
     def _validate_source_sync_interval(cls, value: int) -> int:

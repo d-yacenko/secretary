@@ -1,4 +1,4 @@
-"""Bounded Mattermost and Telegram send_message execution after approval."""
+"""Bounded Mattermost, Telegram, and Teams send_message execution after approval."""
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -43,8 +43,24 @@ from app.connectors.telegram.normalize import build_external_id as build_telegra
 from app.connectors.telegram.normalize import provider_id_str
 from app.connectors.telegram.transport import TelegramHttpTransport, TelegramTransport
 from app.connectors.telegram.webhook_service import can_reply_from_rights, telegram_is_configured
+from app.connectors.teams.account_store import TeamsAccountStore
+from app.connectors.teams.constants import (
+    ACCEPTED_CHAT_TYPES,
+    MAX_MESSAGE_BODY_CHARS as MAX_TEAMS_MESSAGE_BODY_CHARS,
+)
+from app.connectors.teams.errors import (
+    TeamsConfigurationError,
+    TeamsWriteDefiniteError,
+    TeamsWriteUncertainError,
+)
+from app.connectors.teams.materialize import TeamsObjectMaterializer
+from app.connectors.teams.normalize import build_external_id as build_teams_external_id
+from app.connectors.teams.normalize import provider_id_str as teams_provider_id_str
+from app.connectors.teams.normalize import sender_from_message
+from app.connectors.teams.html_text import teams_body_to_plain_text
+from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
 from app.core.config import settings
-from app.db.models import ExternalActionAttempt, MattermostAccount, Object, TelegramAccount
+from app.db.models import ExternalActionAttempt, MattermostAccount, Object, TeamsAccount, TelegramAccount
 from app.db.session import SessionLocal
 from app.domain.object_visibility import is_object_hidden_from_active_reads
 from app.domain.task_lifecycle import TASK_STATUS_DELETED
@@ -54,6 +70,7 @@ from app.tools.schemas import (
     SendMessageCanonicalInput,
     SendMessageInput,
     SendMessageOutput,
+    TeamsSendRoute,
     TelegramSendRoute,
     ToolError,
 )
@@ -71,6 +88,7 @@ _FAILED_DEFINITE_MESSAGE = "message send previously failed; create a new plan"
 _KIND_REQUIRED = "chat_message"
 _PROVIDER_MATTERMOST = "mattermost"
 _PROVIDER_TELEGRAM = "telegram"
+_PROVIDER_TEAMS = "teams"
 
 
 def generate_operation_id() -> str:
@@ -107,15 +125,18 @@ class CommunicationExternalActionService:
         *,
         transport: MattermostTransport | None = None,
         telegram_transport: TelegramTransport | None = None,
+        teams_transport: TeamsTransport | None = None,
         attempt_session_factory=SessionLocal,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._transport = transport
         self._telegram_transport = telegram_transport
+        self._teams_transport = teams_transport
         self._attempt_session_factory = attempt_session_factory
         self._materializer = MattermostObjectMaterializer(session)
         self._telegram_materializer = TelegramObjectMaterializer(session)
+        self._teams_materializer = TeamsObjectMaterializer(session)
 
     def prepare_send_message(self, payload: SendMessageInput) -> SendMessageCanonicalInput:
         if payload.conversation_object_id is not None:
@@ -130,6 +151,8 @@ class CommunicationExternalActionService:
         obj = self._load_anchor(anchor_id)
         if obj.provider == _PROVIDER_TELEGRAM:
             return self._prepare_telegram(payload, obj, mode)
+        if obj.provider == _PROVIDER_TEAMS:
+            return self._prepare_teams(payload, obj, mode)
         if obj.provider != _PROVIDER_MATTERMOST:
             raise ToolError("anchor provider is not mattermost")
         route = self._validated_route(obj)
@@ -160,6 +183,8 @@ class CommunicationExternalActionService:
     def send_message(self, payload: SendMessageCanonicalInput) -> SendMessageOutput:
         if payload.provider == _PROVIDER_TELEGRAM:
             return self._send_telegram(payload)
+        if payload.provider == _PROVIDER_TEAMS:
+            return self._send_teams(payload)
         expected_pending = pending_post_id_from_operation_id(payload.operation_id)
         if payload.pending_post_id != expected_pending:
             raise ToolError("pending_post_id does not match operation_id")
@@ -310,7 +335,7 @@ class CommunicationExternalActionService:
             )
         if attempt.state == ATTEMPT_FAILED_DEFINITE:
             raise ToolError(_FAILED_DEFINITE_MESSAGE)
-        if payload.provider == _PROVIDER_TELEGRAM:
+        if payload.provider in {_PROVIDER_TELEGRAM, _PROVIDER_TEAMS}:
             raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
         matched = self._reconcile_local(payload)
         if matched is not None:
@@ -341,7 +366,7 @@ class CommunicationExternalActionService:
             ATTEMPT_UNCERTAIN,
             error=error or _UNCERTAIN_DELIVERY_MESSAGE,
         )
-        if payload.provider == _PROVIDER_TELEGRAM:
+        if payload.provider in {_PROVIDER_TELEGRAM, _PROVIDER_TEAMS}:
             raise ToolError(_UNCERTAIN_DELIVERY_MESSAGE)
         matched = self._reconcile_local(payload)
         if matched is not None:
@@ -630,6 +655,230 @@ class CommunicationExternalActionService:
             raise ToolError("telegram is not configured")
         return TelegramHttpTransport(settings.telegram_bot_token)
 
+    def _prepare_teams(
+        self,
+        payload: SendMessageInput,
+        obj: Object,
+        mode: str,
+    ) -> SendMessageCanonicalInput:
+        if len(payload.body) > MAX_TEAMS_MESSAGE_BODY_CHARS:
+            raise ToolError("body exceeds Teams maximum length")
+        route = self._validated_teams_route(obj)
+        quoted_message_id = route["source_message_id"] if mode == "reply" else None
+        return SendMessageCanonicalInput(
+            provider="teams",
+            mode=mode,
+            anchor_object_id=obj.id,
+            body=payload.body,
+            operation_id=generate_operation_id(),
+            route=TeamsSendRoute(
+                account_id=route["account_id"],
+                tenant_id=route["tenant_id"],
+                teams_user_id=route["teams_user_id"],
+                chat_id=route["chat_id"],
+                chat_type=route["chat_type"],
+                source_message_id=route["source_message_id"],
+                quoted_message_id=quoted_message_id,
+                chat_display_title=route["chat_display_title"],
+            ),
+        )
+
+    def _validated_teams_route(self, obj: Object) -> dict[str, Any]:
+        meta = dict(obj.metadata_ or {})
+        raw_account_id = meta.get("account_id")
+        try:
+            account_id = UUID(str(raw_account_id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ToolError("malformed Teams account_id") from exc
+
+        tenant_id = teams_provider_id_str(meta.get("tenant_id"))
+        teams_user_id = teams_provider_id_str(meta.get("teams_user_id"))
+        chat_id = teams_provider_id_str(meta.get("chat_id"))
+        chat_type = teams_provider_id_str(meta.get("chat_type"))
+        source_message_id = teams_provider_id_str(meta.get("message_id"))
+        if not tenant_id or not teams_user_id or not chat_id or not chat_type or not source_message_id:
+            raise ToolError("malformed Teams routing metadata")
+        if chat_type not in ACCEPTED_CHAT_TYPES:
+            raise ToolError("unsupported Teams chat type")
+
+        account = self._require_teams_account(account_id)
+        if account.tenant_id != tenant_id:
+            raise ToolError("Teams tenant does not match")
+        if account.microsoft_user_id != teams_user_id:
+            raise ToolError("Teams account identity does not match")
+
+        expected_external_id = build_teams_external_id(
+            tenant_id,
+            teams_user_id,
+            chat_id,
+            source_message_id,
+        )
+        if obj.external_id != expected_external_id:
+            raise ToolError("Teams external_id does not match message routing")
+
+        return {
+            "account_id": account.id,
+            "tenant_id": tenant_id,
+            "teams_user_id": teams_user_id,
+            "chat_id": chat_id,
+            "chat_type": chat_type,
+            "source_message_id": source_message_id,
+            "chat_display_title": str(meta.get("chat_display_title") or "").strip() or None,
+        }
+
+    def _require_teams_account(self, account_id: UUID) -> TeamsAccount:
+        if not settings.secretary_credential_key:
+            raise ToolError("credentials are not configured")
+        account = TeamsAccountStore(
+            self._session,
+            TeamsAccountStore.build_encryption(settings.secretary_credential_key),
+        ).get_by_id_for_user(account_id, self._user_id)
+        if account is None:
+            raise ToolError("Teams account is not connected")
+        return account
+
+    def _assert_frozen_teams_account(self, account: TeamsAccount, route: TeamsSendRoute) -> None:
+        if account.id != route.account_id or account.user_id != self._user_id:
+            raise ToolError("Teams account is not connected")
+        if account.tenant_id != route.tenant_id:
+            raise ToolError("Teams tenant does not match")
+        if account.microsoft_user_id != route.teams_user_id:
+            raise ToolError("Teams account identity does not match")
+        if route.chat_type not in ACCEPTED_CHAT_TYPES:
+            raise ToolError("unsupported Teams chat type")
+
+    def _send_teams(self, payload: SendMessageCanonicalInput) -> SendMessageOutput:
+        if payload.provider != _PROVIDER_TEAMS:
+            raise ToolError("unsupported send_message provider")
+        attempt, claimed = self._claim_started(payload.operation_id)
+        if not claimed:
+            return self._resume_existing_attempt(payload, attempt)
+        try:
+            route = payload.teams_route
+            account = self._require_teams_account(route.account_id)
+            self._assert_frozen_teams_account(account, route)
+        except ToolError as exc:
+            return self._definite_failure(payload, exc.message)
+        return self._write_teams_once(payload, account)
+
+    def _write_teams_once(
+        self,
+        payload: SendMessageCanonicalInput,
+        account: TeamsAccount,
+    ) -> SendMessageOutput:
+        route = payload.teams_route
+        owns_transport = False
+        transport = self._teams_transport
+        if transport is None:
+            try:
+                transport = self._open_teams_http_transport(account)
+            except (ToolError, TeamsConfigurationError) as exc:
+                return self._definite_failure(payload, exc.message)
+            owns_transport = True
+        try:
+            try:
+                if payload.mode == "reply":
+                    created = transport.reply_with_quote(
+                        chat_id=route.chat_id,
+                        quoted_message_id=route.quoted_message_id or route.source_message_id,
+                        body=payload.body,
+                    )
+                else:
+                    created = transport.send_message(chat_id=route.chat_id, body=payload.body)
+            except TeamsWriteDefiniteError as exc:
+                return self._definite_failure(payload, exc.message)
+            except TeamsWriteUncertainError as exc:
+                return self._after_uncertain_write(payload, exc.message)
+        finally:
+            if owns_transport:
+                transport.close()
+
+        mismatch = self._teams_success_mismatch(payload, created)
+        if mismatch is not None:
+            return self._after_uncertain_write(payload, mismatch)
+
+        provider_id = teams_provider_id_str(created.get("id"))
+        self._persist_attempt_state(
+            payload.operation_id,
+            ATTEMPT_SUCCEEDED,
+            provider_external_id=provider_id,
+            delivery_status="sent",
+        )
+        obj = self._materialize_teams_created(payload, account, created)
+        return self._output(
+            payload,
+            provider_id,
+            object_id=obj.id if obj is not None else None,
+            delivery_status="sent",
+            changed=True,
+        )
+
+    def _teams_success_mismatch(
+        self,
+        payload: SendMessageCanonicalInput,
+        created: dict[str, Any],
+    ) -> str | None:
+        if not isinstance(created, dict):
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        route = payload.teams_route
+        message_id = teams_provider_id_str(created.get("id"))
+        if not message_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        returned_chat = teams_provider_id_str(created.get("chatId"))
+        if returned_chat and returned_chat != route.chat_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        body = created.get("body") if isinstance(created.get("body"), dict) else None
+        if body is not None:
+            returned_text = teams_body_to_plain_text(
+                content_type=teams_provider_id_str(body.get("contentType")),
+                content=str(body.get("content") or ""),
+            )
+            if _normalize_body(returned_text) != payload.body:
+                return _UNCERTAIN_DELIVERY_MESSAGE
+        sender_id, _sender_name = sender_from_message(created)
+        if sender_id and sender_id != route.teams_user_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        returned_reply = teams_provider_id_str(created.get("replyToId"))
+        if payload.mode == "compose" and returned_reply is not None:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        if payload.mode == "reply" and returned_reply and returned_reply != route.quoted_message_id:
+            return _UNCERTAIN_DELIVERY_MESSAGE
+        return None
+
+    def _materialize_teams_created(
+        self,
+        payload: SendMessageCanonicalInput,
+        account: TeamsAccount,
+        created: dict[str, Any],
+    ) -> Object | None:
+        route = payload.teams_route
+        message = dict(created)
+        message.setdefault("chatId", route.chat_id)
+        if payload.mode == "reply":
+            message.setdefault("replyToId", route.quoted_message_id)
+        result = self._teams_materializer.upsert_message(
+            user_id=self._user_id,
+            account_id=account.id,
+            tenant_id=account.tenant_id,
+            microsoft_user_id=account.microsoft_user_id,
+            chat_id=route.chat_id,
+            chat_type=route.chat_type,
+            chat_display_title=route.chat_display_title,
+            message=message,
+            skip_hidden=False,
+        )
+        return result.obj
+
+    def _open_teams_http_transport(self, account: TeamsAccount) -> TeamsHttpTransport:
+        if not settings.secretary_credential_key:
+            raise ToolError("credentials are not configured")
+        store = TeamsAccountStore(
+            self._session,
+            TeamsAccountStore.build_encryption(settings.secretary_credential_key),
+        )
+        token = store.get_access_token(account)
+        return TeamsHttpTransport(token)
+
     def _reconcile_local(self, payload: SendMessageCanonicalInput) -> Object | None:
         return self._materializer.find_by_pending_post_id(
             user_id=self._user_id,
@@ -710,6 +959,20 @@ class CommunicationExternalActionService:
             existing = self._telegram_materializer.find_existing(
                 self._user_id,
                 build_telegram_external_id(route.business_connection_id, route.chat_id, provider_id),
+            )
+            return existing.id if existing is not None else None
+        if payload.provider == _PROVIDER_TEAMS:
+            if not provider_id:
+                return None
+            route = payload.teams_route
+            existing = self._teams_materializer.find_existing(
+                self._user_id,
+                build_teams_external_id(
+                    route.tenant_id,
+                    route.teams_user_id,
+                    route.chat_id,
+                    provider_id,
+                ),
             )
             return existing.id if existing is not None else None
         if not provider_id:

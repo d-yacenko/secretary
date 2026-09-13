@@ -227,6 +227,12 @@ class SecretaryApiClient {
     return TelegramLinkResult.fromJson(body);
   }
 
+  Future<TeamsAuthorizationUrl> getTeamsAuthorizationUrl() async {
+    final body =
+        await _request('POST', '/auth/teams/authorization-url', jsonBody: {});
+    return TeamsAuthorizationUrl.fromJson(body);
+  }
+
   Future<YandexConnectResult> connectYandexMail({
     required String email,
     required String appPassword,
