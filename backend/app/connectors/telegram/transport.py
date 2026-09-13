@@ -20,7 +20,7 @@ class TelegramTransport(Protocol):
         url: str,
         secret_token: str,
         allowed_updates: tuple[str, ...],
-    ) -> dict[str, Any]:
+    ) -> bool:
         ...
 
     def send_message(
@@ -68,7 +68,7 @@ class TelegramHttpTransport:
         url: str,
         secret_token: str,
         allowed_updates: tuple[str, ...],
-    ) -> dict[str, Any]:
+    ) -> bool:
         payload = self._request_json(
             "setWebhook",
             json_body={
@@ -77,9 +77,9 @@ class TelegramHttpTransport:
                 "allowed_updates": list(allowed_updates),
             },
         )
-        if not isinstance(payload, dict):
+        if payload is not True:
             raise TelegramConfigurationError("telegram setWebhook response malformed")
-        return payload
+        return True
 
     def send_message(
         self,
@@ -180,7 +180,7 @@ class FakeTelegramTransport:
         url: str,
         secret_token: str,
         allowed_updates: tuple[str, ...],
-    ) -> dict[str, Any]:
+    ) -> bool:
         self.set_webhook_calls.append(
             {
                 "url": url,
@@ -188,7 +188,7 @@ class FakeTelegramTransport:
                 "allowed_updates": list(allowed_updates),
             }
         )
-        return {"ok": True, "result": True}
+        return True
 
     def send_message(
         self,

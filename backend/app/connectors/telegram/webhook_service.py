@@ -26,6 +26,7 @@ def telegram_is_configured() -> bool:
         settings.telegram_bot_token.strip()
         and settings.telegram_bot_username.strip()
         and settings.telegram_webhook_secret.strip()
+        and settings.telegram_webhook_url.strip()
     )
 
 

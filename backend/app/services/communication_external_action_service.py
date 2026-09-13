@@ -498,17 +498,20 @@ class CommunicationExternalActionService:
     def _send_telegram(self, payload: SendMessageCanonicalInput) -> SendMessageOutput:
         if payload.provider != _PROVIDER_TELEGRAM:
             raise ToolError("unsupported send_message provider")
-        route = payload.telegram_route
-        account = self._require_telegram_account(route.account_id)
-        self._assert_frozen_telegram_account(account, route)
-        self._require_recent_inbound(
-            account_id=route.account_id,
-            business_connection_id=route.business_connection_id,
-            chat_id=route.chat_id,
-        )
         attempt, claimed = self._claim_started(payload.operation_id)
         if not claimed:
             return self._resume_existing_attempt(payload, attempt)
+        try:
+            route = payload.telegram_route
+            account = self._require_telegram_account(route.account_id)
+            self._assert_frozen_telegram_account(account, route)
+            self._require_recent_inbound(
+                account_id=route.account_id,
+                business_connection_id=route.business_connection_id,
+                chat_id=route.chat_id,
+            )
+        except ToolError as exc:
+            return self._definite_failure(payload, exc.message)
         return self._write_telegram_once(payload, account)
 
     def _write_telegram_once(

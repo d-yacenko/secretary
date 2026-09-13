@@ -6,16 +6,8 @@ import sys
 from app.connectors.telegram.constants import TELEGRAM_ALLOWED_UPDATES
 from app.connectors.telegram.errors import TelegramConfigurationError
 from app.connectors.telegram.transport import TelegramHttpTransport
+from app.connectors.telegram.webhook_service import telegram_is_configured
 from app.core.config import settings
-
-
-def telegram_is_configured() -> bool:
-    return bool(
-        settings.telegram_bot_token.strip()
-        and settings.telegram_bot_username.strip()
-        and settings.telegram_webhook_secret.strip()
-        and settings.telegram_webhook_url.strip()
-    )
 
 
 def configure_webhook(transport: TelegramHttpTransport | None = None) -> int:

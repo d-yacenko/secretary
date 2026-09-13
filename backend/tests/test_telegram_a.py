@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect, select, text
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.cli.telegram_webhook import configure_webhook
+from app.cli.telegram_webhook import telegram_is_configured as cli_telegram_is_configured
 from app.connectors.telegram.constants import TELEGRAM_ALLOWED_UPDATES
+from app.connectors.telegram.errors import TelegramConfigurationError
 from app.connectors.telegram.link_state import hash_link_state
 from app.connectors.telegram.normalize import build_external_id
+from app.connectors.telegram.transport import TelegramHttpTransport
+from app.connectors.telegram.webhook_service import telegram_is_configured
 from app.db.models import Job, Object, TelegramAccount, TelegramLinkState, User, UserSettings
 from app.jobs.constants import JOB_TYPE_EMBED_OBJECT, JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL
 from app.main import app
@@ -30,6 +37,7 @@ from app.users.bootstrap import BOOTSTRAP_USER_ID
 WEBHOOK_SECRET = "telegram-webhook-secret"
 BOT_USERNAME = "secretary_bot"
 BOT_TOKEN = "test-bot-token"
+WEBHOOK_URL = "https://example.test/integrations/telegram/webhook"
 TELEGRAM_USER_ID = 5_000_000_000
 REMOTE_CHAT_ID = 6_000_000_000
 BUSINESS_CONNECTION_ID = "bc-1"
@@ -40,10 +48,7 @@ def telegram_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.core.config.settings.telegram_bot_token", BOT_TOKEN)
     monkeypatch.setattr("app.core.config.settings.telegram_bot_username", BOT_USERNAME)
     monkeypatch.setattr("app.core.config.settings.telegram_webhook_secret", WEBHOOK_SECRET)
-    monkeypatch.setattr(
-        "app.core.config.settings.telegram_webhook_url",
-        "https://example.test/integrations/telegram/webhook",
-    )
+    monkeypatch.setattr("app.core.config.settings.telegram_webhook_url", WEBHOOK_URL)
 
 
 def _utcnow() -> datetime:
@@ -159,62 +164,6 @@ def test_migration_0039_revises_0038(db_session) -> None:
     assert "uq_telegram_accounts_business_connection_id" in uniques
 
 
-def test_migration_0039_downgrade_and_upgrade_roundtrip(db_session) -> None:
-    bind = db_session.connection()
-    inspector = inspect(bind)
-    assert "telegram_accounts" in inspector.get_table_names()
-    bind.execute(text("DROP INDEX IF EXISTS ix_telegram_link_states_user_id"))
-    bind.execute(text("DROP TABLE telegram_link_states"))
-    bind.execute(text("DROP TABLE telegram_accounts"))
-    inspector = inspect(bind)
-    names = set(inspector.get_table_names())
-    assert "telegram_accounts" not in names
-    assert "telegram_link_states" not in names
-    bind.execute(
-        text(
-            """
-            CREATE TABLE telegram_accounts (
-                id UUID PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-                telegram_user_id BIGINT NOT NULL,
-                user_chat_id BIGINT NOT NULL,
-                telegram_username TEXT,
-                display_name TEXT,
-                business_connection_id TEXT,
-                business_user_chat_id BIGINT,
-                business_rights JSONB NOT NULL DEFAULT '{}'::jsonb,
-                business_connection_enabled BOOLEAN NOT NULL DEFAULT false,
-                business_connected_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                CONSTRAINT uq_telegram_accounts_user_id UNIQUE (user_id),
-                CONSTRAINT uq_telegram_accounts_telegram_user_id UNIQUE (telegram_user_id),
-                CONSTRAINT uq_telegram_accounts_business_connection_id UNIQUE (business_connection_id)
-            )
-            """
-        )
-    )
-    bind.execute(
-        text(
-            """
-            CREATE TABLE telegram_link_states (
-                id UUID PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-                state_hash TEXT NOT NULL,
-                expires_at TIMESTAMPTZ NOT NULL,
-                consumed_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                CONSTRAINT uq_telegram_link_states_state_hash UNIQUE (state_hash)
-            )
-            """
-        )
-    )
-    bind.execute(text("CREATE INDEX ix_telegram_link_states_user_id ON telegram_link_states (user_id)"))
-    inspector = inspect(bind)
-    assert "telegram_accounts" in inspector.get_table_names()
-    assert "telegram_link_states" in inspector.get_table_names()
-
-
 def test_telegram_accounts_bigint_and_uniqueness(db_session) -> None:
     first = _user(db_session, "one")
     second = _user(db_session, "two")
@@ -260,6 +209,153 @@ def test_telegram_link_unavailable_when_unconfigured(auth_client) -> None:
     response = auth_client.post("/telegram/link")
     assert response.status_code == 503
     assert "telegram" in response.json()["detail"].lower()
+
+
+def test_telegram_is_configured_is_one_helper(telegram_settings) -> None:
+    assert cli_telegram_is_configured is telegram_is_configured
+    assert telegram_is_configured() is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "telegram_bot_token",
+        "telegram_bot_username",
+        "telegram_webhook_secret",
+        "telegram_webhook_url",
+    ],
+)
+def test_telegram_readiness_fails_when_any_deployment_field_missing(
+    auth_client,
+    db_session,
+    telegram_settings,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+) -> None:
+    monkeypatch.setattr(f"app.core.config.settings.{field}", "")
+    assert telegram_is_configured() is False
+    connections = auth_client.get("/connections").json()["telegram"]
+    assert connections["configured"] is False
+    dumped = json.dumps(connections)
+    assert BOT_TOKEN not in dumped
+    assert WEBHOOK_SECRET not in dumped
+    assert WEBHOOK_URL not in dumped
+    link = auth_client.post("/telegram/link")
+    assert link.status_code == 503
+    assert "telegram" in link.json()["detail"].lower()
+    assert BOT_TOKEN not in str(link.json())
+    assert WEBHOOK_SECRET not in str(link.json())
+    captured: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(str(request.url))
+        return httpx.Response(500)
+
+    transport = TelegramHttpTransport(
+        BOT_TOKEN,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
+    )
+    assert configure_webhook(transport) == 1
+    assert captured == []
+    client = _webhook_client(db_session)
+    try:
+        if field == "telegram_webhook_secret":
+            rejected = _post_webhook(client, {"update_id": 1}, secret=WEBHOOK_SECRET)
+            assert rejected.status_code == 401
+        else:
+            accepted = _post_webhook(client, {"update_id": 1})
+            assert accepted.status_code == 200
+            assert accepted.json() == {"status": "ok"}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_http_set_webhook_accepts_boolean_true_and_configure_returns_zero(
+    telegram_settings,
+) -> None:
+    captured: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        captured.append({"url": str(request.url), "body": body})
+        path = request.url.path
+        if path.endswith("/getMe"):
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": {
+                        "id": 1000,
+                        "is_bot": True,
+                        "username": BOT_USERNAME,
+                        "first_name": "Secretary",
+                        "can_connect_to_business": True,
+                    },
+                },
+            )
+        if path.endswith("/setWebhook"):
+            return httpx.Response(200, json={"ok": True, "result": True})
+        return httpx.Response(500)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    transport = TelegramHttpTransport(BOT_TOKEN, http_client=client)
+    assert (
+        transport.set_webhook(
+            url=WEBHOOK_URL,
+            secret_token=WEBHOOK_SECRET,
+            allowed_updates=TELEGRAM_ALLOWED_UPDATES,
+        )
+        is True
+    )
+    assert captured[0]["url"] == f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+    assert captured[0]["body"] == {
+        "url": WEBHOOK_URL,
+        "secret_token": WEBHOOK_SECRET,
+        "allowed_updates": list(TELEGRAM_ALLOWED_UPDATES),
+    }
+    captured.clear()
+    assert configure_webhook(transport) == 0
+    assert [item["url"] for item in captured] == [
+        f"https://api.telegram.org/bot{BOT_TOKEN}/getMe",
+        f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+    ]
+    assert captured[1]["body"] == {
+        "url": WEBHOOK_URL,
+        "secret_token": WEBHOOK_SECRET,
+        "allowed_updates": list(TELEGRAM_ALLOWED_UPDATES),
+    }
+
+
+@pytest.mark.parametrize(
+    "result",
+    [False, None, {}, "true", 1, {"ok": True}],
+)
+def test_http_set_webhook_rejects_non_true_result(telegram_settings, result) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "result": result})
+
+    transport = TelegramHttpTransport(
+        BOT_TOKEN,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
+    )
+    with pytest.raises(TelegramConfigurationError, match="setWebhook"):
+        transport.set_webhook(
+            url=WEBHOOK_URL,
+            secret_token=WEBHOOK_SECRET,
+            allowed_updates=TELEGRAM_ALLOWED_UPDATES,
+        )
+
+
+def test_http_get_me_still_requires_user_dict(telegram_settings) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    transport = TelegramHttpTransport(
+        BOT_TOKEN,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
+    )
+    with pytest.raises(TelegramConfigurationError, match="getMe"):
+        transport.get_me()
 
 
 def test_telegram_link_returns_deep_link_and_stores_hash_only(

@@ -76,6 +76,10 @@ def telegram_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.core.config.settings.telegram_bot_token", BOT_TOKEN)
     monkeypatch.setattr("app.core.config.settings.telegram_bot_username", BOT_USERNAME)
     monkeypatch.setattr("app.core.config.settings.telegram_webhook_secret", "webhook-secret")
+    monkeypatch.setattr(
+        "app.core.config.settings.telegram_webhook_url",
+        "https://example.test/integrations/telegram/webhook",
+    )
 
 
 def _utcnow() -> datetime:
@@ -550,6 +554,179 @@ def test_send_materialization_races_with_webhook(db_session, telegram_settings) 
     jobs_end = list(db_session.scalars(select(Job).where(Job.type == JOB_TYPE_EMBED_OBJECT)))
     assert result.object_id is not None
     assert len(jobs_end) == len(jobs_mid)
+
+
+def test_succeeded_telegram_replay_ignores_expired_inbound(db_session, telegram_settings) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="новое", conversation_object_id=inbound.id)
+    )
+    fake.send_message_response = _success_message(frozen.telegram_route, reply=False, text="новое")
+    first = service.send_message(frozen)
+    assert first.delivery_status == "sent"
+    inbound.occurred_at = _utcnow() - timedelta(hours=25)
+    db_session.flush()
+    second = service.send_message(frozen)
+    assert second.delivery_status == "already_sent"
+    assert len(fake.send_message_calls) == 1
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_SUCCEEDED
+
+
+def test_succeeded_telegram_replay_ignores_disabled_connection(db_session, telegram_settings) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="новое", conversation_object_id=inbound.id)
+    )
+    fake.send_message_response = _success_message(frozen.telegram_route, reply=False, text="новое")
+    first = service.send_message(frozen)
+    assert first.delivery_status == "sent"
+    account.business_connection_enabled = False
+    db_session.flush()
+    second = service.send_message(frozen)
+    assert second.delivery_status == "already_sent"
+    assert len(fake.send_message_calls) == 1
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_SUCCEEDED
+
+
+def test_uncertain_telegram_replay_ignores_later_ineligibility(db_session, telegram_settings) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    fake.send_message_error = TelegramWriteUncertainError("timeout")
+    with pytest.raises(ToolError, match="confirm"):
+        service.send_message(frozen)
+    inbound.occurred_at = _utcnow() - timedelta(hours=25)
+    account.business_connection_enabled = False
+    db_session.flush()
+    fake.send_message_error = None
+    with pytest.raises(ToolError, match="confirm"):
+        service.send_message(frozen)
+    assert len(fake.send_message_calls) == 1
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_UNCERTAIN
+
+
+def test_failed_definite_telegram_replay_ignores_later_ineligibility(
+    db_session, telegram_settings
+) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    fake.send_message_error = TelegramWriteDefiniteError("rejected")
+    with pytest.raises(ToolError, match="rejected"):
+        service.send_message(frozen)
+    inbound.occurred_at = _utcnow() - timedelta(hours=25)
+    account.business_rights = {"can_reply": False}
+    flag_modified(account, "business_rights")
+    db_session.flush()
+    fake.send_message_error = None
+    with pytest.raises(ToolError, match="previously failed"):
+        service.send_message(frozen)
+    assert len(fake.send_message_calls) == 1
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_FAILED_DEFINITE
+
+
+def test_first_execution_after_prepare_fails_definite_when_inbound_expires(
+    db_session, telegram_settings
+) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    inbound.occurred_at = _utcnow() - timedelta(hours=25)
+    db_session.flush()
+    with pytest.raises(ToolError, match="eligible"):
+        service.send_message(frozen)
+    assert fake.send_message_calls == []
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_FAILED_DEFINITE
+
+
+def test_first_execution_after_prepare_fails_definite_when_can_reply_revoked(
+    db_session, telegram_settings
+) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    account.business_rights = {"can_reply": False}
+    flag_modified(account, "business_rights")
+    db_session.flush()
+    with pytest.raises(ToolError, match="reply permission"):
+        service.send_message(frozen)
+    assert fake.send_message_calls == []
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_FAILED_DEFINITE
+
+
+def test_first_execution_after_prepare_fails_definite_when_connection_disabled(
+    db_session, telegram_settings
+) -> None:
+    user = User(id=uuid4(), display_name="tg")
+    db_session.add(user)
+    db_session.flush()
+    account = _tg_account(db_session, user.id)
+    inbound = _tg_object(db_session, user.id, account)
+    fake = FakeTelegramTransport()
+    service = _service(db_session, user.id, fake)
+    frozen = service.prepare_send_message(
+        SendMessageInput(body="hi", conversation_object_id=inbound.id)
+    )
+    account.business_connection_enabled = False
+    db_session.flush()
+    with pytest.raises(ToolError, match="business connection"):
+        service.send_message(frozen)
+    assert fake.send_message_calls == []
+    attempt = db_session.scalar(select(ExternalActionAttempt))
+    assert attempt is not None
+    assert attempt.state == ATTEMPT_FAILED_DEFINITE
 
 
 def test_legacy_flat_mattermost_canonical_from_production_shape_still_executes(
