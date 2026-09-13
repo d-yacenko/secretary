@@ -2,7 +2,11 @@
 
 ## Current phase
 
-Design Quality Pass D: **implemented / awaiting Architect review** at `9b433013c9651a38d1d4f3127e3d44189982d6b5` on `review/design-quality-pass-d` (parent/base `ae7c549bfccedf3eddf1f017f5ead865a699b813`). Client-only: Week temporal hints use a centered pill/`StadiumBorder` with light/surface fill; HARD calendar and SOFT `scheduled_work` visuals unchanged; Week grid labels/lines are whole-hour only via public kalender 0.29.1 builders (`initialHeightPerMinute` remains 0.9; event geometry unchanged); Account disconnect requires typed confirmation `delete` before `forgetToken()`. Production application remains `e535adfb9857d2407fac06998a1a5a14c2b73502`. Production Alembic **0038 / 0038**. Migration **NONE**. No `0039`. No deploy.
+Integration A: **implemented / awaiting Architect review** on `review/unified-communications-a-integration`. Integration application SHA (merge commit, zero conflicts, no post-merge code changes): `acf035a8665f0020209b460255156ac0bde5faf6`. Parents: Design docs tip `746cedd1e1df3574cf62e48673a8c2776f2ba301` and Unified Communications A CODE ACCEPTED `a58c77ad394995067b682157275c5c9026382484`. Lineage: Design Quality Pass D application `9b433013c9651a38d1d4f3127e3d44189982d6b5`; Design docs tip `746cedd1e1df3574cf62e48673a8c2776f2ba301`; Unified Communications A CODE ACCEPTED `a58c77ad394995067b682157275c5c9026382484`; Unified Communications initial `9aadec831a3aa5cb9cb77d8c52979414d0e01a64`; shared original base `ae7c549bfccedf3eddf1f017f5ead865a699b813`. Production remains `e535adfb9857d2407fac06998a1a5a14c2b73502`. Production Alembic **0038 / 0038**. Migration **NONE**. No `0039`. No deploy.
+
+Design Quality Pass D: user UX direction accepted. Integrated client tree is exactly the Design D application tree `9b433013c9651a38d1d4f3127e3d44189982d6b5`. Production deployment still pending.
+
+Unified Communications A: CODE ACCEPTED at `a58c77ad394995067b682157275c5c9026382484`. Integrated backend tree is exactly the accepted backend tree. Production deployment still pending.
 
 Availability A: **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at `e535adfb9857d2407fac06998a1a5a14c2b73502` on `review/availability-a` (A-R1 parent `acc11e997670b15efbc39faee8c5c60d328683e8`; Availability A base `8d25c1ab6672744e85652ec917970d704553d5db`). Production Alembic **0038 / 0038**. Migration **NONE**. No `0039`. No backfill. Docs-only closure is not deployed.
 
@@ -564,4 +568,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Availability A is **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at `e535adfb9857d2407fac06998a1a5a14c2b73502`. Do not start the next phase from this ledger. Docs-only closure is not deployed.
+Integration A is **implemented / awaiting Architect review** at `acf035a8665f0020209b460255156ac0bde5faf6` on `review/unified-communications-a-integration`. Do not start the next phase from this ledger. Production remains `e535adfb9857d2407fac06998a1a5a14c2b73502`. Docs-only integration record is not deployed.
