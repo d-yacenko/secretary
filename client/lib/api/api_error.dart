@@ -32,7 +32,7 @@ class NetworkException extends ApiException {
 
 class ServerException extends ApiException {
   ServerException([String message = 'Server error', String? code])
-      : super(message, code: code);
+    : super(message, code: code);
 }
 
 const secretaryNetworkErrorMessage = 'Нет связи с сервером Секретаря.';
@@ -47,6 +47,35 @@ const openAiDailyBudgetExhaustedMessage =
 String? localOpenAiDailyBudgetMessage(Object error) {
   if (error is ApiException && error.code == openAiDailyBudgetExhaustedCode) {
     return openAiDailyBudgetExhaustedMessage;
+  }
+  return null;
+}
+
+const transcriptionProviderNotConfiguredCode =
+    'transcription_provider_not_configured';
+const transcriptionProviderFailedCode = 'transcription_provider_failed';
+const transcriptionAudioInvalidCode = 'transcription_audio_invalid';
+
+const transcriptionProviderNotConfiguredMessage =
+    'Провайдер распознавания речи не настроен.';
+const transcriptionProviderFailedMessage =
+    'Не удалось распознать речь. Попробуйте ещё раз.';
+const transcriptionAudioInvalidMessage =
+    'Запись слишком короткая или не распознана. Повторите фразу.';
+
+String? localTranscriptionMessage(Object error) {
+  if (error is ApiException) {
+    switch (error.code) {
+      case transcriptionProviderNotConfiguredCode:
+        return transcriptionProviderNotConfiguredMessage;
+      case transcriptionProviderFailedCode:
+        return transcriptionProviderFailedMessage;
+      case transcriptionAudioInvalidCode:
+        return transcriptionAudioInvalidMessage;
+    }
+    if (error.message == 'Transcription provider unavailable') {
+      return transcriptionProviderFailedMessage;
+    }
   }
   return null;
 }
@@ -85,7 +114,5 @@ ApiErrorDetail parseApiErrorDetail(http.Response response) {
   } catch (_) {
     // ignore parse errors
   }
-  return ApiErrorDetail(
-    message: 'Request failed (${response.statusCode})',
-  );
+  return ApiErrorDetail(message: 'Request failed (${response.statusCode})');
 }

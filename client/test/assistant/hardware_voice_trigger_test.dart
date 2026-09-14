@@ -8,6 +8,7 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_speech_player.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_invocation_source.dart';
 import 'package:personal_secretary/assistant/voice_local_feedback.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
@@ -91,7 +92,9 @@ void main() {
     apiClient.configure(baseUrl: baseUrl, token: token);
     final assistant = buildAssistant(apiClient: apiClient, recorder: recorder);
     expect(assistant.voiceState, AssistantVoiceState.idle);
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
     expect(assistant.voiceState, AssistantVoiceState.recording);
     expect(recorder.startCallCount, 1);
     assistant.dispose();
@@ -122,8 +125,12 @@ void main() {
     final apiClient = SecretaryApiClient(httpClient: mock);
     apiClient.configure(baseUrl: baseUrl, token: token);
     final assistant = buildAssistant(apiClient: apiClient, recorder: recorder);
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
     expect(sent, 'привет');
     expect(recorder.stopCallCount, 1);
     assistant.dispose();
@@ -160,12 +167,18 @@ void main() {
       speechPlayer: speechPlayer,
     );
     final turn = () async {
-      await assistant.handleVoiceTrigger();
-      await assistant.handleVoiceTrigger();
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
     }();
     releaseMessage = true;
     await waitUntil(() => assistant.voiceState == AssistantVoiceState.speaking);
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
     expect(speechPlayer.stopCount, greaterThan(0));
     expect(assistant.voiceState, AssistantVoiceState.recording);
     expect(recorder.startCallCount, greaterThanOrEqualTo(2));
@@ -204,11 +217,19 @@ void main() {
         apiClient: apiClient,
         recorder: recorder,
       );
-      await assistant.handleVoiceTrigger();
-      final stop = assistant.handleVoiceTrigger();
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
+      final stop = assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      await assistant.handleVoiceTrigger();
-      await assistant.handleVoiceTrigger();
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
       await stop;
       expect(recorder.startCallCount, 1);
       expect(transcribeCalls, 1);
@@ -265,11 +286,19 @@ void main() {
       final apiClient = SecretaryApiClient(httpClient: mock);
       apiClient.configure(baseUrl: baseUrl, token: token);
       final assistant = buildAssistant(apiClient: apiClient);
-      await assistant.handleVoiceTrigger();
-      await assistant.handleVoiceTrigger();
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
       await waitUntil(() => assistant.hasPendingActionPlan);
-      await assistant.handleVoiceTrigger();
-      await assistant.handleVoiceTrigger();
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
       await waitUntil(() => rejectCalls == 1);
       expect(assistant.hasPendingActionPlan, isFalse);
       assistant.dispose();
@@ -290,7 +319,9 @@ void main() {
         recorder: recorder,
         voiceFeedback: cues,
       );
-      await assistant.handleVoiceTrigger();
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
       expect(cues.ackCount, 1);
       expect(cues.readyCount, 1);
       expect(recorder.startCallCount, 1);
@@ -302,7 +333,10 @@ void main() {
         recorder: FakeVoiceRecorder(),
         voiceFeedback: skipped,
       );
-      await second.handleVoiceTrigger(startCueAlreadyPlayed: true);
+      await second.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+        startCueAlreadyPlayed: true,
+      );
       expect(skipped.ackCount, 0);
       expect(skipped.readyCount, 1);
       second.dispose();
@@ -321,7 +355,9 @@ void main() {
       recorder: recorder,
       voiceFeedback: cues,
     );
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
     expect(cues.ackCount, 1);
     expect(cues.readyCount, 0);
     expect(assistant.voiceState, AssistantVoiceState.error);
@@ -354,8 +390,12 @@ void main() {
       recorder: recorder,
       voiceFeedback: cues,
     );
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
     await waitUntil(() => cues.stopCount == 1);
     expect(cues.stopCount, 1);
     assistant.dispose();
@@ -387,8 +427,12 @@ void main() {
       recorder: recorder,
       voiceFeedback: cues,
     );
-    await assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
     await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+      startCueAlreadyPlayed: true,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
       startCueAlreadyPlayed: true,
       stopCueAlreadyPlayed: true,
     );

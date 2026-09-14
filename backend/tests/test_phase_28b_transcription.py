@@ -11,6 +11,12 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
+from app.assistant.transcription_constants import (
+    TRANSCRIPTION_PROVIDER_FAILED,
+    TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
+    TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+    TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+)
 from app.api.assistant import get_transcription_provider
 from app.api.deps import get_db, get_embedding_service
 from app.db.engine import engine
@@ -222,7 +228,10 @@ def test_transcribe_broken_personal_credential_no_deployment_fallback(
     response = transcribe_api_client.post("/assistant/transcribe", files=_audio_file())
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Transcription provider unavailable"
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+        "message": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    }
     assert LEAK_MARKER not in response.text
     assert DEPLOY_KEY not in response.text
 
@@ -237,7 +246,10 @@ def test_transcribe_no_personal_or_deployment_key_returns_502(
     response = transcribe_api_client.post("/assistant/transcribe", files=_audio_file())
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Transcription provider unavailable"
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+        "message": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    }
 
 
 def test_transcribe_ignores_invalid_assistant_openai_deployment_config(
@@ -272,7 +284,10 @@ def test_transcribe_blank_model_returns_502(
     response = transcribe_api_client.post("/assistant/transcribe", files=_audio_file())
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Transcription provider unavailable"
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+        "message": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    }
 
 
 def test_transcribe_credential_failure_not_secretary_401(
@@ -286,7 +301,10 @@ def test_transcribe_credential_failure_not_secretary_401(
     response = transcribe_api_client.post("/assistant/transcribe", files=_audio_file())
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Transcription provider unavailable"
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+        "message": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    }
 
 
 def test_transcribe_secret_not_in_telemetry_log(
@@ -308,6 +326,10 @@ def test_transcribe_secret_not_in_telemetry_log(
         response = transcribe_api_client.post("/assistant/transcribe", files=_audio_file())
 
     assert response.status_code == 502
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_FAILED,
+        "message": TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
+    }
     assert LEAK_MARKER not in response.text
     telemetry_logs = [r.message for r in caplog.records if "assistant_transcription" in r.message]
     assert telemetry_logs

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../assistant/assistant_controller.dart';
+import '../assistant/voice_invocation_source.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../local/local_intake_actions.dart';
@@ -152,7 +153,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   Future<void> _onVoicePressed() async {
-    await widget.controller.handleVoiceTrigger();
+    await widget.controller.handleVoiceTrigger(
+      source: VoiceInvocationSource.screenMic,
+    );
   }
 
   void _openReference(AssistantReference reference) {

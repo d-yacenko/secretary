@@ -6,6 +6,7 @@ import '../assistant/assistant_controller.dart';
 import '../assistant/assistant_screen.dart';
 import '../assistant/hardware_voice_controller.dart';
 import '../assistant/system_assistant_bridge.dart';
+import '../assistant/voice_invocation_source.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/inbox_screen.dart';
@@ -115,6 +116,8 @@ class _AppShellState extends State<AppShell> {
           authController: widget.authController,
           hardwareVoiceController: widget.hardwareVoiceController,
           systemAssistantController: widget.systemAssistantController,
+          voiceOutputPolicyController:
+              widget.assistantController.voiceOutputPolicy,
         ),
       ),
     );
@@ -136,6 +139,7 @@ class _AppShellState extends State<AppShell> {
       setState(() => _selectedIndex = ShellDestination.assistant.index);
     }
     await widget.assistantController.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
       startCueAlreadyPlayed: true,
       stopCueAlreadyPlayed: true,
     );
@@ -169,6 +173,7 @@ class _AppShellState extends State<AppShell> {
       setState(() => _selectedIndex = ShellDestination.assistant.index);
     }
     await widget.assistantController.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
       startCueAlreadyPlayed: true,
     );
   }

@@ -7,6 +7,7 @@ import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../assistant/hardware_voice_controller.dart';
 import '../assistant/system_assistant_bridge.dart';
+import '../assistant/voice_output_policy_controller.dart';
 import '../ui/domain_labels.dart';
 import '../ui/ui_text_scale.dart';
 import 'account_labels_section.dart';
@@ -17,6 +18,7 @@ import 'identity_profile_template.dart';
 import 'semantic_context_template.dart';
 import 'source_preferences_list.dart';
 import 'system_assistant_account_section.dart';
+import 'voice_output_policy_account_section.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
@@ -32,6 +34,8 @@ class AccountScreen extends StatefulWidget {
     this.hardwareVoicePlatform,
     this.systemAssistantController,
     this.systemAssistantPlatform,
+    this.voiceOutputPolicyController,
+    this.voiceOutputPolicyPlatform,
   });
 
   final SecretaryApiClient apiClient;
@@ -45,6 +49,8 @@ class AccountScreen extends StatefulWidget {
   final TargetPlatform? hardwareVoicePlatform;
   final SystemAssistantController? systemAssistantController;
   final TargetPlatform? systemAssistantPlatform;
+  final VoiceOutputPolicyController? voiceOutputPolicyController;
+  final TargetPlatform? voiceOutputPolicyPlatform;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -1145,6 +1151,16 @@ class _AccountScreenState extends State<AccountScreen>
                 SystemAssistantAccountSection(
                   controller: widget.systemAssistantController!,
                   platform: widget.systemAssistantPlatform,
+                ),
+              ],
+              if (widget.voiceOutputPolicyController != null &&
+                  voiceOutputPolicySettingsVisible(
+                    platform: widget.voiceOutputPolicyPlatform,
+                  )) ...[
+                const SizedBox(height: 16),
+                VoiceOutputPolicyAccountSection(
+                  controller: widget.voiceOutputPolicyController!,
+                  platform: widget.voiceOutputPolicyPlatform,
                 ),
               ],
               const SizedBox(height: 16),

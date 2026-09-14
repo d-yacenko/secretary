@@ -38,6 +38,12 @@ class FakeVoiceRecorder implements VoiceRecorder {
   @override
   String get recordingFilename => 'secretary_voice.$_extension';
 
+  @override
+  String get recordingDebugEncoder => _extension;
+
+  @override
+  Future<void> prepareRecordingFormat() async {}
+
   set recordingFileExtension(String value) => _extension = value;
 
   set recordingContentType(String value) => _contentType = value;

@@ -2,7 +2,17 @@ from dataclasses import dataclass
 
 
 class TranscriptionProviderError(Exception):
+    code = "transcription_provider_failed"
+
     def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class TranscriptionAudioInvalidError(Exception):
+    code = "transcription_audio_invalid"
+
+    def __init__(self, message: str = "transcription audio invalid") -> None:
         self.message = message
         super().__init__(message)
 
@@ -83,14 +93,25 @@ class OpenAITranscriptionProvider:
                 file=file_payload,
             )
         except Exception as exc:
+            if _is_invalid_audio_error(exc):
+                raise TranscriptionAudioInvalidError(
+                    "transcription audio rejected"
+                ) from exc
             raise TranscriptionProviderError("transcription call failed") from exc
 
         text = getattr(response, "text", None)
-        if not text:
-            raise TranscriptionProviderError("transcription returned empty text")
+        if not isinstance(text, str) or not text.strip():
+            raise TranscriptionAudioInvalidError("transcription returned empty text")
         input_tokens, output_tokens = extract_transcription_token_usage(response)
         return TranscriptionCallResult(
             text=str(text),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
+
+
+def _is_invalid_audio_error(exc: BaseException) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status == 400:
+        return True
+    return type(exc).__name__ in {"BadRequestError", "InvalidRequestError"}

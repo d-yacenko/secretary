@@ -11,12 +11,15 @@ from app.core.config import settings
 from app.llm.fake_transcription_provider import FakeTranscriptionProvider
 from app.llm.openai_transcription_provider import (
     OpenAITranscriptionProvider,
+    TranscriptionAudioInvalidError,
     TranscriptionCallResult,
     TranscriptionProviderError,
 )
 
 
 class TranscriptionConfigurationError(Exception):
+    code = "transcription_provider_not_configured"
+
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
@@ -48,8 +51,9 @@ async def transcribe_audio_upload(
             content_type,
         )
         transcript, token_usage = _normalize_transcription_result(text)
-    except TranscriptionProviderError as exc:
+    except (TranscriptionProviderError, TranscriptionAudioInvalidError) as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        category = getattr(exc, "code", type(exc).__name__)
         if get_active_trace() is not None:
             record_simple_model_call(
                 model=model,
@@ -57,11 +61,12 @@ async def transcribe_audio_upload(
                 output_chars=0,
                 elapsed_ms=elapsed_ms,
                 failed=True,
-                error_category=type(exc).__name__,
+                error_category=category,
                 extra={
                     "audio_bytes": len(audio_bytes),
                     "filename": filename,
                     "content_type": content_type,
+                    "error_category": category,
                 },
             )
         log_transcription_telemetry(
@@ -69,6 +74,9 @@ async def transcribe_audio_upload(
             input_bytes=len(audio_bytes),
             elapsed_ms=elapsed_ms,
             success=False,
+            filename=filename,
+            content_type=content_type,
+            error_category=category,
         )
         raise
 
@@ -93,6 +101,8 @@ async def transcribe_audio_upload(
         input_bytes=len(audio_bytes),
         elapsed_ms=elapsed_ms,
         success=True,
+        filename=filename,
+        content_type=content_type,
     )
     return transcript
 
@@ -100,8 +110,12 @@ async def transcribe_audio_upload(
 def _normalize_transcription_result(result: object) -> tuple[str, dict[str, int]]:
     """Keep actual billed tokens if the provider returned them. Never estimate."""
     if isinstance(result, str):
+        if not result.strip():
+            raise TranscriptionAudioInvalidError("transcription returned empty text")
         return result, {}
     if isinstance(result, TranscriptionCallResult):
+        if not result.text.strip():
+            raise TranscriptionAudioInvalidError("transcription returned empty text")
         extra: dict[str, int] = {}
         if result.input_tokens is not None:
             extra["input_tokens"] = result.input_tokens
@@ -109,9 +123,9 @@ def _normalize_transcription_result(result: object) -> tuple[str, dict[str, int]
             extra["output_tokens"] = result.output_tokens
         return result.text, extra
     text = getattr(result, "text", None)
-    if isinstance(text, str) and text:
+    if isinstance(text, str) and text.strip():
         return text, {}
-    raise TranscriptionProviderError("transcription returned empty text")
+    raise TranscriptionAudioInvalidError("transcription returned empty text")
 
 
 def _provider_model(provider: TranscriptionProvider) -> str:

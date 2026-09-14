@@ -10,6 +10,9 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/assistant_screen.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_output_policy.dart';
+import 'package:personal_secretary/assistant/voice_output_policy_controller.dart';
+import 'package:personal_secretary/assistant/voice_output_policy_store.dart';
 import 'package:personal_secretary/assistant/voice_recorder_exceptions.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
@@ -57,6 +60,11 @@ void main() {
               'secretary_voice_test',
             ),
           ),
+      voiceOutputPolicy: VoiceOutputPolicyController(
+        authController: auth,
+        store: VoiceOutputPolicyStore.memory(),
+        initialPolicy: VoiceOutputPolicy.allVoiceInput,
+      ),
     );
   }
 

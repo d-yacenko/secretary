@@ -7,6 +7,7 @@ import 'auth/auth_gate.dart';
 import 'assistant/assistant_controller.dart';
 import 'assistant/hardware_voice_controller.dart';
 import 'assistant/system_assistant_bridge.dart';
+import 'assistant/voice_output_policy_controller.dart';
 import 'capture/capture_controller.dart';
 import 'graph/graph_workspace_controller.dart';
 import 'navigation/app_route_observer.dart';
@@ -37,6 +38,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp>
   late final ObjectBookmarkController _bookmarkController;
   late final HardwareVoiceController _hardwareVoiceController;
   late final SystemAssistantController _systemAssistantController;
+  late final VoiceOutputPolicyController _voiceOutputPolicyController;
   late final UiTextScaleController _textScale;
 
   @override
@@ -48,9 +50,13 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp>
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
     );
+    _voiceOutputPolicyController = VoiceOutputPolicyController(
+      authController: widget.authController,
+    );
     _assistantController = AssistantController(
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
+      voiceOutputPolicy: _voiceOutputPolicyController,
     );
     _graphController = GraphWorkspaceController(
       apiClient: widget.authController.apiClient,
@@ -70,6 +76,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp>
     _textScale.addListener(_onAuthChanged);
     widget.authController.initialize();
     _hardwareVoiceController.attach();
+    _voiceOutputPolicyController.attach();
     _systemAssistantController.attach(widget.authController.user?.id);
     if (widget.textScaleController == null) {
       _textScale.load();
@@ -110,6 +117,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp>
     _graphController.dispose();
     _bookmarkController.dispose();
     _hardwareVoiceController.dispose();
+    _voiceOutputPolicyController.dispose();
     _systemAssistantController.dispose();
     super.dispose();
   }

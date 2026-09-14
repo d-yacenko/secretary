@@ -15,7 +15,10 @@ import 'fake_speech_player.dart';
 import 'speech_playback_controller.dart';
 import 'speech_player.dart';
 import 'voice_confirmation.dart';
+import 'voice_invocation_source.dart';
 import 'voice_local_feedback.dart';
+import 'voice_output_policy.dart';
+import 'voice_output_policy_controller.dart';
 import 'voice_turn_timing.dart';
 
 const int maxAssistantHistoryMessages = 12;
@@ -91,6 +94,7 @@ class AssistantController extends ChangeNotifier {
     SpeechPlayer? speechPlayer,
     SpeechPlaybackController? speechPlayback,
     VoiceLocalFeedback? voiceFeedback,
+    VoiceOutputPolicyController? voiceOutputPolicy,
     this.lockScreenSession = false,
   }) : _apiClient = apiClient,
        _authController = authController,
@@ -128,8 +132,16 @@ class AssistantController extends ChangeNotifier {
         (Platform.environment['FLUTTER_TEST'] == 'true'
             ? const NoopVoiceLocalFeedback()
             : AssetVoiceLocalFeedback());
+    _voiceOutputPolicy =
+        voiceOutputPolicy ??
+        VoiceOutputPolicyController(authController: authController);
+    _ownsVoiceOutputPolicy = voiceOutputPolicy == null;
     _voice.bindTranscriptConsumer(_handleVoiceTranscript);
     _voice.addListener(_onVoiceChanged);
+    _voiceOutputPolicy.addListener(_onVoiceChanged);
+    if (_ownsVoiceOutputPolicy) {
+      _voiceOutputPolicy.attach();
+    }
   }
 
   final SecretaryApiClient _apiClient;
@@ -138,10 +150,20 @@ class AssistantController extends ChangeNotifier {
   final VoiceTempFiles _voiceTempFiles;
   late final SpeechPlaybackController _speech;
   late final VoiceLocalFeedback _feedback;
+  late final VoiceOutputPolicyController _voiceOutputPolicy;
+  late final bool _ownsVoiceOutputPolicy;
   final bool lockScreenSession;
 
   bool keyguardLocked = false;
   bool lockScreenVoiceEnabled = false;
+
+  VoiceOutputPolicyController get voiceOutputPolicy => _voiceOutputPolicy;
+
+  bool get autoSpeechAllowed => _autoSpeechAllowed;
+
+  VoiceInvocationSource get turnSource => _turnSource;
+
+  bool get voiceInputActive => _voiceInputActive;
 
   bool get blocksExternalWrite => lockScreenSession && keyguardLocked;
 
@@ -155,7 +177,9 @@ class AssistantController extends ChangeNotifier {
   String? actionPlanErrorMessage;
   String? _pendingRetryMessage;
   bool _approveInFlight = false;
-  bool _voiceOriginActive = false;
+  bool _voiceInputActive = false;
+  bool _autoSpeechAllowed = false;
+  VoiceInvocationSource _turnSource = VoiceInvocationSource.typed;
   bool _voiceApprovalArmed = false;
   bool _planNarrationInProgress = false;
   bool _speakingOverlay = false;
@@ -169,7 +193,7 @@ class AssistantController extends ChangeNotifier {
     if (_speakingOverlay || _speech.isSpeaking) {
       return AssistantVoiceState.speaking;
     }
-    if (_voiceOriginActive &&
+    if (_voiceInputActive &&
         (sendState == AssistantSendState.sending ||
             isActionPlanOperationBusy)) {
       return AssistantVoiceState.thinking;
@@ -267,13 +291,19 @@ class AssistantController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> sendMessage(String text, {bool fromVoice = false}) async {
+  Future<void> sendMessage(
+    String text, {
+    VoiceInvocationSource source = VoiceInvocationSource.typed,
+    bool preserveTurn = false,
+  }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || !canSubmitOrdinaryAssistantMessage) {
       return;
     }
 
-    _voiceOriginActive = fromVoice;
+    if (!preserveTurn) {
+      _beginTurn(source);
+    }
     _voiceApprovalArmed = false;
     _planNarrationInProgress = false;
     sendState = AssistantSendState.sending;
@@ -307,7 +337,7 @@ class AssistantController extends ChangeNotifier {
       _pendingRetryMessage = null;
       sendState = AssistantSendState.idle;
       notifyListeners();
-      if (fromVoice) {
+      if (_autoSpeechAllowed) {
         await _speakLatestAssistantResult();
       }
     } on AuthenticationException catch (e) {
@@ -344,7 +374,7 @@ class AssistantController extends ChangeNotifier {
       return;
     }
     if (blocksExternalWrite) {
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(voiceUnlockRequiredSpeech);
       }
       return;
@@ -361,7 +391,7 @@ class AssistantController extends ChangeNotifier {
         actionPlan.cardState = ActionPlanCardState.failed;
         actionPlanOperationState = AssistantActionPlanOperationState.idle;
         notifyListeners();
-        if (_voiceOriginActive) {
+        if (_autoSpeechAllowed) {
           await _speakDeterministic(voiceExecutionFailedSpeech);
         }
         return;
@@ -370,7 +400,7 @@ class AssistantController extends ChangeNotifier {
         actionPlan.cardState = ActionPlanCardState.expired;
         actionPlanOperationState = AssistantActionPlanOperationState.idle;
         notifyListeners();
-        if (_voiceOriginActive) {
+        if (_autoSpeechAllowed) {
           await _speakDeterministic(voiceExpiredSpeech);
         }
         return;
@@ -430,7 +460,7 @@ class AssistantController extends ChangeNotifier {
       _voiceApprovalArmed = false;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(
           response.status == 'expired'
               ? voiceExpiredSpeech
@@ -490,7 +520,7 @@ class AssistantController extends ChangeNotifier {
       actionPlan.resumeFailed = false;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(response.answer);
       }
     } on AuthenticationException catch (e) {
@@ -499,7 +529,7 @@ class AssistantController extends ChangeNotifier {
       actionPlanErrorMessage = e.message;
       _authController.handleAuthenticationFailure();
       notifyListeners();
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(voiceResumeFailedSpeech);
       }
     } on NetworkException catch (e) {
@@ -507,7 +537,7 @@ class AssistantController extends ChangeNotifier {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       notifyListeners();
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(voiceResumeFailedSpeech);
       }
     } on ApiException catch (e) {
@@ -515,7 +545,7 @@ class AssistantController extends ChangeNotifier {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = localOpenAiDailyBudgetMessage(e) ?? e.message;
       notifyListeners();
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(voiceResumeFailedSpeech);
       }
     }
@@ -527,6 +557,7 @@ class AssistantController extends ChangeNotifier {
   /// stop TTS and start a new recording. Starting/transcribing/thinking: ignore.
   /// Pending Action Plan uses the existing confirmation utterance path.
   Future<void> handleVoiceTrigger({
+    VoiceInvocationSource source = VoiceInvocationSource.screenMic,
     bool startCueAlreadyPlayed = false,
     bool stopCueAlreadyPlayed = false,
   }) async {
@@ -560,7 +591,7 @@ class AssistantController extends ChangeNotifier {
           unawaited(_feedback.playAck());
         }
         VoiceTurnTiming.mark('ack');
-        await startVoiceRecording();
+        await startVoiceRecording(source: source);
         if (voiceState != AssistantVoiceState.recording) {
           return;
         }
@@ -571,7 +602,9 @@ class AssistantController extends ChangeNotifier {
     }
   }
 
-  Future<void> startVoiceRecording() async {
+  Future<void> startVoiceRecording({
+    VoiceInvocationSource source = VoiceInvocationSource.screenMic,
+  }) async {
     if (voiceState == AssistantVoiceState.recording) {
       return;
     }
@@ -587,6 +620,9 @@ class AssistantController extends ChangeNotifier {
     }
     if (voiceState == AssistantVoiceState.error) {
       clearVoiceError();
+    }
+    if (!hasPendingActionPlan) {
+      _beginTurn(source);
     }
     await _voice.startRecording();
   }
@@ -619,7 +655,7 @@ class AssistantController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await sendMessage(transcript, fromVoice: true);
+    await sendMessage(transcript, preserveTurn: true);
   }
 
   Future<void> _handleVoiceConfirmation(String transcript) async {
@@ -632,7 +668,7 @@ class AssistantController extends ChangeNotifier {
     try {
       final pendingIndex = _uniquePendingPlanIndex();
       if (pendingIndex == null) {
-        if (_voiceOriginActive) {
+        if (_autoSpeechAllowed) {
           await _speakDeterministic(voicePlanAmbiguousSpeech);
         }
         return;
@@ -644,7 +680,7 @@ class AssistantController extends ChangeNotifier {
       }
       if (decision == VoiceConfirmation.approve) {
         if (blocksExternalWrite) {
-          if (_voiceOriginActive) {
+          if (_autoSpeechAllowed) {
             await _speakDeterministic(voiceUnlockRequiredSpeech);
           }
           return;
@@ -654,7 +690,7 @@ class AssistantController extends ChangeNotifier {
             message.actionPlan?.plan.actions ?? const <PendingAction>[];
         final voiceApprovable = PendingAction.planIsVoiceApprovable(actions);
         if (!_voiceApprovalArmed || !voiceApprovable) {
-          if (_voiceOriginActive) {
+          if (_autoSpeechAllowed) {
             await _speakDeterministic(
               voiceApprovable
                   ? voiceApprovalUnarmedSpeech
@@ -666,7 +702,7 @@ class AssistantController extends ChangeNotifier {
         await approveActionPlanAt(pendingIndex);
         return;
       }
-      if (_voiceOriginActive) {
+      if (_autoSpeechAllowed) {
         await _speakDeterministic(voiceConfirmationRetrySpeech);
       }
     } finally {
@@ -767,6 +803,14 @@ class AssistantController extends ChangeNotifier {
     return pairs;
   }
 
+  void _beginTurn(VoiceInvocationSource source) {
+    _turnSource = source;
+    _voiceInputActive = source.isVoiceInput;
+    _autoSpeechAllowed = _voiceOutputPolicy.policy.allowsAutoSpeech(source);
+    _voiceApprovalArmed = false;
+    _planNarrationInProgress = false;
+  }
+
   void resetSession() {
     _voice.reset();
     _speech.stop();
@@ -779,7 +823,9 @@ class AssistantController extends ChangeNotifier {
     actionPlanErrorMessage = null;
     _pendingRetryMessage = null;
     _approveInFlight = false;
-    _voiceOriginActive = false;
+    _voiceInputActive = false;
+    _autoSpeechAllowed = false;
+    _turnSource = VoiceInvocationSource.typed;
     _voiceApprovalArmed = false;
     _planNarrationInProgress = false;
     _speakingOverlay = false;
@@ -790,6 +836,10 @@ class AssistantController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _voiceOutputPolicy.removeListener(_onVoiceChanged);
+    if (_ownsVoiceOutputPolicy) {
+      _voiceOutputPolicy.dispose();
+    }
     _voice.removeListener(_onVoiceChanged);
     _voice.dispose();
     _speech.dispose();

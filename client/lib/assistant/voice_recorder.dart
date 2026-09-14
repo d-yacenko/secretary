@@ -9,6 +9,12 @@ abstract class VoiceRecorder {
   /// Upload filename for transcription.
   String get recordingFilename => 'secretary_voice.$recordingFileExtension';
 
+  /// Encoder name for debug diagnostics (no audio payload).
+  String get recordingDebugEncoder => recordingFileExtension;
+
+  /// Select the active encoder before the temp path is created.
+  Future<void> prepareRecordingFormat() async {}
+
   Future<bool> hasPermission();
 
   Future<bool> requestPermission();

@@ -24,14 +24,25 @@ from app.assistant.speech_constants import (
     SPEECH_TEXT_EMPTY,
     SPEECH_TEXT_TOO_LONG,
 )
-from app.assistant.transcription_constants import AUDIO_TOO_LARGE
+from app.assistant.transcription_constants import (
+    AUDIO_TOO_LARGE,
+    TRANSCRIPTION_AUDIO_INVALID,
+    TRANSCRIPTION_AUDIO_INVALID_MESSAGE,
+    TRANSCRIPTION_PROVIDER_FAILED,
+    TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
+    TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+    TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+)
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.current_user import CurrentUserContext
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage
 from app.llm.openai_assistant_provider import AssistantProviderError
 from app.llm.openai_speech_provider import SpeechProviderError
-from app.llm.openai_transcription_provider import TranscriptionProviderError
+from app.llm.openai_transcription_provider import (
+    TranscriptionAudioInvalidError,
+    TranscriptionProviderError,
+)
 from app.services.action_plan_service import (
     ActionPlanConflictError,
     ActionPlanService,
@@ -68,8 +79,6 @@ from app.services.transcription_service import (
 )
 from app.services.user_identity_context_service import UserIdentityContextService
 from app.services.user_openai_credential_errors import UserOpenAICredentialConfigurationError
-
-TRANSCRIPTION_PROVIDER_UNAVAILABLE = "Transcription provider unavailable"
 
 router = APIRouter(tags=["assistant"])
 
@@ -218,10 +227,7 @@ def get_transcription_provider(
         TranscriptionConfigurationError,
         UserOpenAICredentialConfigurationError,
     ) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=TRANSCRIPTION_PROVIDER_UNAVAILABLE,
-        ) from exc
+        raise _transcription_http_error(exc) from exc
 
 
 def get_validated_speech_text(data: AssistantSpeechRequest) -> str:
@@ -267,6 +273,35 @@ def _speech_validation_http_error(message: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail={"code": code, "message": message},
+    )
+
+
+def _transcription_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, TranscriptionAudioInvalidError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": TRANSCRIPTION_AUDIO_INVALID,
+                "message": TRANSCRIPTION_AUDIO_INVALID_MESSAGE,
+            },
+        )
+    if isinstance(
+        exc,
+        (TranscriptionConfigurationError, UserOpenAICredentialConfigurationError),
+    ):
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+                "message": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+            },
+        )
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail={
+            "code": TRANSCRIPTION_PROVIDER_FAILED,
+            "message": TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
+        },
     )
 
 
@@ -325,11 +360,13 @@ async def assistant_transcribe(
             else status.HTTP_422_UNPROCESSABLE_ENTITY
         )
         raise HTTPException(status_code=status_code, detail=exc.message) from exc
-    except (TranscriptionConfigurationError, TranscriptionProviderError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=TRANSCRIPTION_PROVIDER_UNAVAILABLE,
-        ) from exc
+    except (
+        TranscriptionConfigurationError,
+        TranscriptionProviderError,
+        TranscriptionAudioInvalidError,
+        UserOpenAICredentialConfigurationError,
+    ) as exc:
+        raise _transcription_http_error(exc) from exc
 
     return AssistantTranscribeResponse(text=text)
 

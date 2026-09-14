@@ -7,6 +7,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from app.assistant.transcription_constants import (
+    TRANSCRIPTION_AUDIO_INVALID,
+    TRANSCRIPTION_AUDIO_INVALID_MESSAGE,
+    TRANSCRIPTION_PROVIDER_FAILED,
+    TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
+    TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+    TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+)
 from app.api.assistant import get_transcription_provider
 from app.api.deps import get_db, get_embedding_service
 from tests.conftest import apply_embedding_service_overrides
@@ -14,6 +22,7 @@ from app.db.models import Edge, Job, Object
 from app.llm.fake_transcription_provider import FakeTranscriptionProvider
 from app.llm.openai_transcription_provider import (
     OpenAITranscriptionProvider,
+    TranscriptionAudioInvalidError,
     TranscriptionProviderError,
 )
 from app.main import app
@@ -158,7 +167,10 @@ def test_transcribe_missing_configuration_returns_502(
     app.dependency_overrides.clear()
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Transcription provider unavailable"
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
+        "message": TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    }
 
 
 def test_transcribe_provider_exception_returns_502(transcribe_client) -> None:
@@ -175,7 +187,73 @@ def test_transcribe_provider_exception_returns_502(transcribe_client) -> None:
     )
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Transcription provider unavailable"
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_PROVIDER_FAILED,
+        "message": TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
+    }
+
+
+def test_transcribe_invalid_audio_returns_422(transcribe_client) -> None:
+    client, provider = transcribe_client
+
+    def invalid_transcribe(*_args, **_kwargs):
+        raise TranscriptionAudioInvalidError("transcription audio rejected")
+
+    provider.transcribe = invalid_transcribe
+
+    response = client.post(
+        "/assistant/transcribe",
+        files=_audio_file(b"audio-bytes"),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_AUDIO_INVALID,
+        "message": TRANSCRIPTION_AUDIO_INVALID_MESSAGE,
+    }
+    assert "transcription audio rejected" not in response.text
+
+
+def test_openai_transcription_provider_classifies_400_as_invalid_audio(
+    monkeypatch,
+) -> None:
+    class FakeAudio:
+        def __init__(self):
+            self.transcriptions = self
+
+        def create(self, **kwargs):
+            error = RuntimeError("provider body must not leak")
+            error.status_code = 400
+            raise error
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.audio = FakeAudio()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+    provider = OpenAITranscriptionProvider(api_key="sk-test", model="gpt-4o-mini-transcribe")
+    with pytest.raises(TranscriptionAudioInvalidError):
+        provider.transcribe(b"wav-bytes", "secretary_voice.wav", "audio/wav")
+
+
+def test_openai_transcription_provider_classifies_empty_text_as_invalid_audio(
+    monkeypatch,
+) -> None:
+    class FakeAudio:
+        def __init__(self):
+            self.transcriptions = self
+
+        def create(self, **kwargs):
+            return MagicMock(text="   ")
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.audio = FakeAudio()
+
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
+    provider = OpenAITranscriptionProvider(api_key="sk-test", model="gpt-4o-mini-transcribe")
+    with pytest.raises(TranscriptionAudioInvalidError):
+        provider.transcribe(b"wav-bytes", "secretary_voice.wav", "audio/wav")
 
 
 def test_openai_transcription_provider_passes_model_and_file_metadata(monkeypatch) -> None:

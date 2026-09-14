@@ -12,6 +12,9 @@ import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/speech_text.dart';
 import 'package:personal_secretary/assistant/voice_confirmation.dart';
 import 'package:personal_secretary/assistant/voice_recorder_exceptions.dart';
+import 'package:personal_secretary/assistant/voice_output_policy.dart';
+import 'package:personal_secretary/assistant/voice_output_policy_controller.dart';
+import 'package:personal_secretary/assistant/voice_output_policy_store.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
@@ -79,6 +82,11 @@ void main() {
       voiceRecorder: voiceRecorder ?? FakeVoiceRecorder(),
       voiceTempFiles: VoiceTempFiles(directory: tempDir),
       speechPlayer: speechPlayer ?? FakeSpeechPlayer(),
+      voiceOutputPolicy: VoiceOutputPolicyController(
+        authController: auth,
+        store: VoiceOutputPolicyStore.memory(),
+        initialPolicy: VoiceOutputPolicy.allVoiceInput,
+      ),
     );
   }
 

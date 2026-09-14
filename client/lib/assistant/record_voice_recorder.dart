@@ -65,8 +65,16 @@ class RecordVoiceRecorder implements VoiceRecorder {
       _activeFormat?.contentType ?? _candidateFormats.first.contentType;
 
   @override
-  String get recordingFilename =>
-      'secretary_voice.$recordingFileExtension';
+  String get recordingFilename => 'secretary_voice.$recordingFileExtension';
+
+  @override
+  String get recordingDebugEncoder =>
+      _activeFormat?.config.encoder.name ?? 'wav';
+
+  @override
+  Future<void> prepareRecordingFormat() async {
+    _activeFormat = await _selectSupportedFormat();
+  }
 
   @override
   Future<bool> hasPermission() async {
@@ -90,7 +98,7 @@ class RecordVoiceRecorder implements VoiceRecorder {
 
   @override
   Future<void> startRecording(String filePath) async {
-    final format = await _selectSupportedFormat();
+    final format = _activeFormat ?? await _selectSupportedFormat();
     _activeFormat = format;
     try {
       await _recorder.start(format.config, path: filePath);
@@ -143,9 +151,7 @@ class RecordVoiceRecorder implements VoiceRecorder {
     if (!kDebugMode) {
       return;
     }
-    debugPrint(
-      'Voice recorder $stage failed: ${error.runtimeType}: $error',
-    );
+    debugPrint('Voice recorder $stage failed: ${error.runtimeType}: $error');
     debugPrintStack(stackTrace: stackTrace);
   }
 

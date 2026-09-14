@@ -11,6 +11,7 @@ import '../assistant/voice_recorder.dart';
 import '../assistant/voice_recorder_exceptions.dart';
 import '../assistant/voice_temp_files.dart';
 import '../assistant/voice_turn_timing.dart';
+import '../assistant/wav_inspect.dart';
 import '../auth/auth_controller.dart';
 
 const Duration maxVoiceRecordingDuration = Duration(seconds: 60);
@@ -109,6 +110,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
         return;
       }
 
+      await _voiceRecorder.prepareRecordingFormat();
       operationPath = await _voiceTempFiles.createTempAudioPath(
         _voiceRecorder.recordingFileExtension,
       );
@@ -210,16 +212,42 @@ class VoiceTranscriptionController extends ChangeNotifier {
       await _voiceTempFiles.deleteIfExists(recordedPath);
     }
 
+    final filename = _voiceRecorder.recordingFilename;
+    final contentType = _voiceRecorder.recordingContentType;
+    final wav = inspectWav(audioBytes);
+    _logTranscriptionDebug(
+      stage: 'upload_ready',
+      encoder: _voiceRecorder.recordingDebugEncoder,
+      filename: filename,
+      contentType: contentType,
+      byteLength: audioBytes.length,
+      wav: wav,
+    );
+    if (wav != null && shouldRejectWavForTranscription(wav)) {
+      _setVoiceError(transcriptionAudioInvalidMessage);
+      return;
+    }
+
     try {
       final started = Stopwatch()..start();
       final transcript = await _apiClient.transcribeAudio(
         audioBytes: audioBytes,
-        filename: _voiceRecorder.recordingFilename,
-        contentType: _voiceRecorder.recordingContentType,
+        filename: filename,
+        contentType: contentType,
       );
       VoiceTurnTiming.interval(
         'transcription_rtt_ms',
         started.elapsedMilliseconds,
+      );
+      _logTranscriptionDebug(
+        stage: 'http_ok',
+        encoder: _voiceRecorder.recordingDebugEncoder,
+        filename: filename,
+        contentType: contentType,
+        byteLength: audioBytes.length,
+        wav: wav,
+        httpStatus: 200,
+        elapsedMs: started.elapsedMilliseconds,
       );
       voiceState = VoiceState.idle;
       notifyListeners();
@@ -230,10 +258,64 @@ class VoiceTranscriptionController extends ChangeNotifier {
       _authController.handleAuthenticationFailure();
       notifyListeners();
     } on NetworkException catch (e) {
+      _logTranscriptionDebug(
+        stage: 'http_error',
+        encoder: _voiceRecorder.recordingDebugEncoder,
+        filename: filename,
+        contentType: contentType,
+        byteLength: audioBytes.length,
+        wav: wav,
+        errorCode: 'network',
+      );
       _setVoiceError(e.message);
     } on ApiException catch (e) {
-      _setVoiceError(localOpenAiDailyBudgetMessage(e) ?? e.message);
+      _logTranscriptionDebug(
+        stage: 'http_error',
+        encoder: _voiceRecorder.recordingDebugEncoder,
+        filename: filename,
+        contentType: contentType,
+        byteLength: audioBytes.length,
+        wav: wav,
+        errorCode: e.code,
+        errorType: e.runtimeType.toString(),
+      );
+      _setVoiceError(
+        localOpenAiDailyBudgetMessage(e) ??
+            localTranscriptionMessage(e) ??
+            e.message,
+      );
     }
+  }
+
+  void _logTranscriptionDebug({
+    required String stage,
+    required String encoder,
+    required String filename,
+    required String contentType,
+    required int byteLength,
+    WavInspect? wav,
+    int? httpStatus,
+    int? elapsedMs,
+    String? errorCode,
+    String? errorType,
+  }) {
+    if (!kDebugMode) {
+      return;
+    }
+    final fields = <String, Object?>{
+      'stage': stage,
+      'encoder': encoder,
+      'filename': filename,
+      'content_type': contentType,
+      'byte_length': byteLength,
+      'api_base_url': _apiClient.baseUrl,
+      if (httpStatus != null) 'http_status': httpStatus,
+      if (elapsedMs != null) 'elapsed_ms': elapsedMs,
+      if (errorCode != null) 'error_code': errorCode,
+      if (errorType != null) 'error_type': errorType,
+      ...?wav?.debugFields,
+    };
+    debugPrint('Voice transcription $fields');
   }
 
   Future<void> cancel() async {

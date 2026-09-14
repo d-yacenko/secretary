@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'assistant_controller.dart';
 import 'system_assistant_bridge.dart';
+import 'voice_invocation_source.dart';
 
 class VoiceSessionScreen extends StatefulWidget {
   const VoiceSessionScreen({
@@ -53,7 +54,10 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
     widget.assistant.keyguardLocked = widget.systemAssistant.keyguardLocked;
     widget.assistant.lockScreenVoiceEnabled =
         widget.systemAssistant.lockScreenVoiceEnabled;
-    widget.assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
+    widget.assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+      startCueAlreadyPlayed: true,
+    );
   }
 
   String _statusText() {

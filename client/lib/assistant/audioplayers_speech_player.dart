@@ -5,6 +5,11 @@ import 'package:audioplayers/audioplayers.dart';
 import 'speech_player.dart';
 
 /// Local-file playback via audioplayers (Android + Linux, minSdk 23 safe).
+///
+/// Uses the package default [AudioPlayer] with no custom AudioContext, so
+/// Android keeps USAGE_MEDIA and the current system media route (including
+/// an active Bluetooth headset). R4-R2 does not implement a custom
+/// Bluetooth stack.
 class AudioplayersSpeechPlayer implements SpeechPlayer {
   AudioplayersSpeechPlayer({AudioPlayer? player})
     : _player = player ?? AudioPlayer();

@@ -8,6 +8,7 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_speech_player.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_invocation_source.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
@@ -126,11 +127,19 @@ void main() {
     final assistant = buildAssistant(apiClient: apiClient);
     assistant.keyguardLocked = true;
     assistant.lockScreenVoiceEnabled = true;
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     await waitUntil(() => assistant.hasPendingActionPlan);
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     await waitUntil(() => spoken.isNotEmpty);
     expect(approveCalls, 0);
     expect(assistant.hasPendingActionPlan, isTrue);
@@ -162,8 +171,12 @@ void main() {
     final assistant = buildAssistant(apiClient: apiClient);
     assistant.keyguardLocked = true;
     assistant.lockScreenVoiceEnabled = true;
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     await waitUntil(() => assistant.hasPendingActionPlan);
     await assistant.approveActionPlanAt(1);
     expect(approveCalls, 0);
@@ -205,11 +218,19 @@ void main() {
     final assistant = buildAssistant(apiClient: apiClient);
     assistant.keyguardLocked = true;
     assistant.lockScreenVoiceEnabled = true;
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     await waitUntil(() => assistant.hasPendingActionPlan);
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     await waitUntil(() => rejectCalls == 1);
     expect(approveCalls, 0);
     expect(assistant.hasPendingActionPlan, isFalse);
@@ -227,7 +248,9 @@ void main() {
     );
     assistant.keyguardLocked = true;
     assistant.lockScreenVoiceEnabled = false;
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     expect(recorder.startCallCount, 0);
     expect(assistant.voiceState, AssistantVoiceState.idle);
     assistant.dispose();
@@ -267,8 +290,12 @@ void main() {
     final assistant = buildAssistant(apiClient: apiClient);
     assistant.keyguardLocked = true;
     assistant.lockScreenVoiceEnabled = true;
-    await assistant.handleVoiceTrigger();
-    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.systemAssistant,
+    );
     await waitUntil(() => assistant.hasPendingActionPlan);
     await assistant.approveActionPlanAt(1);
     expect(approveCalls, 0);
