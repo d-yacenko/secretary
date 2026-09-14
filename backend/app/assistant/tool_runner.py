@@ -28,6 +28,7 @@ _READ_TOOLS = frozenset(
         "list_neighbors",
         "list_notifications",
         "list_labels",
+        "list_inbox_since_review_marker",
     }
 )
 _EVIDENCE_WRITE_TOOLS = frozenset(
@@ -40,6 +41,7 @@ _ACTIVITY_TARGET_TOOLS = frozenset({"cancel_scheduled_activity"})
 # ANNOTATE tools execute without approval in the interactive turn, so both the
 # target object and the label must have been exposed to the model this turn.
 _ANNOTATION_TARGET_TOOLS = frozenset({"assign_label", "remove_label"})
+_REVIEW_MARKER_TARGET_TOOLS = frozenset({"set_inbox_review_marker"})
 _MUTATION_TOOLS = frozenset(
     {
         "create_task",
@@ -59,6 +61,8 @@ _MUTATION_TOOLS = frozenset(
         "assign_label",
         "remove_label",
         "delete_label",
+        "set_inbox_review_marker",
+        "clear_inbox_review_marker",
     }
 )
 
@@ -187,6 +191,13 @@ class PerTurnToolBudget:
                 if self._telemetry is not None:
                     self._telemetry.tool_calls += 1
                 return annotation_error
+
+        if tool_name in _REVIEW_MARKER_TARGET_TOOLS:
+            marker_error = self._validate_review_marker_target_allowlist(tool_name, arguments)
+            if marker_error is not None:
+                if self._telemetry is not None:
+                    self._telemetry.tool_calls += 1
+                return marker_error
 
         result = assistant_session.run_assistant_tool(user_id, tool_name, arguments)
         if result.status == ToolExecutionStatus.APPROVAL_REQUIRED and result.staged_action:
@@ -410,6 +421,35 @@ class PerTurnToolBudget:
                     error=f"target {label} was not exposed in this Assistant turn{hint}",
                     status=ToolExecutionStatus.TOOL_ERROR,
                 )
+        return None
+
+    def _validate_review_marker_target_allowlist(
+        self, tool_name: str, arguments: dict
+    ) -> ToolExecutionResult | None:
+        raw_id = arguments.get("after_object_id")
+        if raw_id is None:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="after_object_id is required",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        try:
+            parsed = UUID(str(raw_id))
+        except (ValueError, TypeError):
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="invalid object id",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
+        if parsed not in self._seen_object_ids:
+            return ToolExecutionResult(
+                success=False,
+                tool_name=tool_name,
+                error="target object was not exposed in this Assistant turn",
+                status=ToolExecutionStatus.TOOL_ERROR,
+            )
         return None
 
     def _validate_edge_id_allowlist(

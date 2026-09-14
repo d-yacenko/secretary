@@ -251,6 +251,34 @@ class RecentSourceService:
             select(Object).where(Object.id == object_id, self._eligible_filters())
         )
 
+    def list_strictly_newer_than(
+        self,
+        anchor_feed_at: datetime,
+        anchor_object_id: UUID,
+        limit: int = RECENT_SOURCE_DEFAULT_LIMIT,
+    ) -> InboxFeedPage:
+        """Inbox-eligible objects strictly newer than the persisted review-marker tuple.
+
+        Canonical order is feed_at DESC, id DESC. The anchor itself is excluded.
+        """
+        bounded_limit = min(max(limit, 1), RECENT_SOURCE_MAX_LIMIT)
+        feed_at = inbox_feed_at_sql()
+        stmt = (
+            select(Object)
+            .where(self._eligible_filters())
+            .where(
+                or_(
+                    feed_at > anchor_feed_at,
+                    and_(feed_at == anchor_feed_at, Object.id > anchor_object_id),
+                )
+            )
+            .order_by(feed_at.desc(), Object.id.desc())
+        )
+        rows = list(self._session.scalars(stmt.limit(bounded_limit + 1)))
+        has_more = len(rows) > bounded_limit
+        items = rows[:bounded_limit]
+        return InboxFeedPage(items=items, next_cursor=None, has_more=has_more)
+
     def list_page(
         self,
         limit: int = RECENT_SOURCE_DEFAULT_LIMIT,

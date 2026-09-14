@@ -47,6 +47,13 @@ class ReviewMarkerRecord:
     updated_at: datetime
 
 
+@dataclass(frozen=True)
+class InboxSinceReviewMarkerPage:
+    marker: ReviewMarkerRecord | None
+    items: list[Object]
+    has_more: bool
+
+
 class InboxReviewMarkerService:
     def __init__(self, session: Session, user_id: UUID) -> None:
         self._session = session
@@ -104,3 +111,18 @@ class InboxReviewMarkerService:
         self._session.delete(row)
         self._session.flush()
         return True
+
+    def list_inbox_since_review_marker(self, limit: int) -> InboxSinceReviewMarkerPage:
+        marker = self.get_marker()
+        if marker is None:
+            return InboxSinceReviewMarkerPage(marker=None, items=[], has_more=False)
+        page = self._feed.list_strictly_newer_than(
+            marker.anchor_feed_at,
+            marker.anchor_object_id,
+            limit=limit,
+        )
+        return InboxSinceReviewMarkerPage(
+            marker=marker,
+            items=page.items,
+            has_more=page.has_more,
+        )

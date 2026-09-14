@@ -10,6 +10,7 @@ from app.tools.registry import MCP_TOOL_NAMES  # noqa: F401 — re-exported for 
 from app.tools.schemas import (
     AssignLabelOutput,
     CancelScheduledActivityOutput,
+    ClearInboxReviewMarkerOutput,
     CreateCalendarEventOutput,
     CreateLabelOutput,
     CreateScheduledActivityOutput,
@@ -20,6 +21,7 @@ from app.tools.schemas import (
     GetObjectOutput,
     GetTodayOutput,
     LinkObjectsOutput,
+    ListInboxSinceReviewMarkerOutput,
     ListLabelsOutput,
     ListNeighborsOutput,
     ListNotificationsOutput,
@@ -30,6 +32,7 @@ from app.tools.schemas import (
     SearchObjectsOutput,
     SendEmailOutput,
     SendMessageOutput,
+    SetInboxReviewMarkerOutput,
     SetTaskStatusOutput,
     ToolError,
     UpdateTaskOutput,
@@ -262,6 +265,29 @@ def create_mcp_server() -> MCPServer:
     def list_labels(limit: int = 100) -> ListLabelsOutput:
         """List active organizational labels."""
         return _run_tool("list_labels", "list_labels", {"limit": limit})
+
+    @mcp.tool()
+    def list_inbox_since_review_marker(limit: int = 20) -> ListInboxSinceReviewMarkerOutput:
+        """List Inbox objects strictly newer than the Secretary review marker."""
+        return _run_tool(
+            "list_inbox_since_review_marker",
+            "list_inbox_since_review_marker",
+            {"limit": limit},
+        )
+
+    @mcp.tool()
+    def set_inbox_review_marker(after_object_id: str) -> SetInboxReviewMarkerOutput:
+        """Set the global Inbox review marker (requires approval over MCP)."""
+        return _run_tool(
+            "set_inbox_review_marker",
+            "set_inbox_review_marker",
+            {"after_object_id": after_object_id},
+        )
+
+    @mcp.tool()
+    def clear_inbox_review_marker() -> ClearInboxReviewMarkerOutput:
+        """Clear the global Inbox review marker (requires approval over MCP)."""
+        return _run_tool("clear_inbox_review_marker", "clear_inbox_review_marker", {})
 
     @mcp.tool()
     def create_label(name: str) -> CreateLabelOutput:

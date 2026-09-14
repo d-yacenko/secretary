@@ -115,9 +115,12 @@ EXPECTED_REGISTRY_PERMISSIONS = {
     "list_neighbors": ToolPermission.READ,
     "list_notifications": ToolPermission.READ,
     "list_labels": ToolPermission.READ,
+    "list_inbox_since_review_marker": ToolPermission.READ,
     "get_today": ToolPermission.READ,
     "assign_label": ToolPermission.ANNOTATE,
     "remove_label": ToolPermission.ANNOTATE,
+    "set_inbox_review_marker": ToolPermission.ANNOTATE,
+    "clear_inbox_review_marker": ToolPermission.ANNOTATE,
     "create_label": ToolPermission.INTERNAL_WRITE,
     "rename_label": ToolPermission.INTERNAL_WRITE,
     "delete_label": ToolPermission.DESTRUCTIVE_INTERNAL_WRITE,
@@ -344,6 +347,11 @@ def test_annotate_is_a_mutation_not_a_read() -> None:
     assert "assign_label" not in _READ_TOOLS
     assert "remove_label" not in _READ_TOOLS
     assert "list_labels" in _READ_TOOLS
+    assert "list_inbox_since_review_marker" in _READ_TOOLS
+    assert "set_inbox_review_marker" in _MUTATION_TOOLS
+    assert "clear_inbox_review_marker" in _MUTATION_TOOLS
+    assert "set_inbox_review_marker" not in _READ_TOOLS
+    assert "clear_inbox_review_marker" not in _READ_TOOLS
 
 
 def test_no_llm_call_in_policy_module() -> None:

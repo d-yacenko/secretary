@@ -234,6 +234,31 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
             payload["truncated"] = True
         return payload
 
+    if tool_name == "list_inbox_since_review_marker":
+        items = raw_output.get("items", [])[:MAX_ASSISTANT_LIST_RESULTS]
+        truncated = len(raw_output.get("items", [])) > len(items)
+        payload = {
+            "marker_present": raw_output.get("marker_present"),
+            "marker_not_set": raw_output.get("marker_not_set"),
+            "anchor_object_id": raw_output.get("anchor_object_id"),
+            "anchor_feed_at": raw_output.get("anchor_feed_at"),
+            "items": [
+                {
+                    "object_id": item.get("object_id"),
+                    "kind": item.get("kind"),
+                    "provider": item.get("provider"),
+                    "title": item.get("title"),
+                    "feed_at": item.get("feed_at"),
+                    "excerpt": item.get("excerpt"),
+                }
+                for item in items
+            ],
+            "has_more": bool(raw_output.get("has_more")) or truncated,
+        }
+        if raw_output.get("message"):
+            payload["message"] = raw_output.get("message")
+        return payload
+
     if tool_name in ("create_task", "update_task", "create_scheduled_activity", "create_recurring_scheduled_activity"):
         obj = raw_output.get("object")
         payload: dict[str, Any] = {"object": _bounded_object(obj) if obj else None}

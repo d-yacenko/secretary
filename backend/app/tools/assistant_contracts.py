@@ -166,6 +166,71 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         },
         "strict": False,
     },
+    "list_inbox_since_review_marker": {
+        "type": "function",
+        "name": "list_inbox_since_review_marker",
+        "description": (
+            "Return a bounded snapshot of Inbox source objects STRICTLY NEWER than the "
+            "persisted Secretary Inbox review marker (the same global «Просмотрено "
+            "досюда» frontier as the Inbox UI). This is NOT Gmail/Yandex/Mattermost/"
+            "Telegram/Teams provider read/unread. The persisted anchor is already "
+            "reviewed and is not included. If the marker is not set, report that "
+            "explicitly — do not treat the whole historical Inbox as new. Use this "
+            "for «что нового?», «что нового во входящих?», «что пришло с прошлого "
+            "раза?», «какие новые письма?», «перечисли то, что выше маркера "
+            "просмотра». Do not guess a time window. Fetching or summarizing does "
+            "not move the marker."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "set_inbox_review_marker": {
+        "type": "function",
+        "name": "set_inbox_review_marker",
+        "description": (
+            "Set the GLOBAL Secretary Inbox review frontier («Просмотрено досюда») "
+            "to after_object_id. Executes immediately without a Pending Action Plan "
+            "and without any provider mail read-state write. after_object_id must "
+            "have been exposed this turn. Do not call this merely because objects "
+            "were listed, summarized, or spoken. Requires explicit user intent to "
+            "change the review frontier (e.g. «отметь это просмотренным», «перенеси "
+            "просмотрено досюда до этого письма», «считай всё текущее "
+            "просмотренным»). The marker is global across Inbox kinds/providers: "
+            "do not silently advance it across unreviewed providers the user skipped. "
+            "If reading and marking are combined in one command, use the exact "
+            "snapshot from this turn."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "after_object_id": {"type": "string"},
+            },
+            "required": ["after_object_id"],
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
+    "clear_inbox_review_marker": {
+        "type": "function",
+        "name": "clear_inbox_review_marker",
+        "description": (
+            "Clear the GLOBAL Secretary Inbox review marker. Executes immediately "
+            "without a Pending Action Plan and without any provider read-state write. "
+            "Call only on explicit user intent such as «убери маркер просмотра»."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "strict": False,
+    },
     "create_task": {
         "type": "function",
         "name": "create_task",

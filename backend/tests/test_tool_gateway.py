@@ -30,6 +30,9 @@ _EXPECTED_ASSISTANT_TOOL_NAMES = frozenset(
         "list_neighbors",
         "list_notifications",
         "list_labels",
+        "list_inbox_since_review_marker",
+        "set_inbox_review_marker",
+        "clear_inbox_review_marker",
         "create_label",
         "rename_label",
         "assign_label",
@@ -76,6 +79,9 @@ def test_registry_covers_executor_dispatch_tools():
         "list_neighbors",
         "list_notifications",
         "list_labels",
+        "list_inbox_since_review_marker",
+        "set_inbox_review_marker",
+        "clear_inbox_review_marker",
         "create_label",
         "rename_label",
         "assign_label",
@@ -135,6 +141,7 @@ def test_permission_classifications():
         "list_neighbors",
         "list_notifications",
         "list_labels",
+        "list_inbox_since_review_marker",
         "get_today",
     }
     internal_write = {
@@ -148,7 +155,7 @@ def test_permission_classifications():
         "rename_label",
     }
     destructive = {"delete_task", "remove_relation", "delete_label"}
-    annotate = {"assign_label", "remove_label"}
+    annotate = {"assign_label", "remove_label", "set_inbox_review_marker", "clear_inbox_review_marker"}
     for name in read_tools:
         assert TOOL_REGISTRY[name].permission == ToolPermission.READ
     for name in internal_write:

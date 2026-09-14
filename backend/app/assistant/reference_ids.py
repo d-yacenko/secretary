@@ -29,6 +29,10 @@ def collect_object_ids_from_bounded_tool(
             obj = neighbor.get("object")
             if obj:
                 _append_uuid(candidate_ids, obj.get("id"))
+    elif tool_name == "list_inbox_since_review_marker":
+        _append_uuid(candidate_ids, bounded.get("anchor_object_id"))
+        for item in bounded.get("items", []):
+            _append_uuid(candidate_ids, item.get("object_id"))
     elif tool_name == "remove_relation":
         edge = bounded.get("edge")
         if edge and bounded.get("changed"):
@@ -97,6 +101,10 @@ def collect_seen_object_ids_from_bounded_tool(
     elif tool_name == "list_labels":
         for row in bounded.get("labels", []):
             _append_uuid(seen_ids, row.get("id"))
+    elif tool_name == "list_inbox_since_review_marker":
+        _append_uuid(seen_ids, bounded.get("anchor_object_id"))
+        for item in bounded.get("items", []):
+            _append_uuid(seen_ids, item.get("object_id"))
     elif tool_name in (
         "create_task",
         "update_task",

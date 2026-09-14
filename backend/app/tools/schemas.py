@@ -338,6 +338,47 @@ class RemoveLabelOutput(BaseModel):
     changed: bool
 
 
+class ListInboxSinceReviewMarkerInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class InboxSinceReviewMarkerItemOut(BaseModel):
+    object_id: UUID
+    kind: str
+    provider: str | None = None
+    title: str | None = None
+    feed_at: datetime
+    excerpt: str | None = None
+
+
+class ListInboxSinceReviewMarkerOutput(BaseModel):
+    marker_present: bool
+    marker_not_set: bool
+    anchor_object_id: UUID | None = None
+    anchor_feed_at: datetime | None = None
+    items: list[InboxSinceReviewMarkerItemOut]
+    has_more: bool
+    message: str | None = None
+
+
+class SetInboxReviewMarkerInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    after_object_id: UUID
+
+
+class SetInboxReviewMarkerOutput(BaseModel):
+    anchor_object_id: UUID
+    anchor_feed_at: datetime
+    updated_at: datetime
+
+
+class ClearInboxReviewMarkerOutput(BaseModel):
+    changed: bool
+
+
 MAX_CALENDAR_EVENT_SUMMARY_CHARS = 300
 MAX_CALENDAR_EVENT_DESCRIPTION_CHARS = 4000
 MAX_CALENDAR_EVENT_LOCATION_CHARS = 500

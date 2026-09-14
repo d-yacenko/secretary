@@ -25,6 +25,7 @@ from app.services.context_service import ContextService
 from app.services.domain_write_mode import DomainWriteMode
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.graph_service import GraphService
+from app.services.inbox_review_marker import InboxReviewMarkerService
 from app.services.job_queue_service import JobQueueService
 from app.services.label_service import LabelRecord, LabelService
 from app.services.notification_service import NotificationService
@@ -46,6 +47,7 @@ from app.tools.schemas import (
     AssignLabelOutput,
     CancelScheduledActivityInput,
     CancelScheduledActivityOutput,
+    ClearInboxReviewMarkerOutput,
     CreateCalendarEventCanonicalInput,
     CreateCalendarEventInput,
     CreateCalendarEventOutput,
@@ -68,9 +70,12 @@ from app.tools.schemas import (
     GetObjectInput,
     GetObjectOutput,
     GetTodayOutput,
+    InboxSinceReviewMarkerItemOut,
     LabelItemOut,
     LinkObjectsInput,
     LinkObjectsOutput,
+    ListInboxSinceReviewMarkerInput,
+    ListInboxSinceReviewMarkerOutput,
     ListLabelsInput,
     ListLabelsOutput,
     ListNeighborsInput,
@@ -99,6 +104,8 @@ from app.tools.schemas import (
     SendMessageCanonicalInput,
     SendMessageInput,
     SendMessageOutput,
+    SetInboxReviewMarkerInput,
+    SetInboxReviewMarkerOutput,
     SetTaskStatusInput,
     SetTaskStatusOutput,
     ToolError,
@@ -238,6 +245,61 @@ class DomainToolService:
     def list_labels(self, input: ListLabelsInput) -> ListLabelsOutput:
         records = self._label_service().list_labels(limit=input.limit)
         return ListLabelsOutput(labels=[self._label_item(item) for item in records])
+
+    def list_inbox_since_review_marker(
+        self, input: ListInboxSinceReviewMarkerInput
+    ) -> ListInboxSinceReviewMarkerOutput:
+        from app.services.recent_source_service import RecentSourceService, inbox_feed_at
+
+        page = InboxReviewMarkerService(
+            self._session, self._user_id
+        ).list_inbox_since_review_marker(limit=input.limit)
+        if page.marker is None:
+            return ListInboxSinceReviewMarkerOutput(
+                marker_present=False,
+                marker_not_set=True,
+                items=[],
+                has_more=False,
+                message="Inbox review marker is not set",
+            )
+        items = [
+            InboxSinceReviewMarkerItemOut(
+                object_id=obj.id,
+                kind=obj.kind,
+                provider=obj.provider,
+                title=obj.title,
+                feed_at=inbox_feed_at(obj),
+                excerpt=RecentSourceService.excerpt(obj.body),
+            )
+            for obj in page.items
+        ]
+        return ListInboxSinceReviewMarkerOutput(
+            marker_present=True,
+            marker_not_set=False,
+            anchor_object_id=page.marker.anchor_object_id,
+            anchor_feed_at=page.marker.anchor_feed_at,
+            items=items,
+            has_more=page.has_more,
+        )
+
+    def set_inbox_review_marker(
+        self, input: SetInboxReviewMarkerInput
+    ) -> SetInboxReviewMarkerOutput:
+        try:
+            record = InboxReviewMarkerService(self._session, self._user_id).set_marker(
+                input.after_object_id
+            )
+        except (NotFoundError, ValidationError, ConflictError) as exc:
+            raise self._tool_error_from_mutation(exc) from exc
+        return SetInboxReviewMarkerOutput(
+            anchor_object_id=record.anchor_object_id,
+            anchor_feed_at=record.anchor_feed_at,
+            updated_at=record.updated_at,
+        )
+
+    def clear_inbox_review_marker(self) -> ClearInboxReviewMarkerOutput:
+        changed = InboxReviewMarkerService(self._session, self._user_id).clear_marker()
+        return ClearInboxReviewMarkerOutput(changed=changed)
 
     def prepare_create_label(self, input: CreateLabelInput) -> CreateLabelCanonicalInput:
         from app.services.label_service import normalize_label_name
