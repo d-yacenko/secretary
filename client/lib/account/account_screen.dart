@@ -5,11 +5,13 @@ import '../api/api_error.dart';
 import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
+import '../assistant/hardware_voice_controller.dart';
 import '../ui/domain_labels.dart';
 import '../ui/ui_text_scale.dart';
 import 'account_labels_section.dart';
 import 'account_layout.dart';
 import 'client_disconnect.dart';
+import 'hardware_voice_account_section.dart';
 import 'identity_profile_template.dart';
 import 'semantic_context_template.dart';
 import 'source_preferences_list.dart';
@@ -24,6 +26,8 @@ class AccountScreen extends StatefulWidget {
     this.initialSourcePreferences,
     this.initialIdentity,
     this.initialSemanticContext,
+    this.hardwareVoiceController,
+    this.hardwareVoicePlatform,
   });
 
   final SecretaryApiClient apiClient;
@@ -33,6 +37,8 @@ class AccountScreen extends StatefulWidget {
   final List<SourcePreference>? initialSourcePreferences;
   final UserIdentity? initialIdentity;
   final UserSemanticContext? initialSemanticContext;
+  final HardwareVoiceController? hardwareVoiceController;
+  final TargetPlatform? hardwareVoicePlatform;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -1104,6 +1110,16 @@ class _AccountScreenState extends State<AccountScreen>
                   ],
                 ],
               ),
+              if (widget.hardwareVoiceController != null &&
+                  hardwareVoiceSettingsVisible(
+                    platform: widget.hardwareVoicePlatform,
+                  )) ...[
+                const SizedBox(height: 16),
+                HardwareVoiceAccountSection(
+                  controller: widget.hardwareVoiceController!,
+                  platform: widget.hardwareVoicePlatform,
+                ),
+              ],
               const SizedBox(height: 16),
               AccountSectionCard(
                 title: 'Подключения',

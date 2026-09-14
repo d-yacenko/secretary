@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'auth/auth_controller.dart';
 import 'auth/auth_gate.dart';
 import 'assistant/assistant_controller.dart';
+import 'assistant/hardware_voice_controller.dart';
 import 'capture/capture_controller.dart';
 import 'graph/graph_workspace_controller.dart';
 import 'navigation/app_route_observer.dart';
@@ -32,6 +33,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   late final AssistantController _assistantController;
   late final GraphWorkspaceController _graphController;
   late final ObjectBookmarkController _bookmarkController;
+  late final HardwareVoiceController _hardwareVoiceController;
   late final UiTextScaleController _textScale;
 
   @override
@@ -55,10 +57,14 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
       apiClient: widget.authController.apiClient,
       authController: widget.authController,
     );
+    _hardwareVoiceController = HardwareVoiceController(
+      authController: widget.authController,
+    );
     widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
     _textScale.addListener(_onAuthChanged);
     widget.authController.initialize();
+    _hardwareVoiceController.attach();
     if (widget.textScaleController == null) {
       _textScale.load();
     }
@@ -88,23 +94,27 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     _assistantController.dispose();
     _graphController.dispose();
     _bookmarkController.dispose();
+    _hardwareVoiceController.dispose();
     super.dispose();
   }
 
   Map<ShortcutActivator, VoidCallback> get _scaleShortcuts {
     return {
-      const SingleActivator(LogicalKeyboardKey.equal, control: true):
-          () => _textScale.nudge(0.05),
-      const SingleActivator(LogicalKeyboardKey.numpadAdd, control: true):
-          () => _textScale.nudge(0.05),
-      const SingleActivator(LogicalKeyboardKey.minus, control: true):
-          () => _textScale.nudge(-0.05),
-      const SingleActivator(LogicalKeyboardKey.numpadSubtract, control: true):
-          () => _textScale.nudge(-0.05),
-      const SingleActivator(LogicalKeyboardKey.digit0, control: true):
-          () => _textScale.reset(),
-      const SingleActivator(LogicalKeyboardKey.numpad0, control: true):
-          () => _textScale.reset(),
+      const SingleActivator(LogicalKeyboardKey.equal, control: true): () =>
+          _textScale.nudge(0.05),
+      const SingleActivator(LogicalKeyboardKey.numpadAdd, control: true): () =>
+          _textScale.nudge(0.05),
+      const SingleActivator(LogicalKeyboardKey.minus, control: true): () =>
+          _textScale.nudge(-0.05),
+      const SingleActivator(
+        LogicalKeyboardKey.numpadSubtract,
+        control: true,
+      ): () =>
+          _textScale.nudge(-0.05),
+      const SingleActivator(LogicalKeyboardKey.digit0, control: true): () =>
+          _textScale.reset(),
+      const SingleActivator(LogicalKeyboardKey.numpad0, control: true): () =>
+          _textScale.reset(),
     };
   }
 
@@ -148,6 +158,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
               assistantController: _assistantController,
               graphController: _graphController,
               bookmarkController: _bookmarkController,
+              hardwareVoiceController: _hardwareVoiceController,
             ),
           ),
         ),

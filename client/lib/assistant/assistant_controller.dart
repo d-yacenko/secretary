@@ -494,6 +494,28 @@ class AssistantController extends ChangeNotifier {
     }
   }
 
+  /// Canonical Voice Assistant A trigger for on-screen mic and Android hardware.
+  ///
+  /// Idle/error: start recording. Recording: stop and transcribe. Speaking:
+  /// stop TTS and start a new recording. Starting/transcribing/thinking: ignore.
+  /// Pending Action Plan uses the existing confirmation utterance path.
+  Future<void> handleVoiceTrigger() async {
+    switch (voiceState) {
+      case AssistantVoiceState.recording:
+        await stopVoiceRecordingAndTranscribe();
+        return;
+      case AssistantVoiceState.starting:
+      case AssistantVoiceState.transcribing:
+      case AssistantVoiceState.thinking:
+        return;
+      case AssistantVoiceState.speaking:
+      case AssistantVoiceState.idle:
+      case AssistantVoiceState.error:
+        await startVoiceRecording();
+        return;
+    }
+  }
+
   Future<void> startVoiceRecording() async {
     if (voiceState == AssistantVoiceState.recording) {
       return;

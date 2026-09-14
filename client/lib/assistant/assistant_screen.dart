@@ -152,19 +152,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   Future<void> _onVoicePressed() async {
-    final controller = widget.controller;
-    if (controller.voiceState == AssistantVoiceState.recording) {
-      await controller.stopVoiceRecordingAndTranscribe();
-      return;
-    }
-    if (!controller.canStartVoiceRecording &&
-        controller.voiceState != AssistantVoiceState.recording) {
-      return;
-    }
-    if (controller.voiceState == AssistantVoiceState.error) {
-      controller.clearVoiceError();
-    }
-    await controller.startVoiceRecording();
+    await widget.controller.handleVoiceTrigger();
   }
 
   void _openReference(AssistantReference reference) {

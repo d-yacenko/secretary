@@ -4,6 +4,7 @@ import '../account/account_screen.dart';
 import '../api/api_models.dart';
 import '../assistant/assistant_controller.dart';
 import '../assistant/assistant_screen.dart';
+import '../assistant/hardware_voice_controller.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/inbox_screen.dart';
@@ -36,6 +37,7 @@ class AppShell extends StatefulWidget {
     required this.assistantController,
     required this.graphController,
     this.bookmarkController,
+    this.hardwareVoiceController,
   });
 
   final AuthController authController;
@@ -43,6 +45,7 @@ class AppShell extends StatefulWidget {
   final AssistantController assistantController;
   final GraphWorkspaceController graphController;
   final ObjectBookmarkController? bookmarkController;
+  final HardwareVoiceController? hardwareVoiceController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -66,10 +69,15 @@ class _AppShellState extends State<AppShell> {
         authController: widget.authController,
       );
     }
+    widget.hardwareVoiceController?.onShellVoiceTrigger =
+        _onHardwareVoiceTrigger;
   }
 
   @override
   void dispose() {
+    if (widget.hardwareVoiceController != null) {
+      widget.hardwareVoiceController!.onShellVoiceTrigger = null;
+    }
     if (_ownsBookmarks) {
       _bookmarks.dispose();
     }
@@ -90,9 +98,29 @@ class _AppShellState extends State<AppShell> {
         builder: (context) => AccountScreen(
           apiClient: widget.authController.apiClient,
           authController: widget.authController,
+          hardwareVoiceController: widget.hardwareVoiceController,
         ),
       ),
     );
+  }
+
+  Future<bool> _onHardwareVoiceTrigger() async {
+    if (!mounted) {
+      return false;
+    }
+    // Pushed Account / object detail / capture / OAuth: ignore rather than pop.
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      return false;
+    }
+    if (Navigator.of(context).canPop()) {
+      return false;
+    }
+    if (_selectedIndex != ShellDestination.assistant.index) {
+      setState(() => _selectedIndex = ShellDestination.assistant.index);
+    }
+    await widget.assistantController.handleVoiceTrigger();
+    return true;
   }
 
   void _selectDestination(int index) {

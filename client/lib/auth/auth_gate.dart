@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../assistant/assistant_controller.dart';
+import '../assistant/hardware_voice_controller.dart';
 import '../capture/capture_controller.dart';
 import '../graph/graph_workspace_controller.dart';
 import '../shell/app_shell.dart';
@@ -17,6 +18,7 @@ class AuthGate extends StatelessWidget {
     required this.assistantController,
     required this.graphController,
     required this.bookmarkController,
+    this.hardwareVoiceController,
   });
 
   final AuthController authController;
@@ -24,15 +26,14 @@ class AuthGate extends StatelessWidget {
   final AssistantController assistantController;
   final GraphWorkspaceController graphController;
   final ObjectBookmarkController bookmarkController;
+  final HardwareVoiceController? hardwareVoiceController;
 
   @override
   Widget build(BuildContext context) {
     switch (authController.status) {
       case AuthStatus.initial:
       case AuthStatus.loading:
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.authenticated:
         return AppShell(
           authController: authController,
@@ -40,6 +41,7 @@ class AuthGate extends StatelessWidget {
           assistantController: assistantController,
           graphController: graphController,
           bookmarkController: bookmarkController,
+          hardwareVoiceController: hardwareVoiceController,
         );
       case AuthStatus.needsAuth:
       case AuthStatus.transientError:
