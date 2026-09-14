@@ -369,3 +369,88 @@ def test_speech_missing_configuration_returns_502(
 
     assert response.status_code == 502
     assert response.json()["detail"] == SPEECH_PROVIDER_UNAVAILABLE
+
+
+def test_blank_speech_without_openai_credential_returns_typed_422_not_502(
+    db_session,
+    fake_embedding_service,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
+    monkeypatch.setattr("app.core.config.settings.openai_tts_model", "")
+    monkeypatch.setattr("app.core.config.settings.openai_tts_voice", "")
+    constructed: list[str] = []
+
+    def tracking_build(*_args, **_kwargs):
+        constructed.append("built")
+        raise AssertionError("speech provider must not be constructed for invalid text")
+
+    monkeypatch.setattr(
+        "app.api.assistant.build_budget_guarded_speech_provider",
+        tracking_build,
+    )
+    monkeypatch.setattr(
+        "app.api.assistant.create_speech_provider_for_api_key",
+        tracking_build,
+    )
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    apply_embedding_service_overrides(fake_embedding_service)
+    with TestClient(app) as raw:
+        client = AuthTestClient(raw, auth_headers)
+        response = client.post("/assistant/speech", json={"text": "   "})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "speech_text_empty"
+    assert detail["message"] == SPEECH_TEXT_EMPTY
+    assert constructed == []
+
+
+def test_over_limit_speech_without_openai_credential_returns_typed_422_not_502(
+    db_session,
+    fake_embedding_service,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
+    monkeypatch.setattr("app.core.config.settings.openai_tts_model", "")
+    monkeypatch.setattr("app.core.config.settings.openai_tts_voice", "")
+    constructed: list[str] = []
+
+    def tracking_build(*_args, **_kwargs):
+        constructed.append("built")
+        raise AssertionError("speech provider must not be constructed for invalid text")
+
+    monkeypatch.setattr(
+        "app.api.assistant.build_budget_guarded_speech_provider",
+        tracking_build,
+    )
+    monkeypatch.setattr(
+        "app.api.assistant.create_speech_provider_for_api_key",
+        tracking_build,
+    )
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    apply_embedding_service_overrides(fake_embedding_service)
+    with TestClient(app) as raw:
+        client = AuthTestClient(raw, auth_headers)
+        response = client.post(
+            "/assistant/speech",
+            json={"text": "а" * (MAX_SPEECH_INPUT_CHARS + 1)},
+        )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "speech_text_too_long"
+    assert detail["message"] == SPEECH_TEXT_TOO_LONG
+    assert constructed == []

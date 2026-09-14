@@ -57,7 +57,8 @@ from app.services.speech_service import (
     SpeechConfigurationError,
     SpeechProvider,
     create_speech_provider_for_api_key,
-    synthesize_speech_text,
+    prepare_speech_request_text,
+    synthesize_prepared_speech_text,
 )
 from app.services.transcription_service import (
     TranscriptionConfigurationError,
@@ -223,18 +224,29 @@ def get_transcription_provider(
         ) from exc
 
 
+def get_validated_speech_text(data: AssistantSpeechRequest) -> str:
+    try:
+        return prepare_speech_request_text(data.text)
+    except ValidationError as exc:
+        raise _speech_validation_http_error(exc.message) from exc
+
+
+def build_budget_guarded_speech_provider(
+    session: Session,
+    user_id: UUID,
+) -> SpeechProvider:
+    api_key = EffectiveUserSettingsService.build(session).resolve_openai_api_key(user_id)
+    provider = create_speech_provider_for_api_key(api_key)
+    return OpenAIDailyBudgetGuard.build(session, user_id).guard_speech_provider(provider)
+
+
 def get_speech_provider(
+    _prepared: str = Depends(get_validated_speech_text),
     session: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> SpeechProvider:
     try:
-        api_key = EffectiveUserSettingsService.build(session).resolve_openai_api_key(
-            current_user.user_id
-        )
-        provider = create_speech_provider_for_api_key(api_key)
-        return OpenAIDailyBudgetGuard.build(
-            session, current_user.user_id
-        ).guard_speech_provider(provider)
+        return build_budget_guarded_speech_provider(session, current_user.user_id)
     except (
         SpeechConfigurationError,
         UserOpenAICredentialConfigurationError,
@@ -324,17 +336,15 @@ async def assistant_transcribe(
 
 @router.post("/assistant/speech")
 async def assistant_speech(
-    data: AssistantSpeechRequest,
+    prepared: str = Depends(get_validated_speech_text),
     current_user: CurrentUserContext = Depends(get_current_user),
     provider: SpeechProvider = Depends(get_speech_provider),
 ) -> Response:
     try:
         with ai_trace_session(current_user.user_id, WORKLOAD_SPEECH):
-            result = await synthesize_speech_text(data.text, provider)
+            result = await synthesize_prepared_speech_text(prepared, provider)
     except OpenAIDailyBudgetExhaustedError as exc:
         raise _openai_daily_budget_http_error(current_user.user_id, exc) from exc
-    except ValidationError as exc:
-        raise _speech_validation_http_error(exc.message) from exc
     except (SpeechConfigurationError, SpeechProviderError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

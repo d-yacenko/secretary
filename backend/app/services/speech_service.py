@@ -46,7 +46,16 @@ def prepare_speech_request_text(text: str) -> str:
 
 
 async def synthesize_speech_text(text: str, provider: SpeechProvider) -> SpeechCallResult:
-    prepared = prepare_speech_request_text(text)
+    return await synthesize_prepared_speech_text(
+        prepare_speech_request_text(text),
+        provider,
+    )
+
+
+async def synthesize_prepared_speech_text(
+    prepared: str,
+    provider: SpeechProvider,
+) -> SpeechCallResult:
     model = _provider_model(provider)
     started = time.perf_counter()
     try:

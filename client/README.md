@@ -22,7 +22,36 @@ flutter test
 flutter run -d linux
 ```
 
-Linux builds require the desktop toolchain (`clang++`, `cmake`, `ninja`, GTK 3 dev libraries). On this development host, `flutter build linux` currently fails because CMake and related packages are not installed.
+Linux desktop builds need the normal Flutter Linux toolchain:
+
+- `clang++`, `cmake`, `ninja`, `pkg-config`
+- GTK 3 development libraries
+- `libsecret-1` development files (`libsecret-devel` / `libsecret-1-dev`) for the existing `flutter_secure_storage_linux` plugin
+
+Voice Assistant A also needs GStreamer development files because playback uses `audioplayers` / `audioplayers_linux`:
+
+- `gstreamer-1.0` development package
+- `gstreamer-plugins-base-1.0` development package
+
+On openSUSE / Fedora-style hosts:
+
+```bash
+sudo zypper install gstreamer-devel gstreamer-plugins-base-devel
+```
+
+On Debian / Ubuntu-style hosts:
+
+```bash
+sudo apt-get install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+```
+
+Microphone **runtime** tools are separate from playback **build** dependencies. Recording still uses PulseAudio helpers (`parecord`, `pactl`) and optional `ffmpeg` for non-WAV fallback; those are not required to compile the Linux client.
+
+Verify a Linux debug build with:
+
+```bash
+flutter build linux --debug
+```
 
 ### Linux voice recording runtime
 

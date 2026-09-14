@@ -445,9 +445,7 @@ void main() {
     expect(leftover, isNotEmpty);
     assistant.resetSession();
     await waitUntil(() => speechPlayer.stopCount > 0);
-    await waitUntil(
-      () => leftover.every((file) => !file.existsSync()),
-    );
+    await waitUntil(() => leftover.every((file) => !file.existsSync()));
     assistant.dispose();
     await waitUntil(() => speechPlayer.disposeCount == 1);
     await turn;
