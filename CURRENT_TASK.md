@@ -1,4 +1,4 @@
-# Current task — Voice Assistant A R4-R1
+# Current task — Voice Assistant A R4-R2
 
 ## Status
 
@@ -8,15 +8,17 @@ Accepted / exact deployed application SHA: `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf
 
 Previous production SHA: `eb3af922f804e6faf1d895fd14c0973981ce515e`
 
-**R4-R1 (keyguard callback + repeated lock-screen invoke + cold-start gate + ACK vs recording-ready + role-picker refresh + Linux host RUNPATH): implemented / awaiting Architect review and user physical gates. NOT CODE ACCEPTED.**
+**R4-R2 (hands-free output policy + mobile transcription root-cause/fix): implemented / awaiting Architect review and user physical gates. NOT CODE ACCEPTED. NOT PRODUCTION ACCEPTED.**
+
+R4-R2 application SHA: `f8c9a256af9d07b77b088e94fc1110e69479343f`
+
+R4-R2 parent (docs tip / branch tip at R4-R2 start): `4108e202407b54b8e4ad529567572907e6cee500`
 
 R4-R1 application SHA: `e097069dad8bcb0066e531a63f5f668e786e62ab`
 
-R4-R1 parent (docs tip / branch tip at R4-R1 start): `638223ac07ce4d0c90c4f97596c6b542eb753f34`
-
 R4 application SHA (rejected): `a4bb618c69ff170f223bef13dd5303d8b5961b67`
 
-**R4 / R3 / R3-R1: not CODE ACCEPTED.**
+**R4-R1 / R4 / R3 / R3-R1: not CODE ACCEPTED.**
 
 R3-R1 application SHA: `f20c0e4bcc55bbb9e6a4b79cf052d17f8daf637b`
 
@@ -28,35 +30,45 @@ R1 application SHA: `89c7e0bf9fc74dbfcc8a02f9a6795b4f3deae82e`
 
 R1 PASS. R2 marker architecture/semantics PASS. R2-R1 reference hygiene PASS.
 
-Not PRODUCTION ACCEPTED. Do not start Voice B. Do not redeploy production. Do not mark R3, R4, or R4-R1 CODE ACCEPTED.
+Not PRODUCTION ACCEPTED. Do not start Voice B. Do not redeploy production. Do not mark R3, R4, R4-R1, or R4-R2 CODE ACCEPTED.
 
-## R4-R1 facts
+## R4-R2 facts
 
-Client-only. No backend API. No DB migration. No production deploy.
+Invocation source is typed: `typed` | `screenMic` | `hardwareButton` | `systemAssistant`. Frozen at recording start. A later stop gesture does not change it.
 
-Keyguard: `SecretaryVoiceInteractionService` overrides public `onLaunchVoiceAssistFromKeyguard()` and launches `VoiceSessionActivity` via the existing show-when-locked path. `VoiceInteractionSession.onShow()` is not the locked entry callback. Native contract tests in `VoiceAssistContractTest`.
+Local per-user SharedPreferences `voice_output_policy.$userId`: `handsFreeOnly` (default) / `allVoiceInput` / `never`. Not synced to UserSettings. Account radios «Автоозвучивание ответов» on Android and Linux.
 
-Repeated lock-screen invoke: launch intent carries `secretary.voice_trigger`. `VoiceSessionActivity` consumes it on cold create and `onNewIntent`, queues until the plugin is ready, and emits one Flutter assist per trigger. Overlay `_started` one-shot auto-start is gone; later assists reuse `handleVoiceTrigger`.
+Default matrix: typed never speaks; screen mic is text-only; hardware / system / lock-screen assistant auto-speak. Changing the pref mid-turn does not alter the frozen turn.
 
-Cold-start gate: `VoiceSessionApp` waits for auth initialization, authenticated user id, that user's `lock_screen_voice_enabled` pref, and keyguard state before the overlay can start a voice turn. Locked + pref false: no recording. Locked + pref true: start once. Regression: delayed auth + delayed pref.
+If auto-speech is not allowed: Pending Action Plan stays visual; no narration; affirmative «Да» stays unarmed / fail-closed; exact «Нет» may still reject; visual approve/reject keep existing lock-screen restrictions.
 
-ACK vs ready: native hardware / keyguard play only a short acknowledgement (haptic + tiny tone). Flutter `playReady` (`voice_start.wav`) runs only after `startRecording()` succeeds and state is `recording`. Mic start failure: no ready cue. System-assistant path does not play a ready cue in `VoiceInteractionSession`.
+`audioplayers` uses the default `AudioPlayer` / USAGE_MEDIA. No custom Bluetooth stack. Physical Bluetooth routing left for user acceptance.
 
-Assistant role: `startActivityForResult` for API 29+ `ROLE_ASSISTANT` and API 23–28 `VOICE_INPUT_SETTINGS`. Account / app resume and `onRoleResult` refresh the actual default-assistant status. Flutter does not claim ACTIVE when the picker Activity returns immediately.
+Production transcription diagnosis (read-only, SHA `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf6357`, model `gpt-4o-mini-transcribe`, phone user has a personal OpenAI credential): Linux/long WAVs succeed; phone-sized 80–400 ms PCM WAVs (2604–12844 bytes, `secretary_voice.wav` / `audio/wav`) were collapsed into HTTP 502 `"Transcription provider unavailable"` after OpenAI 400 / empty text. Not wrong base URL, not missing credential, not missing model. Encoder was not changed.
 
-Linux: host `flutter build linux --debug` still needs `gstreamer-devel` (build-time, classification C). User-visible launch failure without `LD_LIBRARY_PATH` was packaging (classification A): plugin `.so` files kept container build-tree RUNPATH, so `libduckdb.so` was `not found` (exit 127). Install now rewrites bundled libraries to `RUNPATH=$ORIGIN`. Relocatable bundle launched on this host without `LD_LIBRARY_PATH`; window appeared; authenticated Today/Inbox shell loaded. Exact launch: `env -u LD_LIBRARY_PATH /tmp/secretary-linux-r4r1-bundle/personal_secretary`.
+Client: structurally inspect WAV; reject clips shorter than 500 ms locally with Russian copy; debug-log encoder/filename/MIME/bytes/duration/API base URL/HTTP status (no token/audio/transcript). Screen mic and hardware share the same transcription pipeline.
 
-Physical Android 3-turn latency, Volume Up ACK/ready, TTS interrupt, and Samsung system-assistant items A–I are left to the user (no remote device control this round).
+Backend (not deployed): typed `{code,message}` — `transcription_provider_not_configured` / `transcription_provider_failed` (502) and `transcription_audio_invalid` (422). No provider bodies or secrets.
+
+No DB migration. Production was not mutated and not redeployed.
 
 ## Checks
 
-- `dart format` on R4-R1 Dart files: clean.
-- `flutter analyze` on R4-R1 Dart files: no issues.
-- Flutter Voice A / hardware / lock-screen / system-assistant / bootstrap / shell tests: passed.
-- Android `HardwareVoiceEngineTest`: **15/15**. `VoiceAssistContractTest`: **4/4**.
+- `dart format` on R4-R2 Dart files: clean.
+- Flutter Voice A / output-policy / hardware / lock-screen / system-assistant / bootstrap / shell / short-WAV tests: passed.
+- `tests/test_assistant_transcribe.py`: **14 passed**.
+- Android `testDebugUnitTest`: BUILD SUCCESSFUL (native contract tests unchanged).
 - `flutter build apk --debug`; `aapt dump badging` → `sdkVersion:'23'`.
-- Linux debug bundle built in Tumbleweed container; host launch as above.
+- Linux debug bundle built in Tumbleweed container; host launch without `LD_LIBRARY_PATH`: `env -u LD_LIBRARY_PATH /tmp/secretary-linux-r4r2-bundle/personal_secretary` (timeout after Dart VM start). Host `flutter build linux` still needs `gstreamer-devel` (classification C).
+
+## Remaining USER physical gates
+
+- Phone: same short harmless phrase through on-screen mic **and** hardware button after this client.
+- Screen-mic + default policy: textual Assistant answer, **no** `/assistant/speech`.
+- Three short real turns with latency marks once transcription works, including `speech_rtt_ms` only when `autoSpeechAllowed=true`.
+- Bluetooth media route while a headset is active.
+- Prior R4-R1 Samsung / Volume Up / lock-screen items still user-run.
 
 ## Stop
 
-Wait for **Architect review of R4-R1** and **user physical gates**. Do not mark R3, R4, or R4-R1 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
+Wait for **Architect review of R4-R2** and **user physical gates**. Do not mark R3, R4, R4-R1, or R4-R2 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
