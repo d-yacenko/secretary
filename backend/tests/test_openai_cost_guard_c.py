@@ -624,6 +624,26 @@ def test_blocked_transcription_makes_zero_provider_calls(db_session, budget_user
     assert provider.calls == 0
 
 
+def test_blocked_speech_makes_zero_provider_calls(db_session, budget_user_id) -> None:
+    _set_limit(db_session, budget_user_id, 10)
+    _seed_usage(db_session, budget_user_id, input_tokens=10)
+
+    class CountingSpeech:
+        model = "gpt-4o-mini-tts"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def synthesize(self, text):
+            self.calls += 1
+            return b"audio"
+
+    provider = CountingSpeech()
+    with pytest.raises(OpenAIDailyBudgetExhaustedError):
+        _guard(db_session, budget_user_id).guard_speech_provider(provider).synthesize("привет")
+    assert provider.calls == 0
+
+
 def test_request_time_embedding_defers_instead_of_clearing_vector(db_session, budget_user_id) -> None:
     _set_limit(db_session, budget_user_id, 10)
     _seed_usage(db_session, budget_user_id, input_tokens=10)

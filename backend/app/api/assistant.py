@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.ai_audit.constants import (
+    WORKLOAD_SPEECH,
     WORKLOAD_TRANSCRIPTION,
 )
 from app.ai_audit.context import ai_trace_session
@@ -18,12 +19,18 @@ from app.assistant.action_plan_constants import (
     PENDING_ACTION_PLAN_STATUS_EXPIRED,
     PENDING_ACTION_PLAN_STATUS_FAILED,
 )
+from app.assistant.speech_constants import (
+    SPEECH_PROVIDER_UNAVAILABLE,
+    SPEECH_TEXT_EMPTY,
+    SPEECH_TEXT_TOO_LONG,
+)
 from app.assistant.transcription_constants import AUDIO_TOO_LARGE
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.current_user import CurrentUserContext
 from app.db.session import SessionLocal
 from app.llm.assistant_models import AssistantHistoryMessage
 from app.llm.openai_assistant_provider import AssistantProviderError
+from app.llm.openai_speech_provider import SpeechProviderError
 from app.llm.openai_transcription_provider import TranscriptionProviderError
 from app.services.action_plan_service import (
     ActionPlanConflictError,
@@ -45,6 +52,12 @@ from app.services.errors import NotFoundError, ValidationError
 from app.services.openai_daily_budget import (
     OpenAIDailyBudgetExhaustedError,
     OpenAIDailyBudgetGuard,
+)
+from app.services.speech_service import (
+    SpeechConfigurationError,
+    SpeechProvider,
+    create_speech_provider_for_api_key,
+    synthesize_speech_text,
 )
 from app.services.transcription_service import (
     TranscriptionConfigurationError,
@@ -130,6 +143,12 @@ class AssistantTranscribeResponse(BaseModel):
     text: str
 
 
+class AssistantSpeechRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
 @dataclass(frozen=True)
 class AssistantRuntime:
     provider: AssistantProvider
@@ -204,6 +223,41 @@ def get_transcription_provider(
         ) from exc
 
 
+def get_speech_provider(
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> SpeechProvider:
+    try:
+        api_key = EffectiveUserSettingsService.build(session).resolve_openai_api_key(
+            current_user.user_id
+        )
+        provider = create_speech_provider_for_api_key(api_key)
+        return OpenAIDailyBudgetGuard.build(
+            session, current_user.user_id
+        ).guard_speech_provider(provider)
+    except (
+        SpeechConfigurationError,
+        UserOpenAICredentialConfigurationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=SPEECH_PROVIDER_UNAVAILABLE,
+        ) from exc
+
+
+def _speech_validation_http_error(message: str) -> HTTPException:
+    if message == SPEECH_TEXT_EMPTY:
+        code = "speech_text_empty"
+    elif message == SPEECH_TEXT_TOO_LONG:
+        code = "speech_text_too_long"
+    else:
+        code = "speech_text_invalid"
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": code, "message": message},
+    )
+
+
 def _openai_daily_budget_http_error(
     user_id: UUID,
     exc: OpenAIDailyBudgetExhaustedError,
@@ -266,6 +320,28 @@ async def assistant_transcribe(
         ) from exc
 
     return AssistantTranscribeResponse(text=text)
+
+
+@router.post("/assistant/speech")
+async def assistant_speech(
+    data: AssistantSpeechRequest,
+    current_user: CurrentUserContext = Depends(get_current_user),
+    provider: SpeechProvider = Depends(get_speech_provider),
+) -> Response:
+    try:
+        with ai_trace_session(current_user.user_id, WORKLOAD_SPEECH):
+            result = await synthesize_speech_text(data.text, provider)
+    except OpenAIDailyBudgetExhaustedError as exc:
+        raise _openai_daily_budget_http_error(current_user.user_id, exc) from exc
+    except ValidationError as exc:
+        raise _speech_validation_http_error(exc.message) from exc
+    except (SpeechConfigurationError, SpeechProviderError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=SPEECH_PROVIDER_UNAVAILABLE,
+        ) from exc
+
+    return Response(content=result.audio_bytes, media_type=result.content_type)
 
 
 @router.post("/assistant/message", response_model=AssistantMessageResponse)

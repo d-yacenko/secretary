@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     openai_assistant_max_output_tokens: int = 1600
     openai_allowed_assistant_models: str = ""
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "alloy"
     secretary_timezone: str = "Europe/Amsterdam"
     mcp_enabled: bool = False
     google_oauth_client_file: str = "/run/secrets/google-oauth-client.json"

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../api/api_error.dart';
@@ -7,20 +9,32 @@ import '../assistant/voice_recorder.dart';
 import '../assistant/voice_temp_files.dart';
 import '../auth/auth_controller.dart';
 import '../voice/voice_transcription_controller.dart';
+import 'audioplayers_speech_player.dart';
+import 'fake_speech_player.dart';
+import 'speech_playback_controller.dart';
+import 'speech_player.dart';
+import 'voice_confirmation.dart';
 
 const int maxAssistantHistoryMessages = 12;
 
-enum AssistantSendState {
-  idle,
-  sending,
-  error,
-}
+const voiceUnsupportedPlanSpeech = 'Это действие нужно подтвердить на экране.';
+const voiceRejectedSpeech = 'Не отправляю.';
+const voiceExecutionFailedSpeech = 'Не удалось выполнить отправку.';
+const voiceExpiredSpeech = 'Срок подтверждения истёк.';
+const voiceResumeFailedSpeech =
+    'Действие выполнено. Не удалось загрузить итоговый ответ секретаря.';
+const voicePlanAmbiguousSpeech =
+    'Нельзя подтвердить голосом: найдено несколько ожидающих действий.';
+
+enum AssistantSendState { idle, sending, error }
 
 enum AssistantVoiceState {
   idle,
   starting,
   recording,
   transcribing,
+  thinking,
+  speaking,
   error,
 }
 
@@ -32,13 +46,7 @@ enum AssistantActionPlanOperationState {
   error,
 }
 
-enum ActionPlanCardState {
-  pending,
-  completed,
-  rejected,
-  failed,
-  expired,
-}
+enum ActionPlanCardState { pending, completed, rejected, failed, expired }
 
 class MessageActionPlan {
   MessageActionPlan({
@@ -68,9 +76,6 @@ class AssistantChatMessage {
   final MessageActionPlan? actionPlan;
 }
 
-AssistantVoiceState _mapVoiceState(VoiceState state) =>
-    AssistantVoiceState.values[state.index];
-
 class AssistantController extends ChangeNotifier {
   AssistantController({
     required SecretaryApiClient apiClient,
@@ -78,22 +83,48 @@ class AssistantController extends ChangeNotifier {
     VoiceRecorder? voiceRecorder,
     VoiceTempFiles? voiceTempFiles,
     VoiceTranscriptionController? voiceController,
-  })  : _apiClient = apiClient,
-        _authController = authController,
-        _voice = voiceController ??
-            VoiceTranscriptionController(
-              apiClient: apiClient,
-              authController: authController,
-              voiceRecorder: voiceRecorder,
-              voiceTempFiles: voiceTempFiles,
-            ) {
+    SpeechPlayer? speechPlayer,
+    SpeechPlaybackController? speechPlayback,
+  }) : _apiClient = apiClient,
+       _authController = authController,
+       _voiceTempFiles =
+           voiceTempFiles ??
+           (Platform.environment['FLUTTER_TEST'] == 'true'
+               ? VoiceTempFiles(
+                   directory: Directory.systemTemp.createTempSync(
+                     'secretary_voice_test',
+                   ),
+                 )
+               : VoiceTempFiles()) {
+    _voice =
+        voiceController ??
+        VoiceTranscriptionController(
+          apiClient: apiClient,
+          authController: authController,
+          voiceRecorder: voiceRecorder,
+          voiceTempFiles: _voiceTempFiles,
+        );
+    _speech =
+        speechPlayback ??
+        SpeechPlaybackController(
+          apiClient: apiClient,
+          authController: authController,
+          player:
+              speechPlayer ??
+              (Platform.environment['FLUTTER_TEST'] == 'true'
+                  ? FakeSpeechPlayer()
+                  : AudioplayersSpeechPlayer()),
+          tempFiles: _voiceTempFiles,
+        );
     _voice.bindTranscriptConsumer(_handleVoiceTranscript);
     _voice.addListener(_onVoiceChanged);
   }
 
   final SecretaryApiClient _apiClient;
   final AuthController _authController;
-  final VoiceTranscriptionController _voice;
+  late final VoiceTranscriptionController _voice;
+  final VoiceTempFiles _voiceTempFiles;
+  late final SpeechPlaybackController _speech;
 
   final List<AssistantChatMessage> _messages = [];
   AssistantContextRef? _objectContext;
@@ -105,9 +136,41 @@ class AssistantController extends ChangeNotifier {
   String? actionPlanErrorMessage;
   String? _pendingRetryMessage;
   bool _approveInFlight = false;
+  bool _voiceOriginActive = false;
+  bool _voiceApprovalArmed = false;
+  bool _planNarrationInProgress = false;
+  bool _speakingOverlay = false;
+  String? _speechErrorMessage;
+  bool _confirmationInFlight = false;
 
-  AssistantVoiceState get voiceState => _mapVoiceState(_voice.voiceState);
-  String? get voiceErrorMessage => _voice.voiceErrorMessage;
+  AssistantVoiceState get voiceState {
+    if (_speechErrorMessage != null) {
+      return AssistantVoiceState.error;
+    }
+    if (_speakingOverlay || _speech.isSpeaking) {
+      return AssistantVoiceState.speaking;
+    }
+    if (_voiceOriginActive &&
+        (sendState == AssistantSendState.sending ||
+            isActionPlanOperationBusy)) {
+      return AssistantVoiceState.thinking;
+    }
+    switch (_voice.voiceState) {
+      case VoiceState.idle:
+        return AssistantVoiceState.idle;
+      case VoiceState.starting:
+        return AssistantVoiceState.starting;
+      case VoiceState.recording:
+        return AssistantVoiceState.recording;
+      case VoiceState.transcribing:
+        return AssistantVoiceState.transcribing;
+      case VoiceState.error:
+        return AssistantVoiceState.error;
+    }
+  }
+
+  String? get voiceErrorMessage =>
+      _speechErrorMessage ?? _voice.voiceErrorMessage;
 
   List<AssistantChatMessage> get messages => List.unmodifiable(_messages);
   AssistantContextRef? get objectContext => _objectContext;
@@ -115,20 +178,41 @@ class AssistantController extends ChangeNotifier {
   String? get pendingRetryMessage => _pendingRetryMessage;
   bool get isSending => sendState == AssistantSendState.sending;
   bool get isVoiceBusy => _voice.isVoiceBusy;
+  bool get isSpeaking => _speakingOverlay || _speech.isSpeaking;
   bool get hasPendingActionPlan => _messages.any(
-        (message) =>
-            message.actionPlan != null &&
-            message.actionPlan!.cardState == ActionPlanCardState.pending,
-      );
+    (message) =>
+        message.actionPlan != null &&
+        message.actionPlan!.cardState == ActionPlanCardState.pending,
+  );
   bool get isActionPlanOperationBusy =>
       actionPlanOperationState == AssistantActionPlanOperationState.approving ||
       actionPlanOperationState == AssistantActionPlanOperationState.rejecting ||
       actionPlanOperationState == AssistantActionPlanOperationState.resuming;
-  bool get isInputBlocked =>
-      isSending ||
-      isVoiceBusy ||
-      hasPendingActionPlan ||
-      isActionPlanOperationBusy;
+  bool get canSubmitOrdinaryAssistantMessage =>
+      !isSending &&
+      !isVoiceBusy &&
+      !hasPendingActionPlan &&
+      !isActionPlanOperationBusy &&
+      !isSpeaking;
+  bool get isInputBlocked => !canSubmitOrdinaryAssistantMessage;
+  bool get canStartVoiceRecording {
+    if (isActionPlanOperationBusy || _confirmationInFlight) {
+      return false;
+    }
+    if (isSpeaking) {
+      return true;
+    }
+    if (_voice.isVoiceBusy) {
+      return false;
+    }
+    if (isSending) {
+      return false;
+    }
+    if (hasPendingActionPlan) {
+      return true;
+    }
+    return true;
+  }
 
   void _onVoiceChanged() {
     notifyListeners();
@@ -164,12 +248,15 @@ class AssistantController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> sendMessage(String text) async {
+  Future<void> sendMessage(String text, {bool fromVoice = false}) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || isInputBlocked) {
+    if (trimmed.isEmpty || !canSubmitOrdinaryAssistantMessage) {
       return;
     }
 
+    _voiceOriginActive = fromVoice;
+    _voiceApprovalArmed = false;
+    _planNarrationInProgress = false;
     sendState = AssistantSendState.sending;
     errorMessage = null;
     notifyListeners();
@@ -199,6 +286,9 @@ class AssistantController extends ChangeNotifier {
       _pendingRetryMessage = null;
       sendState = AssistantSendState.idle;
       notifyListeners();
+      if (fromVoice) {
+        await _speakLatestAssistantResult();
+      }
     } on AuthenticationException catch (e) {
       _pendingRetryMessage = trimmed;
       sendState = AssistantSendState.error;
@@ -244,12 +334,18 @@ class AssistantController extends ChangeNotifier {
         actionPlan.cardState = ActionPlanCardState.failed;
         actionPlanOperationState = AssistantActionPlanOperationState.idle;
         notifyListeners();
+        if (_voiceOriginActive) {
+          await _speakDeterministic(voiceExecutionFailedSpeech);
+        }
         return;
       }
       if (response.status == 'expired') {
         actionPlan.cardState = ActionPlanCardState.expired;
         actionPlanOperationState = AssistantActionPlanOperationState.idle;
         notifyListeners();
+        if (_voiceOriginActive) {
+          await _speakDeterministic(voiceExpiredSpeech);
+        }
         return;
       }
       if (response.status == 'executed') {
@@ -304,8 +400,16 @@ class AssistantController extends ChangeNotifier {
       } else {
         actionPlan.cardState = ActionPlanCardState.rejected;
       }
+      _voiceApprovalArmed = false;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
+      if (_voiceOriginActive) {
+        await _speakDeterministic(
+          response.status == 'expired'
+              ? voiceExpiredSpeech
+              : voiceRejectedSpeech,
+        );
+      }
     } on AuthenticationException catch (e) {
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
@@ -359,28 +463,50 @@ class AssistantController extends ChangeNotifier {
       actionPlan.resumeFailed = false;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
+      if (_voiceOriginActive) {
+        await _speakDeterministic(response.answer);
+      }
     } on AuthenticationException catch (e) {
       actionPlan.resumeFailed = true;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       _authController.handleAuthenticationFailure();
       notifyListeners();
+      if (_voiceOriginActive) {
+        await _speakDeterministic(voiceResumeFailedSpeech);
+      }
     } on NetworkException catch (e) {
       actionPlan.resumeFailed = true;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = e.message;
       notifyListeners();
+      if (_voiceOriginActive) {
+        await _speakDeterministic(voiceResumeFailedSpeech);
+      }
     } on ApiException catch (e) {
       actionPlan.resumeFailed = true;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       actionPlanErrorMessage = localOpenAiDailyBudgetMessage(e) ?? e.message;
       notifyListeners();
+      if (_voiceOriginActive) {
+        await _speakDeterministic(voiceResumeFailedSpeech);
+      }
     }
   }
 
   Future<void> startVoiceRecording() async {
-    if (isInputBlocked) {
+    if (voiceState == AssistantVoiceState.recording) {
       return;
+    }
+    if (!canStartVoiceRecording) {
+      return;
+    }
+    if (isSpeaking) {
+      final interruptedPlanNarration = _planNarrationInProgress;
+      await stopSpeaking();
+      if (interruptedPlanNarration) {
+        _voiceApprovalArmed = false;
+      }
     }
     if (voiceState == AssistantVoiceState.error) {
       clearVoiceError();
@@ -392,13 +518,135 @@ class AssistantController extends ChangeNotifier {
     await _voice.stopAndTranscribe();
   }
 
+  Future<void> stopSpeaking() async {
+    _planNarrationInProgress = false;
+    _speakingOverlay = false;
+    await _speech.stop();
+    notifyListeners();
+  }
+
   Future<void> _handleVoiceTranscript(String transcript) async {
-    if (isInputBlocked) {
+    if (hasPendingActionPlan) {
+      await _handleVoiceConfirmation(transcript);
+      return;
+    }
+    if (!canSubmitOrdinaryAssistantMessage) {
       _pendingRetryMessage = transcript;
       notifyListeners();
       return;
     }
-    await sendMessage(transcript);
+    await sendMessage(transcript, fromVoice: true);
+  }
+
+  Future<void> _handleVoiceConfirmation(String transcript) async {
+    if (_confirmationInFlight ||
+        isActionPlanOperationBusy ||
+        _approveInFlight) {
+      return;
+    }
+    _confirmationInFlight = true;
+    try {
+      final pendingIndex = _uniquePendingPlanIndex();
+      if (pendingIndex == null) {
+        if (_voiceOriginActive) {
+          await _speakDeterministic(voicePlanAmbiguousSpeech);
+        }
+        return;
+      }
+      final decision = parseVoiceConfirmation(transcript);
+      if (decision == VoiceConfirmation.reject) {
+        await rejectActionPlanAt(pendingIndex);
+        return;
+      }
+      if (decision == VoiceConfirmation.approve) {
+        final message = _messages[pendingIndex];
+        final actions =
+            message.actionPlan?.plan.actions ?? const <PendingAction>[];
+        final voiceApprovable = PendingAction.planIsVoiceApprovable(actions);
+        if (!_voiceApprovalArmed || !voiceApprovable) {
+          if (_voiceOriginActive) {
+            await _speakDeterministic(
+              voiceApprovable
+                  ? voiceApprovalUnarmedSpeech
+                  : voiceUnsupportedPlanSpeech,
+            );
+          }
+          return;
+        }
+        await approveActionPlanAt(pendingIndex);
+        return;
+      }
+      if (_voiceOriginActive) {
+        await _speakDeterministic(voiceConfirmationRetrySpeech);
+      }
+    } finally {
+      _confirmationInFlight = false;
+    }
+  }
+
+  int? _uniquePendingPlanIndex() {
+    final indexes = <int>[];
+    for (var i = 0; i < _messages.length; i++) {
+      final plan = _messages[i].actionPlan;
+      if (plan != null && plan.cardState == ActionPlanCardState.pending) {
+        indexes.add(i);
+      }
+    }
+    if (indexes.length == 1) {
+      return indexes.first;
+    }
+    return null;
+  }
+
+  Future<void> _speakLatestAssistantResult() async {
+    final pendingIndex = _uniquePendingPlanIndex();
+    if (pendingIndex != null) {
+      final plan = _messages[pendingIndex].actionPlan!.plan;
+      final preview = PendingAction.planVoicePreview(plan.actions);
+      if (preview != null) {
+        _voiceApprovalArmed = false;
+        _planNarrationInProgress = true;
+        await _speakDeterministic(preview, isPlanNarration: true);
+        return;
+      }
+      _voiceApprovalArmed = false;
+      final answer = _messages.last.content;
+      final spoken = answer.trim().isEmpty
+          ? voiceUnsupportedPlanSpeech
+          : '$answer\n$voiceUnsupportedPlanSpeech';
+      await _speakDeterministic(spoken);
+      return;
+    }
+    await _speakDeterministic(_messages.last.content);
+  }
+
+  Future<void> _speakDeterministic(
+    String text, {
+    bool isPlanNarration = false,
+  }) async {
+    _speechErrorMessage = null;
+    _speakingOverlay = true;
+    notifyListeners();
+    await _speech.speak(
+      text,
+      onFinished: () {
+        _speakingOverlay = false;
+        if (isPlanNarration && _planNarrationInProgress) {
+          _voiceApprovalArmed = true;
+        }
+        _planNarrationInProgress = false;
+        notifyListeners();
+      },
+      onError: (message) {
+        _speakingOverlay = false;
+        if (isPlanNarration) {
+          _voiceApprovalArmed = false;
+        }
+        _planNarrationInProgress = false;
+        _speechErrorMessage = message;
+        notifyListeners();
+      },
+    );
   }
 
   Future<void> cancelVoiceRecording() async {
@@ -406,7 +654,9 @@ class AssistantController extends ChangeNotifier {
   }
 
   void clearVoiceError() {
+    _speechErrorMessage = null;
     _voice.clearError();
+    notifyListeners();
   }
 
   List<AssistantHistoryMessage> _boundedHistory() {
@@ -424,6 +674,7 @@ class AssistantController extends ChangeNotifier {
 
   void resetSession() {
     _voice.reset();
+    _speech.stop();
     _messages.clear();
     _objectContext = null;
     _notificationContext = null;
@@ -433,6 +684,12 @@ class AssistantController extends ChangeNotifier {
     actionPlanErrorMessage = null;
     _pendingRetryMessage = null;
     _approveInFlight = false;
+    _voiceOriginActive = false;
+    _voiceApprovalArmed = false;
+    _planNarrationInProgress = false;
+    _speakingOverlay = false;
+    _speechErrorMessage = null;
+    _confirmationInFlight = false;
     notifyListeners();
   }
 
@@ -440,6 +697,7 @@ class AssistantController extends ChangeNotifier {
   void dispose() {
     _voice.removeListener(_onVoiceChanged);
     _voice.dispose();
+    _speech.dispose();
     super.dispose();
   }
 }

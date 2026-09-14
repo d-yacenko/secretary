@@ -107,28 +107,31 @@ void main() {
     expect(action.displayLabel, isNot(contains('rfc822')));
   });
 
-  test('yandex send_email preview shows provider and hides technical fields', () {
-    final action = PendingAction.fromJson({
-      'tool_name': 'send_email',
-      'arguments': {
-        'provider': 'yandex',
-        'account_email': 'user@yandex.ru',
-        'to': ['ivan@example.com'],
-        'subject': 'Статус',
-        'body': 'Полное тело письма.',
-        'operation_id': 'should-hide',
-        'rfc822_message_id': '<secret@id>',
-      },
-    });
-    expect(action.displayLabel, contains('Provider: Yandex'));
-    expect(action.displayLabel, contains('From: user@yandex.ru'));
-    expect(action.displayLabel, contains('To: ivan@example.com'));
-    expect(action.displayLabel, contains('Subject: Статус'));
-    expect(action.displayLabel, contains('Полное тело письма.'));
-    expect(action.displayLabel, isNot(contains('operation_id')));
-    expect(action.displayLabel, isNot(contains('rfc822')));
-    expect(action.displayLabel, isNot(contains('should-hide')));
-  });
+  test(
+    'yandex send_email preview shows provider and hides technical fields',
+    () {
+      final action = PendingAction.fromJson({
+        'tool_name': 'send_email',
+        'arguments': {
+          'provider': 'yandex',
+          'account_email': 'user@yandex.ru',
+          'to': ['ivan@example.com'],
+          'subject': 'Статус',
+          'body': 'Полное тело письма.',
+          'operation_id': 'should-hide',
+          'rfc822_message_id': '<secret@id>',
+        },
+      });
+      expect(action.displayLabel, contains('Provider: Yandex'));
+      expect(action.displayLabel, contains('From: user@yandex.ru'));
+      expect(action.displayLabel, contains('To: ivan@example.com'));
+      expect(action.displayLabel, contains('Subject: Статус'));
+      expect(action.displayLabel, contains('Полное тело письма.'));
+      expect(action.displayLabel, isNot(contains('operation_id')));
+      expect(action.displayLabel, isNot(contains('rfc822')));
+      expect(action.displayLabel, isNot(contains('should-hide')));
+    },
+  );
 
   test('yandex calendar preview shows default target and hides href', () {
     final action = PendingAction.fromJson({
@@ -183,7 +186,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -217,7 +223,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -235,7 +244,9 @@ void main() {
     expect(sendButton.onPressed, isNull);
   });
 
-  testWidgets('voice start disabled while plan pending', (tester) async {
+  testWidgets('microphone remains available while plan pending', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -251,7 +262,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -263,10 +277,17 @@ void main() {
     await assistant.sendMessage('Create a task');
     await tester.pumpAndSettle();
 
+    final sendButton = tester.widget<FilledButton>(
+      find.byKey(const Key('assistant_send_button')),
+    );
+    expect(sendButton.onPressed, isNull);
     final voiceButton = tester.widget<IconButton>(
       find.byKey(const Key('assistant_voice_button')),
     );
-    expect(voiceButton.onPressed, isNull);
+    expect(voiceButton.onPressed, isNotNull);
+    expect(assistant.isInputBlocked, isTrue);
+    expect(assistant.canStartVoiceRecording, isTrue);
+    expect(assistant.hasPendingActionPlan, isTrue);
   });
 
   testWidgets('approve sends plan ID without replacement args', (tester) async {
@@ -324,7 +345,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -344,8 +368,9 @@ void main() {
     expect(approveBody, isNull);
   });
 
-  testWidgets('executed approve triggers resume and appends final message',
-      (tester) async {
+  testWidgets('executed approve triggers resume and appends final message', (
+    tester,
+  ) async {
     int resumeCalls = 0;
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
@@ -390,7 +415,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -442,7 +470,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -489,7 +520,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -523,7 +557,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -562,8 +599,9 @@ void main() {
     expect(parsed?.status, 'failed');
   });
 
-  testWidgets('approve network failure leaves card pending and retryable',
-      (tester) async {
+  testWidgets('approve network failure leaves card pending and retryable', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -582,7 +620,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -596,14 +637,21 @@ void main() {
     await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
-    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
-    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(
+      assistant.messages.last.actionPlan?.cardState,
+      ActionPlanCardState.pending,
+    );
+    expect(
+      assistant.actionPlanOperationState,
+      AssistantActionPlanOperationState.idle,
+    );
     expect(assistant.actionPlanErrorMessage, isNotNull);
     expect(find.text('Подтвердить'), findsOneWidget);
   });
 
-  testWidgets('reject network failure leaves card pending and retryable',
-      (tester) async {
+  testWidgets('reject network failure leaves card pending and retryable', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -622,7 +670,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -636,14 +687,21 @@ void main() {
     await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
-    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
-    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(
+      assistant.messages.last.actionPlan?.cardState,
+      ActionPlanCardState.pending,
+    );
+    expect(
+      assistant.actionPlanOperationState,
+      AssistantActionPlanOperationState.idle,
+    );
     expect(assistant.actionPlanErrorMessage, isNotNull);
     expect(find.text('Отклонить'), findsOneWidget);
   });
 
-  testWidgets('generic 409 detail on approve does not crash controller',
-      (tester) async {
+  testWidgets('generic 409 detail on approve does not crash controller', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -665,7 +723,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -679,13 +740,20 @@ void main() {
     await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
-    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
-    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(
+      assistant.messages.last.actionPlan?.cardState,
+      ActionPlanCardState.pending,
+    );
+    expect(
+      assistant.actionPlanOperationState,
+      AssistantActionPlanOperationState.idle,
+    );
     expect(find.text('Подтвердить'), findsOneWidget);
   });
 
-  testWidgets('retry approve after transient failure makes second request',
-      (tester) async {
+  testWidgets('retry approve after transient failure makes second request', (
+    tester,
+  ) async {
     int approveCalls = 0;
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
@@ -708,10 +776,7 @@ void main() {
       }
       if (request.url.path.contains('/resume')) {
         return http.Response(
-          jsonEncode({
-            'answer': 'Done.',
-            'affected_objects': [],
-          }),
+          jsonEncode({'answer': 'Done.', 'affected_objects': []}),
           200,
         );
       }
@@ -726,7 +791,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -745,8 +813,9 @@ void main() {
     expect(approveCalls, 2);
   });
 
-  testWidgets('approve malformed 409 body leaves card pending and retryable',
-      (tester) async {
+  testWidgets('approve malformed 409 body leaves card pending and retryable', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -765,7 +834,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -779,14 +851,21 @@ void main() {
     await tester.tap(find.text('Подтвердить'));
     await tester.pumpAndSettle();
 
-    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
-    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(
+      assistant.messages.last.actionPlan?.cardState,
+      ActionPlanCardState.pending,
+    );
+    expect(
+      assistant.actionPlanOperationState,
+      AssistantActionPlanOperationState.idle,
+    );
     expect(assistant.actionPlanErrorMessage, isNotNull);
     expect(find.text('Подтвердить'), findsOneWidget);
   });
 
-  testWidgets('reject malformed 200 body leaves card pending and retryable',
-      (tester) async {
+  testWidgets('reject malformed 200 body leaves card pending and retryable', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -805,7 +884,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -819,14 +901,21 @@ void main() {
     await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
-    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
-    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(
+      assistant.messages.last.actionPlan?.cardState,
+      ActionPlanCardState.pending,
+    );
+    expect(
+      assistant.actionPlanOperationState,
+      AssistantActionPlanOperationState.idle,
+    );
     expect(assistant.actionPlanErrorMessage, isNotNull);
     expect(find.text('Отклонить'), findsOneWidget);
   });
 
-  testWidgets('generic 409 detail on reject does not crash controller',
-      (tester) async {
+  testWidgets('generic 409 detail on reject does not crash controller', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/message') {
         return http.Response(jsonEncode(pendingPlanBody()), 200);
@@ -848,7 +937,10 @@ void main() {
       serverUrlStore: FakeServerUrlStore(),
     );
     auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
+    final capture = CaptureController(
+      apiClient: apiClient,
+      authController: auth,
+    );
     final assistant = AssistantController(
       apiClient: apiClient,
       authController: auth,
@@ -862,123 +954,138 @@ void main() {
     await tester.tap(find.text('Отклонить'));
     await tester.pumpAndSettle();
 
-    expect(assistant.messages.last.actionPlan?.cardState, ActionPlanCardState.pending);
-    expect(assistant.actionPlanOperationState, AssistantActionPlanOperationState.idle);
+    expect(
+      assistant.messages.last.actionPlan?.cardState,
+      ActionPlanCardState.pending,
+    );
+    expect(
+      assistant.actionPlanOperationState,
+      AssistantActionPlanOperationState.idle,
+    );
     expect(find.text('Отклонить'), findsOneWidget);
   });
 
   testWidgets(
-      'prose confirmation without pending_action_plan does not render approval card',
-      (tester) async {
-    final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/message') {
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'answer':
-                  'Ответ Петрушину: «Да, это действительно обидно». Подтвердите отправку.',
-              'references': [],
-              'affected_objects': [],
-              'pending_action_plan': null,
-            }),
-          ),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        );
-      }
-      return http.Response('{}', 404);
-    });
+    'prose confirmation without pending_action_plan does not render approval card',
+    (tester) async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/assistant/message') {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'answer':
+                    'Ответ Петрушину: «Да, это действительно обидно». Подтвердите отправку.',
+                'references': [],
+                'affected_objects': [],
+                'pending_action_plan': null,
+              }),
+            ),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      });
 
-    final apiClient = testSecretaryApiClient(mock);
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
-    final assistant = AssistantController(
-      apiClient: apiClient,
-      authController: auth,
-      voiceRecorder: FakeVoiceRecorder(),
-      voiceTempFiles: VoiceTempFiles(),
-    );
+      final apiClient = testSecretaryApiClient(mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      final capture = CaptureController(
+        apiClient: apiClient,
+        authController: auth,
+      );
+      final assistant = AssistantController(
+        apiClient: apiClient,
+        authController: auth,
+        voiceRecorder: FakeVoiceRecorder(),
+        voiceTempFiles: VoiceTempFiles(),
+      );
 
-    await pumpAssistant(tester, assistant, auth, capture, apiClient);
-    await assistant.sendMessage('Да, это действительно обидно, ответь это Петрушину.');
-    await tester.pumpAndSettle();
+      await pumpAssistant(tester, assistant, auth, capture, apiClient);
+      await assistant.sendMessage(
+        'Да, это действительно обидно, ответь это Петрушину.',
+      );
+      await tester.pumpAndSettle();
 
-    expect(assistant.hasPendingActionPlan, isFalse);
-    expect(assistant.messages.last.actionPlan, isNull);
-    expect(find.text('Подтвердить'), findsNothing);
-    expect(find.text('Отклонить'), findsNothing);
-    expect(find.text('Требует подтверждения'), findsNothing);
-    expect(find.textContaining('Подтвердите отправку'), findsOneWidget);
-  });
+      expect(assistant.hasPendingActionPlan, isFalse);
+      expect(assistant.messages.last.actionPlan, isNull);
+      expect(find.text('Подтвердить'), findsNothing);
+      expect(find.text('Отклонить'), findsNothing);
+      expect(find.text('Требует подтверждения'), findsNothing);
+      expect(find.textContaining('Подтвердите отправку'), findsOneWidget);
+    },
+  );
 
-  testWidgets('send_message pending_action_plan renders the normal approval card',
-      (tester) async {
-    final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/message') {
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'answer': 'Отправка подготовлена.',
-              'references': [],
-              'affected_objects': [],
-              'pending_action_plan': {
-                'id': 'plan-send-1',
-                'status': 'pending',
-                'expires_at': '2026-09-13T15:00:00Z',
-                'actions': [
-                  {
-                    'tool_name': 'send_message',
-                    'arguments': {
-                      'provider': 'telegram',
-                      'mode': 'reply',
-                      'body': 'Да, это действительно обидно',
-                      'route': {
-                        'chat_display_name': 'Ivan Petrushin',
+  testWidgets(
+    'send_message pending_action_plan renders the normal approval card',
+    (tester) async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/assistant/message') {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'answer': 'Отправка подготовлена.',
+                'references': [],
+                'affected_objects': [],
+                'pending_action_plan': {
+                  'id': 'plan-send-1',
+                  'status': 'pending',
+                  'expires_at': '2026-09-13T15:00:00Z',
+                  'actions': [
+                    {
+                      'tool_name': 'send_message',
+                      'arguments': {
+                        'provider': 'telegram',
+                        'mode': 'reply',
+                        'body': 'Да, это действительно обидно',
+                        'route': {'chat_display_name': 'Ivan Petrushin'},
                       },
                     },
-                  },
-                ],
-              },
-            }),
-          ),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        );
-      }
-      return http.Response('{}', 404);
-    });
+                  ],
+                },
+              }),
+            ),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      });
 
-    final apiClient = testSecretaryApiClient(mock);
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final capture = CaptureController(apiClient: apiClient, authController: auth);
-    final assistant = AssistantController(
-      apiClient: apiClient,
-      authController: auth,
-      voiceRecorder: FakeVoiceRecorder(),
-      voiceTempFiles: VoiceTempFiles(),
-    );
+      final apiClient = testSecretaryApiClient(mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      final capture = CaptureController(
+        apiClient: apiClient,
+        authController: auth,
+      );
+      final assistant = AssistantController(
+        apiClient: apiClient,
+        authController: auth,
+        voiceRecorder: FakeVoiceRecorder(),
+        voiceTempFiles: VoiceTempFiles(),
+      );
 
-    await pumpAssistant(tester, assistant, auth, capture, apiClient);
-    await assistant.sendMessage('Отправляй');
-    await tester.pumpAndSettle();
+      await pumpAssistant(tester, assistant, auth, capture, apiClient);
+      await assistant.sendMessage('Отправляй');
+      await tester.pumpAndSettle();
 
-    expect(assistant.hasPendingActionPlan, isTrue);
-    expect(find.text('Требует подтверждения'), findsOneWidget);
-    expect(find.text('Подтвердить'), findsOneWidget);
-    expect(find.text('Отклонить'), findsOneWidget);
-    expect(find.textContaining('Telegram'), findsOneWidget);
-    expect(find.textContaining('Да, это действительно обидно'), findsWidgets);
-  });
+      expect(assistant.hasPendingActionPlan, isTrue);
+      expect(find.text('Требует подтверждения'), findsOneWidget);
+      expect(find.text('Подтвердить'), findsOneWidget);
+      expect(find.text('Отклонить'), findsOneWidget);
+      expect(find.textContaining('Telegram'), findsOneWidget);
+      expect(find.textContaining('Да, это действительно обидно'), findsWidgets);
+    },
+  );
 }

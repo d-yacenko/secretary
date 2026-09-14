@@ -57,6 +57,13 @@ void main() {
           200,
         );
       }
+      if (request.url.path == '/assistant/speech') {
+        return http.Response.bytes(
+          [1, 2, 3],
+          200,
+          headers: {'content-type': 'audio/mpeg'},
+        );
+      }
       return http.Response('{}', 404);
     });
     final apiClient = buildApi(mock);
@@ -66,7 +73,9 @@ void main() {
       authController: auth,
       voiceRecorder: FakeVoiceRecorder(),
       voiceTempFiles: VoiceTempFiles(
-        directory: Directory.systemTemp.createTempSync('voice_timeout_assistant'),
+        directory: Directory.systemTemp.createTempSync(
+          'voice_timeout_assistant',
+        ),
       ),
       maxRecordingDuration: const Duration(milliseconds: 80),
       enableAutoStopInTests: true,
@@ -80,7 +89,15 @@ void main() {
     await assistant.startVoiceRecording();
     expect(assistant.voiceState, AssistantVoiceState.recording);
     await Future<void>.delayed(const Duration(milliseconds: 150));
-    while (assistant.voiceState == AssistantVoiceState.transcribing) {
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (assistant.voiceState == AssistantVoiceState.transcribing ||
+        assistant.voiceState == AssistantVoiceState.thinking ||
+        assistant.voiceState == AssistantVoiceState.speaking) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail(
+          'assistant voice did not return to idle, state=${assistant.voiceState}',
+        );
+      }
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
 

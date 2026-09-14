@@ -42,3 +42,7 @@ android {
 flutter {
     source = "../.."
 }
+
+// Keep Android API 23. Flutter's plugin default is 24 and `flutter build`
+// may rewrite defaultConfig.minSdk to flutter.minSdkVersion.
+android.defaultConfig.minSdk = 23

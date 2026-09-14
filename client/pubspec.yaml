@@ -36,6 +36,9 @@ dependencies:
   dart_duckdb: ^1.4.4
   pdfrx: ^2.2.24
   kalender: 0.29.1
+  # Android + Linux TTS playback. Plugin minSdk 19; guaranteed support >= 23.
+  # Smallest maintained player with stop(); not a full media framework.
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:

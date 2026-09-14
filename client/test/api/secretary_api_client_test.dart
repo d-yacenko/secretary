@@ -14,25 +14,28 @@ void main() {
   const token = 'opaque-test-token-abc123';
 
   group('SecretaryApiClient', () {
-    test('adds bearer Authorization header to authenticated requests', () async {
-      String? capturedAuth;
-      final client = SecretaryApiClient(
-        httpClient: MockClient((request) async {
-          capturedAuth = request.headers['Authorization'];
-          return http.Response(
-            jsonEncode({
-              'id': 'user-1',
-              'display_name': 'Alice',
-              'created_at': '2026-01-01T00:00:00Z',
-            }),
-            200,
-          );
-        }),
-      );
-      client.configure(baseUrl: baseUrl, token: token);
-      await client.getMe();
-      expect(capturedAuth, 'Bearer $token');
-    });
+    test(
+      'adds bearer Authorization header to authenticated requests',
+      () async {
+        String? capturedAuth;
+        final client = SecretaryApiClient(
+          httpClient: MockClient((request) async {
+            capturedAuth = request.headers['Authorization'];
+            return http.Response(
+              jsonEncode({
+                'id': 'user-1',
+                'display_name': 'Alice',
+                'created_at': '2026-01-01T00:00:00Z',
+              }),
+              200,
+            );
+          }),
+        );
+        client.configure(baseUrl: baseUrl, token: token);
+        await client.getMe();
+        expect(capturedAuth, 'Bearer $token');
+      },
+    );
 
     test('does not add user_id to capture payload', () async {
       Map<String, dynamic>? body;
@@ -162,13 +165,19 @@ void main() {
         }),
       );
       client.configure(baseUrl: baseUrl, token: token);
-      await expectLater(client.getMe(), throwsA(isA<AuthenticationException>()));
+      await expectLater(
+        client.getMe(),
+        throwsA(isA<AuthenticationException>()),
+      );
     });
 
     test('422 maps to validation error', () async {
       final client = SecretaryApiClient(
         httpClient: MockClient((request) async {
-          return http.Response(jsonEncode({'detail': 'text must not be empty'}), 422);
+          return http.Response(
+            jsonEncode({'detail': 'text must not be empty'}),
+            422,
+          );
         }),
       );
       client.configure(baseUrl: baseUrl, token: token);
@@ -206,35 +215,38 @@ void main() {
       expect(detail.message, 'some string error');
     });
 
-    test('502 maps structured assistant error to ServerException with code', () async {
-      final client = SecretaryApiClient(
-        httpClient: MockClient((request) async {
-          return http.Response.bytes(
-            utf8.encode(
-              jsonEncode({
-                'detail': {
-                  'code': 'assistant_round_limit',
-                  'message':
-                      'Секретарю не хватило лимита шагов, чтобы завершить поиск. Попробуйте повторить или немного уточнить запрос.',
-                },
-              }),
-            ),
-            502,
-            headers: {'content-type': 'application/json'},
-          );
-        }),
-      );
-      client.configure(baseUrl: baseUrl, token: token);
-      try {
-        await client.sendAssistantMessage(
-          AssistantMessageRequest(message: 'hello'),
+    test(
+      '502 maps structured assistant error to ServerException with code',
+      () async {
+        final client = SecretaryApiClient(
+          httpClient: MockClient((request) async {
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'detail': {
+                    'code': 'assistant_round_limit',
+                    'message':
+                        'Секретарю не хватило лимита шагов, чтобы завершить поиск. Попробуйте повторить или немного уточнить запрос.',
+                  },
+                }),
+              ),
+              502,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
         );
-        fail('expected exception');
-      } on ServerException catch (e) {
-        expect(e.code, 'assistant_round_limit');
-        expect(e.message, contains('лимита шагов'));
-      }
-    });
+        client.configure(baseUrl: baseUrl, token: token);
+        try {
+          await client.sendAssistantMessage(
+            AssistantMessageRequest(message: 'hello'),
+          );
+          fail('expected exception');
+        } on ServerException catch (e) {
+          expect(e.code, 'assistant_round_limit');
+          expect(e.message, contains('лимита шагов'));
+        }
+      },
+    );
 
     test('client network failure uses secretary network message', () async {
       final client = SecretaryApiClient(
@@ -257,7 +269,9 @@ void main() {
 
     test('sanitize maps google drive scope error to user message', () {
       expect(
-        SecretaryApiClient.sanitizeErrorMessage('google drive scope not granted'),
+        SecretaryApiClient.sanitizeErrorMessage(
+          'google drive scope not granted',
+        ),
         'Для Google Drive нужно обновить разрешения Google',
       );
     });
@@ -269,7 +283,8 @@ void main() {
           expect(request.url.path, endsWith('/auth/google/authorization-url'));
           return http.Response(
             jsonEncode({
-              'authorization_url': 'https://accounts.google.com/o/oauth2/v2/auth?state=abc',
+              'authorization_url':
+                  'https://accounts.google.com/o/oauth2/v2/auth?state=abc',
             }),
             200,
           );
@@ -306,21 +321,27 @@ void main() {
       expect(result.email, 'user@yandex.ru');
     });
 
-    test('connectYandexCalendar maps connector 401 to ServerException', () async {
-      final client = SecretaryApiClient(
-        httpClient: MockClient((request) async {
-          return http.Response(jsonEncode({'detail': 'yandex unauthorized'}), 401);
-        }),
-      );
-      client.configure(baseUrl: baseUrl, token: token);
-      await expectLater(
-        client.connectYandexCalendar(
-          email: 'user@yandex.ru',
-          appPassword: 'secret-password',
-        ),
-        throwsA(isA<ServerException>()),
-      );
-    });
+    test(
+      'connectYandexCalendar maps connector 401 to ServerException',
+      () async {
+        final client = SecretaryApiClient(
+          httpClient: MockClient((request) async {
+            return http.Response(
+              jsonEncode({'detail': 'yandex unauthorized'}),
+              401,
+            );
+          }),
+        );
+        client.configure(baseUrl: baseUrl, token: token);
+        await expectLater(
+          client.connectYandexCalendar(
+            email: 'user@yandex.ru',
+            appPassword: 'secret-password',
+          ),
+          throwsA(isA<ServerException>()),
+        );
+      },
+    );
 
     test('token never appears in sanitized error text', () async {
       final client = SecretaryApiClient(
@@ -391,6 +412,39 @@ void main() {
       expect(bodyText.toLowerCase(), contains('content-type: audio/wav'));
     });
 
+    test(
+      'synthesizeSpeech posts authenticated JSON and returns audio bytes',
+      () async {
+        String? method;
+        Uri? uri;
+        String? authorization;
+        String? contentType;
+        String bodyText = '';
+        final client = SecretaryApiClient(
+          httpClient: MockClient((request) async {
+            method = request.method;
+            uri = request.url;
+            authorization = request.headers['Authorization'];
+            contentType = request.headers['content-type'];
+            bodyText = utf8.decode(request.bodyBytes);
+            return http.Response.bytes(
+              [9, 8, 7],
+              200,
+              headers: {'content-type': 'audio/mpeg'},
+            );
+          }),
+        );
+        client.configure(baseUrl: baseUrl, token: token);
+        final audio = await client.synthesizeSpeech('Подготовлено письмо.');
+        expect(audio, [9, 8, 7]);
+        expect(method, 'POST');
+        expect(uri?.path, '/assistant/speech');
+        expect(authorization, 'Bearer $token');
+        expect(contentType, contains('application/json'));
+        expect(bodyText, contains('Подготовлено письмо.'));
+      },
+    );
+
     test('parses /availability and sends UTC timezone parameters', () async {
       Uri? captured;
       final client = testSecretaryApiClient(
@@ -433,7 +487,10 @@ void main() {
         minDurationMinutes: 30,
       );
       expect(captured!.path, '/availability');
-      expect(captured!.queryParameters['client_timezone_id'], 'Europe/Amsterdam');
+      expect(
+        captured!.queryParameters['client_timezone_id'],
+        'Europe/Amsterdam',
+      );
       expect(captured!.queryParameters['client_utc_offset_minutes'], '120');
       expect(captured!.queryParameters['min_duration_minutes'], '30');
       final sentStart = DateTime.parse(captured!.queryParameters['start_at']!);
@@ -453,15 +510,15 @@ void main() {
 
     group('safe URL composition', () {
       Map<String, dynamic> connectionsJson() => {
-            'google': {
-              'connected': false,
-              'gmail_available': false,
-              'calendar_available': false,
-            },
-            'yandex_mail': {'connected': false},
-            'yandex_calendar': {'connected': false},
-            'mattermost': [],
-          };
+        'google': {
+          'connected': false,
+          'gmail_available': false,
+          'calendar_available': false,
+        },
+        'yandex_mail': {'connected': false},
+        'yandex_calendar': {'connected': false},
+        'mattermost': [],
+      };
 
       Future<Uri> captureRequestUri(String base, String endpoint) async {
         Uri? capturedUri;
@@ -520,11 +577,17 @@ void main() {
           'https://host/api/me',
         );
         expect(
-          (await captureRequestUri('https://host/api/', '/connections')).toString(),
+          (await captureRequestUri(
+            'https://host/api/',
+            '/connections',
+          )).toString(),
           'https://host/api/connections',
         );
         expect(
-          (await captureRequestUri('https://host/api/', '/capture/task')).toString(),
+          (await captureRequestUri(
+            'https://host/api/',
+            '/capture/task',
+          )).toString(),
           'https://host/api/capture/task',
         );
       });

@@ -120,3 +120,15 @@ class BudgetGuardedTranscriptionProvider(_BudgetGuarded):
         # for uncommitted test users and would double-count production usage
         # that transcription_service records after the thread returns.
         return self._inner.transcribe(audio_bytes, filename, content_type)
+
+
+class BudgetGuardedSpeechProvider(_BudgetGuarded):
+    @property
+    def model(self) -> str | None:
+        return getattr(self._inner, "model", None)
+
+    def synthesize(self, text: str):
+        self._guard.ensure_allowed()
+        # HTTP speech already opens the audit trace in the request task, then
+        # runs this method in a threadpool where that contextvar is not visible.
+        return self._inner.synthesize(text)

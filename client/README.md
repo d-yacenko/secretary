@@ -89,8 +89,10 @@ Never put a real bearer token in documentation, logs, or commits.
 
 Use the prominent **Capture** action from the app shell. Typed task text is sent to `POST /capture/task` without client-side OpenAI. Optional title, context object IDs, and dependency IDs are supported in the API contract for later UI wiring.
 
-## Voice (PHASE 23B)
+## Voice
 
-Assistant voice input records a short command to a temporary WAV file, uploads it to `POST /assistant/transcribe`, then sends the transcript through the existing Assistant message flow (`POST /assistant/message`) with the current object or notification context preserved.
+Assistant voice input records a short command to a temporary file, uploads it to `POST /assistant/transcribe`, then sends the transcript through the existing Assistant message flow (`POST /assistant/message`) with the current object or notification context preserved.
+
+Voice-origin Assistant answers are spoken through `POST /assistant/speech` and played with `audioplayers` (Android + Linux, Android minSdk 23). Typed answers are not auto-spoken. Synthesized audio is a temp file only and is deleted after playback, stop, error, or dispose.
 
 Voice recordings are ephemeral temp files only. Capture-screen voice is not implemented yet.

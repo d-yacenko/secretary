@@ -23,9 +23,13 @@ class VoiceTempFiles {
     if (path == null || path.isEmpty) {
       return;
     }
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete();
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on FileSystemException {
+      // Ephemeral recordings may already be gone after stop/reset/dispose.
     }
   }
 }

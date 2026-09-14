@@ -2,7 +2,9 @@
 
 ## Current phase
 
-Pre-Voice UI Corrective A: **IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/pre-voice-ui-corrective-a`. Client-only. Canonical base `999f3668468826585e965c27488db2ea49f83cb9` (`review/teams-a` docs tip after the Teams external-blocker transition). Not CODE ACCEPTED. Not deployed. No Voice Assistant A. Encrypted Architect context untouched.
+Voice Assistant A: **implemented / awaiting Architect review** on `review/voice-assistant-a`. Canonical base `54f14a86b4c6de3c29b2f14c8a8a14b4db5ddf8c` (`review/pre-voice-ui-corrective-a` docs tip). Inherited accepted application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Not CODE ACCEPTED. Not deployed. Encrypted Architect context untouched.
+
+Pre-Voice UI Corrective A: **CODE ACCEPTED / MANUALLY VERIFIED** on `review/pre-voice-ui-corrective-a`. Client-only. CODE ACCEPTED application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Canonical base `999f3668468826585e965c27488db2ea49f83cb9` (`review/teams-a` docs tip after the Teams external-blocker transition). No backend/schema changes. No migration. No standalone production server deploy; the accepted client tree remains in the canonical lineage for the next client release. Teams external blocker does not block Voice Assistant A.
 
 Inbox timestamp: `ObjectCompactHeaderRow` trailing `Flexible` left-aligned the short timestamp inside a shared flex slot, so on wide cards it drifted toward the center. Trailing text is now right-aligned inside that slot (`Align.centerRight`) so it pins to the header’s right edge before bookmark reserve. Title still `Expanded` + ellipsis. Phone overflow still uses `Flexible`.
 
@@ -594,4 +596,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Teams A + Communication Action Plan Integrity is **IMPLEMENTED / AWAITING ARCHITECT REVIEW** on `review/teams-a`. Telegram A remains **CLOSED / CODE ACCEPTED / DEPLOYED / PRODUCTION ACCEPTED** at deployed application SHA `c5d288444cc5053e79c0942cdbc23af3eebbbb50`. Do not start another phase from this ledger. Teams A is not deployed.
+Voice Assistant A is **implemented / awaiting Architect review** on `review/voice-assistant-a`. Pre-Voice UI Corrective A is **CODE ACCEPTED / MANUALLY VERIFIED** at application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Teams A remains **CODE ACCEPTED / DEPLOYED / PRODUCTION ACTIVATION DEFERRED — EXTERNAL ENTRA ADMIN CONSENT REQUIRED**. Do not start Voice B from this ledger. Do not deploy Voice Assistant A.

@@ -78,14 +78,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
           controller.sendState == AssistantSendState.error &&
           _inputController.text != pending) {
         _inputController.text = pending;
-        _inputController.selection = TextSelection.collapsed(offset: pending.length);
+        _inputController.selection = TextSelection.collapsed(
+          offset: pending.length,
+        );
       }
       if (_lastSendState == AssistantSendState.sending &&
           controller.sendState == AssistantSendState.idle &&
           pending == null) {
         _inputController.clear();
       }
-      final replyCompleted = _lastSendState == AssistantSendState.sending &&
+      final replyCompleted =
+          _lastSendState == AssistantSendState.sending &&
           controller.sendState == AssistantSendState.idle;
       _lastSendState = controller.sendState;
       setState(() {});
@@ -154,7 +157,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       await controller.stopVoiceRecordingAndTranscribe();
       return;
     }
-    if (controller.isInputBlocked &&
+    if (!controller.canStartVoiceRecording &&
         controller.voiceState != AssistantVoiceState.recording) {
       return;
     }
@@ -207,270 +210,343 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final controller = widget.controller;
     final inputDisabled = controller.isInputBlocked;
     final body = Column(
-        children: [
-          if (controller.objectContext != null)
-            _ContextBanner(
-              label: _objectContextLabel(controller.objectContext!),
-              onClear: controller.clearObjectContext,
-            ),
-          if (controller.notificationContext != null)
-            _ContextBanner(
-              label: _notificationContextLabel(controller.notificationContext!),
-              onClear: controller.clearNotificationContext,
-            ),
-          if (controller.voiceState == AssistantVoiceState.recording)
-            Material(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.mic, size: 18),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text('Запись… нажмите микрофон, чтобы остановить'),
-                    ),
-                    TextButton(
-                      key: const Key('assistant_voice_stop'),
-                      onPressed: controller.stopVoiceRecordingAndTranscribe,
-                      child: const Text('Стоп'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          Expanded(
-            child: SelectionArea(
-              child: ListView.builder(
-                key: const Key('assistant_message_list'),
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: controller.messages.length,
-                itemBuilder: (context, index) {
-                  final message = controller.messages[index];
-                  final isUser = message.role == 'user';
-                  final actionPlan = message.actionPlan;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment:
-                          isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: isUser
-                                ? Theme.of(context).colorScheme.primaryContainer
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: isUser
-                              ? Text(message.content)
-                              : AssistantMessageBody(content: message.content),
-                        ),
-                        if (!isUser)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: IconButton(
-                              key: Key('assistant_copy_$index'),
-                              tooltip: 'Скопировать ответ',
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.copy_outlined, size: 18),
-                              onPressed: () async {
-                                await Clipboard.setData(
-                                  ClipboardData(text: message.content),
-                                );
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Ответ скопирован'),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        if (!isUser && actionPlan != null)
-                          _ActionPlanCard(
-                            actionPlan: actionPlan,
-                            messageIndex: index,
-                            controller: controller,
-                            operationState: controller.actionPlanOperationState,
-                          ),
-                        if (!isUser && message.references.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: message.references
-                                  .map(
-                                    (ref) => ActionChip(
-                                      label: Text(
-                                        '${objectKindLabel(ref.kind)}: ${ref.title}',
-                                      ),
-                                      onPressed: () => _openReference(ref),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ),
-                        if (!isUser && message.affectedObjects.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Затронутые объекты:',
-                                  style: Theme.of(context).textTheme.labelLarge,
-                                ),
-                                ...message.affectedObjects.map(
-                                  (affected) => ActionChip(
-                                    label: Text(affectedObjectDisplayLabel(affected)),
-                                    onPressed: () => _openAffectedObject(affected),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
+      children: [
+        if (controller.objectContext != null)
+          _ContextBanner(
+            label: _objectContextLabel(controller.objectContext!),
+            onClear: controller.clearObjectContext,
           ),
-          if (controller.sendState == AssistantSendState.error &&
-              controller.errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+        if (controller.notificationContext != null)
+          _ContextBanner(
+            label: _notificationContextLabel(controller.notificationContext!),
+            onClear: controller.clearNotificationContext,
+          ),
+        if (controller.voiceState == AssistantVoiceState.recording)
+          Material(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  Expanded(child: Text(controller.errorMessage!)),
-                  TextButton(onPressed: _send, child: const Text('Повторить')),
-                ],
-              ),
-            ),
-          if (controller.voiceState == AssistantVoiceState.error &&
-              controller.voiceErrorMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(child: Text(controller.voiceErrorMessage!)),
+                  const Icon(Icons.mic, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('Запись… нажмите микрофон, чтобы остановить'),
+                  ),
                   TextButton(
-                    onPressed: inputDisabled ? null : _onVoicePressed,
-                    child: const Text('Повторить'),
+                    key: const Key('assistant_voice_stop'),
+                    onPressed: controller.stopVoiceRecordingAndTranscribe,
+                    child: const Text('Стоп'),
                   ),
                 ],
               ),
             ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              16,
-              8,
-              16,
-              16 + MediaQuery.paddingOf(context).bottom,
+          )
+        else if (controller.voiceState == AssistantVoiceState.transcribing ||
+            controller.voiceState == AssistantVoiceState.starting)
+          Material(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Распознаю речь…')),
+                ],
+              ),
             ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final compact = MediaQuery.sizeOf(context).width < 600;
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Focus(
-                        onKeyEvent: _handleInputKeyEvent,
-                        child: TextField(
-                          key: const Key('assistant_input'),
-                          controller: _inputController,
-                          minLines: 1,
-                          maxLines: compact ? 3 : 4,
-                          decoration: const InputDecoration(
-                            hintText: 'Спросить секретаря…',
-                            border: OutlineInputBorder(),
-                            isDense: true,
+          )
+        else if (controller.voiceState == AssistantVoiceState.thinking)
+          Material(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Секретарь думает…')),
+                ],
+              ),
+            ),
+          )
+        else if (controller.voiceState == AssistantVoiceState.speaking)
+          Material(
+            color: Theme.of(context).colorScheme.tertiaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.volume_up_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('Секретарь говорит…')),
+                  TextButton(
+                    key: const Key('assistant_stop_speaking'),
+                    onPressed: controller.stopSpeaking,
+                    child: const Text('Стоп'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Expanded(
+          child: SelectionArea(
+            child: ListView.builder(
+              key: const Key('assistant_message_list'),
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: controller.messages.length,
+              itemBuilder: (context, index) {
+                final message = controller.messages[index];
+                final isUser = message.role == 'user';
+                final actionPlan = message.actionPlan;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: isUser
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isUser
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: isUser
+                            ? Text(message.content)
+                            : AssistantMessageBody(content: message.content),
+                      ),
+                      if (!isUser)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: IconButton(
+                            key: Key('assistant_copy_$index'),
+                            tooltip: 'Скопировать ответ',
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.copy_outlined, size: 18),
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: message.content),
+                              );
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Ответ скопирован'),
+                                ),
+                              );
+                            },
                           ),
+                        ),
+                      if (!isUser && actionPlan != null)
+                        _ActionPlanCard(
+                          actionPlan: actionPlan,
+                          messageIndex: index,
+                          controller: controller,
+                          operationState: controller.actionPlanOperationState,
+                        ),
+                      if (!isUser && message.references.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: message.references
+                                .map(
+                                  (ref) => ActionChip(
+                                    label: Text(
+                                      '${objectKindLabel(ref.kind)}: ${ref.title}',
+                                    ),
+                                    onPressed: () => _openReference(ref),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      if (!isUser && message.affectedObjects.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Затронутые объекты:',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                              ...message.affectedObjects.map(
+                                (affected) => ActionChip(
+                                  label: Text(
+                                    affectedObjectDisplayLabel(affected),
+                                  ),
+                                  onPressed: () =>
+                                      _openAffectedObject(affected),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        if (controller.sendState == AssistantSendState.error &&
+            controller.errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(child: Text(controller.errorMessage!)),
+                TextButton(onPressed: _send, child: const Text('Повторить')),
+              ],
+            ),
+          ),
+        if (controller.voiceState == AssistantVoiceState.error &&
+            controller.voiceErrorMessage != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(child: Text(controller.voiceErrorMessage!)),
+                TextButton(
+                  onPressed: controller.canStartVoiceRecording
+                      ? _onVoicePressed
+                      : null,
+                  child: const Text('Повторить'),
+                ),
+              ],
+            ),
+          ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            16 + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = MediaQuery.sizeOf(context).width < 600;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Focus(
+                      onKeyEvent: _handleInputKeyEvent,
+                      child: TextField(
+                        key: const Key('assistant_input'),
+                        controller: _inputController,
+                        minLines: 1,
+                        maxLines: compact ? 3 : 4,
+                        decoration: const InputDecoration(
+                          hintText: 'Спросить секретаря…',
+                          border: OutlineInputBorder(),
+                          isDense: true,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: const Key('assistant_attach_file_button'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Добавить файл',
+                    onPressed: inputDisabled
+                        ? null
+                        : () => _intakeActions.pickAndRegisterFile(context),
+                    icon: const Icon(Icons.attach_file),
+                  ),
+                  IconButton(
+                    key: const Key('assistant_voice_button'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip:
+                        controller.voiceState == AssistantVoiceState.recording
+                        ? 'Остановить запись'
+                        : controller.voiceState == AssistantVoiceState.speaking
+                        ? 'Прервать и записать'
+                        : 'Записать голосовую команду',
+                    onPressed:
+                        controller.voiceState ==
+                                AssistantVoiceState.recording ||
+                            controller.canStartVoiceRecording
+                        ? _onVoicePressed
+                        : null,
+                    icon:
+                        controller.voiceState ==
+                                AssistantVoiceState.transcribing ||
+                            controller.voiceState ==
+                                AssistantVoiceState.starting ||
+                            controller.voiceState ==
+                                AssistantVoiceState.thinking
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            controller.voiceState ==
+                                    AssistantVoiceState.recording
+                                ? Icons.stop_circle_outlined
+                                : Icons.mic_none_outlined,
+                          ),
+                  ),
+                  if (compact)
                     IconButton(
-                      key: const Key('assistant_attach_file_button'),
+                      key: const Key('assistant_send_button'),
                       visualDensity: VisualDensity.compact,
-                      tooltip: 'Добавить файл',
-                      onPressed: inputDisabled
-                          ? null
-                          : () => _intakeActions.pickAndRegisterFile(context),
-                      icon: const Icon(Icons.attach_file),
-                    ),
-                    IconButton(
-                      key: const Key('assistant_voice_button'),
-                      visualDensity: VisualDensity.compact,
-                      tooltip: controller.voiceState == AssistantVoiceState.recording
-                          ? 'Остановить запись'
-                          : 'Записать голосовую команду',
-                      onPressed: inputDisabled &&
-                              controller.voiceState != AssistantVoiceState.recording
-                          ? null
-                          : _onVoicePressed,
-                      icon: controller.voiceState == AssistantVoiceState.transcribing ||
-                              controller.voiceState == AssistantVoiceState.starting
+                      tooltip: _sendTooltip,
+                      onPressed: inputDisabled ? null : _send,
+                      icon: controller.isSending
                           ? const SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : Icon(
-                              controller.voiceState == AssistantVoiceState.recording
-                                  ? Icons.stop_circle_outlined
-                                  : Icons.mic_none_outlined,
-                            ),
-                    ),
-                    if (compact)
-                      IconButton(
+                          : const Icon(Icons.send),
+                    )
+                  else
+                    Tooltip(
+                      message: _sendTooltip,
+                      child: FilledButton(
                         key: const Key('assistant_send_button'),
-                        visualDensity: VisualDensity.compact,
-                        tooltip: _sendTooltip,
                         onPressed: inputDisabled ? null : _send,
-                        icon: controller.isSending
+                        child: controller.isSending
                             ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
-                            : const Icon(Icons.send),
-                      )
-                    else
-                      Tooltip(
-                        message: _sendTooltip,
-                        child: FilledButton(
-                          key: const Key('assistant_send_button'),
-                          onPressed: inputDisabled ? null : _send,
-                          child: controller.isSending
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text('Отправить'),
-                        ),
+                            : const Text('Отправить'),
                       ),
-                  ],
-                );
-              },
-            ),
+                    ),
+                ],
+              );
+            },
           ),
-        ],
-      );
-    return Scaffold(
-      body: _wrapDropTarget(body),
+        ),
+      ],
     );
+    return Scaffold(body: _wrapDropTarget(body));
   }
 
   Widget _wrapDropTarget(Widget child) {
@@ -559,10 +635,7 @@ class _ActionPlanCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                statusLabel,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
+              Text(statusLabel, style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               ...actionPlan.plan.actions.map(
                 (action) => Padding(
@@ -570,11 +643,8 @@ class _ActionPlanCard extends StatelessWidget {
                   child: action.toolName == 'send_email'
                       ? _SendEmailPreview(action: action)
                       : action.toolName == 'send_message'
-                          ? _SendMessagePreview(action: action)
-                          : Text(
-                              action.displayLabel,
-                              softWrap: true,
-                            ),
+                      ? _SendMessagePreview(action: action)
+                      : Text(action.displayLabel, softWrap: true),
                 ),
               ),
               if (cardState == ActionPlanCardState.pending &&
@@ -621,8 +691,9 @@ class _ActionPlanCard extends StatelessWidget {
                       key: Key('assistant_action_plan_retry_$messageIndex'),
                       onPressed: buttonsDisabled
                           ? null
-                          : () =>
-                              controller.retryResumeSummary(actionPlan.plan.id),
+                          : () => controller.retryResumeSummary(
+                              actionPlan.plan.id,
+                            ),
                       child: const Text('Повторить загрузку ответа'),
                     ),
                   ],
@@ -663,9 +734,7 @@ class _SendEmailPreview extends StatelessWidget {
         Text('Body:', style: textTheme.labelMedium),
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 240),
-          child: SingleChildScrollView(
-            child: SelectableText(body),
-          ),
+          child: SingleChildScrollView(child: SelectableText(body)),
         ),
       ],
     );

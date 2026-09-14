@@ -245,6 +245,11 @@ class OpenAIDailyBudgetGuard:
 
         return BudgetGuardedTranscriptionProvider(provider, self)
 
+    def guard_speech_provider(self, provider):
+        from app.llm.budget_guarded_providers import BudgetGuardedSpeechProvider
+
+        return BudgetGuardedSpeechProvider(provider, self)
+
     def guard_temporal_signal_extractor(self, extractor):
         from app.llm.budget_guarded_providers import BudgetGuardedTemporalSignalExtractor
 

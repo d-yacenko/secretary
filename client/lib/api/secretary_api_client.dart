@@ -15,10 +15,10 @@ class SecretaryApiClient {
     http.Client? httpClient,
     Duration? timeout,
     ClientTimezoneProvider? timezoneProvider,
-  })  : _httpClient = httpClient ?? http.Client(),
-        _timeout = timeout ?? const Duration(seconds: 30),
-        _timezoneProvider =
-            timezoneProvider ?? const SystemClientTimezoneProvider();
+  }) : _httpClient = httpClient ?? http.Client(),
+       _timeout = timeout ?? const Duration(seconds: 30),
+       _timezoneProvider =
+           timezoneProvider ?? const SystemClientTimezoneProvider();
 
   final http.Client _httpClient;
   final Duration _timeout;
@@ -53,8 +53,11 @@ class SecretaryApiClient {
   }
 
   Future<UserMe> patchMe({required String displayName}) async {
-    final body =
-        await _request('PATCH', '/me', jsonBody: {'display_name': displayName});
+    final body = await _request(
+      'PATCH',
+      '/me',
+      jsonBody: {'display_name': displayName},
+    );
     return UserMe.fromJson(body);
   }
 
@@ -119,7 +122,9 @@ class SecretaryApiClient {
     return UserSemanticContext.fromJson(body);
   }
 
-  Future<UserSemanticContext> putSemanticContext({required String contextText}) async {
+  Future<UserSemanticContext> putSemanticContext({
+    required String contextText,
+  }) async {
     final body = await _request(
       'PUT',
       '/me/semantic-context',
@@ -129,8 +134,11 @@ class SecretaryApiClient {
   }
 
   Future<void> putOpenaiCredential(String apiKey) async {
-    await _request('PUT', '/me/credentials/openai',
-        jsonBody: {'api_key': apiKey});
+    await _request(
+      'PUT',
+      '/me/credentials/openai',
+      jsonBody: {'api_key': apiKey},
+    );
   }
 
   Future<void> deleteOpenaiCredential() async {
@@ -197,8 +205,11 @@ class SecretaryApiClient {
   }
 
   Future<GoogleAuthorizationUrl> getGoogleAuthorizationUrl() async {
-    final body =
-        await _request('POST', '/auth/google/authorization-url', jsonBody: {});
+    final body = await _request(
+      'POST',
+      '/auth/google/authorization-url',
+      jsonBody: {},
+    );
     return GoogleAuthorizationUrl.fromJson(body);
   }
 
@@ -210,10 +221,7 @@ class SecretaryApiClient {
       final body = await _request(
         'POST',
         '/connectors/mattermost/connect',
-        jsonBody: {
-          'server_url': serverUrl,
-          'access_token': accessToken,
-        },
+        jsonBody: {'server_url': serverUrl, 'access_token': accessToken},
       );
       return MattermostConnectResult.fromJson(body);
     } on AuthenticationException catch (e) {
@@ -228,8 +236,11 @@ class SecretaryApiClient {
   }
 
   Future<TeamsAuthorizationUrl> getTeamsAuthorizationUrl() async {
-    final body =
-        await _request('POST', '/auth/teams/authorization-url', jsonBody: {});
+    final body = await _request(
+      'POST',
+      '/auth/teams/authorization-url',
+      jsonBody: {},
+    );
     return TeamsAuthorizationUrl.fromJson(body);
   }
 
@@ -245,10 +256,7 @@ class SecretaryApiClient {
       final body = await _request(
         'POST',
         '/connectors/yandex/mail/connect',
-        jsonBody: {
-          'email': email,
-          'app_password': appPassword,
-        },
+        jsonBody: {'email': email, 'app_password': appPassword},
       );
       return YandexConnectResult.fromJson(body);
     } on AuthenticationException catch (e) {
@@ -264,10 +272,7 @@ class SecretaryApiClient {
       final body = await _request(
         'POST',
         '/connectors/yandex/calendar/connect',
-        jsonBody: {
-          'email': email,
-          'app_password': appPassword,
-        },
+        jsonBody: {'email': email, 'app_password': appPassword},
       );
       return YandexConnectResult.fromJson(body);
     } on AuthenticationException catch (e) {
@@ -312,14 +317,18 @@ class SecretaryApiClient {
   }
 
   Future<NotificationOut> acceptNotification(String notificationId) async {
-    final body =
-        await _request('POST', '/notifications/$notificationId/accept');
+    final body = await _request(
+      'POST',
+      '/notifications/$notificationId/accept',
+    );
     return NotificationOut.fromJson(body);
   }
 
   Future<NotificationOut> ignoreNotification(String notificationId) async {
-    final body =
-        await _request('POST', '/notifications/$notificationId/ignore');
+    final body = await _request(
+      'POST',
+      '/notifications/$notificationId/ignore',
+    );
     return NotificationOut.fromJson(body);
   }
 
@@ -339,10 +348,7 @@ class SecretaryApiClient {
     final body = await _request(
       'GET',
       '/inbox/feed',
-      queryParameters: {
-        'cursor': cursor,
-        'limit': limit.toString(),
-      },
+      queryParameters: {'cursor': cursor, 'limit': limit.toString()},
     );
     return InboxFeedPage.fromJson(body);
   }
@@ -392,17 +398,11 @@ class SecretaryApiClient {
     await _request('DELETE', '/object-bookmarks/$objectId');
   }
 
-  Future<IntakeLinkResult> intakeLink(
-    String url, {
-    String? accountId,
-  }) async {
+  Future<IntakeLinkResult> intakeLink(String url, {String? accountId}) async {
     final body = await _request(
       'POST',
       '/intake/link',
-      jsonBody: {
-        'url': url,
-        if (accountId != null) 'account_id': accountId,
-      },
+      jsonBody: {'url': url, if (accountId != null) 'account_id': accountId},
     );
     return IntakeLinkResult.fromJson(body);
   }
@@ -434,11 +434,7 @@ class SecretaryApiClient {
     if (weekStart != null && weekStart.isNotEmpty) {
       query['week_start'] = weekStart;
     }
-    final body = await _request(
-      'GET',
-      '/week',
-      queryParameters: query,
-    );
+    final body = await _request('GET', '/week', queryParameters: query);
     return WeekOut.fromJson(body);
   }
 
@@ -452,11 +448,7 @@ class SecretaryApiClient {
     query['start_at'] = startAt.toUtc().toIso8601String();
     query['end_at'] = endAt.toUtc().toIso8601String();
     query['min_duration_minutes'] = minDurationMinutes.toString();
-    final body = await _request(
-      'GET',
-      '/availability',
-      queryParameters: query,
-    );
+    final body = await _request('GET', '/availability', queryParameters: query);
     return AvailabilityOut.fromJson(body);
   }
 
@@ -499,10 +491,7 @@ class SecretaryApiClient {
     final body = await _request(
       'POST',
       '/local/devices/register',
-      jsonBody: {
-        'device_key': deviceKey,
-        'display_name': displayName,
-      },
+      jsonBody: {'device_key': deviceKey, 'display_name': displayName},
       successStatuses: {201},
     );
     return LocalDeviceRegisterResult.fromJson(body);
@@ -619,8 +608,11 @@ class SecretaryApiClient {
     if (nodeLimit != null) {
       queryParameters['node_limit'] = '$nodeLimit';
     }
-    final body = await _request('GET', '/graph/workspace',
-        queryParameters: queryParameters);
+    final body = await _request(
+      'GET',
+      '/graph/workspace',
+      queryParameters: queryParameters,
+    );
     return GraphWorkspaceOut.fromJson(body);
   }
 
@@ -663,22 +655,14 @@ class SecretaryApiClient {
     final body = await _request(
       'POST',
       '/relations',
-      jsonBody: {
-        'source_id': sourceId,
-        'target_id': targetId,
-        'type': type,
-      },
+      jsonBody: {'source_id': sourceId, 'target_id': targetId, 'type': type},
       successStatuses: {200, 201},
     );
     return RelationCreateResponse.fromJson(body);
   }
 
   Future<void> deleteRelation(String edgeId) async {
-    await _requestJson(
-      'DELETE',
-      '/relations/$edgeId',
-      successStatuses: {204},
-    );
+    await _requestJson('DELETE', '/relations/$edgeId', successStatuses: {204});
   }
 
   Future<RelationDecisionResponse> decideRelation({
@@ -772,11 +756,7 @@ class SecretaryApiClient {
     if (description != null) {
       jsonBody['description'] = description;
     }
-    final decoded = await _requestJson(
-      'POST',
-      '/labels',
-      jsonBody: jsonBody,
-    );
+    final decoded = await _requestJson('POST', '/labels', jsonBody: jsonBody);
     if (decoded is! Map<String, dynamic>) {
       throw ServerException('Unexpected label create response format');
     }
@@ -908,8 +888,9 @@ class SecretaryApiClient {
     };
 
     try {
-      final response =
-          await _httpClient.post(uri, headers: headers).timeout(_timeout);
+      final response = await _httpClient
+          .post(uri, headers: headers)
+          .timeout(_timeout);
 
       if (response.statusCode == 200 || response.statusCode == 409) {
         if (response.body.isEmpty) {
@@ -1015,6 +996,41 @@ class SecretaryApiClient {
     }
   }
 
+  Future<List<int>> synthesizeSpeech(String text) async {
+    if (_baseUri == null) {
+      throw StateError('API client is not configured with a base URL');
+    }
+    if (_token == null || _token!.isEmpty) {
+      throw AuthenticationException();
+    }
+
+    final uri = buildApiEndpointUri(_baseUri!, '/assistant/speech');
+    final request = http.Request('POST', uri)
+      ..headers['Accept'] = 'audio/mpeg, application/json'
+      ..headers['Content-Type'] = 'application/json'
+      ..headers['Authorization'] = 'Bearer $_token'
+      ..body = jsonEncode({'text': text});
+
+    try {
+      final streamed = await _httpClient
+          .send(request)
+          .timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode == 200) {
+        if (response.bodyBytes.isEmpty) {
+          throw ServerException('Unexpected response format');
+        }
+        return response.bodyBytes;
+      }
+      _mapResponse(response, const {200});
+      throw ServerException('Unexpected response format');
+    } on TimeoutException {
+      throw NetworkException();
+    } on http.ClientException {
+      throw NetworkException();
+    }
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -1052,9 +1068,10 @@ class SecretaryApiClient {
       throw AuthenticationException();
     }
 
-    final uri = buildApiEndpointUri(_baseUri!, path).replace(
-      queryParameters: queryParameters,
-    );
+    final uri = buildApiEndpointUri(
+      _baseUri!,
+      path,
+    ).replace(queryParameters: queryParameters);
     final headers = <String, String>{
       'Accept': 'application/json',
       if (jsonBody != null) 'Content-Type': 'application/json',
@@ -1079,10 +1096,7 @@ class SecretaryApiClient {
     }
   }
 
-  dynamic _mapResponse(
-    http.Response response,
-    Set<int> successStatuses,
-  ) {
+  dynamic _mapResponse(http.Response response, Set<int> successStatuses) {
     if (successStatuses.contains(response.statusCode)) {
       if (response.body.isEmpty) {
         return {};

@@ -23,6 +23,19 @@ Future<void> pumpAssistantFrames(WidgetTester tester, {int frames = 3}) async {
   }
 }
 
+MockClient mockWithSpeech(Future<http.Response> Function(http.Request) inner) {
+  return MockClient((request) async {
+    if (request.url.path == '/assistant/speech') {
+      return http.Response.bytes(
+        [1, 2, 3, 4],
+        200,
+        headers: {'content-type': 'audio/mpeg'},
+      );
+    }
+    return inner(request);
+  });
+}
+
 void main() {
   const baseUrl = 'https://secretary.example';
   const token = 'assistant-token';
@@ -37,9 +50,12 @@ void main() {
       apiClient: apiClient,
       authController: auth,
       voiceRecorder: voiceRecorder ?? FakeVoiceRecorder(),
-      voiceTempFiles: voiceTempFiles ??
+      voiceTempFiles:
+          voiceTempFiles ??
           VoiceTempFiles(
-            directory: Directory.systemTemp.createTempSync('secretary_voice_test'),
+            directory: Directory.systemTemp.createTempSync(
+              'secretary_voice_test',
+            ),
           ),
     );
   }
@@ -78,7 +94,7 @@ void main() {
     int transcribeCalls = 0;
     int assistantCalls = 0;
     Map<String, dynamic>? assistantBody;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         transcribeCalls += 1;
         return http.Response.bytes(
@@ -134,7 +150,7 @@ void main() {
 
   test('microphone permission denial does not upload', () async {
     int transcribeCalls = 0;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         transcribeCalls += 1;
       }
@@ -167,7 +183,7 @@ void main() {
 
   test('transcription failure does not call assistant message', () async {
     int assistantCalls = 0;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         return http.Response(
           jsonEncode({'detail': 'Transcription provider unavailable'}),
@@ -203,52 +219,65 @@ void main() {
     assistant.dispose();
   });
 
-  test('assistant failure after transcription preserves transcript for retry', () async {
-    final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/transcribe') {
-        return http.Response(jsonEncode({'text': 'Retry me'}), 200);
-      }
+  test(
+    'assistant failure after transcription preserves transcript for retry',
+    () async {
+      final mock = mockWithSpeech((request) async {
+        if (request.url.path == '/assistant/transcribe') {
+          return http.Response(jsonEncode({'text': 'Retry me'}), 200);
+        }
+        if (request.url.path == '/assistant/message') {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'detail': {
+                  'code': 'assistant_internal',
+                  'message':
+                      'Секретарь не смог завершить запрос из-за внутренней ошибки.',
+                },
+              }),
+            ),
+            502,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 404);
+      });
+      final apiClient = SecretaryApiClient(httpClient: mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      final assistant = buildAssistant(apiClient: apiClient, auth: auth);
+
+      await assistant.startVoiceRecording();
+      await assistant.stopVoiceRecordingAndTranscribe();
+
+      expect(assistant.pendingRetryMessage, 'Retry me');
+      assistant.dispose();
+    },
+  );
+
+  testWidgets('assistant failure leaves transcript in text input', (
+    tester,
+  ) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/message') {
-        return http.Response(
-          jsonEncode({
-            'detail': {
-              'code': 'assistant_internal',
-              'message': 'Секретарь не смог завершить запрос из-за внутренней ошибки.',
-            },
-          }),
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'detail': {
+                'code': 'assistant_internal',
+                'message':
+                    'Секретарь не смог завершить запрос из-за внутренней ошибки.',
+              },
+            }),
+          ),
           502,
-        );
-      }
-      return http.Response('{}', 404);
-    });
-    final apiClient = SecretaryApiClient(httpClient: mock);
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final assistant = buildAssistant(apiClient: apiClient, auth: auth);
-
-    await assistant.startVoiceRecording();
-    await assistant.stopVoiceRecordingAndTranscribe();
-
-    expect(assistant.pendingRetryMessage, 'Retry me');
-    assistant.dispose();
-  });
-
-  testWidgets('assistant failure leaves transcript in text input', (tester) async {
-    final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/message') {
-        return http.Response(
-          jsonEncode({
-            'detail': {
-              'code': 'assistant_internal',
-              'message': 'Секретарь не смог завершить запрос из-за внутренней ошибки.',
-            },
-          }),
-          502,
+          headers: {'content-type': 'application/json; charset=utf-8'},
         );
       }
       return http.Response('{}', 404);
@@ -287,14 +316,18 @@ void main() {
 
   test('voice preserves object context', () async {
     Map<String, dynamic>? assistantBody;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         return http.Response(jsonEncode({'text': 'Voice question'}), 200);
       }
       if (request.url.path == '/assistant/message') {
         assistantBody = jsonDecode(request.body) as Map<String, dynamic>;
         return http.Response(
-          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
+          jsonEncode({
+            'answer': 'ok',
+            'references': [],
+            'affected_objects': [],
+          }),
           200,
         );
       }
@@ -333,7 +366,7 @@ void main() {
   test('cancellation deletes temporary audio file', () async {
     final voiceRecorder = FakeVoiceRecorder();
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -360,7 +393,7 @@ void main() {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.startDelay = const Duration(milliseconds: 50);
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -385,55 +418,66 @@ void main() {
     assistant.dispose();
   });
 
-  test('concurrent stop invokes recorder stop and transcription once', () async {
-    int transcribeCalls = 0;
-    final voiceRecorder = FakeVoiceRecorder();
-    voiceRecorder.stopDelay = const Duration(milliseconds: 50);
-    final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/transcribe') {
-        transcribeCalls += 1;
-        return http.Response(jsonEncode({'text': 'once'}), 200);
-      }
-      if (request.url.path == '/assistant/message') {
-        return http.Response(
-          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
-          200,
-        );
-      }
-      return http.Response('{}', 404);
-    });
-    final apiClient = SecretaryApiClient(httpClient: mock);
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final assistant = buildAssistant(
-      apiClient: apiClient,
-      auth: auth,
-      voiceRecorder: voiceRecorder,
-    );
+  test(
+    'concurrent stop invokes recorder stop and transcription once',
+    () async {
+      int transcribeCalls = 0;
+      final voiceRecorder = FakeVoiceRecorder();
+      voiceRecorder.stopDelay = const Duration(milliseconds: 50);
+      final mock = mockWithSpeech((request) async {
+        if (request.url.path == '/assistant/transcribe') {
+          transcribeCalls += 1;
+          return http.Response(jsonEncode({'text': 'once'}), 200);
+        }
+        if (request.url.path == '/assistant/message') {
+          return http.Response(
+            jsonEncode({
+              'answer': 'ok',
+              'references': [],
+              'affected_objects': [],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      });
+      final apiClient = SecretaryApiClient(httpClient: mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        auth: auth,
+        voiceRecorder: voiceRecorder,
+      );
 
-    await assistant.startVoiceRecording();
-    final first = assistant.stopVoiceRecordingAndTranscribe();
-    expect(assistant.voiceState, AssistantVoiceState.transcribing);
-    final second = assistant.stopVoiceRecordingAndTranscribe();
-    await first;
-    await second;
-    expect(voiceRecorder.stopCallCount, 1);
-    expect(transcribeCalls, 1);
-    assistant.dispose();
-  });
+      await assistant.startVoiceRecording();
+      final first = assistant.stopVoiceRecordingAndTranscribe();
+      expect(assistant.voiceState, AssistantVoiceState.transcribing);
+      final second = assistant.stopVoiceRecordingAndTranscribe();
+      await first;
+      await second;
+      expect(voiceRecorder.stopCallCount, 1);
+      expect(transcribeCalls, 1);
+      assistant.dispose();
+    },
+  );
 
   testWidgets('text send still works while voice is idle', (tester) async {
     int assistantCalls = 0;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/message') {
         assistantCalls += 1;
         return http.Response(
-          jsonEncode({'answer': 'typed ok', 'references': [], 'affected_objects': []}),
+          jsonEncode({
+            'answer': 'typed ok',
+            'references': [],
+            'affected_objects': [],
+          }),
           200,
         );
       }
@@ -458,7 +502,10 @@ void main() {
     );
     await pumpAssistantFrames(tester);
 
-    await tester.enterText(find.byKey(const Key('assistant_input')), 'typed text');
+    await tester.enterText(
+      find.byKey(const Key('assistant_input')),
+      'typed text',
+    );
     await tester.tap(find.widgetWithText(FilledButton, 'Отправить'));
     while (assistant.isSending) {
       await tester.pump(const Duration(milliseconds: 20));
@@ -473,7 +520,7 @@ void main() {
 
   test('recording state is set after startVoiceRecording', () async {
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -493,14 +540,18 @@ void main() {
   });
 
   test('transcribing state is active while transcription runs', () async {
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         return http.Response(jsonEncode({'text': 'late transcript'}), 200);
       }
       if (request.url.path == '/assistant/message') {
         return http.Response(
-          jsonEncode({'answer': 'done', 'references': [], 'affected_objects': []}),
+          jsonEncode({
+            'answer': 'done',
+            'references': [],
+            'affected_objects': [],
+          }),
           200,
         );
       }
@@ -527,7 +578,7 @@ void main() {
 
   test('sendMessage is blocked while recording', () async {
     int assistantCalls = 0;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/message') {
         assistantCalls += 1;
       }
@@ -556,7 +607,7 @@ void main() {
     int assistantCalls = 0;
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.stopDelay = const Duration(milliseconds: 50);
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         return http.Response(jsonEncode({'text': 'voice text'}), 200);
@@ -595,7 +646,7 @@ void main() {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.throwOnHasPermission = true;
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -622,7 +673,7 @@ void main() {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.failStartAfterWrite = true;
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -647,14 +698,18 @@ void main() {
 
   test('transcript preserved when Assistant send is already active', () async {
     int assistantCalls = 0;
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         return http.Response(jsonEncode({'text': 'overlap transcript'}), 200);
       }
       if (request.url.path == '/assistant/message') {
         assistantCalls += 1;
         return http.Response(
-          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
+          jsonEncode({
+            'answer': 'ok',
+            'references': [],
+            'affected_objects': [],
+          }),
           200,
         );
       }
@@ -679,92 +734,98 @@ void main() {
     assistant.dispose();
   });
 
-  test('cancel during in-flight start stops recorder and cleans temp file', () async {
-    final voiceRecorder = FakeVoiceRecorder();
-    voiceRecorder.startDelay = const Duration(milliseconds: 50);
-    final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
-    );
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final assistant = buildAssistant(
-      apiClient: apiClient,
-      auth: auth,
-      voiceRecorder: voiceRecorder,
-    );
+  test(
+    'cancel during in-flight start stops recorder and cleans temp file',
+    () async {
+      final voiceRecorder = FakeVoiceRecorder();
+      voiceRecorder.startDelay = const Duration(milliseconds: 50);
+      final apiClient = SecretaryApiClient(
+        httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
+      );
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        auth: auth,
+        voiceRecorder: voiceRecorder,
+      );
 
-    final startFuture = assistant.startVoiceRecording();
-    expect(assistant.voiceState, AssistantVoiceState.starting);
-    while (voiceRecorder.startCallCount == 0) {
-      await Future<void>.delayed(const Duration(milliseconds: 1));
-    }
-    await assistant.cancelVoiceRecording();
-    await startFuture;
-
-    expect(voiceRecorder.startCallCount, 1);
-    expect(voiceRecorder.cancelCallCount, greaterThanOrEqualTo(1));
-    expect(voiceRecorder.isRecording, isFalse);
-    expect(assistant.voiceState, AssistantVoiceState.idle);
-    expect(voiceRecorder.lastStartedPath, isNotNull);
-    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
-    assistant.dispose();
-  });
-
-  test('reset during in-flight start invalidates startup without API calls', () async {
-    int transcribeCalls = 0;
-    int assistantCalls = 0;
-    final voiceRecorder = FakeVoiceRecorder();
-    voiceRecorder.startDelay = const Duration(milliseconds: 50);
-    final mock = MockClient((request) async {
-      if (request.url.path == '/assistant/transcribe') {
-        transcribeCalls += 1;
+      final startFuture = assistant.startVoiceRecording();
+      expect(assistant.voiceState, AssistantVoiceState.starting);
+      while (voiceRecorder.startCallCount == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
       }
-      if (request.url.path == '/assistant/message') {
-        assistantCalls += 1;
+      await assistant.cancelVoiceRecording();
+      await startFuture;
+
+      expect(voiceRecorder.startCallCount, 1);
+      expect(voiceRecorder.cancelCallCount, greaterThanOrEqualTo(1));
+      expect(voiceRecorder.isRecording, isFalse);
+      expect(assistant.voiceState, AssistantVoiceState.idle);
+      expect(voiceRecorder.lastStartedPath, isNotNull);
+      expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+      assistant.dispose();
+    },
+  );
+
+  test(
+    'reset during in-flight start invalidates startup without API calls',
+    () async {
+      int transcribeCalls = 0;
+      int assistantCalls = 0;
+      final voiceRecorder = FakeVoiceRecorder();
+      voiceRecorder.startDelay = const Duration(milliseconds: 50);
+      final mock = mockWithSpeech((request) async {
+        if (request.url.path == '/assistant/transcribe') {
+          transcribeCalls += 1;
+        }
+        if (request.url.path == '/assistant/message') {
+          assistantCalls += 1;
+        }
+        return http.Response('{}', 404);
+      });
+      final apiClient = SecretaryApiClient(httpClient: mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = AuthController(
+        apiClient: apiClient,
+        tokenStore: FakeTokenStore(),
+        serverUrlStore: FakeServerUrlStore(),
+      );
+      auth.status = AuthStatus.authenticated;
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        auth: auth,
+        voiceRecorder: voiceRecorder,
+      );
+
+      final startFuture = assistant.startVoiceRecording();
+      expect(assistant.voiceState, AssistantVoiceState.starting);
+      while (voiceRecorder.startCallCount == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
       }
-      return http.Response('{}', 404);
-    });
-    final apiClient = SecretaryApiClient(httpClient: mock);
-    apiClient.configure(baseUrl: baseUrl, token: token);
-    final auth = AuthController(
-      apiClient: apiClient,
-      tokenStore: FakeTokenStore(),
-      serverUrlStore: FakeServerUrlStore(),
-    );
-    auth.status = AuthStatus.authenticated;
-    final assistant = buildAssistant(
-      apiClient: apiClient,
-      auth: auth,
-      voiceRecorder: voiceRecorder,
-    );
+      assistant.resetSession();
+      await startFuture;
 
-    final startFuture = assistant.startVoiceRecording();
-    expect(assistant.voiceState, AssistantVoiceState.starting);
-    while (voiceRecorder.startCallCount == 0) {
-      await Future<void>.delayed(const Duration(milliseconds: 1));
-    }
-    assistant.resetSession();
-    await startFuture;
-
-    expect(voiceRecorder.isRecording, isFalse);
-    expect(assistant.voiceState, AssistantVoiceState.idle);
-    expect(voiceRecorder.lastStartedPath, isNotNull);
-    expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
-    expect(transcribeCalls, 0);
-    expect(assistantCalls, 0);
-    assistant.dispose();
-  });
+      expect(voiceRecorder.isRecording, isFalse);
+      expect(assistant.voiceState, AssistantVoiceState.idle);
+      expect(voiceRecorder.lastStartedPath, isNotNull);
+      expect(await File(voiceRecorder.lastStartedPath!).exists(), isFalse);
+      expect(transcribeCalls, 0);
+      expect(assistantCalls, 0);
+      assistant.dispose();
+    },
+  );
 
   test('cancel during start blocks immediate restart until settled', () async {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.startDelay = const Duration(milliseconds: 50);
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -810,7 +871,7 @@ void main() {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.startDelay = const Duration(milliseconds: 50);
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -856,7 +917,7 @@ void main() {
     voiceRecorder.permissionGranted = false;
     voiceRecorder.requestPermissionResult = false;
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -892,7 +953,7 @@ void main() {
     final voiceRecorder = FakeVoiceRecorder();
     voiceRecorder.throwEncoderUnsupported = true;
     final apiClient = SecretaryApiClient(
-      httpClient: MockClient((request) async => http.Response('{}', 404)),
+      httpClient: mockWithSpeech((request) async => http.Response('{}', 404)),
     );
     apiClient.configure(baseUrl: baseUrl, token: token);
     final auth = AuthController(
@@ -923,7 +984,7 @@ void main() {
     final voiceRecorder = FakeVoiceRecorder(audioBytes: [1, 2, 3, 4]);
     voiceRecorder.recordingFileExtension = 'm4a';
     voiceRecorder.recordingContentType = 'audio/mp4';
-    final mock = MockClient((request) async {
+    final mock = mockWithSpeech((request) async {
       if (request.url.path == '/assistant/transcribe') {
         transcribeBody = utf8.decode(request.bodyBytes, allowMalformed: true);
         return http.Response(jsonEncode({'text': 'voice transcript'}), 200);
@@ -931,7 +992,11 @@ void main() {
       if (request.url.path == '/assistant/message') {
         assistantBody = jsonDecode(request.body) as Map<String, dynamic>;
         return http.Response(
-          jsonEncode({'answer': 'ok', 'references': [], 'affected_objects': []}),
+          jsonEncode({
+            'answer': 'ok',
+            'references': [],
+            'affected_objects': [],
+          }),
           200,
         );
       }

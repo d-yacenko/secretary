@@ -1,6 +1,9 @@
 class UserMe {
-  UserMe(
-      {required this.id, required this.displayName, required this.createdAt});
+  UserMe({
+    required this.id,
+    required this.displayName,
+    required this.createdAt,
+  });
 
   final String id;
   final String displayName;
@@ -110,11 +113,7 @@ class UserSettings {
 }
 
 class UserIdentity {
-  UserIdentity({
-    required this.profileText,
-    this.fullName,
-    this.preferredName,
-  });
+  UserIdentity({required this.profileText, this.fullName, this.preferredName});
 
   final String profileText;
   final String? fullName;
@@ -412,15 +411,18 @@ class Connections {
     return Connections(
       google: GoogleConnection.fromJson(json['google'] as Map<String, dynamic>),
       yandexMail: YandexMailConnection.fromJson(
-          json['yandex_mail'] as Map<String, dynamic>),
+        json['yandex_mail'] as Map<String, dynamic>,
+      ),
       yandexCalendar: YandexCalendarConnection.fromJson(
         json['yandex_calendar'] as Map<String, dynamic>,
       ),
       mattermost: mattermostRaw is List<dynamic>
           ? mattermostRaw
-              .map((e) =>
-                  MattermostConnection.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map(
+                  (e) =>
+                      MattermostConnection.fromJson(e as Map<String, dynamic>),
+                )
+                .toList()
           : const [],
       telegram: telegramRaw is Map<String, dynamic>
           ? TelegramConnection.fromJson(telegramRaw)
@@ -480,19 +482,13 @@ class CaptureTaskResponse {
 }
 
 class CaptureNoteRequest {
-  CaptureNoteRequest({
-    required this.text,
-    this.title,
-  });
+  CaptureNoteRequest({required this.text, this.title});
 
   final String text;
   final String? title;
 
   Map<String, dynamic> toJson() {
-    return {
-      'text': text,
-      if (title != null) 'title': title,
-    };
+    return {'text': text, if (title != null) 'title': title};
   }
 }
 
@@ -771,8 +767,9 @@ class InboxSourceObjectOut {
   final String? excerpt;
   final String? feedAt;
 
-  String get feedStamp =>
-      (feedAt != null && feedAt!.trim().isNotEmpty) ? feedAt! : (primaryAt ?? '');
+  String get feedStamp => (feedAt != null && feedAt!.trim().isNotEmpty)
+      ? feedAt!
+      : (primaryAt ?? '');
 
   factory InboxSourceObjectOut.fromJson(Map<String, dynamic> json) {
     return InboxSourceObjectOut(
@@ -962,10 +959,7 @@ class TodayOut {
 }
 
 class WeekEvent {
-  WeekEvent({
-    required this.object,
-    required this.allDay,
-  });
+  WeekEvent({required this.object, required this.allDay});
 
   final SecretaryObject object;
   final bool allDay;
@@ -1189,10 +1183,14 @@ class AvailabilityOut {
       minDurationMinutes: json['min_duration_minutes'] as int,
       availabilityComplete: json['availability_complete'] as bool? ?? false,
       busyIntervals: (json['busy_intervals'] as List<dynamic>? ?? const [])
-          .map((e) => AvailabilityBusyInterval.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => AvailabilityBusyInterval.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
       freeIntervals: (json['free_intervals'] as List<dynamic>? ?? const [])
-          .map((e) => AvailabilityFreeInterval.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => AvailabilityFreeInterval.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
       unknownEndEventIds:
           (json['unknown_end_event_ids'] as List<dynamic>? ?? const [])
@@ -1308,8 +1306,9 @@ class AssistantMessageResponse {
           .map((e) => AssistantReference.fromJson(e as Map<String, dynamic>))
           .toList(),
       affectedObjects: (json['affected_objects'] as List<dynamic>)
-          .map((e) =>
-              AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
       pendingActionPlan: pendingRaw == null
           ? null
@@ -1347,8 +1346,9 @@ class PendingAction {
         return 'Update task';
       case 'set_task_status':
         final status = arguments['status'];
-        final statusText =
-            status is String && status.trim().isNotEmpty ? status : 'status';
+        final statusText = status is String && status.trim().isNotEmpty
+            ? status
+            : 'status';
         if (objectId != null) {
           return 'Set task status: $objectId -> $statusText';
         }
@@ -1369,6 +1369,38 @@ class PendingAction {
       default:
         return toolName.replaceAll('_', ' ');
     }
+  }
+
+  String? get voiceNarrationText {
+    switch (toolName) {
+      case 'send_email':
+        return _sendEmailVoiceNarration(arguments);
+      case 'send_message':
+        return _sendMessageVoiceNarration(arguments);
+      default:
+        return null;
+    }
+  }
+
+  static bool planIsVoiceApprovable(List<PendingAction> actions) {
+    if (actions.isEmpty) {
+      return false;
+    }
+    return actions.every((action) => action.voiceNarrationText != null);
+  }
+
+  static String? planVoicePreview(List<PendingAction> actions) {
+    if (!planIsVoiceApprovable(actions)) {
+      return null;
+    }
+    final blocks = actions
+        .map((action) => action.voiceNarrationText!)
+        .where((text) => text.isNotEmpty)
+        .toList();
+    if (blocks.isEmpty) {
+      return null;
+    }
+    return '${blocks.join('\n\n')}\nОтправить?';
   }
 
   static String? _frozenObjectId(Map<String, dynamic> arguments) {
@@ -1466,9 +1498,10 @@ class PendingAction {
       }
     } else {
       parts.add('Mattermost');
-      final display = (route['channel_display_name'] ?? arguments['channel_display_name'])
-          ?.toString()
-          .trim();
+      final display =
+          (route['channel_display_name'] ?? arguments['channel_display_name'])
+              ?.toString()
+              .trim();
       if (display != null && display.isNotEmpty) {
         parts.add(display);
       }
@@ -1480,7 +1513,9 @@ class PendingAction {
     return parts.join('\n');
   }
 
-  static Map<String, dynamic> _sendMessageRoute(Map<String, dynamic> arguments) {
+  static Map<String, dynamic> _sendMessageRoute(
+    Map<String, dynamic> arguments,
+  ) {
     final raw = arguments['route'];
     if (raw is Map) {
       return Map<String, dynamic>.from(raw);
@@ -1503,6 +1538,72 @@ class PendingAction {
       default:
         return provider;
     }
+  }
+
+  static String? _sendEmailVoiceNarration(Map<String, dynamic> arguments) {
+    final toRaw = arguments['to'];
+    final to = toRaw is List
+        ? toRaw.map((e) => e.toString()).join(', ')
+        : (toRaw == null ? '' : toRaw.toString());
+    final subject = arguments['subject']?.toString() ?? '';
+    final body = arguments['body']?.toString() ?? '';
+    if (to.trim().isEmpty || subject.trim().isEmpty) {
+      return null;
+    }
+    return 'Подготовлено письмо.\n'
+        'Кому: ${to.trim()}\n'
+        'Тема: ${subject.trim()}\n'
+        'Текст: $body';
+  }
+
+  static String? _sendMessageVoiceNarration(Map<String, dynamic> arguments) {
+    final route = _sendMessageRoute(arguments);
+    final provider = arguments['provider']?.toString() ?? '';
+    if (provider.trim().isEmpty) {
+      return null;
+    }
+    final destination = _sendMessageDestination(provider, route, arguments);
+    if (destination == null || destination.isEmpty) {
+      return null;
+    }
+    final mode = arguments['mode']?.toString() ?? '';
+    final body = arguments['body']?.toString() ?? '';
+    final modeLabel = mode == 'reply' ? 'ответ' : 'новое сообщение';
+    return 'Подготовлено сообщение.\n'
+        'Куда: ${_externalProviderLabel(provider)}, $destination\n'
+        'Режим: $modeLabel\n'
+        'Текст: $body';
+  }
+
+  static String? _sendMessageDestination(
+    String provider,
+    Map<String, dynamic> route,
+    Map<String, dynamic> arguments,
+  ) {
+    if (provider == 'teams') {
+      final display = route['chat_display_title']?.toString().trim();
+      if (display != null && display.isNotEmpty) {
+        return display;
+      }
+    } else if (provider == 'telegram') {
+      final display = route['chat_display_name']?.toString().trim();
+      if (display != null && display.isNotEmpty) {
+        return display;
+      }
+      final username = route['chat_username']?.toString().trim();
+      if (username != null && username.isNotEmpty) {
+        return '@$username';
+      }
+    } else {
+      final display =
+          (route['channel_display_name'] ?? arguments['channel_display_name'])
+              ?.toString()
+              .trim();
+      if (display != null && display.isNotEmpty) {
+        return display;
+      }
+    }
+    return null;
   }
 }
 
@@ -1600,8 +1701,9 @@ class ActionPlanResumeResponse {
     return ActionPlanResumeResponse(
       answer: json['answer'] as String,
       affectedObjects: (json['affected_objects'] as List<dynamic>)
-          .map((e) =>
-              AssistantAffectedObject.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => AssistantAffectedObject.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
     );
   }
@@ -1703,8 +1805,9 @@ class GraphWorkspaceOut {
   factory GraphWorkspaceOut.fromJson(Map<String, dynamic> json) {
     return GraphWorkspaceOut(
       rootId: json['root_id'] as String?,
-      seedIds:
-          (json['seed_ids'] as List<dynamic>).map((e) => e as String).toList(),
+      seedIds: (json['seed_ids'] as List<dynamic>)
+          .map((e) => e as String)
+          .toList(),
       nodes: (json['nodes'] as List<dynamic>)
           .map((e) => SecretaryObject.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -1775,10 +1878,7 @@ class ClientFileIntakeResult {
 }
 
 class ClientFolderIntakeResult {
-  ClientFolderIntakeResult({
-    required this.objectId,
-    required this.status,
-  });
+  ClientFolderIntakeResult({required this.objectId, required this.status});
 
   final String objectId;
   final String status;
@@ -2092,11 +2192,7 @@ class LabelList {
 }
 
 class LabelWriteResult {
-  LabelWriteResult({
-    required this.label,
-    this.created,
-    this.changed,
-  });
+  LabelWriteResult({required this.label, this.created, this.changed});
 
   final LabelItem label;
   final bool? created;
