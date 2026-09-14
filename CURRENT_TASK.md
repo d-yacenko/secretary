@@ -1,4 +1,4 @@
-# Current task — Voice Assistant A R4-R2
+# Current task — Voice Assistant A R4-R3
 
 ## Status
 
@@ -8,17 +8,19 @@ Accepted / exact deployed application SHA: `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf
 
 Previous production SHA: `eb3af922f804e6faf1d895fd14c0973981ce515e`
 
-**R4-R2 (hands-free output policy + mobile transcription root-cause/fix): implemented / awaiting Architect review and user physical gates. NOT CODE ACCEPTED. NOT PRODUCTION ACCEPTED.**
+**R4-R3 (Android recorder truncation / audio-session corrective): implemented / awaiting Architect review and user physical gates. NOT CODE ACCEPTED. NOT PRODUCTION ACCEPTED.**
+
+R4-R3 application SHA: `d121cf90e351612275663c6845a76e9dd80ed587`
+
+R4-R3 parent / R4-R2 docs tip: `5d3e173d9c5ba9cd99927f2ecdcaf3fa3151f3d5`
 
 R4-R2 application SHA: `f8c9a256af9d07b77b088e94fc1110e69479343f`
-
-R4-R2 parent (docs tip / branch tip at R4-R2 start): `4108e202407b54b8e4ad529567572907e6cee500`
 
 R4-R1 application SHA: `e097069dad8bcb0066e531a63f5f668e786e62ab`
 
 R4 application SHA (rejected): `a4bb618c69ff170f223bef13dd5303d8b5961b67`
 
-**R4-R1 / R4 / R3 / R3-R1: not CODE ACCEPTED.**
+**R4-R2 / R4-R1 / R4 / R3 / R3-R1: not CODE ACCEPTED.**
 
 R3-R1 application SHA: `f20c0e4bcc55bbb9e6a4b79cf052d17f8daf637b`
 
@@ -28,47 +30,55 @@ R2 application SHA: `244cdd28b81e7d8b33b6f78938fa062c03a82b3a`
 
 R1 application SHA: `89c7e0bf9fc74dbfcc8a02f9a6795b4f3deae82e`
 
-R1 PASS. R2 marker architecture/semantics PASS. R2-R1 reference hygiene PASS.
+R1 PASS. R2 marker architecture/semantics PASS. R2-R1 reference hygiene PASS. R4-R2 voice-output policy preserved.
 
-Not PRODUCTION ACCEPTED. Do not start Voice B. Do not redeploy production. Do not mark R3, R4, R4-R1, or R4-R2 CODE ACCEPTED.
+Linux user physical launch + Voice: PASS (Architect). Android transcription physical gate: FAIL before this corrective.
 
-## R4-R2 facts
+Not PRODUCTION ACCEPTED. Do not start Voice B. Do not redeploy production. Do not mark R3, R4, R4-R1, R4-R2, or R4-R3 CODE ACCEPTED.
 
-Invocation source is typed: `typed` | `screenMic` | `hardwareButton` | `systemAssistant`. Frozen at recording start. A later stop gesture does not change it.
+## R4-R3 facts
 
-Local per-user SharedPreferences `voice_output_policy.$userId`: `handsFreeOnly` (default) / `allVoiceInput` / `never`. Not synced to UserSettings. Account radios «Автоозвучивание ответов» on Android and Linux.
+OpenAI rejecting <500 ms is a downstream consequence. The recorder was allowed to overlap `audioplayers` / native STREAM_MUSIC cues with an active microphone.
 
-Default matrix: typed never speaks; screen mic is text-only; hardware / system / lock-screen assistant auto-speak. Changing the pref mid-turn does not alter the frozen turn.
+Sequencing now:
 
-If auto-speech is not allowed: Pending Action Plan stays visual; no narration; affirmative «Да» stays unarmed / fail-closed; exact «Нет» may still reject; visual approve/reject keep existing lock-screen restrictions.
+START: ACK → prepare mic/permissions → hands-free ready tone **completes and releases** → start recorder. Screen mic: UI/haptic only, no audible ready.
 
-`audioplayers` uses the default `AudioPlayer` / USAGE_MEDIA. No custom Bluetooth stack. Physical Bluetooth routing left for user acceptance.
+STOP: stop recorder first → optional bounded file-stabilize if the file grew → then stop/processing cue.
 
-Production transcription diagnosis (read-only, SHA `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf6357`, model `gpt-4o-mini-transcribe`, phone user has a personal OpenAI credential): Linux/long WAVs succeed; phone-sized 80–400 ms PCM WAVs (2604–12844 bytes, `secretary_voice.wav` / `audio/wav`) were collapsed into HTTP 502 `"Transcription provider unavailable"` after OpenAI 400 / empty text. Not wrong base URL, not missing credential, not missing model. Encoder was not changed.
+Zero `audioplayers` media between successful recorder start and successful recorder stop. Native hardware no longer plays a stop tone while capture is active.
 
-Client: structurally inspect WAV; reject clips shorter than 500 ms locally with Russian copy; debug-log encoder/filename/MIME/bytes/duration/API base URL/HTTP status (no token/audio/transcript). Screen mic and hardware share the same transcription pipeline.
+500 ms WAV floor remains defensive. Debug/user-test copy includes duration: «Запись неожиданно получилась 0,32 с. Повторите попытку.»
 
-Backend (not deployed): typed `{code,message}` — `transcription_provider_not_configured` / `transcription_provider_failed` (502) and `transcription_audio_invalid` (422). No provider bodies or secrets.
+File finalization: one 50 ms growth sample; extra wait only if the file grew; timeout 500 ms. No global trigger debounce (starting-state already ignores a second start; no duplicate-trigger proof).
+
+R4-R2 output policy unchanged: default `handsFreeOnly`; frozen invocation source; Pending Action Plan safety.
+
+Backend (still **not deployed**): `transcription_audio_invalid` only for locally proven short/malformed WAV; empty provider text → `transcription_unrecognized`; generic OpenAI 400 → `transcription_provider_failed`. No provider bodies.
 
 No DB migration. Production was not mutated and not redeployed.
 
 ## Checks
 
-- `dart format` on R4-R2 Dart files: clean.
-- Flutter Voice A / output-policy / hardware / lock-screen / system-assistant / bootstrap / shell / short-WAV tests: passed.
-- `tests/test_assistant_transcribe.py`: **14 passed**.
-- Android `testDebugUnitTest`: BUILD SUCCESSFUL (native contract tests unchanged).
+- Flutter Voice / repeated-turn / cue sequencing / output-policy / hardware / lock-screen / system-assistant / short-WAV tests: **117 passed**.
+- `tests/test_assistant_transcribe.py`: **16 passed**.
+- `flutter analyze` on touched Dart: no new errors (pre-existing infos/warnings elsewhere).
+- Android `testDebugUnitTest`: BUILD SUCCESSFUL.
 - `flutter build apk --debug`; `aapt dump badging` → `sdkVersion:'23'`.
-- Linux debug bundle built in Tumbleweed container; host launch without `LD_LIBRARY_PATH`: `env -u LD_LIBRARY_PATH /tmp/secretary-linux-r4r2-bundle/personal_secretary` (timeout after Dart VM start). Host `flutter build linux` still needs `gstreamer-devel` (classification C).
+- Linux: no plugin/RUNPATH change in this corrective; host `gstreamer-devel` still missing (classification C for host rebuild). Prior R4-R2 relocatable bundle remains the Linux launch evidence.
 
 ## Remaining USER physical gates
 
-- Phone: same short harmless phrase through on-screen mic **and** hardware button after this client.
-- Screen-mic + default policy: textual Assistant answer, **no** `/assistant/speech`.
-- Three short real turns with latency marks once transcription works, including `speech_rtt_ms` only when `autoSpeechAllowed=true`.
-- Bluetooth media route while a headset is active.
-- Prior R4-R1 Samsung / Volume Up / lock-screen items still user-run.
+First smoke (not the full Samsung checklist):
+
+1. Screen mic: speak 3–5 s; reported duration ~3–5 s; transcription succeeds.
+2. Repeat screen mic three times consecutively.
+3. Hardware button: speak 3–5 s; duration and transcription.
+4. Two consecutive hardware turns.
+5. First Assistant reply → follow-up must transcribe and be answered.
+
+Only after these: latency / Bluetooth / full production acceptance. Prior R4-R1 Samsung / Volume Up / lock-screen items still user-run.
 
 ## Stop
 
-Wait for **Architect review of R4-R2** and **user physical gates**. Do not mark R3, R4, R4-R1, or R4-R2 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
+Wait for **Architect review of R4-R3** and **user physical gates**. Do not mark R3, R4, R4-R1, R4-R2, or R4-R3 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
