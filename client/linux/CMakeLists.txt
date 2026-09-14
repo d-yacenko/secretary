@@ -77,11 +77,11 @@ include(flutter/generated_plugins.cmake)
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
-# directory.
+# directory. Always force the bundle prefix: CMake 4.x can leave the
+# default /usr/local even when CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT
+# is false, which breaks `flutter build linux` as an unprivileged user.
 set(BUILD_BUNDLE_DIR "${PROJECT_BINARY_DIR}/bundle")
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
-endif()
+set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
 
 # Start with a clean build bundle directory every time.
 install(CODE "
@@ -108,6 +108,7 @@ endforeach(bundled_library)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")
+file(MAKE_DIRECTORY "${NATIVE_ASSETS_DIR}")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
    COMPONENT Runtime)

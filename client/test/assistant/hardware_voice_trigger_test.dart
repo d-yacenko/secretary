@@ -8,6 +8,7 @@ import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_speech_player.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
+import 'package:personal_secretary/assistant/voice_local_feedback.dart';
 import 'package:personal_secretary/assistant/voice_temp_files.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
@@ -49,6 +50,8 @@ void main() {
     required SecretaryApiClient apiClient,
     FakeVoiceRecorder? recorder,
     FakeSpeechPlayer? speechPlayer,
+    VoiceLocalFeedback? voiceFeedback,
+    bool lockScreenSession = false,
   }) {
     final auth = AuthController(
       apiClient: apiClient,
@@ -62,6 +65,8 @@ void main() {
       voiceRecorder: recorder ?? FakeVoiceRecorder(),
       voiceTempFiles: VoiceTempFiles(directory: tempDir),
       speechPlayer: speechPlayer ?? FakeSpeechPlayer(),
+      voiceFeedback: voiceFeedback,
+      lockScreenSession: lockScreenSession,
     );
   }
 
@@ -270,4 +275,102 @@ void main() {
       assistant.dispose();
     },
   );
+
+  test(
+    'start cue plays before recording and can be skipped if native played',
+    () async {
+      final cues = RecordingVoiceLocalFeedback();
+      final recorder = FakeVoiceRecorder();
+      final apiClient = SecretaryApiClient(
+        httpClient: MockClient((_) async => http.Response('{}', 404)),
+      );
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        recorder: recorder,
+        voiceFeedback: cues,
+      );
+      await assistant.handleVoiceTrigger();
+      expect(cues.startCount, 1);
+      expect(recorder.startCallCount, 1);
+      assistant.dispose();
+
+      final skipped = RecordingVoiceLocalFeedback();
+      final second = buildAssistant(
+        apiClient: apiClient,
+        recorder: FakeVoiceRecorder(),
+        voiceFeedback: skipped,
+      );
+      await second.handleVoiceTrigger(startCueAlreadyPlayed: true);
+      expect(skipped.startCount, 0);
+      second.dispose();
+    },
+  );
+
+  test('stop cue plays when recording is stopped', () async {
+    final cues = RecordingVoiceLocalFeedback();
+    final recorder = FakeVoiceRecorder();
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        return jsonResponse({'text': 'привет'});
+      }
+      if (request.url.path == '/assistant/message') {
+        return jsonResponse({
+          'answer': 'ок',
+          'references': [],
+          'affected_objects': [],
+        });
+      }
+      if (request.url.path == '/assistant/speech') {
+        return speechOk();
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      recorder: recorder,
+      voiceFeedback: cues,
+    );
+    await assistant.handleVoiceTrigger();
+    await assistant.handleVoiceTrigger();
+    await waitUntil(() => cues.stopCount == 1);
+    expect(cues.stopCount, 1);
+    assistant.dispose();
+  });
+
+  test('native stop cue is not doubled by Flutter', () async {
+    final cues = RecordingVoiceLocalFeedback();
+    final recorder = FakeVoiceRecorder();
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        return jsonResponse({'text': 'привет'});
+      }
+      if (request.url.path == '/assistant/message') {
+        return jsonResponse({
+          'answer': 'ок',
+          'references': [],
+          'affected_objects': [],
+        });
+      }
+      if (request.url.path == '/assistant/speech') {
+        return speechOk();
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      recorder: recorder,
+      voiceFeedback: cues,
+    );
+    await assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
+    await assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
+    await waitUntil(() => recorder.stopCallCount == 1);
+    expect(cues.startCount, 0);
+    expect(cues.stopCount, 0);
+    assistant.dispose();
+  });
 }

@@ -5,6 +5,7 @@ import '../api/api_models.dart';
 import '../assistant/assistant_controller.dart';
 import '../assistant/assistant_screen.dart';
 import '../assistant/hardware_voice_controller.dart';
+import '../assistant/system_assistant_bridge.dart';
 import '../auth/auth_controller.dart';
 import '../capture/capture_controller.dart';
 import '../inbox/inbox_screen.dart';
@@ -38,6 +39,7 @@ class AppShell extends StatefulWidget {
     required this.graphController,
     this.bookmarkController,
     this.hardwareVoiceController,
+    this.systemAssistantController,
   });
 
   final AuthController authController;
@@ -46,6 +48,7 @@ class AppShell extends StatefulWidget {
   final GraphWorkspaceController graphController;
   final ObjectBookmarkController? bookmarkController;
   final HardwareVoiceController? hardwareVoiceController;
+  final SystemAssistantController? systemAssistantController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -55,6 +58,7 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
   late final ObjectBookmarkController _bookmarks;
   var _ownsBookmarks = false;
+  var _hardwareListening = false;
 
   @override
   void initState() {
@@ -71,12 +75,23 @@ class _AppShellState extends State<AppShell> {
     }
     widget.hardwareVoiceController?.onShellVoiceTrigger =
         _onHardwareVoiceTrigger;
+    widget.systemAssistantController?.onAssistInvoke = _onSystemAssistInvoke;
+    widget.systemAssistantController?.addListener(_onSystemAssistantChanged);
+    widget.assistantController.addListener(_syncHardwareListening);
+    _syncHardwareListening();
   }
 
   @override
   void dispose() {
     if (widget.hardwareVoiceController != null) {
       widget.hardwareVoiceController!.onShellVoiceTrigger = null;
+    }
+    widget.assistantController.removeListener(_syncHardwareListening);
+    if (widget.systemAssistantController != null) {
+      widget.systemAssistantController!.onAssistInvoke = null;
+      widget.systemAssistantController!.removeListener(
+        _onSystemAssistantChanged,
+      );
     }
     if (_ownsBookmarks) {
       _bookmarks.dispose();
@@ -99,6 +114,7 @@ class _AppShellState extends State<AppShell> {
           apiClient: widget.authController.apiClient,
           authController: widget.authController,
           hardwareVoiceController: widget.hardwareVoiceController,
+          systemAssistantController: widget.systemAssistantController,
         ),
       ),
     );
@@ -119,8 +135,41 @@ class _AppShellState extends State<AppShell> {
     if (_selectedIndex != ShellDestination.assistant.index) {
       setState(() => _selectedIndex = ShellDestination.assistant.index);
     }
-    await widget.assistantController.handleVoiceTrigger();
+    await widget.assistantController.handleVoiceTrigger(
+      startCueAlreadyPlayed: true,
+    );
     return true;
+  }
+
+  void _onSystemAssistantChanged() {
+    widget.assistantController.keyguardLocked =
+        widget.systemAssistantController?.keyguardLocked ?? false;
+    widget.assistantController.lockScreenVoiceEnabled =
+        widget.systemAssistantController?.lockScreenVoiceEnabled ?? false;
+  }
+
+  void _syncHardwareListening() {
+    final listening =
+        widget.assistantController.voiceState == AssistantVoiceState.starting ||
+        widget.assistantController.voiceState == AssistantVoiceState.recording;
+    if (listening == _hardwareListening) {
+      return;
+    }
+    _hardwareListening = listening;
+    widget.hardwareVoiceController?.setListening(listening);
+  }
+
+  Future<void> _onSystemAssistInvoke() async {
+    if (!mounted) {
+      return;
+    }
+    _onSystemAssistantChanged();
+    if (_selectedIndex != ShellDestination.assistant.index) {
+      setState(() => _selectedIndex = ShellDestination.assistant.index);
+    }
+    await widget.assistantController.handleVoiceTrigger(
+      startCueAlreadyPlayed: true,
+    );
   }
 
   void _selectDestination(int index) {

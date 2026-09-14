@@ -19,8 +19,11 @@ class HardwareVoicePlugin(
 ) : MethodChannel.MethodCallHandler, HardwareVoiceCallbacks, HardwareVoiceScheduler {
     private val handler = Handler(Looper.getMainLooper())
     private val posted = mutableMapOf<String, Runnable>()
-    private val engine = HardwareVoiceEngine(this, this)
+    private val engine = HardwareVoiceEngine(this, this) {
+        android.os.SystemClock.uptimeMillis()
+    }
     private var lastCallback = "none"
+    private var listening = false
 
     init {
         channel.setMethodCallHandler(this)
@@ -60,6 +63,10 @@ class HardwareVoicePlugin(
         val matched = engine.wouldMatch(stroke)
         val consumed = engine.onKey(stroke)
         HardwareVoiceLog.dispatch(event, mode, matched, consumed, lastCallback)
+        val delta = engine.lastDoubleDeltaMs()
+        if (delta != null && consumed) {
+            HardwareVoiceLog.line("doubleDeltaMs=$delta windowMs=${HardwareVoiceConstants.DOUBLE_PRESS_WINDOW_MS}")
+        }
         return consumed
     }
 
@@ -99,6 +106,9 @@ class HardwareVoicePlugin(
                         "scanCode=${binding.scanCode} gesture=${binding.gesture}",
                 )
                 engine.configure(binding)
+                if (!binding.enabled) {
+                    listening = false
+                }
                 result.success(statusMap(ok = true))
             }
             "startLearn" -> {
@@ -121,6 +131,11 @@ class HardwareVoicePlugin(
             "cancelTest" -> {
                 HardwareVoiceLog.line("cancelTest")
                 engine.cancelTest()
+                result.success(null)
+            }
+            "setListening" -> {
+                listening = call.argument<Boolean>("listening") ?: false
+                HardwareVoiceLog.line("setListening listening=$listening")
                 result.success(null)
             }
             else -> result.notImplemented()
@@ -157,7 +172,20 @@ class HardwareVoicePlugin(
 
     override fun onVoiceTrigger() {
         lastCallback = "voice"
-        HardwareVoiceLog.line("callback=voice")
+        val acceptedElapsed = HardwareVoiceCue.nowElapsedMs()
+        if (listening) {
+            HardwareVoiceCue.playStop(context)
+            listening = false
+            HardwareVoiceLog.line(
+                "callback=voice cue=stop acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
+            )
+        } else {
+            HardwareVoiceCue.playStart(context)
+            listening = true
+            HardwareVoiceLog.line(
+                "callback=voice cue=start acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
+            )
+        }
         handler.post { channel.invokeMethod("onVoiceTrigger", null) }
     }
 
@@ -248,7 +276,7 @@ class HardwareVoicePlugin(
         audio.adjustSuggestedStreamVolume(
             AudioManager.ADJUST_RAISE,
             AudioManager.USE_DEFAULT_STREAM_TYPE,
-            AudioManager.FLAG_SHOW_UI,
+            AudioManager.FLAG_SHOW_UI or AudioManager.FLAG_REMOVE_SOUND_AND_VIBRATE,
         )
     }
 }

@@ -3,7 +3,7 @@ package com.example.personal_secretary.hardware
 object HardwareVoiceConstants {
     const val CHANNEL = "secretary/hardware_voice"
     const val PROTOCOL = "secretary.hardware_voice.v1"
-    const val DOUBLE_PRESS_WINDOW_MS = 350L
+    const val DOUBLE_PRESS_WINDOW_MS = 500L
     const val LEARN_TIMEOUT_MS = 9000L
     const val TEST_TIMEOUT_MS = 9000L
 
@@ -124,6 +124,8 @@ class HardwareVoiceEngine(
     private var mode = EngineMode.DISABLED
     private var binding: HardwareVoiceNativeBinding? = null
     private var pendingDown = false
+    private var firstDownEventTimeMs = 0L
+    private var doubleDeltaMs: Long? = null
     private var longPressActive = false
     private var volumeLongPressStarted = false
 
@@ -141,6 +143,8 @@ class HardwareVoiceEngine(
         EngineMode.LEARN -> "learn"
         EngineMode.TEST -> "test"
     }
+
+    fun lastDoubleDeltaMs(): Long? = doubleDeltaMs
 
     fun diagnosticBinding(): HardwareVoiceNativeBinding? = binding
 
@@ -210,6 +214,10 @@ class HardwareVoiceEngine(
             HardwareVoiceConstants.TOKEN_PENDING -> {
                 val current = binding
                 pendingDown = false
+                if (firstDownEventTimeMs != 0L) {
+                    doubleDeltaMs = clock() - firstDownEventTimeMs
+                }
+                firstDownEventTimeMs = 0L
                 if (current != null && current.keyCode == HardwareVoiceConstants.KEYCODE_VOLUME_UP) {
                     callbacks.raiseVolume()
                 }
@@ -312,10 +320,14 @@ class HardwareVoiceEngine(
         if (pendingDown) {
             scheduler.cancel(HardwareVoiceConstants.TOKEN_PENDING)
             pendingDown = false
+            doubleDeltaMs = stroke.eventTimeMs - firstDownEventTimeMs
+            firstDownEventTimeMs = 0L
             emitTrigger(test)
             return true
         }
         pendingDown = true
+        firstDownEventTimeMs = stroke.eventTimeMs
+        doubleDeltaMs = null
         scheduler.schedule(
             HardwareVoiceConstants.TOKEN_PENDING,
             HardwareVoiceConstants.DOUBLE_PRESS_WINDOW_MS,
@@ -338,6 +350,7 @@ class HardwareVoiceEngine(
         val wasPending = pendingDown
         scheduler.cancel(HardwareVoiceConstants.TOKEN_PENDING)
         pendingDown = false
+        firstDownEventTimeMs = 0L
         if (fireVolumeIfNeeded &&
             wasPending &&
             current != null &&
@@ -351,6 +364,7 @@ class HardwareVoiceEngine(
         val current = binding
         mode = if (current != null && current.enabled) EngineMode.ARMED else EngineMode.DISABLED
         pendingDown = false
+        firstDownEventTimeMs = 0L
         longPressActive = false
         volumeLongPressStarted = false
     }

@@ -145,6 +145,10 @@ void main() {
     expect(coerced.gesture, HardwareVoiceGesture.doublePress);
   });
 
+  test('Volume Up double-press window is 500 ms', () {
+    expect(hardwareVoiceDoublePressWindowMs, 500);
+  });
+
   test('disabling binding prevents activation', () async {
     final auth = buildAuth();
     final bridge = FakeHardwareVoiceBridge();

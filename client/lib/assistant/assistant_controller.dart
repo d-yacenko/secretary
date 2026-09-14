@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -14,6 +15,8 @@ import 'fake_speech_player.dart';
 import 'speech_playback_controller.dart';
 import 'speech_player.dart';
 import 'voice_confirmation.dart';
+import 'voice_local_feedback.dart';
+import 'voice_turn_timing.dart';
 
 const int maxAssistantHistoryMessages = 12;
 
@@ -25,6 +28,8 @@ const voiceResumeFailedSpeech =
     'Действие выполнено. Не удалось загрузить итоговый ответ секретаря.';
 const voicePlanAmbiguousSpeech =
     'Нельзя подтвердить голосом: найдено несколько ожидающих действий.';
+const voiceUnlockRequiredSpeech =
+    'Нужно разблокировать устройство, чтобы подтвердить отправку.';
 
 enum AssistantSendState { idle, sending, error }
 
@@ -85,6 +90,8 @@ class AssistantController extends ChangeNotifier {
     VoiceTranscriptionController? voiceController,
     SpeechPlayer? speechPlayer,
     SpeechPlaybackController? speechPlayback,
+    VoiceLocalFeedback? voiceFeedback,
+    this.lockScreenSession = false,
   }) : _apiClient = apiClient,
        _authController = authController,
        _voiceTempFiles =
@@ -116,6 +123,11 @@ class AssistantController extends ChangeNotifier {
                   : AudioplayersSpeechPlayer()),
           tempFiles: _voiceTempFiles,
         );
+    _feedback =
+        voiceFeedback ??
+        (Platform.environment['FLUTTER_TEST'] == 'true'
+            ? const NoopVoiceLocalFeedback()
+            : AssetVoiceLocalFeedback());
     _voice.bindTranscriptConsumer(_handleVoiceTranscript);
     _voice.addListener(_onVoiceChanged);
   }
@@ -125,6 +137,13 @@ class AssistantController extends ChangeNotifier {
   late final VoiceTranscriptionController _voice;
   final VoiceTempFiles _voiceTempFiles;
   late final SpeechPlaybackController _speech;
+  late final VoiceLocalFeedback _feedback;
+  final bool lockScreenSession;
+
+  bool keyguardLocked = false;
+  bool lockScreenVoiceEnabled = false;
+
+  bool get blocksExternalWrite => lockScreenSession && keyguardLocked;
 
   final List<AssistantChatMessage> _messages = [];
   AssistantContextRef? _objectContext;
@@ -263,6 +282,7 @@ class AssistantController extends ChangeNotifier {
 
     final history = _boundedHistory();
     try {
+      final started = Stopwatch()..start();
       final response = await _apiClient.sendAssistantMessage(
         AssistantMessageRequest(
           message: trimmed,
@@ -271,6 +291,7 @@ class AssistantController extends ChangeNotifier {
           contextNotificationId: _notificationContext?.id,
         ),
       );
+      VoiceTurnTiming.interval('assistant_rtt_ms', started.elapsedMilliseconds);
       _messages.add(AssistantChatMessage(role: 'user', content: trimmed));
       _messages.add(
         AssistantChatMessage(
@@ -320,6 +341,12 @@ class AssistantController extends ChangeNotifier {
     final actionPlan = message.actionPlan;
     if (actionPlan == null ||
         actionPlan.cardState != ActionPlanCardState.pending) {
+      return;
+    }
+    if (blocksExternalWrite) {
+      if (_voiceOriginActive) {
+        await _speakDeterministic(voiceUnlockRequiredSpeech);
+      }
       return;
     }
 
@@ -499,10 +526,12 @@ class AssistantController extends ChangeNotifier {
   /// Idle/error: start recording. Recording: stop and transcribe. Speaking:
   /// stop TTS and start a new recording. Starting/transcribing/thinking: ignore.
   /// Pending Action Plan uses the existing confirmation utterance path.
-  Future<void> handleVoiceTrigger() async {
+  Future<void> handleVoiceTrigger({bool startCueAlreadyPlayed = false}) async {
     switch (voiceState) {
       case AssistantVoiceState.recording:
-        await stopVoiceRecordingAndTranscribe();
+        await stopVoiceRecordingAndTranscribe(
+          stopCueAlreadyPlayed: startCueAlreadyPlayed,
+        );
         return;
       case AssistantVoiceState.starting:
       case AssistantVoiceState.transcribing:
@@ -511,7 +540,25 @@ class AssistantController extends ChangeNotifier {
       case AssistantVoiceState.speaking:
       case AssistantVoiceState.idle:
       case AssistantVoiceState.error:
+        if (lockScreenSession && keyguardLocked && !lockScreenVoiceEnabled) {
+          return;
+        }
+        VoiceTurnTiming.startTurn(
+          startCueAlreadyPlayed ? 'native_or_assist' : 'ui',
+        );
+        if (voiceState == AssistantVoiceState.speaking) {
+          final interruptedPlanNarration = _planNarrationInProgress;
+          await stopSpeaking();
+          if (interruptedPlanNarration) {
+            _voiceApprovalArmed = false;
+          }
+        }
+        if (!startCueAlreadyPlayed) {
+          unawaited(_feedback.playStart());
+        }
+        VoiceTurnTiming.mark('feedback');
         await startVoiceRecording();
+        VoiceTurnTiming.mark('recording_ready');
         return;
     }
   }
@@ -536,7 +583,14 @@ class AssistantController extends ChangeNotifier {
     await _voice.startRecording();
   }
 
-  Future<void> stopVoiceRecordingAndTranscribe() async {
+  Future<void> stopVoiceRecordingAndTranscribe({
+    bool stopCueAlreadyPlayed = false,
+  }) async {
+    VoiceTurnTiming.mark('stop');
+    if (!stopCueAlreadyPlayed) {
+      unawaited(_feedback.playStop());
+    }
+    VoiceTurnTiming.mark('stop_feedback');
     await _voice.stopAndTranscribe();
   }
 
@@ -581,6 +635,12 @@ class AssistantController extends ChangeNotifier {
         return;
       }
       if (decision == VoiceConfirmation.approve) {
+        if (blocksExternalWrite) {
+          if (_voiceOriginActive) {
+            await _speakDeterministic(voiceUnlockRequiredSpeech);
+          }
+          return;
+        }
         final message = _messages[pendingIndex];
         final actions =
             message.actionPlan?.plan.actions ?? const <PendingAction>[];
@@ -623,6 +683,11 @@ class AssistantController extends ChangeNotifier {
   Future<void> _speakLatestAssistantResult() async {
     final pendingIndex = _uniquePendingPlanIndex();
     if (pendingIndex != null) {
+      if (blocksExternalWrite) {
+        _voiceApprovalArmed = false;
+        await _speakDeterministic(voiceUnlockRequiredSpeech);
+        return;
+      }
       final plan = _messages[pendingIndex].actionPlan!.plan;
       final preview = PendingAction.planVoicePreview(plan.actions);
       if (preview != null) {
@@ -720,6 +785,7 @@ class AssistantController extends ChangeNotifier {
     _voice.removeListener(_onVoiceChanged);
     _voice.dispose();
     _speech.dispose();
+    _feedback.dispose();
     super.dispose();
   }
 }

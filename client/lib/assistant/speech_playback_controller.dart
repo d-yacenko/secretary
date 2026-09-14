@@ -7,6 +7,7 @@ import '../auth/auth_controller.dart';
 import 'speech_player.dart';
 import 'speech_text.dart';
 import 'voice_temp_files.dart';
+import 'voice_turn_timing.dart';
 
 typedef SpeechPlaybackError = void Function(String message);
 
@@ -58,7 +59,9 @@ class SpeechPlaybackController {
         if (generation != _generation) {
           return;
         }
+        final synth = Stopwatch()..start();
         final bytes = await _apiClient.synthesizeSpeech(chunk);
+        VoiceTurnTiming.interval('speech_rtt_ms', synth.elapsedMilliseconds);
         if (generation != _generation) {
           return;
         }
@@ -70,6 +73,7 @@ class SpeechPlaybackController {
         }
         _activePath = path;
         try {
+          VoiceTurnTiming.mark('playback_start');
           await _player.playFile(path);
         } finally {
           await _tempFiles.deleteIfExists(path);
@@ -80,6 +84,7 @@ class SpeechPlaybackController {
       }
       if (generation == _generation) {
         _speaking = false;
+        VoiceTurnTiming.finish();
         onFinished();
       }
     } on AuthenticationException catch (e) {

@@ -86,8 +86,13 @@ class HardwareVoiceEngineTest {
         engine = HardwareVoiceEngine(callbacks, scheduler) { 0L }
     }
 
-    private fun down(keyCode: Int, repeat: Int = 0, scan: Int = 0): HardwareKeyStroke {
-        return HardwareKeyStroke(keyCode, scan, repeat, true, 0L)
+    private fun down(
+        keyCode: Int,
+        repeat: Int = 0,
+        scan: Int = 0,
+        eventTime: Long = 0L,
+    ): HardwareKeyStroke {
+        return HardwareKeyStroke(keyCode, scan, repeat, true, eventTime)
     }
 
     private fun up(keyCode: Int, scan: Int = 0): HardwareKeyStroke {
@@ -162,6 +167,18 @@ class HardwareVoiceEngineTest {
         engine.onKey(up(HardwareVoiceConstants.KEYCODE_VOLUME_UP))
         assertEquals(1, callbacks.voiceTriggers)
         assertEquals(0, callbacks.volumeRaises)
+    }
+
+    @Test
+    fun volumeUpDoubleRecordsKeyDownDelta() {
+        arm(HardwareVoiceConstants.KEYCODE_VOLUME_UP, HardwareVoiceGesture.DOUBLE)
+        engine.onKey(down(HardwareVoiceConstants.KEYCODE_VOLUME_UP, eventTime = 10))
+        engine.onKey(up(HardwareVoiceConstants.KEYCODE_VOLUME_UP))
+        engine.onKey(down(HardwareVoiceConstants.KEYCODE_VOLUME_UP, eventTime = 490))
+        engine.onKey(up(HardwareVoiceConstants.KEYCODE_VOLUME_UP))
+        assertEquals(1, callbacks.voiceTriggers)
+        assertEquals(480L, engine.lastDoubleDeltaMs())
+        assertEquals(500L, HardwareVoiceConstants.DOUBLE_PRESS_WINDOW_MS)
     }
 
     @Test

@@ -113,6 +113,8 @@ abstract class HardwareVoiceBridge {
 
   Future<void> cancelTest();
 
+  Future<void> setListening(bool listening);
+
   void dispose();
 }
 
@@ -157,6 +159,9 @@ class NoopHardwareVoiceBridge implements HardwareVoiceBridge {
 
   @override
   Future<void> cancelTest() async {}
+
+  @override
+  Future<void> setListening(bool listening) async {}
 
   @override
   void dispose() {}
@@ -231,6 +236,19 @@ class MethodChannelHardwareVoiceBridge implements HardwareVoiceBridge {
   @override
   Future<void> cancelTest() async {
     await _channel.invokeMethod<void>('cancelTest');
+  }
+
+  @override
+  Future<void> setListening(bool listening) async {
+    try {
+      await _channel.invokeMethod<void>('setListening', {
+        'listening': listening,
+      });
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
   }
 
   @override

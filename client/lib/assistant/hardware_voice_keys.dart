@@ -6,7 +6,7 @@ library;
 const String hardwareVoiceProtocol = 'secretary.hardware_voice.v1';
 
 /// Double-press window for Volume Up fallback and optional generic double.
-const int hardwareVoiceDoublePressWindowMs = 350;
+const int hardwareVoiceDoublePressWindowMs = 500;
 
 /// Learn / test timeout while waiting for a physical key.
 const int hardwareVoiceLearnTimeoutMs = 9000;

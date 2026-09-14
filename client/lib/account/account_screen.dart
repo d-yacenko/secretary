@@ -6,6 +6,7 @@ import '../api/api_models.dart';
 import '../api/secretary_api_client.dart';
 import '../auth/auth_controller.dart';
 import '../assistant/hardware_voice_controller.dart';
+import '../assistant/system_assistant_bridge.dart';
 import '../ui/domain_labels.dart';
 import '../ui/ui_text_scale.dart';
 import 'account_labels_section.dart';
@@ -15,6 +16,7 @@ import 'hardware_voice_account_section.dart';
 import 'identity_profile_template.dart';
 import 'semantic_context_template.dart';
 import 'source_preferences_list.dart';
+import 'system_assistant_account_section.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
@@ -28,6 +30,8 @@ class AccountScreen extends StatefulWidget {
     this.initialSemanticContext,
     this.hardwareVoiceController,
     this.hardwareVoicePlatform,
+    this.systemAssistantController,
+    this.systemAssistantPlatform,
   });
 
   final SecretaryApiClient apiClient;
@@ -39,6 +43,8 @@ class AccountScreen extends StatefulWidget {
   final UserSemanticContext? initialSemanticContext;
   final HardwareVoiceController? hardwareVoiceController;
   final TargetPlatform? hardwareVoicePlatform;
+  final SystemAssistantController? systemAssistantController;
+  final TargetPlatform? systemAssistantPlatform;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -1118,6 +1124,16 @@ class _AccountScreenState extends State<AccountScreen>
                 HardwareVoiceAccountSection(
                   controller: widget.hardwareVoiceController!,
                   platform: widget.hardwareVoicePlatform,
+                ),
+              ],
+              if (widget.systemAssistantController != null &&
+                  systemAssistantSettingsVisible(
+                    platform: widget.systemAssistantPlatform,
+                  )) ...[
+                const SizedBox(height: 16),
+                SystemAssistantAccountSection(
+                  controller: widget.systemAssistantController!,
+                  platform: widget.systemAssistantPlatform,
                 ),
               ],
               const SizedBox(height: 16),

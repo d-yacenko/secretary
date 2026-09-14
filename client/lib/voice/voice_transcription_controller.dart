@@ -10,17 +10,12 @@ import '../assistant/record_voice_recorder.dart';
 import '../assistant/voice_recorder.dart';
 import '../assistant/voice_recorder_exceptions.dart';
 import '../assistant/voice_temp_files.dart';
+import '../assistant/voice_turn_timing.dart';
 import '../auth/auth_controller.dart';
 
 const Duration maxVoiceRecordingDuration = Duration(seconds: 60);
 
-enum VoiceState {
-  idle,
-  starting,
-  recording,
-  transcribing,
-  error,
-}
+enum VoiceState { idle, starting, recording, transcribing, error }
 
 class VoiceTranscriptionController extends ChangeNotifier {
   VoiceTranscriptionController({
@@ -30,21 +25,24 @@ class VoiceTranscriptionController extends ChangeNotifier {
     VoiceTempFiles? voiceTempFiles,
     Duration maxRecordingDuration = maxVoiceRecordingDuration,
     bool enableAutoStopInTests = false,
-  })  : _apiClient = apiClient,
-        _authController = authController,
-        _voiceRecorder = voiceRecorder ??
-            (Platform.environment['FLUTTER_TEST'] == 'true'
-                ? FakeVoiceRecorder()
-                : RecordVoiceRecorder()),
-        _voiceTempFiles = voiceTempFiles ??
-            (Platform.environment['FLUTTER_TEST'] == 'true'
-                ? VoiceTempFiles(
-                    directory: Directory.systemTemp
-                        .createTempSync('secretary_voice_test'),
-                  )
-                : VoiceTempFiles()),
-        _maxRecordingDuration = maxRecordingDuration,
-        _enableAutoStopInTests = enableAutoStopInTests;
+  }) : _apiClient = apiClient,
+       _authController = authController,
+       _voiceRecorder =
+           voiceRecorder ??
+           (Platform.environment['FLUTTER_TEST'] == 'true'
+               ? FakeVoiceRecorder()
+               : RecordVoiceRecorder()),
+       _voiceTempFiles =
+           voiceTempFiles ??
+           (Platform.environment['FLUTTER_TEST'] == 'true'
+               ? VoiceTempFiles(
+                   directory: Directory.systemTemp.createTempSync(
+                     'secretary_voice_test',
+                   ),
+                 )
+               : VoiceTempFiles()),
+       _maxRecordingDuration = maxRecordingDuration,
+       _enableAutoStopInTests = enableAutoStopInTests;
 
   final SecretaryApiClient _apiClient;
   final AuthController _authController;
@@ -125,7 +123,8 @@ class VoiceTranscriptionController extends ChangeNotifier {
       voiceState = VoiceState.recording;
       voiceErrorMessage = null;
       _recordingLimitTimer?.cancel();
-      if (Platform.environment['FLUTTER_TEST'] != 'true' || _enableAutoStopInTests) {
+      if (Platform.environment['FLUTTER_TEST'] != 'true' ||
+          _enableAutoStopInTests) {
         _recordingLimitTimer = Timer(_maxRecordingDuration, () {
           unawaited(stopAndTranscribe());
         });
@@ -185,6 +184,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
       return;
     }
     _activeRecordingPath = null;
+    VoiceTurnTiming.mark('audio_ready');
 
     final file = File(recordedPath);
     try {
@@ -211,10 +211,15 @@ class VoiceTranscriptionController extends ChangeNotifier {
     }
 
     try {
+      final started = Stopwatch()..start();
       final transcript = await _apiClient.transcribeAudio(
         audioBytes: audioBytes,
         filename: _voiceRecorder.recordingFilename,
         contentType: _voiceRecorder.recordingContentType,
+      );
+      VoiceTurnTiming.interval(
+        'transcription_rtt_ms',
+        started.elapsedMilliseconds,
       );
       voiceState = VoiceState.idle;
       notifyListeners();

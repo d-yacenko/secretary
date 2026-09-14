@@ -11,6 +11,8 @@ class FakeHardwareVoiceBridge implements HardwareVoiceBridge {
   int startTestCount = 0;
   int cancelTestCount = 0;
   int statusCount = 0;
+  int setListeningCount = 0;
+  bool? lastListening;
   bool disposed = false;
   bool available = true;
   String protocol = hardwareVoiceProtocol;
@@ -98,6 +100,12 @@ class FakeHardwareVoiceBridge implements HardwareVoiceBridge {
     listener?.onTestResult(
       const HardwareVoiceTestResult(status: HardwareVoiceTestStatus.cancelled),
     );
+  }
+
+  @override
+  Future<void> setListening(bool listening) async {
+    setListeningCount += 1;
+    lastListening = listening;
   }
 
   @override

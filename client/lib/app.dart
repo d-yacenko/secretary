@@ -6,6 +6,7 @@ import 'auth/auth_controller.dart';
 import 'auth/auth_gate.dart';
 import 'assistant/assistant_controller.dart';
 import 'assistant/hardware_voice_controller.dart';
+import 'assistant/system_assistant_bridge.dart';
 import 'capture/capture_controller.dart';
 import 'graph/graph_workspace_controller.dart';
 import 'navigation/app_route_observer.dart';
@@ -34,6 +35,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   late final GraphWorkspaceController _graphController;
   late final ObjectBookmarkController _bookmarkController;
   late final HardwareVoiceController _hardwareVoiceController;
+  late final SystemAssistantController _systemAssistantController;
   late final UiTextScaleController _textScale;
 
   @override
@@ -60,11 +62,13 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     _hardwareVoiceController = HardwareVoiceController(
       authController: widget.authController,
     );
+    _systemAssistantController = SystemAssistantController();
     widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
     _textScale.addListener(_onAuthChanged);
     widget.authController.initialize();
     _hardwareVoiceController.attach();
+    _systemAssistantController.attach(widget.authController.user?.id);
     if (widget.textScaleController == null) {
       _textScale.load();
     }
@@ -79,6 +83,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
   }
 
   void _onAuthChanged() {
+    _systemAssistantController.attach(widget.authController.user?.id);
     setState(() {});
   }
 
@@ -95,6 +100,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     _graphController.dispose();
     _bookmarkController.dispose();
     _hardwareVoiceController.dispose();
+    _systemAssistantController.dispose();
     super.dispose();
   }
 
@@ -159,6 +165,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
               graphController: _graphController,
               bookmarkController: _bookmarkController,
               hardwareVoiceController: _hardwareVoiceController,
+              systemAssistantController: _systemAssistantController,
             ),
           ),
         ),

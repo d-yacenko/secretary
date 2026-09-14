@@ -287,6 +287,10 @@ class HardwareVoiceController extends ChangeNotifier {
     }
   }
 
+  Future<void> setListening(bool listening) async {
+    await _bridge.setListening(listening);
+  }
+
   @visibleForTesting
   void debugEmitVoiceTrigger() {
     _onNativeVoiceTrigger();
