@@ -165,6 +165,25 @@ class HardwareVoiceEngineTest {
     }
 
     @Test
+    fun learnCapturesVolumeUpImmediatelyAsDouble() {
+        engine.startLearn()
+        engine.onKey(down(HardwareVoiceConstants.KEYCODE_VOLUME_UP, scan = 19))
+        assertEquals(1, callbacks.captured.size)
+        assertEquals(24, callbacks.captured[0].first)
+        assertEquals("double", callbacks.captured[0].third)
+        assertEquals(0, callbacks.voiceTriggers)
+    }
+
+    @Test
+    fun diagnosticModeReportsLearnAndArmed() {
+        assertEquals("disabled", engine.diagnosticMode())
+        arm(1082, HardwareVoiceGesture.SINGLE)
+        assertEquals("armed", engine.diagnosticMode())
+        engine.startLearn()
+        assertEquals("learn", engine.diagnosticMode())
+    }
+
+    @Test
     fun learnRejectsSystemKeysAndKeepsListening() {
         engine.startLearn()
         engine.onKey(down(4))

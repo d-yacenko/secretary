@@ -204,4 +204,130 @@ void main() {
     expect(triggers, 0);
     controller.dispose();
   });
+
+  test('bridge ping success marks the native handler available', () async {
+    final bridge = FakeHardwareVoiceBridge();
+    final controller = HardwareVoiceController(
+      authController: buildAuth(),
+      store: HardwareVoiceStore(
+        preferences: await SharedPreferences.getInstance(),
+      ),
+      bridge: bridge,
+    );
+    await controller.attach();
+    expect(controller.isBridgeAvailable, isTrue);
+    expect(controller.bridgeProtocol, hardwareVoiceProtocol);
+    expect(controller.handlerBanner, isNull);
+    expect(bridge.statusCount, greaterThan(0));
+    controller.dispose();
+  });
+
+  test('MissingPlugin learn failure is not a physical-key timeout', () async {
+    final bridge = FakeHardwareVoiceBridge();
+    final controller = HardwareVoiceController(
+      authController: buildAuth(),
+      store: HardwareVoiceStore(
+        preferences: await SharedPreferences.getInstance(),
+      ),
+      bridge: bridge,
+    );
+    await controller.attach();
+    bridge.startLearnException = missingHardwareVoicePlugin();
+    final result = await controller.startLearn();
+    expect(result.status, HardwareVoiceLearnStatus.bridgeError);
+    expect(result.status, isNot(HardwareVoiceLearnStatus.timeout));
+    expect(result.message, contains('переустановка'));
+    expect(controller.isBridgeAvailable, isFalse);
+    controller.dispose();
+  });
+
+  test(
+    'failed native configure is not shown as a healthy active binding',
+    () async {
+      final bridge = FakeHardwareVoiceBridge()..configureOk = false;
+      final controller = HardwareVoiceController(
+        authController: buildAuth(),
+        store: HardwareVoiceStore(
+          preferences: await SharedPreferences.getInstance(),
+        ),
+        bridge: bridge,
+      );
+      await controller.attach();
+      await controller.useVolumeUpDouble();
+      expect(controller.hasSavedEnabledBinding, isTrue);
+      expect(controller.isNativeActive, isFalse);
+      expect(controller.statusSecondary, 'Сохранена, но не активна');
+      expect(controller.handlerBanner, isNotNull);
+      controller.dispose();
+    },
+  );
+
+  test('restore of saved binding surfaces native configure failure', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final store = HardwareVoiceStore(preferences: prefs);
+    final prepared = HardwareVoiceController(
+      authController: buildAuth(),
+      store: store,
+      bridge: FakeHardwareVoiceBridge(),
+    );
+    await prepared.attach();
+    await prepared.useVolumeUpDouble();
+    prepared.dispose();
+
+    final failing = FakeHardwareVoiceBridge()..configureOk = false;
+    final restored = HardwareVoiceController(
+      authController: buildAuth(),
+      store: store,
+      bridge: failing,
+    );
+    await restored.attach();
+    expect(restored.binding!.keyCode, androidKeyCodeVolumeUp);
+    expect(restored.isNativeActive, isFalse);
+    expect(restored.statusSecondary, 'Сохранена, но не активна');
+    restored.dispose();
+  });
+
+  test('Learn single Volume Up captures as Volume Up double', () async {
+    final controller = HardwareVoiceController(
+      authController: buildAuth(),
+      store: HardwareVoiceStore(
+        preferences: await SharedPreferences.getInstance(),
+      ),
+      bridge: FakeHardwareVoiceBridge(),
+    );
+    await controller.attach();
+    await controller.saveLearned(keyCode: androidKeyCodeVolumeUp, scanCode: 33);
+    expect(controller.binding!.isVolumeUp, isTrue);
+    expect(controller.binding!.gesture, HardwareVoiceGesture.doublePress);
+    expect(controller.binding!.scanCode, 0);
+    expect(controller.isNativeActive, isTrue);
+    controller.dispose();
+  });
+
+  test('Test distinguishes native error from gesture timeout', () async {
+    final bridge = FakeHardwareVoiceBridge();
+    final controller = HardwareVoiceController(
+      authController: buildAuth(),
+      store: HardwareVoiceStore(
+        preferences: await SharedPreferences.getInstance(),
+      ),
+      bridge: bridge,
+    );
+    await controller.attach();
+    await controller.useVolumeUpDouble();
+    bridge.startTestException = missingHardwareVoicePlugin();
+    final nativeError = await controller.startTest();
+    expect(nativeError.status, HardwareVoiceTestStatus.bridgeError);
+
+    bridge.startTestException = null;
+    await controller.useVolumeUpDouble();
+    expect(controller.isNativeActive, isTrue);
+    final timeout = controller.startTest();
+    controller.debugEmitTestResult(
+      const HardwareVoiceTestResult(status: HardwareVoiceTestStatus.timeout),
+    );
+    final timedOut = await timeout;
+    expect(timedOut.status, HardwareVoiceTestStatus.timeout);
+    controller.dispose();
+  });
 }

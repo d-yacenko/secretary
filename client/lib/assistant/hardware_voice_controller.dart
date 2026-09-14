@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../auth/auth_controller.dart';
 import 'hardware_voice_binding.dart';
@@ -10,6 +11,13 @@ import 'hardware_voice_keys.dart';
 import 'hardware_voice_store.dart';
 
 enum HardwareVoiceUiPhase { idle, learning, testing }
+
+const hardwareVoiceReinstallMessage =
+    'Обработчик аппаратных кнопок недоступен.\n'
+    'Требуется полная переустановка приложения.';
+
+const hardwareVoiceOemTimeoutMessage =
+    'Обработчик работает, но Android не передал событие от этой кнопки.';
 
 class HardwareVoiceController extends ChangeNotifier {
   HardwareVoiceController({
@@ -43,25 +51,59 @@ class HardwareVoiceController extends ChangeNotifier {
   Completer<HardwareVoiceTestResult>? _testCompleter;
   String? _activeUserId;
   String? _learnHint;
+  bool _bridgeAvailable = false;
+  String _bridgeProtocol = '';
+  bool _nativeActive = false;
+  String? _nativeError;
 
   /// AppShell sets this to switch to Assistant and invoke the canonical trigger.
-  /// Return true if the trigger was accepted by the shell (foreground main route).
   Future<bool> Function()? onShellVoiceTrigger;
 
   HardwareVoiceBinding? get binding => _binding;
   HardwareVoiceUiPhase get phase => _phase;
-  bool get hasEnabledBinding => _binding != null && _binding!.enabled;
+  bool get hasSavedEnabledBinding => _binding != null && _binding!.enabled;
+  bool get hasEnabledBinding => hasSavedEnabledBinding;
+  bool get isNativeActive =>
+      _bridgeAvailable && _nativeActive && hasSavedEnabledBinding;
+  bool get isBridgeAvailable => _bridgeAvailable;
   bool get isLearning => _phase == HardwareVoiceUiPhase.learning;
   bool get isTesting => _phase == HardwareVoiceUiPhase.testing;
   String? get learnHint => _learnHint;
+  String? get nativeError => _nativeError;
+  String get bridgeProtocol => _bridgeProtocol;
 
-  String get statusPrimary =>
-      hasEnabledBinding ? _binding!.statusPrimary : 'Не настроена';
+  String? get handlerBanner {
+    if (!_bridgeAvailable) {
+      return hardwareVoiceReinstallMessage;
+    }
+    return _nativeError;
+  }
 
-  String? get statusSecondary =>
-      hasEnabledBinding ? _binding!.statusSecondary : null;
+  String get statusPrimary {
+    if (!_bridgeAvailable) {
+      return 'Обработчик аппаратных кнопок недоступен';
+    }
+    if (hasSavedEnabledBinding) {
+      return _binding!.statusPrimary;
+    }
+    return 'Не настроена';
+  }
+
+  String? get statusSecondary {
+    if (!_bridgeAvailable) {
+      return 'Требуется полная переустановка приложения.';
+    }
+    if (!hasSavedEnabledBinding) {
+      return null;
+    }
+    if (!_nativeActive) {
+      return 'Сохранена, но не активна';
+    }
+    return _binding!.statusSecondary;
+  }
 
   Future<void> attach() async {
+    await _refreshBridgeStatus();
     await _syncFromAuth();
   }
 
@@ -98,6 +140,8 @@ class HardwareVoiceController extends ChangeNotifier {
   Future<void> disable() async {
     final userId = _authController.user?.id;
     _binding = null;
+    _nativeActive = false;
+    _nativeError = null;
     if (userId != null) {
       await _store.clear(userId);
     }
@@ -118,17 +162,35 @@ class HardwareVoiceController extends ChangeNotifier {
     final completer = Completer<HardwareVoiceLearnResult>();
     _learnCompleter = completer;
     notifyListeners();
+    await _refreshBridgeStatus();
+    if (!_bridgeAvailable) {
+      _phase = HardwareVoiceUiPhase.idle;
+      final result = const HardwareVoiceLearnResult(
+        status: HardwareVoiceLearnStatus.bridgeError,
+        message: hardwareVoiceReinstallMessage,
+      );
+      if (!completer.isCompleted) {
+        completer.complete(result);
+      }
+      _learnCompleter = null;
+      notifyListeners();
+      return completer.future;
+    }
     try {
       await _bridge.startLearn(timeoutMs: timeoutMs);
     } catch (error) {
       _phase = HardwareVoiceUiPhase.idle;
+      if (error is MissingPluginException) {
+        _bridgeAvailable = false;
+        _nativeActive = false;
+        _nativeError = hardwareVoiceReinstallMessage;
+      }
+      final result = HardwareVoiceLearnResult(
+        status: HardwareVoiceLearnStatus.bridgeError,
+        message: _bridgeErrorMessage(error),
+      );
       if (!completer.isCompleted) {
-        completer.complete(
-          HardwareVoiceLearnResult(
-            status: HardwareVoiceLearnStatus.timeout,
-            message: error.toString(),
-          ),
-        );
+        completer.complete(result);
       }
       _learnCompleter = null;
       notifyListeners();
@@ -141,13 +203,30 @@ class HardwareVoiceController extends ChangeNotifier {
     if (_phase != HardwareVoiceUiPhase.learning) {
       return;
     }
-    await _bridge.cancelLearn();
+    try {
+      await _bridge.cancelLearn();
+    } catch (_) {
+      _onNativeLearnResult(
+        const HardwareVoiceLearnResult(
+          status: HardwareVoiceLearnStatus.cancelled,
+        ),
+      );
+    }
   }
 
   Future<HardwareVoiceTestResult> startTest({
     int timeoutMs = hardwareVoiceLearnTimeoutMs,
   }) async {
-    if (!hasEnabledBinding || _phase != HardwareVoiceUiPhase.idle) {
+    if (!isNativeActive) {
+      return HardwareVoiceTestResult(
+        status: HardwareVoiceTestStatus.bridgeError,
+        message: _bridgeAvailable
+            ? (_nativeError ??
+                  'Не удалось активировать обработчик аппаратных кнопок.')
+            : hardwareVoiceReinstallMessage,
+      );
+    }
+    if (_phase != HardwareVoiceUiPhase.idle) {
       return const HardwareVoiceTestResult(
         status: HardwareVoiceTestStatus.cancelled,
       );
@@ -156,16 +235,35 @@ class HardwareVoiceController extends ChangeNotifier {
     final completer = Completer<HardwareVoiceTestResult>();
     _testCompleter = completer;
     notifyListeners();
+    await _refreshBridgeStatus();
+    if (!_bridgeAvailable) {
+      _phase = HardwareVoiceUiPhase.idle;
+      final result = const HardwareVoiceTestResult(
+        status: HardwareVoiceTestStatus.bridgeError,
+        message: hardwareVoiceReinstallMessage,
+      );
+      if (!completer.isCompleted) {
+        completer.complete(result);
+      }
+      _testCompleter = null;
+      notifyListeners();
+      return completer.future;
+    }
     try {
       await _bridge.startTest(timeoutMs: timeoutMs);
     } catch (error) {
       _phase = HardwareVoiceUiPhase.idle;
+      if (error is MissingPluginException) {
+        _bridgeAvailable = false;
+        _nativeActive = false;
+        _nativeError = hardwareVoiceReinstallMessage;
+      }
+      final result = HardwareVoiceTestResult(
+        status: HardwareVoiceTestStatus.bridgeError,
+        message: _bridgeErrorMessage(error),
+      );
       if (!completer.isCompleted) {
-        completer.complete(
-          const HardwareVoiceTestResult(
-            status: HardwareVoiceTestStatus.timeout,
-          ),
-        );
+        completer.complete(result);
       }
       _testCompleter = null;
       notifyListeners();
@@ -178,10 +276,17 @@ class HardwareVoiceController extends ChangeNotifier {
     if (_phase != HardwareVoiceUiPhase.testing) {
       return;
     }
-    await _bridge.cancelTest();
+    try {
+      await _bridge.cancelTest();
+    } catch (_) {
+      _onNativeTestResult(
+        const HardwareVoiceTestResult(
+          status: HardwareVoiceTestStatus.cancelled,
+        ),
+      );
+    }
   }
 
-  /// Used by tests to simulate a native armed trigger.
   @visibleForTesting
   void debugEmitVoiceTrigger() {
     _onNativeVoiceTrigger();
@@ -207,13 +312,21 @@ class HardwareVoiceController extends ChangeNotifier {
     if (!authenticated || user == null) {
       _activeUserId = null;
       _binding = null;
+      _nativeActive = false;
+      _nativeError = null;
       _abortSessions();
       await _disableNative();
       notifyListeners();
       return;
     }
+    await _refreshBridgeStatus();
     if (_activeUserId == user.id && _binding != null) {
-      await _configureNative(_binding!);
+      if (_binding!.enabled) {
+        await _configureNative(_binding!);
+      } else {
+        await _disableNative();
+      }
+      notifyListeners();
       return;
     }
     _activeUserId = user.id;
@@ -241,26 +354,85 @@ class HardwareVoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _refreshBridgeStatus() async {
+    try {
+      final status = await _bridge.getStatus();
+      _bridgeAvailable = status.isHealthy;
+      _bridgeProtocol = status.protocol;
+      if (!_bridgeAvailable) {
+        _nativeActive = false;
+        _nativeError = hardwareVoiceReinstallMessage;
+      }
+    } catch (_) {
+      _bridgeAvailable = false;
+      _bridgeProtocol = '';
+      _nativeActive = false;
+      _nativeError = hardwareVoiceReinstallMessage;
+    }
+  }
+
   Future<void> _configureNative(HardwareVoiceBinding binding) async {
-    await _bridge.configure(
-      HardwareVoiceNativeConfig(
-        enabled: binding.enabled,
-        keyCode: binding.keyCode,
-        scanCode: binding.scanCode,
-        gesture: binding.gesture,
-      ),
-    );
+    late final HardwareVoiceConfigureAck ack;
+    try {
+      ack = await _bridge.configure(
+        HardwareVoiceNativeConfig(
+          enabled: binding.enabled,
+          keyCode: binding.keyCode,
+          scanCode: binding.scanCode,
+          gesture: binding.gesture,
+        ),
+      );
+    } catch (error) {
+      _bridgeAvailable = false;
+      _bridgeProtocol = '';
+      _nativeActive = false;
+      _nativeError = _bridgeErrorMessage(error);
+      return;
+    }
+    _applyConfigureAck(ack, desiredEnabled: binding.enabled);
   }
 
   Future<void> _disableNative() async {
-    await _bridge.configure(
-      const HardwareVoiceNativeConfig(
-        enabled: false,
-        keyCode: 0,
-        scanCode: 0,
-        gesture: HardwareVoiceGesture.single,
-      ),
-    );
+    _nativeActive = false;
+    try {
+      final ack = await _bridge.configure(
+        const HardwareVoiceNativeConfig(
+          enabled: false,
+          keyCode: 0,
+          scanCode: 0,
+          gesture: HardwareVoiceGesture.single,
+        ),
+      );
+      if (ack.available && ack.protocol == hardwareVoiceProtocol) {
+        _bridgeAvailable = true;
+        _bridgeProtocol = ack.protocol;
+        if (_nativeError == hardwareVoiceReinstallMessage) {
+          _nativeError = null;
+        }
+      }
+    } catch (_) {
+      // Logout must still clear local armed state even if native is missing.
+    }
+  }
+
+  void _applyConfigureAck(
+    HardwareVoiceConfigureAck ack, {
+    required bool desiredEnabled,
+  }) {
+    _bridgeAvailable = ack.available && ack.protocol == hardwareVoiceProtocol;
+    _bridgeProtocol = ack.protocol;
+    if (!ack.ok || !_bridgeAvailable) {
+      _nativeActive = false;
+      _nativeError = _bridgeAvailable
+          ? (ack.message ??
+                'Не удалось активировать обработчик аппаратных кнопок.')
+          : hardwareVoiceReinstallMessage;
+      return;
+    }
+    _nativeActive = desiredEnabled && ack.enabled;
+    _nativeError = _nativeActive
+        ? null
+        : 'Не удалось активировать обработчик аппаратных кнопок.';
   }
 
   void _abortSessions() {
@@ -290,7 +462,7 @@ class HardwareVoiceController extends ChangeNotifier {
     if (_phase != HardwareVoiceUiPhase.idle) {
       return;
     }
-    if (!hasEnabledBinding) {
+    if (!isNativeActive) {
       return;
     }
     final handler = onShellVoiceTrigger;
@@ -342,6 +514,14 @@ class HardwareVoiceController extends ChangeNotifier {
     } else {
       await _disableNative();
     }
+    notifyListeners();
+  }
+
+  String _bridgeErrorMessage(Object error) {
+    if (error is MissingPluginException) {
+      return hardwareVoiceReinstallMessage;
+    }
+    return hardwareVoiceReinstallMessage;
   }
 
   @override

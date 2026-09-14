@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:personal_secretary/assistant/hardware_voice_bridge.dart';
 import 'package:personal_secretary/assistant/hardware_voice_keys.dart';
 
@@ -9,7 +10,16 @@ class FakeHardwareVoiceBridge implements HardwareVoiceBridge {
   int cancelLearnCount = 0;
   int startTestCount = 0;
   int cancelTestCount = 0;
+  int statusCount = 0;
   bool disposed = false;
+  bool available = true;
+  String protocol = hardwareVoiceProtocol;
+  String mode = 'disabled';
+  Object? statusException;
+  Object? configureException;
+  Object? startLearnException;
+  Object? startTestException;
+  bool configureOk = true;
 
   bool get nativeEnabled => lastConfig?.enabled == true;
 
@@ -19,14 +29,47 @@ class FakeHardwareVoiceBridge implements HardwareVoiceBridge {
   }
 
   @override
-  Future<void> configure(HardwareVoiceNativeConfig config) async {
+  Future<HardwareVoiceBridgeStatus> getStatus() async {
+    statusCount += 1;
+    final error = statusException;
+    if (error != null) {
+      throw error;
+    }
+    return HardwareVoiceBridgeStatus(
+      available: available,
+      protocol: protocol,
+      mode: mode,
+    );
+  }
+
+  @override
+  Future<HardwareVoiceConfigureAck> configure(
+    HardwareVoiceNativeConfig config,
+  ) async {
     configureCount += 1;
     lastConfig = config;
+    final error = configureException;
+    if (error != null) {
+      throw error;
+    }
+    mode = config.enabled ? 'armed' : 'disabled';
+    return HardwareVoiceConfigureAck(
+      ok: configureOk && available,
+      available: available,
+      protocol: protocol,
+      enabled: configureOk && available && config.enabled,
+      message: configureOk ? null : 'native configure failed',
+    );
   }
 
   @override
   Future<void> startLearn({int timeoutMs = hardwareVoiceLearnTimeoutMs}) async {
     startLearnCount += 1;
+    final error = startLearnException;
+    if (error != null) {
+      throw error;
+    }
+    mode = 'learn';
   }
 
   @override
@@ -42,6 +85,11 @@ class FakeHardwareVoiceBridge implements HardwareVoiceBridge {
   @override
   Future<void> startTest({int timeoutMs = hardwareVoiceLearnTimeoutMs}) async {
     startTestCount += 1;
+    final error = startTestException;
+    if (error != null) {
+      throw error;
+    }
+    mode = 'test';
   }
 
   @override
@@ -57,4 +105,10 @@ class FakeHardwareVoiceBridge implements HardwareVoiceBridge {
     disposed = true;
     listener = null;
   }
+}
+
+MissingPluginException missingHardwareVoicePlugin() {
+  return MissingPluginException(
+    'No implementation found for method getStatus on channel $hardwareVoiceChannelName',
+  );
 }

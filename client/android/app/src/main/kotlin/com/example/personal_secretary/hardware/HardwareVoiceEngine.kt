@@ -2,6 +2,7 @@ package com.example.personal_secretary.hardware
 
 object HardwareVoiceConstants {
     const val CHANNEL = "secretary/hardware_voice"
+    const val PROTOCOL = "secretary.hardware_voice.v1"
     const val DOUBLE_PRESS_WINDOW_MS = 350L
     const val LEARN_TIMEOUT_MS = 9000L
     const val TEST_TIMEOUT_MS = 9000L
@@ -132,6 +133,23 @@ class HardwareVoiceEngine(
         mode = if (next.enabled) EngineMode.ARMED else EngineMode.DISABLED
         longPressActive = false
         volumeLongPressStarted = false
+    }
+
+    fun diagnosticMode(): String = when (mode) {
+        EngineMode.DISABLED -> "disabled"
+        EngineMode.ARMED -> "armed"
+        EngineMode.LEARN -> "learn"
+        EngineMode.TEST -> "test"
+    }
+
+    fun diagnosticBinding(): HardwareVoiceNativeBinding? = binding
+
+    fun wouldMatch(stroke: HardwareKeyStroke): Boolean {
+        val current = binding ?: return false
+        if (mode == EngineMode.DISABLED) {
+            return false
+        }
+        return HardwareVoiceKeyPolicy.matches(current, stroke)
     }
 
     fun startLearn(timeoutMs: Long = HardwareVoiceConstants.LEARN_TIMEOUT_MS) {

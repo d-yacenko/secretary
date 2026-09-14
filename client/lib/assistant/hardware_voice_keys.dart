@@ -2,6 +2,9 @@
 /// `HardwareVoiceConstants` / `HardwareVoiceKeyPolicy` in Kotlin.
 library;
 
+/// MethodChannel protocol advertised by the native plugin.
+const String hardwareVoiceProtocol = 'secretary.hardware_voice.v1';
+
 /// Double-press window for Volume Up fallback and optional generic double.
 const int hardwareVoiceDoublePressWindowMs = 350;
 

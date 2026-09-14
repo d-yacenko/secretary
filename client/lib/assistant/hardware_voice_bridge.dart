@@ -30,7 +30,43 @@ class HardwareVoiceNativeConfig {
   }
 }
 
-enum HardwareVoiceLearnStatus { captured, rejected, timeout, cancelled }
+class HardwareVoiceBridgeStatus {
+  const HardwareVoiceBridgeStatus({
+    required this.available,
+    this.protocol = '',
+    this.mode = 'disabled',
+  });
+
+  final bool available;
+  final String protocol;
+  final String mode;
+
+  bool get isHealthy => available && protocol == hardwareVoiceProtocol;
+}
+
+class HardwareVoiceConfigureAck {
+  const HardwareVoiceConfigureAck({
+    required this.ok,
+    required this.available,
+    this.protocol = '',
+    this.enabled = false,
+    this.message,
+  });
+
+  final bool ok;
+  final bool available;
+  final String protocol;
+  final bool enabled;
+  final String? message;
+}
+
+enum HardwareVoiceLearnStatus {
+  captured,
+  rejected,
+  timeout,
+  cancelled,
+  bridgeError,
+}
 
 class HardwareVoiceLearnResult {
   const HardwareVoiceLearnResult({
@@ -51,12 +87,13 @@ class HardwareVoiceLearnResult {
       status == HardwareVoiceLearnStatus.captured && keyCode != null;
 }
 
-enum HardwareVoiceTestStatus { recognized, timeout, cancelled }
+enum HardwareVoiceTestStatus { recognized, timeout, cancelled, bridgeError }
 
 class HardwareVoiceTestResult {
-  const HardwareVoiceTestResult({required this.status});
+  const HardwareVoiceTestResult({required this.status, this.message});
 
   final HardwareVoiceTestStatus status;
+  final String? message;
 
   bool get isRecognized => status == HardwareVoiceTestStatus.recognized;
 }
@@ -64,7 +101,9 @@ class HardwareVoiceTestResult {
 abstract class HardwareVoiceBridge {
   void setListener(HardwareVoiceBridgeListener? listener);
 
-  Future<void> configure(HardwareVoiceNativeConfig config);
+  Future<HardwareVoiceBridgeStatus> getStatus();
+
+  Future<HardwareVoiceConfigureAck> configure(HardwareVoiceNativeConfig config);
 
   Future<void> startLearn({int timeoutMs = hardwareVoiceLearnTimeoutMs});
 
@@ -94,7 +133,16 @@ class NoopHardwareVoiceBridge implements HardwareVoiceBridge {
   void setListener(HardwareVoiceBridgeListener? listener) {}
 
   @override
-  Future<void> configure(HardwareVoiceNativeConfig config) async {}
+  Future<HardwareVoiceBridgeStatus> getStatus() async {
+    return const HardwareVoiceBridgeStatus(available: false);
+  }
+
+  @override
+  Future<HardwareVoiceConfigureAck> configure(
+    HardwareVoiceNativeConfig config,
+  ) async {
+    return const HardwareVoiceConfigureAck(ok: false, available: false);
+  }
 
   @override
   Future<void> startLearn({
@@ -129,8 +177,40 @@ class MethodChannelHardwareVoiceBridge implements HardwareVoiceBridge {
   }
 
   @override
-  Future<void> configure(HardwareVoiceNativeConfig config) async {
-    await _channel.invokeMethod<void>('configure', config.toMap());
+  Future<HardwareVoiceBridgeStatus> getStatus() async {
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('getStatus');
+      return _parseStatus(raw);
+    } on MissingPluginException {
+      return const HardwareVoiceBridgeStatus(available: false);
+    } on PlatformException {
+      return const HardwareVoiceBridgeStatus(available: false);
+    }
+  }
+
+  @override
+  Future<HardwareVoiceConfigureAck> configure(
+    HardwareVoiceNativeConfig config,
+  ) async {
+    try {
+      final raw = await _channel.invokeMethod<dynamic>(
+        'configure',
+        config.toMap(),
+      );
+      return _parseAck(raw);
+    } on MissingPluginException catch (error) {
+      return HardwareVoiceConfigureAck(
+        ok: false,
+        available: false,
+        message: error.message,
+      );
+    } on PlatformException catch (error) {
+      return HardwareVoiceConfigureAck(
+        ok: false,
+        available: false,
+        message: error.message,
+      );
+    }
   }
 
   @override
@@ -179,36 +259,80 @@ class MethodChannelHardwareVoiceBridge implements HardwareVoiceBridge {
     }
   }
 
+  HardwareVoiceBridgeStatus _parseStatus(dynamic arguments) {
+    final map = _asMap(arguments);
+    final protocol = map['protocol'] as String? ?? '';
+    final available = map['available'] == true;
+    return HardwareVoiceBridgeStatus(
+      available: available,
+      protocol: protocol,
+      mode: map['mode'] as String? ?? 'disabled',
+    );
+  }
+
+  HardwareVoiceConfigureAck _parseAck(dynamic arguments) {
+    final map = _asMap(arguments);
+    final protocol = map['protocol'] as String? ?? '';
+    final available = map['available'] == true;
+    final ok =
+        map['ok'] == true && available && protocol == hardwareVoiceProtocol;
+    return HardwareVoiceConfigureAck(
+      ok: ok,
+      available: available,
+      protocol: protocol,
+      enabled: map['enabled'] == true,
+      message: map['message'] as String?,
+    );
+  }
+
   HardwareVoiceLearnResult _parseLearn(dynamic arguments) {
-    final map = arguments is Map
-        ? Map<String, dynamic>.from(arguments)
-        : <String, dynamic>{};
+    final map = _asMap(arguments);
     final statusRaw = map['status'] as String? ?? 'timeout';
     final status = switch (statusRaw) {
       'captured' => HardwareVoiceLearnStatus.captured,
       'rejected' => HardwareVoiceLearnStatus.rejected,
       'cancelled' => HardwareVoiceLearnStatus.cancelled,
+      'bridgeError' => HardwareVoiceLearnStatus.bridgeError,
       _ => HardwareVoiceLearnStatus.timeout,
     };
     return HardwareVoiceLearnResult(
       status: status,
-      keyCode: map['keyCode'] as int?,
-      scanCode: map['scanCode'] as int? ?? 0,
+      keyCode: _asInt(map['keyCode']),
+      scanCode: _asInt(map['scanCode']) ?? 0,
       androidKeyName: map['androidKeyName'] as String?,
       message: map['message'] as String?,
     );
   }
 
   HardwareVoiceTestResult _parseTest(dynamic arguments) {
-    final map = arguments is Map
-        ? Map<String, dynamic>.from(arguments)
-        : <String, dynamic>{};
+    final map = _asMap(arguments);
     final statusRaw = map['status'] as String? ?? 'timeout';
     final status = switch (statusRaw) {
       'recognized' => HardwareVoiceTestStatus.recognized,
       'cancelled' => HardwareVoiceTestStatus.cancelled,
+      'bridgeError' => HardwareVoiceTestStatus.bridgeError,
       _ => HardwareVoiceTestStatus.timeout,
     };
-    return HardwareVoiceTestResult(status: status);
+    return HardwareVoiceTestResult(
+      status: status,
+      message: map['message'] as String?,
+    );
+  }
+
+  Map<String, dynamic> _asMap(dynamic arguments) {
+    if (arguments is Map) {
+      return Map<String, dynamic>.from(arguments);
+    }
+    return <String, dynamic>{};
+  }
+
+  int? _asInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return null;
   }
 }

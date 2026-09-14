@@ -78,6 +78,37 @@ void main() {
       find.text('Использовать «Громкость +» (двойное нажатие)'),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('hardware_voice_bridge_error')), findsNothing);
+    hardware.dispose();
+  });
+
+  testWidgets('unavailable native bridge shows reinstall copy', (tester) async {
+    final client = buildAccountApiClient();
+    final auth = AuthController(
+      apiClient: client,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    auth.user = UserMe(
+      id: 'user-1',
+      displayName: 'Alice',
+      createdAt: '2026-01-01T00:00:00Z',
+    );
+    final hardware = HardwareVoiceController(
+      authController: auth,
+      store: HardwareVoiceStore(
+        preferences: await SharedPreferences.getInstance(),
+      ),
+      bridge: FakeHardwareVoiceBridge()..available = false,
+    );
+    await hardware.attach();
+    await pumpAccountReady(tester, screen(auth: auth, hardware: hardware));
+    expect(
+      find.byKey(const Key('hardware_voice_bridge_error')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('переустановка'), findsWidgets);
     hardware.dispose();
   });
 

@@ -37,6 +37,14 @@ class HardwareVoiceAccountSection extends StatelessWidget {
               'Аппаратная кнопка — это устройство. Настройка хранится только '
               'на этом Android-устройстве и не синхронизируется с сервером.',
             ),
+            if (controller.handlerBanner != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                controller.handlerBanner!,
+                key: const Key('hardware_voice_bridge_error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
             const SizedBox(height: 12),
             Text(
               'Аппаратная кнопка — это устройство',
@@ -49,7 +57,10 @@ class HardwareVoiceAccountSection extends StatelessWidget {
               style: Theme.of(context).textTheme.titleSmall,
             ),
             if (controller.statusSecondary != null)
-              Text(controller.statusSecondary!),
+              Text(
+                controller.statusSecondary!,
+                key: const Key('hardware_voice_status_secondary'),
+              ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -57,14 +68,20 @@ class HardwareVoiceAccountSection extends StatelessWidget {
               children: [
                 OutlinedButton(
                   key: const Key('hardware_voice_learn'),
-                  onPressed: controller.isLearning || controller.isTesting
+                  onPressed:
+                      !controller.isBridgeAvailable ||
+                          controller.isLearning ||
+                          controller.isTesting
                       ? null
                       : () => _learn(context),
                   child: const Text('Выбрать кнопку…'),
                 ),
                 OutlinedButton(
                   key: const Key('hardware_voice_volume_up'),
-                  onPressed: controller.isLearning || controller.isTesting
+                  onPressed:
+                      !controller.isBridgeAvailable ||
+                          controller.isLearning ||
+                          controller.isTesting
                       ? null
                       : () => controller.useVolumeUpDouble(),
                   child: const Text(
@@ -74,7 +91,7 @@ class HardwareVoiceAccountSection extends StatelessWidget {
                 OutlinedButton(
                   key: const Key('hardware_voice_test'),
                   onPressed:
-                      !controller.hasEnabledBinding ||
+                      !controller.isNativeActive ||
                           controller.isLearning ||
                           controller.isTesting
                       ? null
@@ -93,7 +110,7 @@ class HardwareVoiceAccountSection extends StatelessWidget {
                 ),
               ],
             ),
-            if (controller.hasEnabledBinding &&
+            if (controller.isNativeActive &&
                 !controller.binding!.isVolumeUp) ...[
               const SizedBox(height: 12),
               SegmentedButton<HardwareVoiceGesture>(
@@ -176,14 +193,31 @@ class HardwareVoiceAccountSection extends StatelessWidget {
     if (!context.mounted) {
       return;
     }
+    if (result.status == HardwareVoiceLearnStatus.bridgeError) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            content: Text(result.message ?? hardwareVoiceReinstallMessage),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Понятно'),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
     if (result.status == HardwareVoiceLearnStatus.timeout) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) {
           return AlertDialog(
             content: const Text(
-              'Не удалось получить событие от этой кнопки.\n'
-              'Возможно, Android или прошивка устройства перехватывает её.\n'
+              'Обработчик работает, но Android не передал событие от этой кнопки.\n'
+              'Возможно, прошивка устройства перехватывает её.\n'
               'Можно выбрать другую кнопку или использовать двойное нажатие «Громкость +».',
             ),
             actions: [
@@ -243,11 +277,14 @@ class HardwareVoiceAccountSection extends StatelessWidget {
     if (!context.mounted) {
       return;
     }
-    final message = result.isRecognized
-        ? 'Кнопка распознана'
-        : result.status == HardwareVoiceTestStatus.cancelled
-        ? null
-        : 'Кнопка не распознана. Повторите жест или выберите другую кнопку.';
+    final message = switch (result.status) {
+      HardwareVoiceTestStatus.recognized => 'Кнопка распознана',
+      HardwareVoiceTestStatus.cancelled => null,
+      HardwareVoiceTestStatus.bridgeError =>
+        result.message ?? hardwareVoiceReinstallMessage,
+      HardwareVoiceTestStatus.timeout =>
+        'Кнопка не распознана. Повторите жест или выберите другую кнопку.',
+    };
     if (message == null) {
       return;
     }
