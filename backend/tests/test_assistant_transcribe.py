@@ -14,6 +14,8 @@ from app.assistant.transcription_constants import (
     TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
     TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
     TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    TRANSCRIPTION_UNRECOGNIZED,
+    TRANSCRIPTION_UNRECOGNIZED_MESSAGE,
 )
 from app.api.assistant import get_transcription_provider
 from app.api.deps import get_db, get_embedding_service
@@ -24,6 +26,7 @@ from app.llm.openai_transcription_provider import (
     OpenAITranscriptionProvider,
     TranscriptionAudioInvalidError,
     TranscriptionProviderError,
+    TranscriptionUnrecognizedError,
 )
 from app.main import app
 from app.services.transcription_service import create_fake_transcription_provider
@@ -55,6 +58,27 @@ def transcribe_client(
     with TestClient(app) as test_client:
         yield AuthTestClient(test_client, auth_headers), fake_transcription_provider
     app.dependency_overrides.clear()
+
+
+def _pcm_wav(duration_ms: int, sample_rate: int = 16000) -> bytes:
+    samples = sample_rate * duration_ms // 1000
+    data_bytes = samples * 2
+    byte_rate = sample_rate * 2
+    header = bytearray()
+    header.extend(b"RIFF")
+    header.extend((36 + data_bytes).to_bytes(4, "little"))
+    header.extend(b"WAVE")
+    header.extend(b"fmt ")
+    header.extend((16).to_bytes(4, "little"))
+    header.extend((1).to_bytes(2, "little"))
+    header.extend((1).to_bytes(2, "little"))
+    header.extend(sample_rate.to_bytes(4, "little"))
+    header.extend(byte_rate.to_bytes(4, "little"))
+    header.extend((2).to_bytes(2, "little"))
+    header.extend((16).to_bytes(2, "little"))
+    header.extend(b"data")
+    header.extend(data_bytes.to_bytes(4, "little"))
+    return bytes(header) + (b"\x00" * data_bytes)
 
 
 def _audio_file(
@@ -183,7 +207,7 @@ def test_transcribe_provider_exception_returns_502(transcribe_client) -> None:
 
     response = client.post(
         "/assistant/transcribe",
-        files=_audio_file(b"audio-bytes"),
+        files=_audio_file(b"audio-bytes", filename="clip.m4a", content_type="audio/mp4"),
     )
 
     assert response.status_code == 502
@@ -203,7 +227,7 @@ def test_transcribe_invalid_audio_returns_422(transcribe_client) -> None:
 
     response = client.post(
         "/assistant/transcribe",
-        files=_audio_file(b"audio-bytes"),
+        files=_audio_file(b"audio-bytes", filename="clip.m4a", content_type="audio/mp4"),
     )
 
     assert response.status_code == 422
@@ -214,7 +238,42 @@ def test_transcribe_invalid_audio_returns_422(transcribe_client) -> None:
     assert "transcription audio rejected" not in response.text
 
 
-def test_openai_transcription_provider_classifies_400_as_invalid_audio(
+def test_transcribe_short_secretary_wav_returns_422_without_provider_call(
+    transcribe_client,
+) -> None:
+    client, provider = transcribe_client
+
+    response = client.post(
+        "/assistant/transcribe",
+        files=_audio_file(_pcm_wav(80), filename="secretary_voice.wav"),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_AUDIO_INVALID,
+        "message": TRANSCRIPTION_AUDIO_INVALID_MESSAGE,
+    }
+    assert provider.calls == []
+
+
+def test_transcribe_empty_provider_text_returns_unrecognized(transcribe_client) -> None:
+    client, provider = transcribe_client
+    provider.transcribe = lambda *_args, **_kwargs: "   "
+
+    response = client.post(
+        "/assistant/transcribe",
+        files=_audio_file(b"audio-bytes", filename="clip.m4a", content_type="audio/mp4"),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": TRANSCRIPTION_UNRECOGNIZED,
+        "message": TRANSCRIPTION_UNRECOGNIZED_MESSAGE,
+    }
+    assert "empty text" not in response.text
+
+
+def test_openai_transcription_provider_classifies_unrelated_400_as_provider_failure(
     monkeypatch,
 ) -> None:
     class FakeAudio:
@@ -232,11 +291,11 @@ def test_openai_transcription_provider_classifies_400_as_invalid_audio(
 
     monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
     provider = OpenAITranscriptionProvider(api_key="sk-test", model="gpt-4o-mini-transcribe")
-    with pytest.raises(TranscriptionAudioInvalidError):
+    with pytest.raises(TranscriptionProviderError):
         provider.transcribe(b"wav-bytes", "secretary_voice.wav", "audio/wav")
 
 
-def test_openai_transcription_provider_classifies_empty_text_as_invalid_audio(
+def test_openai_transcription_provider_classifies_empty_text_as_unrecognized(
     monkeypatch,
 ) -> None:
     class FakeAudio:
@@ -252,7 +311,7 @@ def test_openai_transcription_provider_classifies_empty_text_as_invalid_audio(
 
     monkeypatch.setattr("openai.OpenAI", lambda api_key: FakeClient(api_key))
     provider = OpenAITranscriptionProvider(api_key="sk-test", model="gpt-4o-mini-transcribe")
-    with pytest.raises(TranscriptionAudioInvalidError):
+    with pytest.raises(TranscriptionUnrecognizedError):
         provider.transcribe(b"wav-bytes", "secretary_voice.wav", "audio/wav")
 
 
@@ -301,7 +360,7 @@ def test_transcribe_does_not_create_db_state(transcribe_client, db_session) -> N
 
     response = client.post(
         "/assistant/transcribe",
-        files=_audio_file(b"audio-bytes"),
+        files=_audio_file(b"audio-bytes", filename="clip.m4a", content_type="audio/mp4"),
     )
 
     assert response.status_code == 200
@@ -357,8 +416,8 @@ def test_transcribe_audio_upload_runs_provider_in_threadpool(monkeypatch) -> Non
     threadpool_used = False
 
     class FakeUpload:
-        filename = "clip.wav"
-        content_type = "audio/wav"
+        filename = "clip.m4a"
+        content_type = "audio/mp4"
 
         async def read(self, size: int) -> bytes:
             return b"audio-bytes"

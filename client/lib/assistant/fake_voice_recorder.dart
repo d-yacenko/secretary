@@ -24,6 +24,9 @@ class FakeVoiceRecorder implements VoiceRecorder {
   int cancelCallCount = 0;
   Duration startDelay = Duration.zero;
   Duration stopDelay = Duration.zero;
+  List<int>? bytesAfterStop;
+  Duration growAfterStopDelay = const Duration(milliseconds: 80);
+  void Function()? onStart;
 
   late List<int> _audioBytes;
   String _extension = 'wav';
@@ -72,6 +75,7 @@ class FakeVoiceRecorder implements VoiceRecorder {
     }
     startCallCount += 1;
     lastStartedPath = filePath;
+    onStart?.call();
     if (startDelay > Duration.zero) {
       await Future<void>.delayed(startDelay);
     }
@@ -97,6 +101,13 @@ class FakeVoiceRecorder implements VoiceRecorder {
     isRecording = false;
     if (lastStartedPath == null) {
       throw StateError('no active recording');
+    }
+    final delayedBytes = bytesAfterStop;
+    if (delayedBytes != null) {
+      final path = lastStartedPath!;
+      Future<void>.delayed(growAfterStopDelay, () {
+        File(path).writeAsBytesSync(delayedBytes);
+      });
     }
     return lastStartedPath!;
   }

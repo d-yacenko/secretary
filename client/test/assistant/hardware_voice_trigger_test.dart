@@ -306,10 +306,14 @@ void main() {
   );
 
   test(
-    'ack plays immediately and ready plays only after recording starts',
+    'ack plays immediately and ready completes before recorder start',
     () async {
-      final cues = RecordingVoiceLocalFeedback();
       final recorder = FakeVoiceRecorder();
+      final cues = RecordingVoiceLocalFeedback(
+        isRecorderActive: () => recorder.isRecording,
+      );
+      var readyBeforeStart = 0;
+      recorder.onStart = () => readyBeforeStart = cues.readyCount;
       final apiClient = SecretaryApiClient(
         httpClient: MockClient((_) async => http.Response('{}', 404)),
       );
@@ -324,7 +328,9 @@ void main() {
       );
       expect(cues.ackCount, 1);
       expect(cues.readyCount, 1);
+      expect(readyBeforeStart, 1);
       expect(recorder.startCallCount, 1);
+      expect(cues.mediaWhileRecording, isEmpty);
       assistant.dispose();
 
       final skipped = RecordingVoiceLocalFeedback();
@@ -343,7 +349,33 @@ void main() {
     },
   );
 
-  test('ready cue is not played when microphone start fails', () async {
+  test(
+    'ready cue is not played when microphone permission is denied',
+    () async {
+      final cues = RecordingVoiceLocalFeedback();
+      final recorder = FakeVoiceRecorder()
+        ..permissionGranted = false
+        ..requestPermissionResult = false;
+      final apiClient = SecretaryApiClient(
+        httpClient: MockClient((_) async => http.Response('{}', 404)),
+      );
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        recorder: recorder,
+        voiceFeedback: cues,
+      );
+      await assistant.handleVoiceTrigger(
+        source: VoiceInvocationSource.hardwareButton,
+      );
+      expect(cues.ackCount, 1);
+      expect(cues.readyCount, 0);
+      expect(assistant.voiceState, AssistantVoiceState.error);
+      assistant.dispose();
+    },
+  );
+
+  test('hands-free ready cue may play before a later start failure', () async {
     final cues = RecordingVoiceLocalFeedback();
     final recorder = FakeVoiceRecorder()..failStart = true;
     final apiClient = SecretaryApiClient(
@@ -359,14 +391,16 @@ void main() {
       source: VoiceInvocationSource.hardwareButton,
     );
     expect(cues.ackCount, 1);
-    expect(cues.readyCount, 0);
+    expect(cues.readyCount, 1);
     expect(assistant.voiceState, AssistantVoiceState.error);
     assistant.dispose();
   });
 
-  test('stop cue plays when recording is stopped', () async {
-    final cues = RecordingVoiceLocalFeedback();
+  test('stop cue plays only after the recorder has stopped', () async {
     final recorder = FakeVoiceRecorder();
+    final cues = RecordingVoiceLocalFeedback(
+      isRecorderActive: () => recorder.isRecording,
+    );
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/transcribe') {
         return jsonResponse({'text': 'привет'});
@@ -398,6 +432,7 @@ void main() {
     );
     await waitUntil(() => cues.stopCount == 1);
     expect(cues.stopCount, 1);
+    expect(cues.mediaWhileRecording, isEmpty);
     assistant.dispose();
   });
 

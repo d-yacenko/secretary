@@ -62,6 +62,13 @@ const transcriptionProviderFailedMessage =
     'Не удалось распознать речь. Попробуйте ещё раз.';
 const transcriptionAudioInvalidMessage =
     'Запись слишком короткая или не распознана. Повторите фразу.';
+const transcriptionUnrecognizedCode = 'transcription_unrecognized';
+const transcriptionUnrecognizedMessage = 'Речь не распознана. Повторите фразу.';
+
+String transcriptionUnexpectedlyShortMessage(int durationMs) {
+  final seconds = (durationMs / 1000).toStringAsFixed(2).replaceAll('.', ',');
+  return 'Запись неожиданно получилась $seconds с. Повторите попытку.';
+}
 
 String? localTranscriptionMessage(Object error) {
   if (error is ApiException) {
@@ -72,6 +79,8 @@ String? localTranscriptionMessage(Object error) {
         return transcriptionProviderFailedMessage;
       case transcriptionAudioInvalidCode:
         return transcriptionAudioInvalidMessage;
+      case transcriptionUnrecognizedCode:
+        return transcriptionUnrecognizedMessage;
     }
     if (error.message == 'Transcription provider unavailable') {
       return transcriptionProviderFailedMessage;

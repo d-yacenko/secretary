@@ -1,7 +1,7 @@
 /// Shortest WAV we will send to the transcription API.
 ///
-/// Production phone failures were structurally valid 16 kHz PCM clips of
-/// ~80–400 ms (header plus a few kilobytes). OpenAI rejected those as 400.
+/// This is defensive validation, not a recorder-truncation fix. Android
+/// capture must still produce a wall-clock-length recording.
 const int minTranscribableWavDurationMs = 500;
 
 /// Structural WAV checks. Never logs or returns audio samples.

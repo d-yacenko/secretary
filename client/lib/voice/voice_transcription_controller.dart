@@ -7,6 +7,8 @@ import '../api/api_error.dart';
 import '../api/secretary_api_client.dart';
 import '../assistant/fake_voice_recorder.dart';
 import '../assistant/record_voice_recorder.dart';
+import '../assistant/recording_file_finalize.dart';
+import '../assistant/voice_capture_diagnostics.dart';
 import '../assistant/voice_recorder.dart';
 import '../assistant/voice_recorder_exceptions.dart';
 import '../assistant/voice_temp_files.dart';
@@ -26,6 +28,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
     VoiceTempFiles? voiceTempFiles,
     Duration maxRecordingDuration = maxVoiceRecordingDuration,
     bool enableAutoStopInTests = false,
+    bool? enableFileFinalizeWait,
   }) : _apiClient = apiClient,
        _authController = authController,
        _voiceRecorder =
@@ -43,7 +46,10 @@ class VoiceTranscriptionController extends ChangeNotifier {
                  )
                : VoiceTempFiles()),
        _maxRecordingDuration = maxRecordingDuration,
-       _enableAutoStopInTests = enableAutoStopInTests;
+       _enableAutoStopInTests = enableAutoStopInTests,
+       _enableFileFinalizeWait =
+           enableFileFinalizeWait ??
+           Platform.environment['FLUTTER_TEST'] != 'true';
 
   final SecretaryApiClient _apiClient;
   final AuthController _authController;
@@ -51,6 +57,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
   final VoiceTempFiles _voiceTempFiles;
   final Duration _maxRecordingDuration;
   final bool _enableAutoStopInTests;
+  final bool _enableFileFinalizeWait;
 
   Future<void> Function(String transcript)? _transcriptConsumer;
 
@@ -60,6 +67,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
   Timer? _recordingLimitTimer;
   int _voiceStartGeneration = 0;
   bool _voiceStartInFlight = false;
+  Stopwatch? _recordingWallClock;
 
   bool get isVoiceBusy =>
       _voiceStartInFlight ||
@@ -73,7 +81,9 @@ class VoiceTranscriptionController extends ChangeNotifier {
     _transcriptConsumer = consumer;
   }
 
-  Future<void> startRecording() async {
+  Future<void> startRecording({
+    Future<void> Function()? beforeMicrophoneStart,
+  }) async {
     if (_voiceStartInFlight) {
       return;
     }
@@ -90,6 +100,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
     final startGeneration = ++_voiceStartGeneration;
     String? operationPath;
     notifyListeners();
+    VoiceCaptureDiagnostics.event('recorder_start_requested');
 
     try {
       final hasPermission = await _voiceRecorder.hasPermission();
@@ -115,7 +126,17 @@ class VoiceTranscriptionController extends ChangeNotifier {
         _voiceRecorder.recordingFileExtension,
       );
       _activeRecordingPath = operationPath;
+
+      if (beforeMicrophoneStart != null) {
+        await beforeMicrophoneStart();
+        if (!_isActiveVoiceStart(startGeneration)) {
+          await _abortInFlightRecording(startGeneration, operationPath);
+          return;
+        }
+      }
+
       await _voiceRecorder.startRecording(operationPath);
+      VoiceCaptureDiagnostics.event('recorder_start_completed');
 
       if (!_isActiveVoiceStart(startGeneration)) {
         await _abortInFlightRecording(startGeneration, operationPath);
@@ -124,6 +145,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
 
       voiceState = VoiceState.recording;
       voiceErrorMessage = null;
+      _recordingWallClock = Stopwatch()..start();
       _recordingLimitTimer?.cancel();
       if (Platform.environment['FLUTTER_TEST'] != 'true' ||
           _enableAutoStopInTests) {
@@ -157,6 +179,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
 
   Future<void> stopAndTranscribe({
     Future<void> Function(String transcript)? onTranscript,
+    Future<void> Function()? afterRecorderStopped,
   }) async {
     if (voiceState != VoiceState.recording) {
       return;
@@ -172,6 +195,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
     _recordingLimitTimer?.cancel();
     _recordingLimitTimer = null;
     notifyListeners();
+    VoiceCaptureDiagnostics.event('recorder_stop_requested');
 
     String? recordedPath;
     try {
@@ -186,9 +210,24 @@ class VoiceTranscriptionController extends ChangeNotifier {
       return;
     }
     _activeRecordingPath = null;
+    final wallClockMs = _recordingWallClock?.elapsedMilliseconds ?? 0;
+    _recordingWallClock?.stop();
+    _recordingWallClock = null;
     VoiceTurnTiming.mark('audio_ready');
+    VoiceCaptureDiagnostics.event('recorder_stop_completed', {
+      'wall_clock_ms': wallClockMs,
+    });
 
     final file = File(recordedPath);
+    if (_enableFileFinalizeWait) {
+      final samples = await waitUntilRecordingFileFinalized(file);
+      VoiceCaptureDiagnostics.event('file_finalize_samples', {
+        'samples': samples
+            .map((sample) => '${sample.elapsedMs}:${sample.bytes}')
+            .join(','),
+      });
+    }
+
     try {
       if (!await file.exists() || await file.length() == 0) {
         await _voiceTempFiles.deleteIfExists(recordedPath);
@@ -199,6 +238,10 @@ class VoiceTranscriptionController extends ChangeNotifier {
       await _voiceTempFiles.deleteIfExists(recordedPath);
       _setVoiceError(const VoiceRecorderStopFailure().message);
       return;
+    }
+
+    if (afterRecorderStopped != null) {
+      await afterRecorderStopped();
     }
 
     List<int> audioBytes;
@@ -215,6 +258,11 @@ class VoiceTranscriptionController extends ChangeNotifier {
     final filename = _voiceRecorder.recordingFilename;
     final contentType = _voiceRecorder.recordingContentType;
     final wav = inspectWav(audioBytes);
+    VoiceCaptureDiagnostics.recordingInterval(
+      wallClockMs: wallClockMs,
+      fileBytes: audioBytes.length,
+      wav: wav,
+    );
     _logTranscriptionDebug(
       stage: 'upload_ready',
       encoder: _voiceRecorder.recordingDebugEncoder,
@@ -222,9 +270,14 @@ class VoiceTranscriptionController extends ChangeNotifier {
       contentType: contentType,
       byteLength: audioBytes.length,
       wav: wav,
+      wallClockMs: wallClockMs,
     );
     if (wav != null && shouldRejectWavForTranscription(wav)) {
-      _setVoiceError(transcriptionAudioInvalidMessage);
+      _setVoiceError(
+        wav.validHeader
+            ? transcriptionUnexpectedlyShortMessage(wav.durationMs)
+            : transcriptionAudioInvalidMessage,
+      );
       return;
     }
 
@@ -296,6 +349,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
     WavInspect? wav,
     int? httpStatus,
     int? elapsedMs,
+    int? wallClockMs,
     String? errorCode,
     String? errorType,
   }) {
@@ -311,6 +365,7 @@ class VoiceTranscriptionController extends ChangeNotifier {
       'api_base_url': _apiClient.baseUrl,
       if (httpStatus != null) 'http_status': httpStatus,
       if (elapsedMs != null) 'elapsed_ms': elapsedMs,
+      if (wallClockMs != null) 'wall_clock_ms': wallClockMs,
       if (errorCode != null) 'error_code': errorCode,
       if (errorType != null) 'error_type': errorType,
       ...?wav?.debugFields,

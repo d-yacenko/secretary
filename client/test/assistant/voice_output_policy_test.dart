@@ -681,5 +681,11 @@ void main() {
       ),
       transcriptionAudioInvalidMessage,
     );
+    expect(
+      localTranscriptionMessage(
+        ValidationException('ignored', code: transcriptionUnrecognizedCode),
+      ),
+      transcriptionUnrecognizedMessage,
+    );
   });
 }

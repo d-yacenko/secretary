@@ -7,6 +7,7 @@ from app.ai_audit.context import get_active_trace
 from app.ai_audit.instrumentation import record_simple_model_call
 from app.assistant.transcription_audio import read_bounded_transcription_audio
 from app.assistant.transcription_telemetry import log_transcription_telemetry
+from app.assistant.wav_inspect import inspect_wav, should_reject_wav_for_transcription
 from app.core.config import settings
 from app.llm.fake_transcription_provider import FakeTranscriptionProvider
 from app.llm.openai_transcription_provider import (
@@ -14,6 +15,7 @@ from app.llm.openai_transcription_provider import (
     TranscriptionAudioInvalidError,
     TranscriptionCallResult,
     TranscriptionProviderError,
+    TranscriptionUnrecognizedError,
 )
 
 
@@ -41,6 +43,7 @@ async def transcribe_audio_upload(
 ) -> str:
     audio_bytes, filename = await read_bounded_transcription_audio(upload)
     content_type = upload.content_type
+    _reject_locally_invalid_wav(audio_bytes, filename)
     model = _provider_model(provider)
     started = time.perf_counter()
     try:
@@ -51,7 +54,11 @@ async def transcribe_audio_upload(
             content_type,
         )
         transcript, token_usage = _normalize_transcription_result(text)
-    except (TranscriptionProviderError, TranscriptionAudioInvalidError) as exc:
+    except (
+        TranscriptionProviderError,
+        TranscriptionAudioInvalidError,
+        TranscriptionUnrecognizedError,
+    ) as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         category = getattr(exc, "code", type(exc).__name__)
         if get_active_trace() is not None:
@@ -111,11 +118,11 @@ def _normalize_transcription_result(result: object) -> tuple[str, dict[str, int]
     """Keep actual billed tokens if the provider returned them. Never estimate."""
     if isinstance(result, str):
         if not result.strip():
-            raise TranscriptionAudioInvalidError("transcription returned empty text")
+            raise TranscriptionUnrecognizedError("transcription returned empty text")
         return result, {}
     if isinstance(result, TranscriptionCallResult):
         if not result.text.strip():
-            raise TranscriptionAudioInvalidError("transcription returned empty text")
+            raise TranscriptionUnrecognizedError("transcription returned empty text")
         extra: dict[str, int] = {}
         if result.input_tokens is not None:
             extra["input_tokens"] = result.input_tokens
@@ -125,7 +132,15 @@ def _normalize_transcription_result(result: object) -> tuple[str, dict[str, int]
     text = getattr(result, "text", None)
     if isinstance(text, str) and text.strip():
         return text, {}
-    raise TranscriptionAudioInvalidError("transcription returned empty text")
+    raise TranscriptionUnrecognizedError("transcription returned empty text")
+
+
+def _reject_locally_invalid_wav(audio_bytes: bytes, filename: str) -> None:
+    if not filename.lower().endswith(".wav"):
+        return
+    inspect = inspect_wav(audio_bytes)
+    if inspect is None or should_reject_wav_for_transcription(inspect):
+        raise TranscriptionAudioInvalidError("secretary wav too short or malformed")
 
 
 def _provider_model(provider: TranscriptionProvider) -> str:

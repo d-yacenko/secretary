@@ -78,7 +78,10 @@ void main() {
         }
         expect(transcribeCalls, 0);
         expect(assistant.voiceState, AssistantVoiceState.error);
-        expect(assistant.voiceErrorMessage, transcriptionAudioInvalidMessage);
+        expect(
+          assistant.voiceErrorMessage,
+          transcriptionUnexpectedlyShortMessage(80),
+        );
         assistant.dispose();
       }
 
@@ -162,5 +165,12 @@ void main() {
     expect(voice.voiceState, VoiceState.error);
     expect(voice.voiceErrorMessage, transcriptionAudioInvalidMessage);
     voice.dispose();
+  });
+
+  test('short WAV error copy includes duration', () {
+    expect(
+      transcriptionUnexpectedlyShortMessage(320),
+      'Запись неожиданно получилась 0,32 с. Повторите попытку.',
+    );
   });
 }

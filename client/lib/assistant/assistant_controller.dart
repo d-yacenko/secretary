@@ -14,6 +14,7 @@ import 'audioplayers_speech_player.dart';
 import 'fake_speech_player.dart';
 import 'speech_playback_controller.dart';
 import 'speech_player.dart';
+import 'voice_capture_diagnostics.dart';
 import 'voice_confirmation.dart';
 import 'voice_invocation_source.dart';
 import 'voice_local_feedback.dart';
@@ -556,11 +557,16 @@ class AssistantController extends ChangeNotifier {
   /// Idle/error: start recording. Recording: stop and transcribe. Speaking:
   /// stop TTS and start a new recording. Starting/transcribing/thinking: ignore.
   /// Pending Action Plan uses the existing confirmation utterance path.
+  ///
+  /// Audible cues never overlap an active microphone recording. Hands-free
+  /// ready tone completes before the recorder starts. Stop cue plays after
+  /// the recorder has stopped.
   Future<void> handleVoiceTrigger({
     VoiceInvocationSource source = VoiceInvocationSource.screenMic,
     bool startCueAlreadyPlayed = false,
     bool stopCueAlreadyPlayed = false,
   }) async {
+    VoiceCaptureDiagnostics.trigger(source: source, state: voiceState.name);
     switch (voiceState) {
       case AssistantVoiceState.recording:
         await stopVoiceRecordingAndTranscribe(
@@ -580,24 +586,28 @@ class AssistantController extends ChangeNotifier {
         VoiceTurnTiming.startTurn(
           startCueAlreadyPlayed ? 'native_or_assist' : 'ui',
         );
-        if (voiceState == AssistantVoiceState.speaking) {
-          final interruptedPlanNarration = _planNarrationInProgress;
-          await stopSpeaking();
-          if (interruptedPlanNarration) {
-            _voiceApprovalArmed = false;
-          }
+        VoiceCaptureDiagnostics.startTurn(
+          turnId: '${DateTime.now().microsecondsSinceEpoch}-${source.name}',
+          source: source,
+        );
+        final interruptedPlanNarration =
+            voiceState == AssistantVoiceState.speaking &&
+            _planNarrationInProgress;
+        await stopSpeaking();
+        if (interruptedPlanNarration) {
+          _voiceApprovalArmed = false;
         }
         if (!startCueAlreadyPlayed) {
-          unawaited(_feedback.playAck());
+          await _feedback.playAck();
         }
         VoiceTurnTiming.mark('ack');
+        VoiceCaptureDiagnostics.event('ack_completed');
         await startVoiceRecording(source: source);
         if (voiceState != AssistantVoiceState.recording) {
           return;
         }
         VoiceTurnTiming.mark('recording_ready');
-        unawaited(_feedback.playReady());
-        VoiceTurnTiming.mark('ready_cue');
+        VoiceCaptureDiagnostics.event('recording_ready');
         return;
     }
   }
@@ -624,18 +634,35 @@ class AssistantController extends ChangeNotifier {
     if (!hasPendingActionPlan) {
       _beginTurn(source);
     }
-    await _voice.startRecording();
+    await _voice.startRecording(
+      beforeMicrophoneStart: () async {
+        await _feedback.releasePlayback();
+        if (!source.isHandsFree) {
+          return;
+        }
+        VoiceTurnTiming.mark('ready_cue_requested');
+        VoiceCaptureDiagnostics.event('ready_cue_requested');
+        await _feedback.playReady();
+        await _feedback.releasePlayback();
+        VoiceTurnTiming.mark('ready_cue_completed');
+        VoiceCaptureDiagnostics.event('ready_cue_completed');
+      },
+    );
   }
 
   Future<void> stopVoiceRecordingAndTranscribe({
     bool stopCueAlreadyPlayed = false,
   }) async {
     VoiceTurnTiming.mark('stop');
-    if (!stopCueAlreadyPlayed) {
-      unawaited(_feedback.playStop());
-    }
-    VoiceTurnTiming.mark('stop_feedback');
-    await _voice.stopAndTranscribe();
+    VoiceCaptureDiagnostics.event('stop_trigger');
+    await _voice.stopAndTranscribe(
+      afterRecorderStopped: () async {
+        VoiceTurnTiming.mark('stop_feedback');
+        if (!stopCueAlreadyPlayed) {
+          unawaited(_feedback.playStop());
+        }
+      },
+    );
   }
 
   Future<void> stopSpeaking() async {

@@ -32,6 +32,8 @@ from app.assistant.transcription_constants import (
     TRANSCRIPTION_PROVIDER_FAILED_MESSAGE,
     TRANSCRIPTION_PROVIDER_NOT_CONFIGURED,
     TRANSCRIPTION_PROVIDER_NOT_CONFIGURED_MESSAGE,
+    TRANSCRIPTION_UNRECOGNIZED,
+    TRANSCRIPTION_UNRECOGNIZED_MESSAGE,
 )
 from app.core.assistant_openai_config import AssistantOpenAIConfigError
 from app.core.current_user import CurrentUserContext
@@ -42,6 +44,7 @@ from app.llm.openai_speech_provider import SpeechProviderError
 from app.llm.openai_transcription_provider import (
     TranscriptionAudioInvalidError,
     TranscriptionProviderError,
+    TranscriptionUnrecognizedError,
 )
 from app.services.action_plan_service import (
     ActionPlanConflictError,
@@ -285,6 +288,14 @@ def _transcription_http_error(exc: Exception) -> HTTPException:
                 "message": TRANSCRIPTION_AUDIO_INVALID_MESSAGE,
             },
         )
+    if isinstance(exc, TranscriptionUnrecognizedError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": TRANSCRIPTION_UNRECOGNIZED,
+                "message": TRANSCRIPTION_UNRECOGNIZED_MESSAGE,
+            },
+        )
     if isinstance(
         exc,
         (TranscriptionConfigurationError, UserOpenAICredentialConfigurationError),
@@ -364,6 +375,7 @@ async def assistant_transcribe(
         TranscriptionConfigurationError,
         TranscriptionProviderError,
         TranscriptionAudioInvalidError,
+        TranscriptionUnrecognizedError,
         UserOpenAICredentialConfigurationError,
     ) as exc:
         raise _transcription_http_error(exc) from exc

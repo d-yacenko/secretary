@@ -174,10 +174,10 @@ class HardwareVoicePlugin(
         lastCallback = "voice"
         val acceptedElapsed = HardwareVoiceCue.nowElapsedMs()
         if (listening) {
-            HardwareVoiceCue.playStop(context)
             listening = false
             HardwareVoiceLog.line(
-                "callback=voice cue=stop acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
+                "callback=voice cue=none reason=defer_stop_until_recorder_stop " +
+                    "acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
             )
         } else {
             HardwareVoiceCue.playAck(context)
