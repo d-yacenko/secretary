@@ -4,6 +4,8 @@
 
 **Voice Assistant A: implemented / awaiting Architect review** on `review/voice-assistant-a`.
 
+Application SHA: `1391ce4c339f81a3c12cb65be0552dd7bc5eea10`
+
 Canonical base (docs tip named by Architect): `54f14a86b4c6de3c29b2f14c8a8a14b4db5ddf8c`
 
 Inherited accepted application SHA: `7ae954aa186ee211e6640753e384de6e1c75a93d`

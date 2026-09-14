@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Voice Assistant A: **implemented / awaiting Architect review** on `review/voice-assistant-a`. Canonical base `54f14a86b4c6de3c29b2f14c8a8a14b4db5ddf8c` (`review/pre-voice-ui-corrective-a` docs tip). Inherited accepted application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Not CODE ACCEPTED. Not deployed. Encrypted Architect context untouched.
+Voice Assistant A: **implemented / awaiting Architect review** on `review/voice-assistant-a`. Application SHA `1391ce4c339f81a3c12cb65be0552dd7bc5eea10`. Canonical base `54f14a86b4c6de3c29b2f14c8a8a14b4db5ddf8c` (`review/pre-voice-ui-corrective-a` docs tip). Inherited accepted application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Not CODE ACCEPTED. Not deployed. Encrypted Architect context untouched.
 
 Pre-Voice UI Corrective A: **CODE ACCEPTED / MANUALLY VERIFIED** on `review/pre-voice-ui-corrective-a`. Client-only. CODE ACCEPTED application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Canonical base `999f3668468826585e965c27488db2ea49f83cb9` (`review/teams-a` docs tip after the Teams external-blocker transition). No backend/schema changes. No migration. No standalone production server deploy; the accepted client tree remains in the canonical lineage for the next client release. Teams external blocker does not block Voice Assistant A.
 
@@ -596,4 +596,4 @@ VDS `assistant_turn` logs were not available from the local development environm
 
 ## Next phase
 
-Voice Assistant A is **implemented / awaiting Architect review** on `review/voice-assistant-a`. Pre-Voice UI Corrective A is **CODE ACCEPTED / MANUALLY VERIFIED** at application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Teams A remains **CODE ACCEPTED / DEPLOYED / PRODUCTION ACTIVATION DEFERRED — EXTERNAL ENTRA ADMIN CONSENT REQUIRED**. Do not start Voice B from this ledger. Do not deploy Voice Assistant A.
+Voice Assistant A is **implemented / awaiting Architect review** at application SHA `1391ce4c339f81a3c12cb65be0552dd7bc5eea10` on `review/voice-assistant-a`. Pre-Voice UI Corrective A is **CODE ACCEPTED / MANUALLY VERIFIED** at application SHA `7ae954aa186ee211e6640753e384de6e1c75a93d`. Teams A remains **CODE ACCEPTED / DEPLOYED / PRODUCTION ACTIVATION DEFERRED — EXTERNAL ENTRA ADMIN CONSENT REQUIRED**. Do not start Voice B from this ledger. Do not deploy Voice Assistant A.

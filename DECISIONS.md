@@ -555,5 +555,5 @@ Provider connection credentials stay in typed encrypted tables, not a generic JS
 - **Arming:** affirmative voice approval is armed only after the complete frozen communication preview finishes speaking. Interrupt/stop/TTS failure leaves approval unarmed. Exact reject may reject while unarmed. Visual approve/reject buttons remain available.
 - **Input gating:** ordinary Assistant message submission stays blocked while a plan is pending. Microphone may capture only the approval/rejection utterance; that utterance is not an Assistant model call.
 - **Out of scope:** wake word, always-listening, Realtime/full-duplex, Spotify, voice cloning, second orchestrator, Graph identity refinement, Teams admin-consent workaround.
-- **Status:** **implemented / awaiting Architect review** on `review/voice-assistant-a`. Not CODE ACCEPTED. Not deployed.
+- **Status:** **implemented / awaiting Architect review** at application SHA `1391ce4c339f81a3c12cb65be0552dd7bc5eea10` on `review/voice-assistant-a`. Not CODE ACCEPTED. Not deployed.
 
