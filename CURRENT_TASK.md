@@ -1,4 +1,4 @@
-# Current task — Voice Assistant A
+# Current task — Voice Assistant A R3
 
 ## Status
 
@@ -8,59 +8,44 @@ Accepted / exact deployed application SHA: `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf
 
 Previous production SHA: `eb3af922f804e6faf1d895fd14c0973981ce515e`
 
+**R3 (configurable Android hardware-button trigger): awaiting Architect review. Not CODE ACCEPTED.**
+
+R3 application SHA: `fe496d23358fc3bd0b0cd407fc72258ceeec0022`
+
+R3 parent (docs tip after Voice A deploy): `9d7587432afccf9eafc62c98f02035db68f33986`
+
 R2 application SHA: `244cdd28b81e7d8b33b6f78938fa062c03a82b3a`
 
 R1 application SHA: `89c7e0bf9fc74dbfcc8a02f9a6795b4f3deae82e`
 
 R1 PASS. R2 marker architecture/semantics PASS. R2-R1 reference hygiene PASS.
 
-Not PRODUCTION ACCEPTED. Do not start Voice B. Do not change Voice architecture.
+Not PRODUCTION ACCEPTED. Do not start Voice B. Do not redeploy production. Do not mark R3 CODE ACCEPTED.
 
-## Inherited accepted phases
+## R3 facts
 
-**Pre-Voice UI Corrective A: CODE ACCEPTED / MANUALLY VERIFIED**
+Client-only. No backend API. No DB migration. Binding is local to this Android device and namespaced by authenticated Secretary user id in `shared_preferences` (`hardware_voice_binding.$userId`). Logout disables the native binding immediately and keeps the namespaced pref for a later login of the same user.
 
-Application SHA: `7ae954aa186ee211e6640753e384de6e1c75a93d`
+Foreground-only: Secretary `MainActivity` must be active. No background service, wake lock, MediaSession global interception, default-assistant role, or Accessibility.
 
-**Teams A remains: CODE ACCEPTED / DEPLOYED / PRODUCTION ACTIVATION DEFERRED — EXTERNAL ENTRA ADMIN CONSENT REQUIRED** at application SHA `eb3af922f804e6faf1d895fd14c0973981ce515e` (included in the Voice A production tree). Alembic **0040 / 0040**.
+Canonical trigger: `AssistantController.handleVoiceTrigger()`. On-screen mic uses the same path. Hardware events in Learn/Test do not start Voice.
 
-## Production deploy (Executor)
+Navigation: if the AppShell route is not current or `Navigator.canPop()` (Account, object detail, capture, OAuth, other pushed routes), ignore rather than pop. Otherwise select «Секретарь» and invoke the canonical trigger.
 
-Detached on VDS `/opt/secretary`: `git checkout --detach 5ef2a2db117dc5a1c0ac54bad3d0e897ebcf6357` then `cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build api worker`. PostgreSQL volume `db_data` was not recreated. Only `api` and `worker` were rebuilt.
+Double-press window: **350 ms**. Learn/test timeout: **9000 ms**. Volume Up is forced to double-press. Generic OEM keys default to single-press. Held KeyDown repeats are not extra taps.
 
-Pre-deploy backup: `/opt/secretary/backups/pre-voice-a-20260914T075123Z-eb3af922.dump` (custom format). Rollback: checkout `eb3af922` and rebuild `api`/`worker`; restore dump only if schema diverges.
+Volume Up fallback delays the first short press for 350 ms, then `AudioManager.adjustSuggestedStreamVolume(ADJUST_RAISE, USE_DEFAULT_STREAM_TYPE, FLAG_SHOW_UI)` once if no second press; a second press inside the window emits one Voice trigger and does not raise volume. Long-press raises volume and does not start Voice.
 
-Alembic **0040 / 0040** before and after. No Voice A/R2 migration. No `0041`.
+Rejected Learn keys: HOME 3, BACK 4, CALL 5, ENDCALL 6, VOLUME_DOWN 25, POWER 26, MENU 82, VOLUME_MUTE 164, APP_SWITCH 187, SLEEP 223, WAKEUP 224, SOFT_SLEEP 276, SYSTEM_NAVIGATION_* 280–283.
 
-Documented TTS/STT defaults were absent from production `.env` and were appended (not secrets): `OPENAI_TTS_MODEL=gpt-4o-mini-tts`, `OPENAI_TTS_VOICE=alloy`, `OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`. Runtime resolved those values. Existing per-user OpenAI credential path remains (1 nonempty `user_openai_credentials` row).
+MethodChannel `secretary/hardware_voice`: Flutter→native `configure` / `startLearn` / `cancelLearn` / `startTest` / `cancelTest`; native→Flutter `onVoiceTrigger` / `onLearnResult` / `onTestResult`.
 
-FAILED jobs `1435` → `1435`. Internal `/health` 200. Public `https://web-itx.duckdns.org/secretary/health` 200.
+Linux: no hardware-button selector. No Linux keyboard shortcut in R3.
 
-Authenticated `POST /assistant/speech` with short harmless text: HTTP 200, `Content-Type: audio/mpeg`, 16896 audio bytes (MPEG ADTS). Objects `3472` → `3472`. Representations `452` → `452`. Smoke token revoked. No secrets printed. No external communication write.
+Checks: `dart format` on R3 Dart files; `flutter analyze` on R3 files (1 pre-existing `unnecessary_null_comparison` in `assistant_screen.dart` desktop-drop path); Flutter Voice A / hardware / shell / profile tests passed (127); Android `HardwareVoiceEngineTest` 12/12; `flutter build apk --debug`; `aapt dump badging` → `sdkVersion:'23'`. `account_layout_polish_test` two lazy-ListView findings also fail on HEAD without R3 Account wiring (pre-existing).
 
-## Clients for user manual test (same application SHA)
-
-Android debug APK (existing test workflow):
-
-`/tmp/secretary-voice-a-accepted/client/build/app/outputs/flutter-apk/app-debug.apk`
-
-Install: `adb install -r /tmp/secretary-voice-a-accepted/client/build/app/outputs/flutter-apk/app-debug.apk`
-
-`aapt dump badging` → `sdkVersion:'23'`. Source keeps `android.defaultConfig.minSdk = 23`.
-
-Linux debug bundle (openSUSE Tumbleweed builder `voice-a-linux-builder:gst`, GStreamer devel 1.28.7, `libsecret-devel`, clang 19):
-
-`/tmp/secretary-voice-a-accepted/client/build/linux/x64/debug/bundle/personal_secretary`
-
-Run from the bundle directory (host GStreamer runtime required; this host has 1.26.7):
-
-```bash
-cd /tmp/secretary-voice-a-accepted/client/build/linux/x64/debug/bundle
-export DISPLAY=:0
-export LD_LIBRARY_PATH="$PWD/lib"
-./personal_secretary
-```
+Device smoke on SM-T355 was started then stopped because the user was busy. Partial: R3 debug APK installed; Account section «Голосовой помощник» visible as device-local; Volume Up double preset saved (`Громкость +` / `Двойное нажатие`); Learn dialog copy shown. Not completed: single Volume Up ordinary volume, double Volume Up → recording, second double while recording, TTS interrupt. No Bixby/OEM extra key on this tablet.
 
 ## Stop
 
-Wait for **USER MANUAL ACCEPTANCE**. Do not mark PRODUCTION ACCEPTED. Do not start Voice B.
+Wait for **Architect review of R3**. Do not mark R3 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
