@@ -149,6 +149,13 @@ def _pap_count(session: Session, user_id: UUID) -> int:
     )
 
 
+def _visible_list_payload(page) -> dict:
+    raw = page.model_dump(mode="json")
+    return serialize_tool_output_for_assistant(
+        "list_inbox_since_review_marker", raw
+    ).model_visible_payload
+
+
 def test_anchor_is_excluded_from_new(db_session: Session, marker_user: UUID) -> None:
     t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
     older = _email(db_session, "older", created_at=t0 - timedelta(hours=2), user_id=marker_user)
@@ -385,6 +392,89 @@ def test_set_marker_succeeds_after_list_inbox_exposes_object(
     assert _marker(session, marker_user).get_marker().anchor_object_id == n1.id
 
 
+def test_review_marker_references_are_new_items_not_anchor(
+    db_session: Session, marker_user: UUID
+) -> None:
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(db_session, "A", created_at=t0, user_id=marker_user)
+    n1 = _email(db_session, "N1", created_at=t0 + timedelta(hours=1), user_id=marker_user)
+    n2 = _email(db_session, "N2", created_at=t0 + timedelta(hours=2), user_id=marker_user)
+    _marker(db_session, marker_user).set_marker(anchor.id)
+    db_session.flush()
+
+    payload = _visible_list_payload(
+        _tools(db_session, marker_user).list_inbox_since_review_marker(
+            ListInboxSinceReviewMarkerInput()
+        )
+    )
+    assert payload["anchor_object_id"] == str(anchor.id)
+    assert [row["object_id"] for row in payload["items"]] == [str(n2.id), str(n1.id)]
+
+    candidates: list[UUID] = []
+    collect_object_ids_from_bounded_tool(
+        "list_inbox_since_review_marker", payload, candidates, []
+    )
+    assert candidates == [n2.id, n1.id]
+    assert anchor.id not in candidates
+
+    seen = collect_seen_object_ids_from_bounded_tool(
+        "list_inbox_since_review_marker", payload
+    )
+    assert seen == [anchor.id, n2.id, n1.id]
+
+
+def test_review_marker_zero_new_items_have_no_reference_ids(
+    db_session: Session, marker_user: UUID
+) -> None:
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    older = _email(db_session, "older", created_at=t0 - timedelta(hours=1), user_id=marker_user)
+    anchor = _email(db_session, "A", created_at=t0, user_id=marker_user)
+    _marker(db_session, marker_user).set_marker(anchor.id)
+    db_session.flush()
+
+    payload = _visible_list_payload(
+        _tools(db_session, marker_user).list_inbox_since_review_marker(
+            ListInboxSinceReviewMarkerInput()
+        )
+    )
+    assert payload["items"] == []
+    assert payload["anchor_object_id"] == str(anchor.id)
+
+    candidates: list[UUID] = []
+    collect_object_ids_from_bounded_tool(
+        "list_inbox_since_review_marker", payload, candidates, []
+    )
+    assert candidates == []
+    assert older.id not in candidates
+    assert anchor.id not in candidates
+
+    seen = collect_seen_object_ids_from_bounded_tool(
+        "list_inbox_since_review_marker", payload
+    )
+    assert seen == [anchor.id]
+
+
+def test_set_marker_still_accepts_exposed_anchor(
+    interactive_session, marker_user: UUID
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(session, "A", created_at=t0, user_id=marker_user)
+    _email(session, "N1", created_at=t0 + timedelta(hours=1), user_id=marker_user)
+    _marker(session, marker_user).set_marker(anchor.id)
+    session.flush()
+    runner, budget = _runner(marker_user)
+
+    listed = runner("list_inbox_since_review_marker", {"limit": 20})
+    assert listed.success is True
+    runner.commit_model_visible_outputs()
+    result = runner("set_inbox_review_marker", {"after_object_id": str(anchor.id)})
+    assert result.success is True
+    assert result.staged_action is None
+    assert budget.staged_actions == []
+    assert _marker(session, marker_user).get_marker().anchor_object_id == anchor.id
+
+
 def test_non_inbox_eligible_target_rejected(interactive_session, marker_user: UUID) -> None:
     session = interactive_session
     task = GraphService(session, marker_user).create_object(
@@ -487,6 +577,8 @@ def test_bounded_tool_output_and_has_more(db_session: Session, marker_user: UUID
         "list_inbox_since_review_marker", payload, candidates, []
     )
     assert newer[-1].id in candidates
+    assert UUID(str(payload["anchor_object_id"])) not in candidates
+    assert candidates == visible_ids
 
 
 def test_mcp_review_marker_annotate_fail_closed(db_session, patched_mcp_tool_session) -> None:

@@ -30,7 +30,6 @@ def collect_object_ids_from_bounded_tool(
             if obj:
                 _append_uuid(candidate_ids, obj.get("id"))
     elif tool_name == "list_inbox_since_review_marker":
-        _append_uuid(candidate_ids, bounded.get("anchor_object_id"))
         for item in bounded.get("items", []):
             _append_uuid(candidate_ids, item.get("object_id"))
     elif tool_name == "remove_relation":
