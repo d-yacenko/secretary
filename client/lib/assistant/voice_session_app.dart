@@ -9,9 +9,16 @@ import 'voice_session_screen.dart';
 
 /// Minimal lock-screen / overlay isolate. No Inbox or history.
 class VoiceSessionApp extends StatefulWidget {
-  const VoiceSessionApp({super.key, required this.authController});
+  const VoiceSessionApp({
+    super.key,
+    required this.authController,
+    this.assistant,
+    this.systemAssistant,
+  });
 
   final AuthController authController;
+  final AssistantController? assistant;
+  final SystemAssistantController? systemAssistant;
 
   @override
   State<VoiceSessionApp> createState() => _VoiceSessionAppState();
@@ -20,22 +27,50 @@ class VoiceSessionApp extends StatefulWidget {
 class _VoiceSessionAppState extends State<VoiceSessionApp> {
   late final AssistantController _assistant;
   late final SystemAssistantController _systemAssistant;
+  late final bool _ownsAssistant;
+  late final bool _ownsSystemAssistant;
+  var _gateReady = false;
 
   @override
   void initState() {
     super.initState();
-    _assistant = AssistantController(
-      apiClient: widget.authController.apiClient,
-      authController: widget.authController,
-      lockScreenSession: true,
-    );
-    _systemAssistant = SystemAssistantController();
+    _ownsAssistant = widget.assistant == null;
+    _ownsSystemAssistant = widget.systemAssistant == null;
+    _assistant =
+        widget.assistant ??
+        AssistantController(
+          apiClient: widget.authController.apiClient,
+          authController: widget.authController,
+          lockScreenSession: true,
+        );
+    _systemAssistant = widget.systemAssistant ?? SystemAssistantController();
     widget.authController.addListener(_onAuth);
-    widget.authController.initialize();
-    _syncAssistantGate();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    await widget.authController.initialize();
+    if (!mounted) {
+      return;
+    }
+    await _systemAssistant.attach(widget.authController.user?.id);
+    if (!mounted) {
+      return;
+    }
+    _assistant.keyguardLocked = _systemAssistant.keyguardLocked;
+    _assistant.lockScreenVoiceEnabled = _systemAssistant.lockScreenVoiceEnabled;
+    setState(() {
+      _gateReady = true;
+    });
   }
 
   void _onAuth() {
+    if (!_gateReady) {
+      if (mounted) {
+        setState(() {});
+      }
+      return;
+    }
     _syncAssistantGate();
     setState(() {});
   }
@@ -49,8 +84,12 @@ class _VoiceSessionAppState extends State<VoiceSessionApp> {
   @override
   void dispose() {
     widget.authController.removeListener(_onAuth);
-    _assistant.dispose();
-    _systemAssistant.dispose();
+    if (_ownsAssistant) {
+      _assistant.dispose();
+    }
+    if (_ownsSystemAssistant) {
+      _systemAssistant.dispose();
+    }
     super.dispose();
   }
 
@@ -69,18 +108,22 @@ class _VoiceSessionAppState extends State<VoiceSessionApp> {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: switch (widget.authController.status) {
-        AuthStatus.initial || AuthStatus.loading => const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-        AuthStatus.authenticated => VoiceSessionScreen(
-          assistant: _assistant,
-          systemAssistant: _systemAssistant,
-        ),
-        AuthStatus.needsAuth || AuthStatus.transientError => AuthSetupScreen(
-          controller: widget.authController,
-        ),
-      },
+      home:
+          !_gateReady ||
+              widget.authController.status == AuthStatus.initial ||
+              widget.authController.status == AuthStatus.loading
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : switch (widget.authController.status) {
+              AuthStatus.authenticated => VoiceSessionScreen(
+                assistant: _assistant,
+                systemAssistant: _systemAssistant,
+              ),
+              AuthStatus.needsAuth || AuthStatus.transientError =>
+                AuthSetupScreen(controller: widget.authController),
+              AuthStatus.initial || AuthStatus.loading => const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              ),
+            },
     );
   }
 }

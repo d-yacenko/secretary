@@ -137,6 +137,7 @@ class _AppShellState extends State<AppShell> {
     }
     await widget.assistantController.handleVoiceTrigger(
       startCueAlreadyPlayed: true,
+      stopCueAlreadyPlayed: true,
     );
     return true;
   }

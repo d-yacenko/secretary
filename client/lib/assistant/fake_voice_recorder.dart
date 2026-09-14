@@ -69,7 +69,7 @@ class FakeVoiceRecorder implements VoiceRecorder {
     if (startDelay > Duration.zero) {
       await Future<void>.delayed(startDelay);
     }
-    await File(filePath).writeAsBytes(_audioBytes);
+    File(filePath).writeAsBytesSync(_audioBytes);
     if (failStartAfterWrite) {
       throw StateError('recording start failed after write');
     }
@@ -101,8 +101,8 @@ class FakeVoiceRecorder implements VoiceRecorder {
     isRecording = false;
     if (lastStartedPath != null) {
       final file = File(lastStartedPath!);
-      if (await file.exists()) {
-        await file.delete();
+      if (file.existsSync()) {
+        file.deleteSync();
       }
     }
   }

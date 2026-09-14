@@ -35,6 +35,8 @@ abstract class SystemAssistantBridge {
 
   void setOnKeyguard(void Function(bool locked)? callback);
 
+  void setOnRoleResult(void Function(SystemAssistantStatus status)? callback);
+
   Future<SystemAssistantStatus> getStatus();
 
   Future<void> requestAssistantRole();
@@ -48,6 +50,9 @@ class NoopSystemAssistantBridge implements SystemAssistantBridge {
 
   @override
   void setOnKeyguard(void Function(bool locked)? callback) {}
+
+  @override
+  void setOnRoleResult(void Function(SystemAssistantStatus status)? callback) {}
 
   @override
   Future<SystemAssistantStatus> getStatus() async {
@@ -75,15 +80,23 @@ class MethodChannelSystemAssistantBridge implements SystemAssistantBridge {
   final MethodChannel _channel;
   VoidCallback? _onAssist;
   void Function(bool locked)? _onKeyguard;
+  void Function(SystemAssistantStatus status)? _onRoleResult;
+  var _pendingAssists = 0;
 
   @override
   void setOnAssist(VoidCallback? callback) {
     _onAssist = callback;
+    _flushPendingAssists();
   }
 
   @override
   void setOnKeyguard(void Function(bool locked)? callback) {
     _onKeyguard = callback;
+  }
+
+  @override
+  void setOnRoleResult(void Function(SystemAssistantStatus status)? callback) {
+    _onRoleResult = callback;
   }
 
   @override
@@ -133,14 +146,37 @@ class MethodChannelSystemAssistantBridge implements SystemAssistantBridge {
   Future<dynamic> _onCall(MethodCall call) async {
     switch (call.method) {
       case 'onAssistInvoke':
-        _onAssist?.call();
+        _deliverAssist();
         return null;
       case 'onKeyguard':
         final locked = call.arguments == true;
         _onKeyguard?.call(locked);
         return null;
+      case 'onRoleResult':
+        _onRoleResult?.call(_parse(call.arguments));
+        return null;
       default:
         return null;
+    }
+  }
+
+  void _deliverAssist() {
+    final handler = _onAssist;
+    if (handler == null) {
+      _pendingAssists += 1;
+      return;
+    }
+    handler();
+  }
+
+  void _flushPendingAssists() {
+    final handler = _onAssist;
+    if (handler == null) {
+      return;
+    }
+    while (_pendingAssists > 0) {
+      _pendingAssists -= 1;
+      handler();
     }
   }
 
@@ -202,19 +238,26 @@ class SystemAssistantController extends ChangeNotifier {
                ? MethodChannelSystemAssistantBridge()
                : NoopSystemAssistantBridge()),
        _store = store ?? LockScreenVoiceStore() {
-    _bridge.setOnAssist(() {
-      onAssistInvoke?.call();
-    });
+    _bridge.setOnAssist(_deliverAssist);
     _bridge.setOnKeyguard((locked) {
       keyguardLocked = locked;
       notifyListeners();
     });
+    _bridge.setOnRoleResult(_applyStatus);
   }
 
   final SystemAssistantBridge _bridge;
   final LockScreenVoiceStore _store;
 
-  VoidCallback? onAssistInvoke;
+  VoidCallback? _onAssistInvoke;
+  var _pendingAssists = 0;
+
+  VoidCallback? get onAssistInvoke => _onAssistInvoke;
+
+  set onAssistInvoke(VoidCallback? callback) {
+    _onAssistInvoke = callback;
+    _flushPendingAssists();
+  }
 
   bool available = false;
   bool isDefaultAssistant = false;
@@ -234,17 +277,11 @@ class SystemAssistantController extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    final status = await _bridge.getStatus();
-    available = status.isHealthy;
-    isDefaultAssistant = status.isDefaultAssistant;
-    roleManagerAvailable = status.roleManagerAvailable;
-    keyguardLocked = status.keyguardLocked;
-    notifyListeners();
+    _applyStatus(await _bridge.getStatus());
   }
 
   Future<void> requestAssistantRole() async {
     await _bridge.requestAssistantRole();
-    await refresh();
   }
 
   Future<void> setLockScreenVoiceEnabled(bool enabled) async {
@@ -258,10 +295,39 @@ class SystemAssistantController extends ChangeNotifier {
 
   Future<void> dismissOverlay() => _bridge.dismiss();
 
+  void _deliverAssist() {
+    final handler = _onAssistInvoke;
+    if (handler == null) {
+      _pendingAssists += 1;
+      return;
+    }
+    handler();
+  }
+
+  void _flushPendingAssists() {
+    final handler = _onAssistInvoke;
+    if (handler == null) {
+      return;
+    }
+    while (_pendingAssists > 0) {
+      _pendingAssists -= 1;
+      handler();
+    }
+  }
+
+  void _applyStatus(SystemAssistantStatus status) {
+    available = status.isHealthy;
+    isDefaultAssistant = status.isDefaultAssistant;
+    roleManagerAvailable = status.roleManagerAvailable;
+    keyguardLocked = status.keyguardLocked;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _bridge.setOnAssist(null);
     _bridge.setOnKeyguard(null);
+    _bridge.setOnRoleResult(null);
     super.dispose();
   }
 }

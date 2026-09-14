@@ -6,6 +6,7 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.service.voice.VoiceInteractionService
 import com.example.personal_secretary.hardware.HardwareVoiceLog
@@ -37,6 +38,11 @@ class SystemAssistantPlugin(
         channel.invokeMethod("onKeyguard", locked)
     }
 
+    fun notifyRolePickerClosed() {
+        HardwareVoiceLog.line("onRoleResult")
+        channel.invokeMethod("onRoleResult", statusMap())
+    }
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "getStatus" -> result.success(statusMap())
@@ -55,20 +61,7 @@ class SystemAssistantPlugin(
     }
 
     private fun requestRole() {
-        val context = activity
-        if (Build.VERSION.SDK_INT >= 29) {
-            val roles = context.getSystemService(RoleManager::class.java)
-            if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
-                context.startActivity(roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
-                return
-            }
-        }
-        val voiceInput = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
-        if (voiceInput.resolveActivity(context.packageManager) != null) {
-            context.startActivity(voiceInput)
-            return
-        }
-        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+        activity.startActivityForResult(assistantRoleIntent(activity), SystemAssistantConstants.REQUEST_ASSISTANT_ROLE)
     }
 
     private fun statusMap(): Map<String, Any?> {
@@ -125,6 +118,20 @@ fun applyLockScreenFlags(activity: Activity) {
     }
 }
 
+fun assistantRoleIntent(context: Context): Intent {
+    if (Build.VERSION.SDK_INT >= 29) {
+        val roles = context.getSystemService(RoleManager::class.java)
+        if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+            return roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+        }
+    }
+    val voiceInput = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+    if (voiceInput.resolveActivity(context.packageManager) != null) {
+        return voiceInput
+    }
+    return Intent(Settings.ACTION_SETTINGS)
+}
+
 fun launchUnlockedVoice(context: Context) {
     val intent = Intent().setClassName(
         context,
@@ -136,9 +143,36 @@ fun launchUnlockedVoice(context: Context) {
     context.startActivity(intent)
 }
 
-fun launchLockedVoice(context: Context) {
-    val intent = Intent(context, VoiceSessionActivity::class.java).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+fun lockedVoiceIntent(context: Context): Intent {
+    return Intent(context, VoiceSessionActivity::class.java).apply {
+        addFlags(SystemAssistantConstants.LOCKED_LAUNCH_FLAGS)
+        putExtra(SystemAssistantConstants.EXTRA_VOICE_TRIGGER, true)
     }
-    context.startActivity(intent)
+}
+
+fun launchLockedVoice(context: Context) {
+    if (!LockedVoiceLaunch.tryMark()) {
+        HardwareVoiceLog.line("launchLockedVoice debounce")
+        return
+    }
+    context.startActivity(lockedVoiceIntent(context))
+}
+
+object LockedVoiceLaunch {
+    @Volatile
+    private var lastElapsedMs = 0L
+
+    fun resetForTest() {
+        lastElapsedMs = 0L
+    }
+
+    fun tryMark(nowElapsedMs: Long = SystemClock.elapsedRealtime()): Boolean {
+        synchronized(this) {
+            if (nowElapsedMs - lastElapsedMs < SystemAssistantConstants.LOCKED_LAUNCH_DEBOUNCE_MS) {
+                return false
+            }
+            lastElapsedMs = nowElapsedMs
+            return true
+        }
+    }
 }

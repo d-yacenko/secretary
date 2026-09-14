@@ -42,6 +42,9 @@ endif()
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
   target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+  # Current clang treats a space in json.hpp user-defined literal operators as
+  # an error under -Werror; that header ships with flutter_secure_storage_linux.
+  target_compile_options(${TARGET} PRIVATE -Wno-deprecated-literal-operator)
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()
@@ -127,3 +130,18 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Plugins are copied with install(FILES) and keep their build-tree RUNPATH
+# (container paths such as /work/client/linux/flutter/...). Rewrite to
+# $ORIGIN so sibling bundled libraries (libduckdb.so, libflutter_linux_gtk.so)
+# resolve without LD_LIBRARY_PATH.
+install(CODE "
+  execute_process(
+    COMMAND python3 \"${CMAKE_CURRENT_SOURCE_DIR}/set_bundle_runpath.py\"
+            \"${INSTALL_BUNDLE_LIB_DIR}\"
+    RESULT_VARIABLE _set_runpath_result
+  )
+  if(NOT _set_runpath_result EQUAL 0)
+    message(FATAL_ERROR \"Failed to set bundle library RUNPATH to \$ORIGIN\")
+  endif()
+  " COMPONENT Runtime)

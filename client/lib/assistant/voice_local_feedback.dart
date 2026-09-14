@@ -2,9 +2,15 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// Network-independent START/STOP listening cues. Never persists files.
+/// Network-independent local Voice cues. Never persists files.
+///
+/// [playAck] means only "invocation recognized".
+/// [playReady] means the recorder is actually running ("speak now").
+/// [playStop] means stop / processing.
 abstract class VoiceLocalFeedback {
-  Future<void> playStart();
+  Future<void> playAck();
+
+  Future<void> playReady();
 
   Future<void> playStop();
 
@@ -15,7 +21,10 @@ class NoopVoiceLocalFeedback implements VoiceLocalFeedback {
   const NoopVoiceLocalFeedback();
 
   @override
-  Future<void> playStart() async {}
+  Future<void> playAck() async {}
+
+  @override
+  Future<void> playReady() async {}
 
   @override
   Future<void> playStop() async {}
@@ -25,12 +34,18 @@ class NoopVoiceLocalFeedback implements VoiceLocalFeedback {
 }
 
 class RecordingVoiceLocalFeedback implements VoiceLocalFeedback {
-  int startCount = 0;
+  int ackCount = 0;
+  int readyCount = 0;
   int stopCount = 0;
 
   @override
-  Future<void> playStart() async {
-    startCount += 1;
+  Future<void> playAck() async {
+    ackCount += 1;
+  }
+
+  @override
+  Future<void> playReady() async {
+    readyCount += 1;
   }
 
   @override
@@ -47,17 +62,21 @@ class AssetVoiceLocalFeedback implements VoiceLocalFeedback {
     AudioPlayer? player,
     Future<void> Function()? haptic,
   }) : _player = player ?? AudioPlayer(),
-       _haptic = haptic ?? (() => HapticFeedback.mediumImpact());
+       _haptic = haptic ?? (() => HapticFeedback.lightImpact());
 
   final AudioPlayer _player;
   final Future<void> Function() _haptic;
   bool _failed = false;
 
   @override
-  Future<void> playStart() async {
+  Future<void> playAck() async {
     try {
       await _haptic();
     } catch (_) {}
+  }
+
+  @override
+  Future<void> playReady() async {
     await _play('sounds/voice_start.wav');
   }
 

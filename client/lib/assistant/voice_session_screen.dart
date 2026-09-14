@@ -18,17 +18,13 @@ class VoiceSessionScreen extends StatefulWidget {
 }
 
 class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
-  var _started = false;
-
   @override
   void initState() {
     super.initState();
     widget.assistant.addListener(_onChange);
     widget.systemAssistant.addListener(_onChange);
-    widget.systemAssistant.onAssistInvoke = () {
-      widget.assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
-    };
-    WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+    widget.systemAssistant.onAssistInvoke = _onAssistInvoke;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncGate());
   }
 
   @override
@@ -48,20 +44,16 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
     }
   }
 
-  Future<void> _start() async {
-    if (_started) {
-      return;
-    }
-    _started = true;
+  Future<void> _syncGate() async {
     await widget.systemAssistant.refresh();
+    _onChange();
+  }
+
+  void _onAssistInvoke() {
     widget.assistant.keyguardLocked = widget.systemAssistant.keyguardLocked;
     widget.assistant.lockScreenVoiceEnabled =
         widget.systemAssistant.lockScreenVoiceEnabled;
-    if (widget.systemAssistant.keyguardLocked &&
-        !widget.systemAssistant.lockScreenVoiceEnabled) {
-      return;
-    }
-    await widget.assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
+    widget.assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
   }
 
   String _statusText() {

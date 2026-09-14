@@ -155,6 +155,7 @@ class _AccountScreenState extends State<AccountScreen>
     if (state == AppLifecycleState.resumed && _lifecyclePaused) {
       _lifecyclePaused = false;
       _loadAccountData();
+      widget.systemAssistantController?.refresh();
     }
   }
 
@@ -334,8 +335,9 @@ class _AccountScreenState extends State<AccountScreen>
     }
     setState(() => _profileSaving = true);
     try {
-      await widget.apiClient
-          .patchMe(displayName: _displayNameController.text.trim());
+      await widget.apiClient.patchMe(
+        displayName: _displayNameController.text.trim(),
+      );
       await widget.authController.refreshUser();
       if (mounted) {
         setState(() => _error = null);
@@ -545,7 +547,8 @@ class _AccountScreenState extends State<AccountScreen>
       limit = int.tryParse(raw.replaceAll(RegExp(r'[\s\u00a0]'), ''));
       if (limit == null || limit < _settings!.minOpenaiDailyTokenLimit) {
         setState(() {
-          _error = 'Дневной лимит OpenAI должен быть положительным числом '
+          _error =
+              'Дневной лимит OpenAI должен быть положительным числом '
               'или пустым значением.';
         });
         return;
@@ -623,7 +626,8 @@ class _AccountScreenState extends State<AccountScreen>
       );
       if (!launched && mounted) {
         setState(
-            () => _error = 'Не удалось открыть браузер для авторизации Google');
+          () => _error = 'Не удалось открыть браузер для авторизации Google',
+        );
       }
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
@@ -647,7 +651,9 @@ class _AccountScreenState extends State<AccountScreen>
       final result = await widget.apiClient.getTeamsAuthorizationUrl();
       final uri = Uri.tryParse(result.authorizationUrl);
       if (uri == null) {
-        throw ServerException('Не удалось открыть страницу авторизации Microsoft Teams');
+        throw ServerException(
+          'Не удалось открыть страницу авторизации Microsoft Teams',
+        );
       }
       final launched = await url_launcher.launchUrl(
         uri,
@@ -655,7 +661,9 @@ class _AccountScreenState extends State<AccountScreen>
       );
       if (!launched && mounted) {
         setState(
-            () => _error = 'Не удалось открыть браузер для авторизации Microsoft Teams');
+          () => _error =
+              'Не удалось открыть браузер для авторизации Microsoft Teams',
+        );
       }
     } on AuthenticationException {
       widget.authController.handleAuthenticationFailure();
@@ -849,8 +857,9 @@ class _AccountScreenState extends State<AccountScreen>
                     const SizedBox(height: 8),
                     Text(
                       _identityError!,
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -898,8 +907,9 @@ class _AccountScreenState extends State<AccountScreen>
                     const SizedBox(height: 8),
                     Text(
                       _semanticError!,
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -909,9 +919,7 @@ class _AccountScreenState extends State<AccountScreen>
                         ? null
                         : _saveSemanticContext,
                     child: Text(
-                      _semanticSaving
-                          ? 'Сохранение…'
-                          : 'Сохранить контекст',
+                      _semanticSaving ? 'Сохранение…' : 'Сохранить контекст',
                     ),
                   ),
                 ],
@@ -1055,9 +1063,11 @@ class _AccountScreenState extends State<AccountScreen>
                                   'По умолчанию (${settings.defaultAssistantMaxRounds})',
                                 ),
                               ),
-                              for (var value = settings.minAssistantMaxRounds;
-                                  value <= settings.maxAssistantMaxRounds;
-                                  value++)
+                              for (
+                                var value = settings.minAssistantMaxRounds;
+                                value <= settings.maxAssistantMaxRounds;
+                                value++
+                              )
                                 DropdownMenuItem(
                                   value: value.toString(),
                                   child: Text(value.toString()),
@@ -1069,7 +1079,8 @@ class _AccountScreenState extends State<AccountScreen>
                                     if (value == null) {
                                       return;
                                     }
-                                    if (value == _assistantMaxRoundsDefaultValue) {
+                                    if (value ==
+                                        _assistantMaxRoundsDefaultValue) {
                                       _saveAiPreferences(
                                         patchAssistantMaxRounds: true,
                                       );
@@ -1143,8 +1154,9 @@ class _AccountScreenState extends State<AccountScreen>
                   if (_error != null)
                     Text(
                       _error!,
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   if (_loading)
                     const Padding(
@@ -1174,8 +1186,9 @@ class _AccountScreenState extends State<AccountScreen>
                   if (_sourcePreferencesError != null)
                     Text(
                       _sourcePreferencesError!,
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   if (_sourcePreferencesLoading)
                     const Padding(
@@ -1187,9 +1200,8 @@ class _AccountScreenState extends State<AccountScreen>
                     Text(
                       'Изменение глубины истории применяется постепенно при синхронизации.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     SourcePreferencesList(
@@ -1212,9 +1224,7 @@ class _AccountScreenState extends State<AccountScreen>
                 authController: widget.authController,
               ),
               const SizedBox(height: 32),
-              ClientDisconnectControl(
-                authController: widget.authController,
-              ),
+              ClientDisconnectControl(authController: widget.authController),
             ],
           ),
         ),
@@ -1377,7 +1387,8 @@ class _ConnectionsList extends StatelessWidget {
         const SizedBox(height: 4),
         _ConnectionRow(
           label: telegramConnectionLabel(connections.telegram),
-          connected: connections.telegram.configured &&
+          connected:
+              connections.telegram.configured &&
               connections.telegram.identityLinked &&
               connections.telegram.businessConnected,
           detail: telegramConnectionDetail(connections.telegram),
@@ -1758,7 +1769,7 @@ class _YandexConnectDialogState extends State<_YandexConnectDialog> {
               onChanged: _submitting
                   ? null
                   : (value) =>
-                      setState(() => _connectCalendar = value ?? false),
+                        setState(() => _connectCalendar = value ?? false),
             ),
             if (_connectCalendar) ...[
               TextField(
@@ -2012,7 +2023,8 @@ class _OpenAiKeyDialogState extends State<_OpenAiKeyDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(
-          widget.replace ? 'Заменить OpenAI ключ' : 'Установить OpenAI ключ'),
+        widget.replace ? 'Заменить OpenAI ключ' : 'Установить OpenAI ключ',
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2101,9 +2113,9 @@ class _OpenAiDailyBudgetControl extends StatelessWidget {
     final theme = Theme.of(context);
     final usage = budget.dailyTokenLimit == null
         ? 'Сегодня: ${formatTokenCount(budget.tokensUsedToday)} токенов. '
-            'Дневной лимит не задан.'
+              'Дневной лимит не задан.'
         : 'Сегодня: ${formatTokenCount(budget.tokensUsedToday)} / '
-            '${formatTokenCount(budget.dailyTokenLimit!)} токенов';
+              '${formatTokenCount(budget.dailyTokenLimit!)} токенов';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2151,8 +2163,9 @@ class _OpenAiDailyBudgetControl extends StatelessWidget {
           Text(
             openAiDailyBudgetExhaustedMessage,
             key: const Key('account_openai_daily_budget_exhausted'),
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.error),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.error,
+            ),
           ),
         ],
       ],

@@ -33,6 +33,9 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
   }
 
   @override
+  void setOnRoleResult(void Function(SystemAssistantStatus status)? callback) {}
+
+  @override
   Future<SystemAssistantStatus> getStatus() async {
     return SystemAssistantStatus(
       available: true,
@@ -46,7 +49,6 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
   @override
   Future<void> requestAssistantRole() async {
     requestCount += 1;
-    isDefaultAssistant = true;
   }
 
   @override
@@ -111,6 +113,14 @@ void main() {
     await tester.tap(find.byKey(const Key('system_assistant_request_role')));
     await tester.pump();
     expect(bridge.requestCount, 1);
+    expect(
+      find.text('Секретарь не выбран системным помощником'),
+      findsOneWidget,
+    );
+    bridge.isDefaultAssistant = true;
+    await controller.refresh();
+    await tester.pump();
+    expect(find.text('Секретарь выбран системным помощником'), findsOneWidget);
     controller.dispose();
   });
 

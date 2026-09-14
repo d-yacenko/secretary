@@ -3,6 +3,7 @@ package com.example.personal_secretary
 import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
+import com.example.personal_secretary.assistant.SystemAssistantConstants
 import com.example.personal_secretary.assistant.SystemAssistantPlugin
 import com.example.personal_secretary.assistant.consumeVoiceTrigger
 import com.example.personal_secretary.hardware.HardwareVoiceLog
@@ -13,12 +14,12 @@ import io.flutter.embedding.engine.FlutterEngine
 class MainActivity : FlutterActivity() {
     private var hardwareVoice: HardwareVoicePlugin? = null
     private var systemAssistant: SystemAssistantPlugin? = null
-    private var pendingAssist = false
+    private var pendingAssist = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (consumeVoiceTrigger(intent)) {
-            pendingAssist = true
+            pendingAssist += 1
         }
     }
 
@@ -26,7 +27,7 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (consumeVoiceTrigger(intent)) {
-            pendingAssist = true
+            pendingAssist += 1
             deliverPendingAssist()
         }
     }
@@ -41,6 +42,16 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         deliverPendingAssist()
+        systemAssistant?.notifyRolePickerClosed()
+    }
+
+    @Deprecated("Android activity-result contract for assistant role picker")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SystemAssistantConstants.REQUEST_ASSISTANT_ROLE) {
+            systemAssistant?.notifyRolePickerClosed()
+        }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
@@ -72,11 +83,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun deliverPendingAssist() {
-        if (!pendingAssist) {
-            return
-        }
         val plugin = systemAssistant ?: return
-        pendingAssist = false
-        plugin.emitAssistInvoke()
+        while (pendingAssist > 0) {
+            pendingAssist -= 1
+            plugin.emitAssistInvoke()
+        }
     }
 }

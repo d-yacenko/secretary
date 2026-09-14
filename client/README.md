@@ -22,35 +22,44 @@ flutter test
 flutter run -d linux
 ```
 
-Linux desktop builds need the normal Flutter Linux toolchain:
+Linux desktop **build** needs the Flutter Linux toolchain and development packages:
 
 - `clang++`, `cmake`, `ninja`, `pkg-config`
 - GTK 3 development libraries
 - `libsecret-1` development files (`libsecret-devel` / `libsecret-1-dev`) for the existing `flutter_secure_storage_linux` plugin
-
-Voice Assistant A also needs GStreamer development files because playback uses `audioplayers` / `audioplayers_linux`:
-
-- `gstreamer-1.0` development package
-- `gstreamer-plugins-base-1.0` development package
+- GStreamer development files because playback uses `audioplayers` / `audioplayers_linux`:
+  - `gstreamer-1.0` development package
+  - `gstreamer-plugins-base-1.0` development package
 
 On openSUSE / Fedora-style hosts:
 
 ```bash
-sudo zypper install gstreamer-devel gstreamer-plugins-base-devel
+sudo zypper install gstreamer-devel gstreamer-plugins-base-devel libsecret-devel gtk3-devel
 ```
 
 On Debian / Ubuntu-style hosts:
 
 ```bash
-sudo apt-get install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+sudo apt-get install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libsecret-1-dev libgtk-3-dev
 ```
+
+Those **devel** packages are required to compile. They are not required to launch an already-built bundle.
+
+Linux desktop **runtime** (running `build/linux/x64/debug/bundle/personal_secretary`) needs the matching shared libraries, not `-devel` headers:
+
+- GTK 3 (`libgtk-3.so.0`)
+- `libsecret-1.so.0`
+- GStreamer runtime (`libgstreamer-1.0.so.0`, `libgstapp-1.0.so.0`, `libgstbase-1.0.so.0`) from `gstreamer` / `gstreamer-plugins-base` / `libgstapp-1_0-0`
+
+The bundle executable has `RUNPATH=$ORIGIN/lib`. Bundled plugin `.so` files are rewritten at install time to `RUNPATH=$ORIGIN` so sibling libraries such as `libduckdb.so` and `libflutter_linux_gtk.so` resolve without `LD_LIBRARY_PATH`. Do not run `intermediates_do_not_run/personal_secretary`.
 
 Microphone **runtime** tools are separate from playback **build** dependencies. Recording still uses PulseAudio helpers (`parecord`, `pactl`) and optional `ffmpeg` for non-WAV fallback; those are not required to compile the Linux client.
 
-Verify a Linux debug build with:
+Verify a Linux debug build, then launch the bundle **on the same host**, without extra `LD_LIBRARY_PATH`:
 
 ```bash
 flutter build linux --debug
+./build/linux/x64/debug/bundle/personal_secretary
 ```
 
 ### Linux voice recording runtime

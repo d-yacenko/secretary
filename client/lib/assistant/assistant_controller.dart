@@ -526,11 +526,14 @@ class AssistantController extends ChangeNotifier {
   /// Idle/error: start recording. Recording: stop and transcribe. Speaking:
   /// stop TTS and start a new recording. Starting/transcribing/thinking: ignore.
   /// Pending Action Plan uses the existing confirmation utterance path.
-  Future<void> handleVoiceTrigger({bool startCueAlreadyPlayed = false}) async {
+  Future<void> handleVoiceTrigger({
+    bool startCueAlreadyPlayed = false,
+    bool stopCueAlreadyPlayed = false,
+  }) async {
     switch (voiceState) {
       case AssistantVoiceState.recording:
         await stopVoiceRecordingAndTranscribe(
-          stopCueAlreadyPlayed: startCueAlreadyPlayed,
+          stopCueAlreadyPlayed: stopCueAlreadyPlayed,
         );
         return;
       case AssistantVoiceState.starting:
@@ -554,11 +557,16 @@ class AssistantController extends ChangeNotifier {
           }
         }
         if (!startCueAlreadyPlayed) {
-          unawaited(_feedback.playStart());
+          unawaited(_feedback.playAck());
         }
-        VoiceTurnTiming.mark('feedback');
+        VoiceTurnTiming.mark('ack');
         await startVoiceRecording();
+        if (voiceState != AssistantVoiceState.recording) {
+          return;
+        }
         VoiceTurnTiming.mark('recording_ready');
+        unawaited(_feedback.playReady());
+        VoiceTurnTiming.mark('ready_cue');
         return;
     }
   }

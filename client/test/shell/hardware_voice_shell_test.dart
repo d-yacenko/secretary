@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:personal_secretary/api/api_models.dart';
 import 'package:personal_secretary/api/secretary_api_client.dart';
 import 'package:personal_secretary/assistant/assistant_controller.dart';
+import 'package:personal_secretary/assistant/fake_speech_player.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/hardware_voice_controller.dart';
 import 'package:personal_secretary/assistant/hardware_voice_store.dart';
@@ -71,6 +72,22 @@ MockClient shellMockClient() {
     if (request.url.path == '/labels' ||
         request.url.path == '/labels/by-objects') {
       return http.Response(jsonEncode({'labels': [], 'by_object_id': {}}), 200);
+    }
+    if (request.url.path == '/assistant/transcribe') {
+      return http.Response(jsonEncode({'text': 'привет'}), 200);
+    }
+    if (request.url.path == '/assistant/message') {
+      return http.Response(
+        jsonEncode({'answer': 'ок', 'references': [], 'affected_objects': []}),
+        200,
+      );
+    }
+    if (request.url.path == '/assistant/speech') {
+      return http.Response.bytes(
+        [1, 2, 3, 4],
+        200,
+        headers: {'content-type': 'audio/mpeg'},
+      );
     }
     return http.Response('{}', 404);
   });
@@ -141,6 +158,7 @@ void main() {
       apiClient: apiClient,
       authController: auth,
       voiceRecorder: recorder,
+      speechPlayer: FakeSpeechPlayer(),
       voiceTempFiles: VoiceTempFiles(
         directory: Directory.systemTemp.createTempSync('hw_shell_voice'),
       ),
@@ -171,15 +189,18 @@ void main() {
 
       for (final label in ['Входящие', 'Сегодня', 'Поиск', 'Граф']) {
         await tester.tap(find.text(label).first);
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
         hardware.debugEmitVoiceTrigger();
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 50));
         expect(find.widgetWithText(AppBar, 'Секретарь'), findsOneWidget);
         expect(find.text('Спросить секретаря…'), findsOneWidget);
         expect(recorder.startCallCount, greaterThan(0));
-        await assistant.handleVoiceTrigger();
+        assistant.resetSession();
+        await tester.pump();
       }
+      await tester.pump(const Duration(milliseconds: 600));
       assistant.dispose();
       hardware.dispose();
     },
@@ -197,7 +218,8 @@ void main() {
       recorder: recorder,
     );
     await tester.tap(find.byKey(const Key('shell_account_button')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     hardware.debugEmitVoiceTrigger();
     await tester.pump();
     expect(recorder.startCallCount, 0);

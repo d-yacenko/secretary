@@ -180,10 +180,10 @@ class HardwareVoicePlugin(
                 "callback=voice cue=stop acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
             )
         } else {
-            HardwareVoiceCue.playStart(context)
+            HardwareVoiceCue.playAck(context)
             listening = true
             HardwareVoiceLog.line(
-                "callback=voice cue=start acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
+                "callback=voice cue=ack acceptedElapsedMs=$acceptedElapsed cueElapsedMs=${HardwareVoiceCue.nowElapsedMs()}",
             )
         }
         handler.post { channel.invokeMethod("onVoiceTrigger", null) }

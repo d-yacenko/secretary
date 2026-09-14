@@ -24,6 +24,9 @@ class _LockedBridge implements SystemAssistantBridge {
   void setOnKeyguard(void Function(bool locked)? callback) {}
 
   @override
+  void setOnRoleResult(void Function(SystemAssistantStatus status)? callback) {}
+
+  @override
   Future<SystemAssistantStatus> getStatus() async {
     return const SystemAssistantStatus(
       available: true,

@@ -277,7 +277,7 @@ void main() {
   );
 
   test(
-    'start cue plays before recording and can be skipped if native played',
+    'ack plays immediately and ready plays only after recording starts',
     () async {
       final cues = RecordingVoiceLocalFeedback();
       final recorder = FakeVoiceRecorder();
@@ -291,7 +291,8 @@ void main() {
         voiceFeedback: cues,
       );
       await assistant.handleVoiceTrigger();
-      expect(cues.startCount, 1);
+      expect(cues.ackCount, 1);
+      expect(cues.readyCount, 1);
       expect(recorder.startCallCount, 1);
       assistant.dispose();
 
@@ -302,10 +303,30 @@ void main() {
         voiceFeedback: skipped,
       );
       await second.handleVoiceTrigger(startCueAlreadyPlayed: true);
-      expect(skipped.startCount, 0);
+      expect(skipped.ackCount, 0);
+      expect(skipped.readyCount, 1);
       second.dispose();
     },
   );
+
+  test('ready cue is not played when microphone start fails', () async {
+    final cues = RecordingVoiceLocalFeedback();
+    final recorder = FakeVoiceRecorder()..failStart = true;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((_) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      recorder: recorder,
+      voiceFeedback: cues,
+    );
+    await assistant.handleVoiceTrigger();
+    expect(cues.ackCount, 1);
+    expect(cues.readyCount, 0);
+    expect(assistant.voiceState, AssistantVoiceState.error);
+    assistant.dispose();
+  });
 
   test('stop cue plays when recording is stopped', () async {
     final cues = RecordingVoiceLocalFeedback();
@@ -367,9 +388,13 @@ void main() {
       voiceFeedback: cues,
     );
     await assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
-    await assistant.handleVoiceTrigger(startCueAlreadyPlayed: true);
+    await assistant.handleVoiceTrigger(
+      startCueAlreadyPlayed: true,
+      stopCueAlreadyPlayed: true,
+    );
     await waitUntil(() => recorder.stopCallCount == 1);
-    expect(cues.startCount, 0);
+    expect(cues.ackCount, 0);
+    expect(cues.readyCount, 1);
     expect(cues.stopCount, 0);
     assistant.dispose();
   });

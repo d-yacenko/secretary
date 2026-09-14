@@ -11,13 +11,14 @@ class SecretaryVoiceInteractionSession(context: Context) : VoiceInteractionSessi
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
         HardwareVoiceLog.line("VoiceInteractionSession onShow flags=$showFlags")
-        HardwareVoiceCue.playStart(context)
         val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (keyguard.isKeyguardLocked) {
-            launchLockedVoice(context)
-        } else {
-            launchUnlockedVoice(context)
+            // Keyguard entry is VoiceInteractionService.onLaunchVoiceAssistFromKeyguard().
+            hide()
+            return
         }
+        HardwareVoiceCue.playAck(context)
+        launchUnlockedVoice(context)
         hide()
     }
 }

@@ -27,7 +27,8 @@ class PersonalSecretaryApp extends StatefulWidget {
   State<PersonalSecretaryApp> createState() => _PersonalSecretaryAppState();
 }
 
-class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
+class _PersonalSecretaryAppState extends State<PersonalSecretaryApp>
+    with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   late final AuthSessionNavigator _authSessionNavigator;
   late final CaptureController _captureController;
@@ -63,6 +64,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
       authController: widget.authController,
     );
     _systemAssistantController = SystemAssistantController();
+    WidgetsBinding.instance.addObserver(this);
     widget.authController.onSessionTerminated = _onSessionTerminated;
     widget.authController.addListener(_onAuthChanged);
     _textScale.addListener(_onAuthChanged);
@@ -71,6 +73,13 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
     _systemAssistantController.attach(widget.authController.user?.id);
     if (widget.textScaleController == null) {
       _textScale.load();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _systemAssistantController.refresh();
     }
   }
 
@@ -89,6 +98,7 @@ class _PersonalSecretaryAppState extends State<PersonalSecretaryApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.authController.onSessionTerminated = null;
     widget.authController.removeListener(_onAuthChanged);
     _textScale.removeListener(_onAuthChanged);

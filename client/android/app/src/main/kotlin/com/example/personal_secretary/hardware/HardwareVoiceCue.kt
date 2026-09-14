@@ -10,9 +10,13 @@ import android.os.Vibrator
 import android.os.VibratorManager
 
 object HardwareVoiceCue {
+    fun playAck(context: Context) {
+        haptic(context, 25)
+        tone(ToneGenerator.TONE_PROP_NACK, durationMs = 40, volume = 45)
+    }
+
     fun playStart(context: Context) {
-        tone(ToneGenerator.TONE_PROP_BEEP)
-        haptic(context, 40)
+        playAck(context)
     }
 
     fun playStop(context: Context) {
@@ -21,11 +25,11 @@ object HardwareVoiceCue {
 
     fun nowElapsedMs(): Long = SystemClock.elapsedRealtime()
 
-    private fun tone(type: Int) {
+    private fun tone(type: Int, durationMs: Int = 90, volume: Int = 70) {
         var generator: ToneGenerator? = null
         try {
-            generator = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
-            generator.startTone(type, 90)
+            generator = ToneGenerator(AudioManager.STREAM_MUSIC, volume)
+            generator.startTone(type, durationMs)
         } catch (_: Throwable) {
             try {
                 generator?.release()
