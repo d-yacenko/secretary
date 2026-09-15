@@ -77,6 +77,69 @@ def _bounded_retrieve_excerpt(excerpt: str | None) -> str:
     return normalized[:MAX_ASSISTANT_RETRIEVE_EXCERPT] + "… [truncated]"
 
 
+def _normalize_review_object_id(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _compact_coverage_ids(item: dict[str, Any]) -> list[str]:
+    if item.get("type") == "stack":
+        stack = item.get("stack") or {}
+        ids = []
+        for object_id in stack.get("object_ids") or []:
+            normalized = _normalize_review_object_id(object_id)
+            if normalized:
+                ids.append(normalized)
+        return ids
+    normalized = _normalize_review_object_id(item.get("object_id"))
+    return [normalized] if normalized else []
+
+
+def _trim_compact_items_to_visible(
+    compact_items: list[dict[str, Any]],
+    visible_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    visible_ids = []
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in visible_items:
+        object_id = _normalize_review_object_id(item.get("object_id"))
+        if not object_id:
+            continue
+        visible_ids.append(object_id)
+        by_id[object_id] = item
+    visible_set = set(visible_ids)
+    trimmed: list[dict[str, Any]] = []
+    for item in compact_items:
+        covered = [object_id for object_id in _compact_coverage_ids(item) if object_id in visible_set]
+        if not covered:
+            continue
+        if item.get("type") == "stack" and len(covered) >= 2:
+            stack = dict(item.get("stack") or {})
+            stack["object_ids"] = covered
+            stack["message_count"] = len(covered)
+            trimmed.append({**item, "stack": stack})
+            continue
+        if item.get("type") == "stack":
+            source = by_id.get(covered[0], {})
+            trimmed.append(
+                {
+                    "type": "singleton",
+                    "object_id": covered[0],
+                    "kind": source.get("kind"),
+                    "provider": source.get("provider"),
+                    "title": source.get("title"),
+                    "feed_at": source.get("feed_at"),
+                    "excerpt": source.get("excerpt"),
+                    "narration": source.get("title"),
+                }
+            )
+            continue
+        trimmed.append(item)
+    return trimmed
+
+
 def _inbox_review_list_payload(
     raw_output: dict[str, Any],
     items: list[dict[str, Any]],
@@ -138,6 +201,8 @@ def _inbox_review_list_payload(
                     "narration": item.get("narration"),
                 }
             )
+    if include_compact:
+        visible_compact = _trim_compact_items_to_visible(visible_compact, visible_items)
     has_more = bool(raw_output.get("has_more")) or truncated
     raw_remaining = raw_output.get("remaining_count")
     remaining = int(raw_remaining) if isinstance(raw_remaining, int) else 0
@@ -178,10 +243,13 @@ def _inbox_review_list_payload(
         "total_count": raw_output.get("total_count", 0),
         "returned_count": len(visible_items),
         "remaining_count": remaining,
-        "conversation_count": raw_output.get("conversation_count", 0),
+        "page_conversation_count": raw_output.get("page_conversation_count", 0),
+        "conversation_count_exact": bool(raw_output.get("conversation_count_exact")),
         "items": visible_items,
         "has_more": has_more,
     }
+    if raw_output.get("conversation_count") is not None:
+        payload["conversation_count"] = raw_output.get("conversation_count")
     if include_compact:
         payload["compact_items"] = visible_compact
     if next_cursor:
@@ -550,6 +618,8 @@ def serialize_tool_output_for_assistant(
                         "returned_count",
                         "remaining_count",
                         "conversation_count",
+                        "page_conversation_count",
+                        "conversation_count_exact",
                         "has_more",
                         "next_cursor",
                     )

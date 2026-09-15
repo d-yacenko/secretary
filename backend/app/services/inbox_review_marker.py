@@ -15,7 +15,12 @@ from app.services.inbox_review_snapshot_cursor import (
     decode_inbox_review_snapshot_cursor,
     encode_inbox_review_snapshot_cursor,
 )
-from app.services.recent_source_service import InboxFeedPage, RecentSourceService, inbox_feed_at
+from app.services.recent_source_service import (
+    RECENT_SOURCE_MAX_LIMIT,
+    InboxFeedPage,
+    RecentSourceService,
+    inbox_feed_at,
+)
 
 
 def feed_tuple_is_newer(
@@ -287,6 +292,46 @@ class InboxReviewMarkerService:
             remaining_count=remaining_count,
             next_cursor=next_cursor,
         )
+
+    def list_frozen_window_objects(
+        self,
+        *,
+        marker: ReviewMarkerRecord,
+        snapshot_top_object_id: UUID,
+        snapshot_top_feed_at: datetime,
+        purpose: str,
+        max_objects: int,
+    ) -> list[Object] | None:
+        """Load the full frozen window in purpose order, or None if it exceeds max_objects."""
+        if max_objects <= 0:
+            return []
+        direction = _direction_for_purpose(purpose)
+        collected: list[Object] = []
+        after_feed_at: datetime | None = None
+        after_object_id: UUID | None = None
+        while len(collected) < max_objects:
+            chunk_limit = min(RECENT_SOURCE_MAX_LIMIT, max_objects - len(collected))
+            chunk = self._feed.list_review_window(
+                anchor_feed_at=marker.anchor_feed_at,
+                anchor_object_id=marker.anchor_object_id,
+                snapshot_top_feed_at=snapshot_top_feed_at,
+                snapshot_top_object_id=snapshot_top_object_id,
+                after_feed_at=after_feed_at,
+                after_object_id=after_object_id,
+                limit=chunk_limit,
+                direction=direction,
+            )
+            if not chunk.items:
+                break
+            collected.extend(chunk.items)
+            if not chunk.has_more:
+                break
+            last = chunk.items[-1]
+            after_feed_at = inbox_feed_at(last)
+            after_object_id = last.id
+        if len(collected) > max_objects:
+            return None
+        return collected
 
     def _list_continuation(
         self, *, limit: int, cursor: str, direction: str

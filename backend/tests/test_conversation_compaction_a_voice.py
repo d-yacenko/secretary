@@ -11,7 +11,10 @@ import pytest
 from sqlalchemy.orm import Session
 
 import app.assistant.session as assistant_session_module
-from app.assistant.inbox_review_progress import InboxReviewTurnProgress
+from app.assistant.inbox_review_progress import (
+    InboxReviewTurnProgress,
+    credited_object_ids_from_review_payload,
+)
 from app.assistant.reference_ids import (
     collect_object_ids_from_bounded_tool,
     collect_seen_object_ids_from_bounded_tool,
@@ -235,7 +238,9 @@ def test_full_review_receipt_still_covers_raw_count(interactive_session, marker_
     progress = InboxReviewTurnProgress()
     progress.observe(
         arguments={"purpose": "review", "limit": 50},
-        payload=page.model_dump(mode="json"),
+        payload=serialize_tool_output_for_assistant(
+            "list_inbox_since_review_marker", page.model_dump(mode="json")
+        ).model_visible_payload,
     )
     receipt = progress.verified_receipt()
     assert receipt is not None
@@ -295,3 +300,147 @@ def test_stack_detail_resolves_underlying_objects(interactive_session, marker_us
         GetObjectInput(object_id=stack.object_ids[0])
     )
     assert member.object.id == stack.object_ids[0]
+
+
+def _observe_serialized_review(tools, *, purpose: str, limit: int):
+    progress = InboxReviewTurnProgress()
+    cursor = None
+    pages = []
+    credited: set[UUID] = set()
+    while True:
+        page = tools.list_inbox_since_review_marker(
+            ListInboxSinceReviewMarkerInput(purpose=purpose, limit=limit, cursor=cursor)
+        )
+        raw = page.model_dump(mode="json")
+        visible = serialize_tool_output_for_assistant(
+            "list_inbox_since_review_marker", raw
+        ).model_visible_payload
+        pages.append(visible)
+        args = {"purpose": purpose, "limit": limit}
+        if cursor:
+            args["cursor"] = cursor
+        progress.observe(arguments=args, payload=visible)
+        credited |= credited_object_ids_from_review_payload(visible)
+        if not visible.get("has_more"):
+            break
+        cursor = visible.get("next_cursor")
+        assert cursor
+        assert len(pages) < 80
+    return progress, pages, credited
+
+
+def test_long_singleton_truncation_receipt_covers_exactly_visible(
+    interactive_session, marker_user: UUID, monkeypatch
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 15, 8, tzinfo=UTC)
+    anchor = _email_singleton(session, marker_user, "anchor", t0)
+    body = "word " * 400
+    created = [
+        _email_singleton(session, marker_user, f"solo-{i:02d}", t0 + timedelta(minutes=i + 1))
+        for i in range(32)
+    ]
+    for obj in created:
+        obj.body = body
+        obj.title = f"{obj.title} " + ("title " * 40)
+    InboxReviewMarkerService(session, marker_user).set_marker(anchor.id)
+    session.flush()
+    monkeypatch.setattr("app.assistant.tool_output.MAX_ASSISTANT_TOOL_OUTPUT_CHARS", 1800)
+    tools = DomainToolService(session, marker_user, None)
+    first = tools.list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=50)
+    )
+    visible = serialize_tool_output_for_assistant(
+        "list_inbox_since_review_marker", first.model_dump(mode="json")
+    ).model_visible_payload
+    first_progress = InboxReviewTurnProgress()
+    first_progress.observe(arguments={"purpose": "review"}, payload=visible)
+    assert first_progress.verified_receipt() is None
+    assert visible.get("has_more") is True
+    assert visible.get("next_cursor")
+    progress, pages, credited = _observe_serialized_review(tools, purpose="review", limit=50)
+    receipt = progress.verified_receipt()
+    assert receipt is not None
+    assert receipt.total_count == 32
+    assert credited == {obj.id for obj in created}
+    assert len(pages) > 1
+    all_ids = []
+    for page in pages:
+        all_ids.extend(credited_object_ids_from_review_payload(page))
+    assert len(all_ids) == len(set(all_ids)) == 32
+
+
+def test_compact_stack_credits_only_visible_object_ids(
+    interactive_session, marker_user: UUID
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 15, 9, tzinfo=UTC)
+    anchor = _email_singleton(session, marker_user, "anchor", t0)
+    created = [
+        _chat(
+            session,
+            marker_user,
+            f"burst {i}",
+            t0 + timedelta(seconds=i + 1),
+            provider="telegram",
+            chat_id="burst-32",
+            author="u1",
+            name="BrainTor",
+        )
+        for i in range(32)
+    ]
+    InboxReviewMarkerService(session, marker_user).set_marker(anchor.id)
+    session.flush()
+    tools = DomainToolService(session, marker_user, None)
+    first = tools.list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=50)
+    )
+    visible = serialize_tool_output_for_assistant(
+        "list_inbox_since_review_marker", first.model_dump(mode="json")
+    ).model_visible_payload
+    first_ids = credited_object_ids_from_review_payload(visible)
+    assert first_ids <= {obj.id for obj in created}
+    assert len(first_ids) < 32
+    first_progress = InboxReviewTurnProgress()
+    first_progress.observe(arguments={"purpose": "review"}, payload=visible)
+    assert first_progress.verified_receipt() is None
+    progress, _pages, credited = _observe_serialized_review(tools, purpose="review", limit=50)
+    receipt = progress.verified_receipt()
+    assert receipt is not None
+    assert receipt.total_count == 32
+    assert credited == {obj.id for obj in created}
+
+
+def test_drop_compact_char_bound_is_fail_closed_until_visible(
+    interactive_session, marker_user: UUID, monkeypatch
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 15, 7, tzinfo=UTC)
+    anchor = _email_singleton(session, marker_user, "anchor", t0)
+    created = [
+        _email_singleton(session, marker_user, f"drop-{i:02d}", t0 + timedelta(minutes=i + 1))
+        for i in range(32)
+    ]
+    for obj in created:
+        obj.body = "word " * 400
+        obj.title = f"{obj.title} " + ("title " * 40)
+    InboxReviewMarkerService(session, marker_user).set_marker(anchor.id)
+    session.flush()
+    monkeypatch.setattr("app.assistant.tool_output.MAX_ASSISTANT_TOOL_OUTPUT_CHARS", 1600)
+    tools = DomainToolService(session, marker_user, None)
+    first = tools.list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=50)
+    )
+    visible = serialize_tool_output_for_assistant(
+        "list_inbox_since_review_marker", first.model_dump(mode="json")
+    ).model_visible_payload
+    assert "compact_items" not in visible or not visible.get("compact_items")
+    first_progress = InboxReviewTurnProgress()
+    first_progress.observe(arguments={"purpose": "review"}, payload=visible)
+    assert first_progress.verified_receipt() is None
+    progress, _pages, credited = _observe_serialized_review(tools, purpose="review", limit=50)
+    receipt = progress.verified_receipt()
+    assert receipt is not None
+    assert credited == {obj.id for obj in created}
+    assert receipt.total_count == 32
+

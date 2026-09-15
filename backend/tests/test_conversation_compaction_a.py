@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Job, Object, Representation
@@ -17,22 +18,26 @@ from app.jobs.constants import (
 from app.services.conversation_projection import project_inbox_object
 from app.services.conversation_stack import (
     CONVERSATION_BURST_MAX_GAP,
+    ConversationStack,
     compute_stack_fingerprint,
     conversation_unit_count,
     group_inbox_conversation_items,
     overlay_covers_objects,
 )
 from app.services.conversation_stack_summary import (
+    SUMMARY_RETRY_COOLDOWN,
     ConversationStackSummaryService,
     enqueue_summarize_conversation_stack,
+    find_current_stack_summary,
     persist_stack_summary,
 )
+from app.services.domain_tool_service import DomainToolService
 from app.services.inbox_conversation_overlay import build_inbox_conversation_groups
-from app.services.inbox_review_marker import ReviewMarkerRecord
+from app.services.inbox_review_marker import InboxReviewMarkerService, ReviewMarkerRecord
 from app.services.recent_source_service import inbox_feed_at
 from app.services.representation_service import KIND_CONVERSATION_STACK_SUMMARY
+from app.tools.schemas import ListInboxSinceReviewMarkerInput
 from app.users.bootstrap import BOOTSTRAP_USER_ID
-from sqlalchemy import select
 
 
 def _stamp(obj: Object, when: datetime) -> Object:
@@ -485,7 +490,7 @@ def test_stale_summary_rejected_and_fallback_used(db_session: Session) -> None:
     assert "сообщений" in stale[0].stack.fallback_summary
 
 
-def test_failed_summary_job_can_retry(db_session: Session) -> None:
+def test_failed_summary_job_cooldown_then_retry(db_session: Session) -> None:
     t0 = datetime(2026, 9, 15, 16, tzinfo=UTC)
     rows = [_telegram(db_session, f"r{i}", t0 + timedelta(seconds=i), "retry") for i in range(2)]
     stack = group_inbox_conversation_items(_newest_first(rows))[0].stack
@@ -498,11 +503,31 @@ def test_failed_summary_job_can_retry(db_session: Session) -> None:
     )
     db_session.add(failed)
     db_session.flush()
+    for _ in range(10):
+        assert enqueue_summarize_conversation_stack(db_session, BOOTSTRAP_USER_ID, stack) is None
+        build_inbox_conversation_groups(
+            _newest_first(rows), session=db_session, user_id=BOOTSTRAP_USER_ID
+        )
+    pending = db_session.scalars(
+        select(Job).where(
+            Job.type == JOB_TYPE_SUMMARIZE_CONVERSATION_STACK,
+            Job.status == JOB_STATUS_PENDING,
+            Job.user_id == BOOTSTRAP_USER_ID,
+        )
+    ).all()
+    assert pending == []
+    old = datetime.now(UTC) - SUMMARY_RETRY_COOLDOWN - timedelta(minutes=1)
+    db_session.execute(
+        update(Job).where(Job.id == failed.id).values(updated_at=old, created_at=old)
+    )
+    db_session.flush()
     job = enqueue_summarize_conversation_stack(db_session, BOOTSTRAP_USER_ID, stack)
     assert job is not None
     assert job.status == JOB_STATUS_PENDING
     again = enqueue_summarize_conversation_stack(db_session, BOOTSTRAP_USER_ID, stack)
     assert again.id == job.id
+    third = enqueue_summarize_conversation_stack(db_session, BOOTSTRAP_USER_ID, stack)
+    assert third.id == job.id
 
 
 def test_summary_generation_writes_representation(db_session: Session) -> None:
@@ -592,3 +617,89 @@ def test_inbox_api_keeps_flat_feed_and_optional_overlay(auth_client, db_session:
     all_ids = ids + feed_ids
     assert len(all_ids) == 4
     assert set(all_ids) == {str(row.id) for row in rows}
+
+
+def test_inspect_limit_one_uses_global_conversation_count(db_session: Session) -> None:
+    t0 = datetime(2026, 9, 15, 10, tzinfo=UTC)
+    anchor = _telegram(db_session, "anchor", t0, "anchor-chat")
+    sizes = [9, 7, 5, 5, 4, 2]
+    n = 0
+    for index, size in enumerate(sizes):
+        for _ in range(size):
+            n += 1
+            _telegram(
+                db_session,
+                f"m{n}",
+                t0 + timedelta(minutes=1, seconds=n),
+                f"conv-{index}",
+                name=f"Chat{index}",
+            )
+    InboxReviewMarkerService(db_session, BOOTSTRAP_USER_ID).set_marker(anchor.id)
+    db_session.flush()
+    page = DomainToolService(db_session, BOOTSTRAP_USER_ID, None).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="inspect", limit=1)
+    )
+    assert page.total_count == 32
+    assert page.returned_count == 1
+    assert page.page_conversation_count == 1
+    assert page.conversation_count == 6
+    assert page.conversation_count_exact is True
+
+
+def test_split_pages_count_as_one_global_conversation(db_session: Session) -> None:
+    t0 = datetime(2026, 9, 15, 11, tzinfo=UTC)
+    anchor = _telegram(db_session, "anchor", t0, "split-anchor")
+    for i in range(5):
+        _telegram(db_session, f"same {i}", t0 + timedelta(minutes=1, seconds=i), "one-chat")
+    InboxReviewMarkerService(db_session, BOOTSTRAP_USER_ID).set_marker(anchor.id)
+    db_session.flush()
+    tools = DomainToolService(db_session, BOOTSTRAP_USER_ID, None)
+    first = tools.list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=2)
+    )
+    second = tools.list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=2, cursor=first.next_cursor)
+    )
+    assert first.total_count == second.total_count == 5
+    assert first.page_conversation_count == 1
+    assert second.page_conversation_count == 1
+    assert first.conversation_count == second.conversation_count == 1
+    assert first.conversation_count_exact is True
+    assert second.conversation_count_exact is True
+
+
+def test_same_anchor_keeps_independent_summary_fingerprints(db_session: Session) -> None:
+    t0 = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    rows = [_telegram(db_session, f"fp{i}", t0 + timedelta(seconds=i), "anchor-fp") for i in range(30)]
+    newest_first = _newest_first(rows)
+    full = group_inbox_conversation_items(newest_first)[0].stack
+    chronological = list(reversed(newest_first))
+    subset = chronological[10:]
+    fingerprint_b = compute_stack_fingerprint(
+        conversation_key=full.conversation_key, members=subset
+    )
+    stack_b = ConversationStack(
+        stack_id=fingerprint_b,
+        fingerprint=fingerprint_b,
+        object_ids=tuple(obj.id for obj in subset),
+        display_object_ids=tuple(obj.id for obj in reversed(subset)),
+        provider=full.provider,
+        conversation_key=full.conversation_key,
+        conversation_label=full.conversation_label,
+        participants=full.participants,
+        message_count=len(subset),
+        start_at=full.start_at,
+        end_at=full.end_at,
+        fallback_summary=full.fallback_summary,
+    )
+    persist_stack_summary(db_session, stack=full, objects=chronological, text="summary-A")
+    persist_stack_summary(db_session, stack=stack_b, objects=subset, text="summary-B")
+    found_a = find_current_stack_summary(db_session, full)
+    found_b = find_current_stack_summary(db_session, stack_b)
+    assert found_a is not None and found_b is not None
+    assert found_a.id != found_b.id
+    assert found_a.text == "summary-A"
+    assert found_b.text == "summary-B"
+    assert found_a.metadata_["stack_fingerprint"] == full.fingerprint
+    assert found_b.metadata_["stack_fingerprint"] == fingerprint_b
+

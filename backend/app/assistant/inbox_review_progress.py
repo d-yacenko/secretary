@@ -33,6 +33,7 @@ class InboxReviewTurnProgress:
         self._total_count: int | None = None
         self._expected_cursor: str | None = None
         self._pages = 0
+        self._credited_object_ids: set[UUID] = set()
         self._complete = False
 
     def mark_limit_reached(self) -> None:
@@ -103,12 +104,13 @@ class InboxReviewTurnProgress:
             self._snapshot_top_feed_at = canonical_feed_at(snapshot_top_feed_at)
             self._total_count = total_count
             self._pages += 1
+            self._credited_object_ids.update(credited_object_ids_from_review_payload(payload))
             if has_more:
                 self._expected_cursor = next_cursor
                 self._complete = False
             else:
                 self._expected_cursor = None
-                self._complete = True
+                self._complete = self._coverage_complete()
             return
         if (
             self._purpose != "review"
@@ -126,12 +128,13 @@ class InboxReviewTurnProgress:
             self._complete = False
             return
         self._pages += 1
+        self._credited_object_ids.update(credited_object_ids_from_review_payload(payload))
         if has_more:
             self._expected_cursor = next_cursor
             self._complete = False
         else:
             self._expected_cursor = None
-            self._complete = True
+            self._complete = self._coverage_complete()
 
     def verified_receipt(self) -> InboxReviewReceipt | None:
         if (
@@ -156,6 +159,9 @@ class InboxReviewTurnProgress:
             total_count=self._total_count,
         )
 
+    def _coverage_complete(self) -> bool:
+        return self._total_count is not None and len(self._credited_object_ids) == self._total_count
+
     def _same_frozen_snapshot(self, payload: dict[str, Any]) -> bool:
         try:
             snapshot_top_object_id = UUID(str(payload.get("snapshot_top_object_id")))
@@ -173,6 +179,31 @@ class InboxReviewTurnProgress:
             and self._snapshot_top_feed_at == snapshot_top_feed_at
             and self._total_count == total_count
         )
+
+
+def credited_object_ids_from_review_payload(payload: dict[str, Any]) -> set[UUID]:
+    credited: set[UUID] = set()
+    compact = payload.get("compact_items")
+    sources: list[object] = []
+    if isinstance(compact, list) and compact:
+        for item in compact:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "stack":
+                stack = item.get("stack") or {}
+                sources.extend(stack.get("object_ids") or [])
+            else:
+                sources.append(item.get("object_id"))
+    else:
+        for item in payload.get("items") or []:
+            if isinstance(item, dict):
+                sources.append(item.get("object_id"))
+    for raw in sources:
+        try:
+            credited.add(UUID(str(raw)))
+        except (TypeError, ValueError):
+            continue
+    return credited
 
 
 def _purpose_from(arguments: dict[str, Any] | None, payload: dict[str, Any]) -> str:

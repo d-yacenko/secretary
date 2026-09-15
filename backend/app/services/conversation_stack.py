@@ -18,6 +18,8 @@ from app.services.recent_source_service import inbox_feed_at
 
 CONVERSATION_BURST_MAX_GAP = timedelta(minutes=15)
 STACK_FINGERPRINT_VERSION = "conversation_stack_v1"
+# Exact frozen-snapshot conversation_count is computed in-process only at/under this size.
+CONVERSATION_COUNT_EXACT_MAX_OBJECTS = 200
 
 PROVIDER_FALLBACK_LABELS = {
     "gmail": "Gmail",

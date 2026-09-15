@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Job, Object, Representation
 from app.jobs.constants import (
+    JOB_STATUS_FAILED,
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
     JOB_TYPE_SUMMARIZE_CONVERSATION_STACK,
@@ -22,6 +24,8 @@ from app.services.representation_service import KIND_CONVERSATION_STACK_SUMMARY
 
 CONVERSATION_STACK_SUMMARY_MAX_CHARS = 160
 CONVERSATION_STACK_SUMMARY_INPUT_MAX_CHARS = 4000
+CONVERSATION_STACK_SUMMARY_MAX_VARIANTS_PER_ANCHOR = 8
+SUMMARY_RETRY_COOLDOWN = timedelta(minutes=15)
 _SECRET_RE = re.compile(
     r"(?i)(api[_-]?key|secret|token|password|bearer)\s*[:=]\s*\S+"
 )
@@ -104,6 +108,36 @@ def _active_summary_job(session: Session, user_id: UUID, fingerprint: str) -> Jo
     return None
 
 
+def _job_timestamp(job: Job) -> datetime:
+    stamp = job.updated_at or job.created_at
+    if stamp.tzinfo is None:
+        return stamp.replace(tzinfo=UTC)
+    return stamp
+
+
+def _recent_failed_summary_job(session: Session, user_id: UUID, fingerprint: str) -> Job | None:
+    newest: Job | None = None
+    newest_at: datetime | None = None
+    for job in session.scalars(
+        select(Job).where(
+            Job.user_id == user_id,
+            Job.type == JOB_TYPE_SUMMARIZE_CONVERSATION_STACK,
+            Job.status == JOB_STATUS_FAILED,
+        )
+    ):
+        if (job.payload or {}).get("stack_fingerprint") != fingerprint:
+            continue
+        stamp = _job_timestamp(job)
+        if newest_at is None or stamp > newest_at:
+            newest = job
+            newest_at = stamp
+    if newest is None or newest_at is None:
+        return None
+    if datetime.now(UTC) - newest_at < SUMMARY_RETRY_COOLDOWN:
+        return newest
+    return None
+
+
 def enqueue_summarize_conversation_stack(
     session: Session,
     user_id: UUID,
@@ -114,6 +148,9 @@ def enqueue_summarize_conversation_stack(
     existing = _active_summary_job(session, user_id, stack.fingerprint)
     if existing is not None:
         return existing
+    failed = _recent_failed_summary_job(session, user_id, stack.fingerprint)
+    if failed is not None:
+        return None
     payload = {
         "stack_fingerprint": stack.fingerprint,
         "conversation_key": stack.conversation_key,
@@ -147,14 +184,6 @@ def persist_stack_summary(
     content_hash = hashlib.sha256(
         "|".join(stack_content_fingerprint(obj) for obj in objects).encode("utf-8")
     ).hexdigest()
-    existing = list(
-        session.scalars(
-            select(Representation).where(
-                Representation.object_id == anchor.id,
-                Representation.kind == KIND_CONVERSATION_STACK_SUMMARY,
-            )
-        )
-    )
     metadata = {
         "stack_fingerprint": stack.fingerprint,
         "conversation_key": stack.conversation_key,
@@ -163,12 +192,26 @@ def persist_stack_summary(
         "semantic_content_fingerprint": content_hash,
         "summary_version": 1,
     }
-    if existing:
-        row = existing[0]
-        row.text = bounded
-        row.metadata_ = metadata
+    existing = list(
+        session.scalars(
+            select(Representation).where(
+                Representation.object_id == anchor.id,
+                Representation.kind == KIND_CONVERSATION_STACK_SUMMARY,
+            )
+        )
+    )
+    matched = None
+    for row in existing:
+        meta = row.metadata_ if isinstance(row.metadata_, dict) else {}
+        if meta.get("stack_fingerprint") == stack.fingerprint:
+            matched = row
+            break
+    if matched is not None:
+        matched.text = bounded
+        matched.metadata_ = metadata
         session.flush()
-        return row
+        _prune_anchor_summary_variants(session, anchor.id, keep_id=matched.id)
+        return matched
     row = Representation(
         object_id=anchor.id,
         kind=KIND_CONVERSATION_STACK_SUMMARY,
@@ -177,7 +220,36 @@ def persist_stack_summary(
     )
     session.add(row)
     session.flush()
+    _prune_anchor_summary_variants(session, anchor.id, keep_id=row.id)
     return row
+
+
+def _prune_anchor_summary_variants(
+    session: Session, anchor_id: UUID, *, keep_id: UUID
+) -> None:
+    rows = list(
+        session.scalars(
+            select(Representation)
+            .where(
+                Representation.object_id == anchor_id,
+                Representation.kind == KIND_CONVERSATION_STACK_SUMMARY,
+            )
+            .order_by(
+                Representation.updated_at.desc(),
+                Representation.created_at.desc(),
+                Representation.id.desc(),
+            )
+        )
+    )
+    keep = {keep_id}
+    for row in rows:
+        if len(keep) >= CONVERSATION_STACK_SUMMARY_MAX_VARIANTS_PER_ANCHOR:
+            break
+        keep.add(row.id)
+    for row in rows:
+        if row.id not in keep:
+            session.delete(row)
+    session.flush()
 
 
 class ConversationStackSummaryService:

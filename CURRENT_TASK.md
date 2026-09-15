@@ -2,7 +2,7 @@
 
 ## Status
 
-Unified Conversation & Inbox Compaction A is **implemented / awaiting Architect review**.
+Unified Conversation & Inbox Compaction A **Architect R1 corrective implemented / awaiting Architect review**.
 It is **NOT CODE ACCEPTED**. It is **NOT PRODUCTION ACCEPTED**. **NOT DEPLOYED**.
 
 Canonical base / docs tip at phase start: `54b820d01d97c1ae44fba3d2d5831e1605e9c5d7`.

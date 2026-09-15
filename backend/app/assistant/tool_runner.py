@@ -250,7 +250,7 @@ class PerTurnToolBudget:
             if self._telemetry is not None:
                 self._telemetry.tool_calls += 1
         if tool_name == "list_inbox_since_review_marker" and result.success:
-            progress_payload = result.output or result.model_visible_payload
+            progress_payload = result.model_visible_payload
             if progress_payload is not None:
                 self.inbox_review.observe(
                     arguments=result.validated_arguments or arguments,

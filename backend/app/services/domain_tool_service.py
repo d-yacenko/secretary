@@ -273,6 +273,8 @@ class DomainToolService:
                 returned_count=0,
                 remaining_count=0,
                 conversation_count=0,
+                page_conversation_count=0,
+                conversation_count_exact=True,
                 message="Inbox review marker is not set",
             )
         items = [
@@ -286,7 +288,10 @@ class DomainToolService:
             )
             for obj in page.items
         ]
-        compact_items, conversation_count = self._inbox_compact_items(page.items)
+        compact_items, page_conversation_count = self._inbox_compact_items(page.items)
+        conversation_count, conversation_count_exact = self._frozen_conversation_count(
+            page, purpose=input.purpose, page_conversation_count=page_conversation_count
+        )
         message = None
         if page.has_more and page.next_cursor:
             message = (
@@ -306,6 +311,8 @@ class DomainToolService:
             returned_count=page.returned_count,
             remaining_count=page.remaining_count,
             conversation_count=conversation_count,
+            page_conversation_count=page_conversation_count,
+            conversation_count_exact=conversation_count_exact,
             items=items,
             compact_items=compact_items,
             has_more=page.has_more,
@@ -376,6 +383,47 @@ class DomainToolService:
                 )
             )
         return compact, conversation_unit_count(groups)
+
+    def _frozen_conversation_count(
+        self,
+        page,
+        *,
+        purpose: str,
+        page_conversation_count: int,
+    ) -> tuple[int | None, bool]:
+        from app.services.conversation_stack import (
+            CONVERSATION_COUNT_EXACT_MAX_OBJECTS,
+            conversation_unit_count,
+        )
+        from app.services.inbox_conversation_overlay import build_inbox_conversation_groups
+
+        if page.total_count <= 0:
+            return 0, True
+        if page.total_count > CONVERSATION_COUNT_EXACT_MAX_OBJECTS:
+            return None, False
+        if not page.has_more and page.returned_count == page.total_count:
+            return page_conversation_count, True
+        if page.marker is None or page.snapshot_top_object_id is None or page.snapshot_top_feed_at is None:
+            return None, False
+        objects = InboxReviewMarkerService(
+            self._session, self._user_id
+        ).list_frozen_window_objects(
+            marker=page.marker,
+            snapshot_top_object_id=page.snapshot_top_object_id,
+            snapshot_top_feed_at=page.snapshot_top_feed_at,
+            purpose=purpose,
+            max_objects=CONVERSATION_COUNT_EXACT_MAX_OBJECTS,
+        )
+        if objects is None or len(objects) != page.total_count:
+            return None, False
+        groups = build_inbox_conversation_groups(
+            objects,
+            marker=None,
+            session=self._session,
+            user_id=self._user_id,
+            enqueue_summaries=False,
+        )
+        return conversation_unit_count(groups), True
 
     def set_inbox_review_marker(
         self, input: SetInboxReviewMarkerInput

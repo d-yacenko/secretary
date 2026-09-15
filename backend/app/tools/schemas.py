@@ -400,7 +400,9 @@ class ListInboxSinceReviewMarkerOutput(BaseModel):
     total_count: int = 0
     returned_count: int = 0
     remaining_count: int = 0
-    conversation_count: int = 0
+    conversation_count: int | None = None
+    page_conversation_count: int = 0
+    conversation_count_exact: bool = False
     items: list[InboxSinceReviewMarkerItemOut]
     compact_items: list[InboxReviewCompactItemOut] = Field(default_factory=list)
     has_more: bool
