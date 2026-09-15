@@ -23,31 +23,20 @@ class SystemAssistantAccountSection extends StatelessWidget {
       builder: (context, _) {
         return AccountSectionCard(
           key: const Key('system_assistant_section'),
-          title: 'Системный помощник',
+          title: 'Голос с экрана блокировки',
           children: [
-            Text(
-              controller.isDefaultAssistant
-                  ? 'Секретарь выбран системным помощником'
-                  : 'Секретарь не выбран системным помощником',
-              key: const Key('system_assistant_status'),
-            ),
-            const SizedBox(height: 8),
             const Text(
-              'Чтобы вызывать голос с кнопки ассистента, с фона и с экрана '
-              'блокировки, выберите Секретарь цифровым помощником в Android. '
-              'Двойное нажатие «Громкость +» работает только в открытом приложении.',
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              key: const Key('system_assistant_request_role'),
-              onPressed: controller.requestAssistantRole,
-              child: const Text('Выбрать Секретарь помощником…'),
+              'Перед поездкой откройте этот режим. После блокировки телефона '
+              'большая кнопка Секретаря останется доступна поверх экрана '
+              'блокировки.',
             ),
             const SizedBox(height: 8),
             SwitchListTile(
               key: const Key('system_assistant_lock_screen'),
               contentPadding: EdgeInsets.zero,
-              title: const Text('Голос с заблокированного экрана'),
+              title: const Text(
+                'Разрешить голосовой режим на экране блокировки',
+              ),
               subtitle: const Text(
                 'Без PIN можно начать голосовой ход. Отправка писем и сообщений '
                 'по-прежнему требует разблокировки.',
@@ -55,6 +44,14 @@ class SystemAssistantAccountSection extends StatelessWidget {
               value: controller.lockScreenVoiceEnabled,
               onChanged: controller.setLockScreenVoiceEnabled,
             ),
+            if (controller.lockScreenVoiceEnabled) ...[
+              const SizedBox(height: 8),
+              FilledButton(
+                key: const Key('lock_screen_open_driving_mode'),
+                onPressed: controller.openLockScreenLauncher,
+                child: const Text('Открыть режим вождения'),
+              ),
+            ],
           ],
         );
       },

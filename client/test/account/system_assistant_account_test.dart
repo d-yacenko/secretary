@@ -19,6 +19,7 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
   bool isDefaultAssistant;
   bool keyguardLocked;
   int requestCount = 0;
+  int openLauncherCount = 0;
   VoidCallback? onAssist;
   void Function(bool locked)? onKeyguard;
 
@@ -52,6 +53,11 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
   }
 
   @override
+  Future<void> openLockScreenLauncher() async {
+    openLauncherCount += 1;
+  }
+
+  @override
   Future<void> dismiss() async {}
 }
 
@@ -62,7 +68,43 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('Android account shows system assistant opt-in', (tester) async {
+  Future<SystemAssistantController> attachController(
+    FakeSystemAssistantBridge bridge,
+  ) async {
+    final controller = SystemAssistantController(
+      bridge: bridge,
+      store: LockScreenVoiceStore(
+        preferences: await SharedPreferences.getInstance(),
+      ),
+    );
+    await controller.attach('user-1');
+    return controller;
+  }
+
+  AccountScreen screen({
+    required AuthController auth,
+    required SystemAssistantController controller,
+  }) {
+    return AccountScreen(
+      apiClient: auth.apiClient,
+      authController: auth,
+      initialConnections: Connections.fromJson(accountConnectionsJson()),
+      initialSettings: UserSettings.fromJson(accountSettingsJson()),
+      initialSourcePreferences: SourcePreferenceList.fromJson(
+        accountSourcePreferencesJson(),
+      ).preferences,
+      initialIdentity: UserIdentity.fromJson(accountIdentityJson()),
+      initialSemanticContext: UserSemanticContext.fromJson(
+        accountSemanticContextJson(),
+      ),
+      systemAssistantController: controller,
+      systemAssistantPlatform: TargetPlatform.android,
+    );
+  }
+
+  testWidgets('Android account shows lock-screen launcher, not assistant role', (
+    tester,
+  ) async {
     final client = buildAccountApiClient();
     final auth = AuthController(
       apiClient: client,
@@ -76,51 +118,40 @@ void main() {
       createdAt: '2026-01-01T00:00:00Z',
     );
     final bridge = FakeSystemAssistantBridge();
-    final controller = SystemAssistantController(
-      bridge: bridge,
-      store: LockScreenVoiceStore(
-        preferences: await SharedPreferences.getInstance(),
-      ),
-    );
-    await controller.attach('user-1');
-    await pumpAccountReady(
-      tester,
-      AccountScreen(
-        apiClient: client,
-        authController: auth,
-        initialConnections: Connections.fromJson(accountConnectionsJson()),
-        initialSettings: UserSettings.fromJson(accountSettingsJson()),
-        initialSourcePreferences: SourcePreferenceList.fromJson(
-          accountSourcePreferencesJson(),
-        ).preferences,
-        initialIdentity: UserIdentity.fromJson(accountIdentityJson()),
-        initialSemanticContext: UserSemanticContext.fromJson(
-          accountSemanticContextJson(),
-        ),
-        systemAssistantController: controller,
-        systemAssistantPlatform: TargetPlatform.android,
-      ),
-    );
-    expect(find.text('Системный помощник'), findsOneWidget);
-    expect(
-      find.text('Секретарь не выбран системным помощником'),
-      findsOneWidget,
-    );
+    final controller = await attachController(bridge);
+    await pumpAccountReady(tester, screen(auth: auth, controller: controller));
+    expect(find.text('Голос с экрана блокировки'), findsOneWidget);
+    expect(find.text('Системный помощник'), findsNothing);
+    expect(find.text('Выбрать Секретарь помощником…'), findsNothing);
+    expect(find.byKey(const Key('system_assistant_request_role')), findsNothing);
     expect(
       find.byKey(const Key('system_assistant_lock_screen')),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const Key('system_assistant_request_role')));
+    expect(find.byKey(const Key('lock_screen_open_driving_mode')), findsNothing);
+    expect(bridge.requestCount, 0);
+    await tester.tap(find.byKey(const Key('system_assistant_lock_screen')));
     await tester.pump();
-    expect(bridge.requestCount, 1);
-    expect(
-      find.text('Секретарь не выбран системным помощником'),
-      findsOneWidget,
-    );
-    bridge.isDefaultAssistant = true;
-    await controller.refresh();
+    expect(controller.lockScreenVoiceEnabled, isTrue);
+    expect(find.byKey(const Key('lock_screen_open_driving_mode')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('lock_screen_open_driving_mode')));
     await tester.pump();
-    expect(find.text('Секретарь выбран системным помощником'), findsOneWidget);
+    expect(bridge.openLauncherCount, 1);
+    expect(bridge.requestCount, 0);
+    controller.dispose();
+  });
+
+  test('disabled lock-screen voice does not open the launcher', () async {
+    final bridge = FakeSystemAssistantBridge();
+    final controller = await attachController(bridge);
+    expect(controller.lockScreenVoiceEnabled, isFalse);
+    await controller.openLockScreenLauncher();
+    expect(bridge.openLauncherCount, 0);
+    expect(bridge.requestCount, 0);
+    await controller.setLockScreenVoiceEnabled(true);
+    await controller.openLockScreenLauncher();
+    expect(bridge.openLauncherCount, 1);
+    expect(bridge.requestCount, 0);
     controller.dispose();
   });
 

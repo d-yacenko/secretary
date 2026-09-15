@@ -50,6 +50,10 @@ class SystemAssistantPlugin(
                 requestRole()
                 result.success(null)
             }
+            "openLockScreenLauncher" -> {
+                activity.startActivity(lockScreenLauncherIntent(activity))
+                result.success(null)
+            }
             "dismiss" -> {
                 if (activity is VoiceSessionActivity) {
                     activity.finish()
@@ -105,6 +109,24 @@ fun consumeVoiceTrigger(intent: Intent?): Boolean {
     return true
 }
 
+data class VoiceSessionLaunch(
+    val autoInvoke: Boolean,
+    val mode: String,
+)
+
+fun parseVoiceSessionLaunch(hasVoiceTrigger: Boolean, launchMode: String?): VoiceSessionLaunch {
+    if (hasVoiceTrigger) {
+        return VoiceSessionLaunch(
+            autoInvoke = true,
+            mode = SystemAssistantConstants.LAUNCH_MODE_ASSIST_INVOKE,
+        )
+    }
+    return VoiceSessionLaunch(
+        autoInvoke = false,
+        mode = launchMode ?: SystemAssistantConstants.LAUNCH_MODE_LAUNCHER,
+    )
+}
+
 fun applyLockScreenFlags(activity: Activity) {
     if (Build.VERSION.SDK_INT >= 27) {
         activity.setShowWhenLocked(true)
@@ -112,8 +134,7 @@ fun applyLockScreenFlags(activity: Activity) {
     } else {
         @Suppress("DEPRECATION")
         activity.window.addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            SystemAssistantConstants.API23_SHOW_WHEN_LOCKED_FLAGS,
         )
     }
 }
@@ -146,8 +167,22 @@ fun launchUnlockedVoice(context: Context) {
 fun lockedVoiceIntent(context: Context): Intent {
     return Intent(context, VoiceSessionActivity::class.java).apply {
         addFlags(SystemAssistantConstants.LOCKED_LAUNCH_FLAGS)
+        putExtra(SystemAssistantConstants.EXTRA_LAUNCH_MODE, SystemAssistantConstants.LAUNCH_MODE_ASSIST_INVOKE)
         putExtra(SystemAssistantConstants.EXTRA_VOICE_TRIGGER, true)
     }
+}
+
+fun lockScreenLauncherIntent(context: Context): Intent {
+    return Intent(context, VoiceSessionActivity::class.java).apply {
+        addFlags(SystemAssistantConstants.LOCKED_LAUNCH_FLAGS)
+        putExtra(SystemAssistantConstants.EXTRA_LAUNCH_MODE, SystemAssistantConstants.LAUNCH_MODE_LAUNCHER)
+    }
+}
+
+fun Intent.isLockScreenLauncherLaunch(): Boolean {
+    return getStringExtra(SystemAssistantConstants.EXTRA_LAUNCH_MODE) ==
+        SystemAssistantConstants.LAUNCH_MODE_LAUNCHER &&
+        !hasVoiceTriggerExtra()
 }
 
 fun launchLockedVoice(context: Context) {

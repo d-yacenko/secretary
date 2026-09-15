@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../auth/auth_controller.dart';
-import '../auth/auth_setup_screen.dart';
 import 'assistant_controller.dart';
 import 'system_assistant_bridge.dart';
 import 'voice_session_screen.dart';
@@ -113,17 +112,50 @@ class _VoiceSessionAppState extends State<VoiceSessionApp> {
               widget.authController.status == AuthStatus.initial ||
               widget.authController.status == AuthStatus.loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : switch (widget.authController.status) {
-              AuthStatus.authenticated => VoiceSessionScreen(
-                assistant: _assistant,
-                systemAssistant: _systemAssistant,
+          : widget.authController.status == AuthStatus.authenticated
+          ? VoiceSessionScreen(
+              assistant: _assistant,
+              systemAssistant: _systemAssistant,
+            )
+          : VoiceSessionLockedSignInScreen(systemAssistant: _systemAssistant),
+    );
+  }
+}
+
+class VoiceSessionLockedSignInScreen extends StatelessWidget {
+  const VoiceSessionLockedSignInScreen({
+    super.key,
+    required this.systemAssistant,
+  });
+
+  final SystemAssistantController systemAssistant;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+              Text(
+                lockScreenSignInMessage,
+                key: const Key('voice_session_sign_in_required'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
-              AuthStatus.needsAuth || AuthStatus.transientError =>
-                AuthSetupScreen(controller: widget.authController),
-              AuthStatus.initial || AuthStatus.loading => const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
+              const Spacer(),
+              TextButton(
+                key: const Key('voice_session_close'),
+                onPressed: systemAssistant.dismissOverlay,
+                child: const Text('Закрыть'),
               ),
-            },
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

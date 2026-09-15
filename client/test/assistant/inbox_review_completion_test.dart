@@ -177,6 +177,85 @@ void main() {
     },
   );
 
+  test(
+    'lockScreenLauncher verified receipt plus complete playback posts CAS',
+    () async {
+      final completeBodies = <Map<String, dynamic>>[];
+      final mock = MockClient((request) async {
+        if (request.url.path == '/assistant/message') {
+          return jsonResponse(assistantAnswer(receipt: receiptJson()));
+        }
+        if (request.url.path == '/assistant/speech') {
+          return speechOk();
+        }
+        if (request.method == 'POST' &&
+            request.url.path == '/inbox/review-marker/complete') {
+          completeBodies.add(
+            jsonDecode(utf8.decode(request.bodyBytes)) as Map<String, dynamic>,
+          );
+          return jsonResponse({
+            'status': 'advanced',
+            'review_marker': {
+              'anchor_feed_at': '2026-09-14T15:00:00Z',
+              'anchor_object_id': 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              'updated_at': '2026-09-14T16:00:00Z',
+            },
+          });
+        }
+        return http.Response('{}', 404);
+      });
+      final apiClient = SecretaryApiClient(httpClient: mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        auth: buildAuth(apiClient),
+      );
+      await assistant.sendMessage(
+        'что нового?',
+        source: VoiceInvocationSource.lockScreenLauncher,
+      );
+      expect(completeBodies, hasLength(1));
+      assistant.dispose();
+    },
+  );
+
+  test(
+    'lockScreenLauncher playback interrupt does not complete the marker',
+    () async {
+      var completeCalls = 0;
+      final speechPlayer = FakeSpeechPlayer(completeImmediately: false);
+      final mock = MockClient((request) async {
+        if (request.url.path == '/assistant/message') {
+          return jsonResponse(assistantAnswer(receipt: receiptJson()));
+        }
+        if (request.url.path == '/assistant/speech') {
+          return speechOk();
+        }
+        if (request.url.path == '/inbox/review-marker/complete') {
+          completeCalls += 1;
+          return jsonResponse({'status': 'advanced'});
+        }
+        return http.Response('{}', 404);
+      });
+      final apiClient = SecretaryApiClient(httpClient: mock);
+      apiClient.configure(baseUrl: baseUrl, token: token);
+      final assistant = buildAssistant(
+        apiClient: apiClient,
+        auth: buildAuth(apiClient),
+        speechPlayer: speechPlayer,
+      );
+      final turn = assistant.sendMessage(
+        'что нового?',
+        source: VoiceInvocationSource.lockScreenLauncher,
+      );
+      await waitUntil(() => speechPlayer.playCount > 0);
+      await assistant.stopSpeaking();
+      await turn;
+      expect(completeCalls, 0);
+      assistant.dispose();
+    },
+  );
+
   test('playback interrupt does not complete the marker', () async {
     var completeCalls = 0;
     final speechPlayer = FakeSpeechPlayer(completeImmediately: false);

@@ -183,6 +183,42 @@ void main() {
     assistant.dispose();
   });
 
+  test('lockScreenLauncher external write remains blocked while locked', () async {
+    var approveCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        return jsonResponse({'text': 'Ответь Иванову'});
+      }
+      if (request.url.path == '/assistant/message') {
+        return jsonResponse(pendingCommunicationPlan());
+      }
+      if (request.url.path.contains('/approve')) {
+        approveCalls += 1;
+        return http.Response('{}', 500);
+      }
+      if (request.url.path == '/assistant/speech') {
+        return speechOk();
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final assistant = buildAssistant(apiClient: apiClient);
+    assistant.keyguardLocked = true;
+    assistant.lockScreenVoiceEnabled = true;
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.lockScreenLauncher,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.lockScreenLauncher,
+    );
+    await waitUntil(() => assistant.hasPendingActionPlan);
+    await assistant.approveActionPlanAt(1);
+    expect(approveCalls, 0);
+    expect(assistant.blocksExternalWrite, isTrue);
+    assistant.dispose();
+  });
+
   test('exact Нет still rejects while locked', () async {
     var transcripts = <String>['Ответь Иванову', 'Нет'];
     var approveCalls = 0;

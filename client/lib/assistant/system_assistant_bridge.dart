@@ -10,7 +10,7 @@ const String systemAssistantProtocol = 'secretary.system_assistant.v1';
 const String lockScreenVoiceEnabledMessage =
     'Голос с заблокированного экрана выключен.';
 const String lockScreenSignInMessage =
-    'Сначала войдите в Секретарь на этом устройстве.';
+    'Откройте Секретарь после разблокировки и войдите в аккаунт.';
 
 class SystemAssistantStatus {
   const SystemAssistantStatus({
@@ -41,6 +41,8 @@ abstract class SystemAssistantBridge {
 
   Future<void> requestAssistantRole();
 
+  Future<void> openLockScreenLauncher();
+
   Future<void> dismiss();
 }
 
@@ -66,6 +68,9 @@ class NoopSystemAssistantBridge implements SystemAssistantBridge {
 
   @override
   Future<void> requestAssistantRole() async {}
+
+  @override
+  Future<void> openLockScreenLauncher() async {}
 
   @override
   Future<void> dismiss() async {}
@@ -125,6 +130,17 @@ class MethodChannelSystemAssistantBridge implements SystemAssistantBridge {
   Future<void> requestAssistantRole() async {
     try {
       await _channel.invokeMethod<void>('requestAssistantRole');
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
+  }
+
+  @override
+  Future<void> openLockScreenLauncher() async {
+    try {
+      await _channel.invokeMethod<void>('openLockScreenLauncher');
     } on MissingPluginException {
       return;
     } on PlatformException {
@@ -282,6 +298,13 @@ class SystemAssistantController extends ChangeNotifier {
 
   Future<void> requestAssistantRole() async {
     await _bridge.requestAssistantRole();
+  }
+
+  Future<void> openLockScreenLauncher() async {
+    if (!lockScreenVoiceEnabled) {
+      return;
+    }
+    await _bridge.openLockScreenLauncher();
   }
 
   Future<void> setLockScreenVoiceEnabled(bool enabled) async {

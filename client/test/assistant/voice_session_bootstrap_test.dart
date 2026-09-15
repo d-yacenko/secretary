@@ -112,6 +112,9 @@ class RecordingSystemAssistantBridge implements SystemAssistantBridge {
   Future<void> requestAssistantRole() async {}
 
   @override
+  Future<void> openLockScreenLauncher() async {}
+
+  @override
   Future<void> dismiss() async {}
 }
 
@@ -241,6 +244,51 @@ void main() {
       systemAssistant.dispose();
     },
   );
+
+  testWidgets('launcher overlay without assist invoke does not auto-record', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      LockScreenVoiceStore.prefKeyForUser('user-1'): true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final recorder = FakeVoiceRecorder();
+    final apiClient = authedClient();
+    final auth = AuthController(
+      apiClient: apiClient,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    final bridge = RecordingSystemAssistantBridge();
+    final systemAssistant = SystemAssistantController(
+      bridge: bridge,
+      store: LockScreenVoiceStore(preferences: prefs),
+    );
+    await systemAssistant.attach('user-1');
+    final assistant = AssistantController(
+      apiClient: apiClient,
+      authController: auth,
+      voiceRecorder: recorder,
+      voiceTempFiles: VoiceTempFiles(directory: tempDir),
+      speechPlayer: FakeSpeechPlayer(),
+      lockScreenSession: true,
+    );
+    assistant.lockScreenVoiceEnabled = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceSessionScreen(
+          assistant: assistant,
+          systemAssistant: systemAssistant,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(recorder.startCallCount, 0);
+    expect(assistant.voiceState, AssistantVoiceState.idle);
+    assistant.dispose();
+    systemAssistant.dispose();
+  });
 
   testWidgets(
     'delayed auth still keeps a disabled locked session from recording',

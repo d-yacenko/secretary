@@ -2,8 +2,9 @@ import 'voice_invocation_source.dart';
 
 /// Device-local auto-speech preference. Not synced to UserSettings.
 enum VoiceOutputPolicy {
-  /// Speak hands-free invocations only (hardware / system / lock-screen assistant).
-  /// The on-screen microphone is dictation and never auto-speaks.
+  /// Speak hands-free invocations only (hardware / system assistant /
+  /// lock-screen launcher). The on-screen microphone is dictation and never
+  /// auto-speaks.
   handsFreeEnabled,
 
   /// Never auto-speak Assistant answers.

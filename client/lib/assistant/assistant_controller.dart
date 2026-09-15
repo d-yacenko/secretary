@@ -590,6 +590,10 @@ class AssistantController extends ChangeNotifier {
         if (lockScreenSession && keyguardLocked && !lockScreenVoiceEnabled) {
           return;
         }
+        if (source == VoiceInvocationSource.lockScreenLauncher &&
+            !lockScreenVoiceEnabled) {
+          return;
+        }
         VoiceTurnTiming.startTurn(
           startCueAlreadyPlayed ? 'native_or_assist' : 'ui',
         );

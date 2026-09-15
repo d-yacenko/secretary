@@ -284,6 +284,9 @@ void main() {
     if (lockScreenSession) {
       assistant.lockScreenVoiceEnabled = true;
     }
+    if (source == VoiceInvocationSource.lockScreenLauncher) {
+      assistant.lockScreenVoiceEnabled = true;
+    }
     if (source == VoiceInvocationSource.screenMic) {
       await assistant.startVoiceRecording();
       await assistant.stopVoiceRecordingAndTranscribe();
@@ -376,6 +379,28 @@ void main() {
         lockScreenSession: true,
       ),
       greaterThan(0),
+    );
+  });
+
+  test('lockScreenLauncher + default => TTS', () async {
+    expect(VoiceInvocationSource.lockScreenLauncher.isVoiceInput, isTrue);
+    expect(VoiceInvocationSource.lockScreenLauncher.isHandsFree, isTrue);
+    expect(
+      await runVoiceTurn(
+        policy: VoiceOutputPolicy.handsFreeEnabled,
+        source: VoiceInvocationSource.lockScreenLauncher,
+      ),
+      greaterThan(0),
+    );
+  });
+
+  test('lockScreenLauncher + never => no TTS', () async {
+    expect(
+      await runVoiceTurn(
+        policy: VoiceOutputPolicy.never,
+        source: VoiceInvocationSource.lockScreenLauncher,
+      ),
+      0,
     );
   });
 

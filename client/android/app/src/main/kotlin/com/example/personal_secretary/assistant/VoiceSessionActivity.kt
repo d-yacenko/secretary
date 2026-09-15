@@ -38,6 +38,11 @@ class VoiceSessionActivity : FlutterActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        applyLockScreenFlags(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

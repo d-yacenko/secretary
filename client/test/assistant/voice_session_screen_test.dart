@@ -41,6 +41,9 @@ class _LockedBridge implements SystemAssistantBridge {
   Future<void> requestAssistantRole() async {}
 
   @override
+  Future<void> openLockScreenLauncher() async {}
+
+  @override
   Future<void> dismiss() async {}
 }
 
