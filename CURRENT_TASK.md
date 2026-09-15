@@ -1,41 +1,52 @@
-# Current task — Voice Assistant A FINAL COMBINED PRODUCTION DEPLOY
+# Current task — Voice Assistant A Final Production Corrective R2
 
 ## Status
 
-**Voice Assistant A: CODE ACCEPTED / DEPLOYED / AWAITING FINAL USER MANUAL ACCEPTANCE** on `review/voice-assistant-a`.
+Voice Assistant A remains **CODE ACCEPTED / DEPLOYED / AWAITING FINAL USER MANUAL ACCEPTANCE**.
+It is **NOT PRODUCTION ACCEPTED**. Voice B is not started.
 
-Accepted / exact deployed application SHA: `b0c75eaa5e879ee108afe90f152a29914d28a2f2`
+Production application SHA remains `b0c75eaa5e879ee108afe90f152a29914d28a2f2`.
+Production Alembic remains `0040`.
+The corrective is **not deployed**. Implementation branch: `review/voice-assistant-a`.
+Architect review is required before any deploy.
 
-Previous production SHA: `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf6357`
+## Authorized scope
 
-Docs tip at deploy time: `339d9624375a546ec6fa0e16158f6faa9806cfcd` (not used as runtime).
+### A. Inbox review marker corrective
 
-NOT PRODUCTION ACCEPTED. Do not start Voice B.
+Fix the post-deploy physical acceptance failure where “Перечисли все новые сообщения” completed full enumeration and TTS, but the “Просмотрено досюда” marker did not move and a subsequent count still returned 18 new items.
 
-## Deploy
+Required:
 
-Detached on VDS `/opt/secretary`: `git checkout --detach b0c75eaa5e879ee108afe90f152a29914d28a2f2` then `cd infra && docker compose --env-file ../.env -f compose.yaml -f compose.deploy.yaml up -d --build`.
+- read-only production diagnosis of the failed turn where evidence remains available;
+- deterministic backend enforcement of review versus inspect intent;
+- preservation of frozen snapshot, verified receipt, and CAS completion semantics;
+- structured completion observability with fail-closed behavior;
+- end-to-end regression coverage for review pagination, playback completion, interruption/error, and completion outcomes.
 
-Pre-deploy production HEAD matched expected `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf6357`. Working tree clean except untracked `backups/`.
+### B. Teams incoming synchronization corrective
 
-Backup: `/opt/secretary/backups/pre-voice-a-combined-20260915T140527Z-5ef2a2db.dump` (49M, sha256 `0149dd8eac59d963cfaf658069d96af4f76786a1482ee667717dead6edd8d382`). `.env` / secrets not modified.
+Fix the incoming synchronization pressure observed after Teams became operational. Current 60-second polling across approximately 319 chats causes Microsoft Graph rate limiting.
 
-Alembic **0040 / 0040** before and after. No `0041`.
+Required:
 
-API and worker containers recreated from `b0c75e` (db volume unchanged). Internal `http://127.0.0.1:18080/health` 200; public `https://web-itx.duckdns.org/secretary/health` 200. Authenticated `/connections`, `/inbox`, `/sources/status` 200. Worker `restartCount=0`, not crash-looping. Provenance: IMAP timeout 30s, per-source lanes, «перечисли все новые сообщения» → `purpose=review`. FAILED `1435` → `1435`.
+- quantify current request amplification and 429 behavior where evidence exists;
+- safely reduce reconciliation amplification;
+- implement Microsoft Graph Change Notifications as the primary incoming path, subject to the approved v1.0 capability/probe rules;
+- retain polling as reconciliation/fallback;
+- keep channels out of scope;
+- do not broaden permissions without Architect authorization.
 
-## Source lanes
+### C. Compatibility and safety
 
-Stuck `sync_yandex_mail` (`locked_at=2026-09-14T11:37:18.648892Z`) was reclaimed by existing stale-lock logic. Yandex Mail then succeeded independently (`last_success_at=2026-09-15T14:09:16.483626Z`, status `scheduled`). Gmail and Teams ran in parallel and were not blocked.
+Preserve all accepted Voice Assistant A functionality.
 
-Gmail before: `pending`, `last_success_at=2026-09-14T11:37:15.389530Z`, newest Object `2026-09-14T11:30:22Z`, count 839. After: `scheduled`, `last_success_at=2026-09-15T14:09:13.586107Z`, newest `2026-09-15T13:15:03Z`, count 850 (11 newer than the old boundary). `last_error` empty.
+Do not deploy, restart the production worker for implementation, manually move the marker, mark PRODUCTION ACCEPTED, or start Voice B.
 
-Teams before: `pending` `attempts=0`, empty `last_success_at`, token_expiry `2026-09-15T06:29:53Z`, 0 objects, `sync_state` only `sync_start_at`. After: claimed (`running` then success), `last_success_at=2026-09-15T14:09:16.659556Z`, token_expiry `2026-09-15T15:23:59Z`, Graph `/me/chats` 200, `sync_state.chats` 319 keys, 1 `chat_message` Object (`chat_type=group`, `occurred_at=2026-09-15T08:25:29.311Z`, after `sync_start_at`). Channels remain out of scope; the user’s screenshot item is not classified here without Graph channel identity. A fresh oneOnOne/group inbound after this healthy sync is the remaining user gate if that screenshot was a channel post.
+## Ledger rules
 
-## Remaining user physical gates
+Preserve historical production facts in `PROJECT_STATE.md` and `DECISIONS.md`. Update those ledgers only at the end with facts proven by this corrective. Do not claim the corrective is CODE ACCEPTED or PRODUCTION ACCEPTED.
 
-Inbox complete-enumeration / marker A–J after this combined backend. Do not move the marker from deploy. Not PRODUCTION ACCEPTED.
+## Stop condition
 
-## Stop
-
-Wait for user physical acceptance. Do not start Voice B. Do not mark PRODUCTION ACCEPTED.
+After implementation, relevant checks, factual ledger updates, commit, and push, stop for Architect review. No deployment is authorized by this task.
