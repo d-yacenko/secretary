@@ -1,23 +1,22 @@
-# Current task — Voice Assistant A Final Production Corrective R2-R2
+# Current task — Voice Assistant A Final Production Corrective R2 deployed
 
 ## Status
 
-Voice Assistant A remains **CODE ACCEPTED / DEPLOYED / AWAITING FINAL USER MANUAL ACCEPTANCE**.
+Voice Assistant A is **CODE ACCEPTED / DEPLOYED / AWAITING FINAL USER MANUAL ACCEPTANCE**.
 It is **NOT PRODUCTION ACCEPTED**. Voice B is not started.
 
-Production application SHA remains `b0c75eaa5e879ee108afe90f152a29914d28a2f2`.
-Production Alembic remains **0040 / 0040**.
-R2-R1 direction (lastMessagePreview skip, review/inspect grammar, `reauthorizationRequired` PATCH) is Architect-accepted. Application SHA `30fb7553ec343764dfcd8eb69b8316f9431b0b92` was **not CODE ACCEPTED** because `enqueue_once` permanently suppressed `updated` (and later retries after FAILED) for the same Graph message id.
+Deployed application SHA (runtime): `7610cc1c6ce24764fae73317a6925cdce7bd27b2`.
+Previous production SHA: `b0c75eaa5e879ee108afe90f152a29914d28a2f2`.
+Production Alembic **0040 → 0041**.
 
-This R2-R2 corrective is **implemented / awaiting Architect review** on `review/voice-assistant-a` at application SHA `7610cc1c6ce24764fae73317a6925cdce7bd27b2` (parent `acdff76dc86cfe5bd4ed82e1a5c619f480030afe`). It is **not deployed**. No PRODUCTION ACCEPTED.
+## Deploy facts
 
-## Implemented (this branch, not deployed)
+- Backup `/opt/secretary/backups/pre-voice-a-r2-20260915T180737Z-b0c75eaa.dump` sha256 `f11def62d051d4d8ee47e8ac9d0754eb95c21e8bd8f4b514664d05d6f3d9737e` (52895759 bytes).
+- Env (non-secret): `MICROSOFT_TEAMS_NOTIFICATION_URL=https://web-itx.duckdns.org/secretary/webhooks/teams`, `SOURCE_SYNC_TEAMS_INTERVAL_SECONDS=900`.
+- Graph v1.0 `POST /subscriptions` **201**; row `active`; resource `/users/{microsoft-user-id}/chats/getAllMessages`; webhook validation POST echoes `validationToken` as `text/plain` 200 from FastAPI (temporary nginx echo not restored).
+- First reconciliation after deploy: 19 `GET /v1.0/me/chats?$expand=lastMessagePreview`, 318 targeted `list_chat_messages` (no watermarks yet / fail-open), Graph **429 count = 0**. Cached chats after run: **319**. Next `sync_teams` `run_after` = last_success + **900s**.
+- Debug APK sha256 `e6933829d12ab3ea7f4793c92c00e5a6394c339aca24bbe618b444e1e18305c9`, aapt `sdkVersion:'23'`, installed on SM_T355 (`8430b607`).
 
-- Teams targeted notifications enqueue a new `process_teams_notification` job for every validated `created`/`updated` event. No historical DONE/FAILED `enqueue_once` key. Duplicate Graph deliveries in one webhook batch are collapsed in memory; later webhooks enqueue again.
-- Job payload carries sanitized `change_type` (`created` or `updated`). Unexpected `changeType` (including `deleted`) is ignored. Processing is still targeted GET + idempotent `upsert_message`.
-- `JobQueueService.enqueue_once` remains for Gmail history; Teams no longer calls it.
-- R2-R1 behavior preserved. Alembic **0041**. Client Dart unchanged in this SHA; debug APK rebuilt from the final application tree: `client/build/app/outputs/flutter-apk/app-debug.apk` sha256 `e6933829d12ab3ea7f4793c92c00e5a6394c339aca24bbe618b444e1e18305c9`, aapt `sdkVersion:'23'`.
+## Remaining user-manual gates
 
-## Stop
-
-Push `review/voice-assistant-a` and wait for Architect review. Do not deploy. Do not mark CODE ACCEPTED or PRODUCTION ACCEPTED. Do not start Voice B.
+Physical Inbox marker completion after «перечисли мне все новые сообщения»; physical Teams inbound via webhook (`process_teams_notification`). Do not mark PRODUCTION ACCEPTED. Do not start Voice B.
