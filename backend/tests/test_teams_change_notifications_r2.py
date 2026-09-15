@@ -22,7 +22,12 @@ from app.connectors.teams.subscriptions import (
 from app.connectors.teams.sync import TeamsSyncService
 from app.connectors.teams.transport import FakeTeamsTransport, TeamsHttpTransport
 from app.db.models import Job, Object, TeamsSubscription
-from app.jobs.constants import JOB_TYPE_PROCESS_TEAMS_NOTIFICATION, JOB_TYPE_SYNC_TEAMS
+from app.jobs.constants import (
+    JOB_STATUS_DONE,
+    JOB_STATUS_FAILED,
+    JOB_TYPE_PROCESS_TEAMS_NOTIFICATION,
+    JOB_TYPE_SYNC_TEAMS,
+)
 from app.services.job_queue_service import JobQueueService
 from tests.test_teams_a import (
     CHAT_GROUP,
@@ -58,6 +63,7 @@ def _message(
     sender_id: str,
     *,
     created: str = "2026-09-15T12:00:00Z",
+    body: str = "hello",
 ) -> dict:
     return {
         "id": message_id,
@@ -65,7 +71,7 @@ def _message(
         "messageType": "message",
         "createdDateTime": created,
         "from": {"user": {"id": sender_id, "displayName": "Sender"}},
-        "body": {"contentType": "text", "content": "hello"},
+        "body": {"contentType": "text", "content": body},
     }
 
 
@@ -224,7 +230,7 @@ def test_reconciliation_reuses_cached_chat_metadata_but_keeps_message_read(
     assert fake.list_messages_calls == []
 
 
-def test_valid_client_state_enqueues_once_and_invalid_or_unknown_is_ignored(
+def test_valid_client_state_enqueues_and_invalid_or_unknown_is_ignored(
     db_session, teams_settings
 ) -> None:
     user = _user(db_session)
@@ -244,6 +250,7 @@ def test_valid_client_state_enqueues_once_and_invalid_or_unknown_is_ignored(
         "subscriptionId": "sub-1",
         "clientState": "state",
         "tenantId": TENANT_ID,
+        "changeType": "created",
         "resource": f"/users/{TEAMS_USER_ID}/chats('{CHAT_ONE}')/messages('m-1')",
     }
     assert enqueue_graph_notifications(db_session, {"value": [notification]}) == 1
@@ -253,10 +260,17 @@ def test_valid_client_state_enqueues_once_and_invalid_or_unknown_is_ignored(
             select(Job).where(Job.type == JOB_TYPE_PROCESS_TEAMS_NOTIFICATION)
         )
     )
-    assert len(jobs) == 1
+    assert len(jobs) == 2
+    assert {job.payload["change_type"] for job in jobs} == {"created"}
     bad_state = dict(notification, clientState="wrong")
     unknown = dict(notification, subscriptionId="unknown")
     assert enqueue_graph_notifications(db_session, {"value": [bad_state, unknown]}) == 0
+    assert (
+        enqueue_graph_notifications(
+            db_session, {"value": [dict(notification, changeType="deleted")]}
+        )
+        == 0
+    )
 
 
 def test_targeted_notification_materializes_supported_chats_and_filters_own_message(
@@ -309,6 +323,124 @@ def test_targeted_notification_materializes_supported_chats_and_filters_own_mess
         (CHAT_GROUP, "in-group"),
         (CHAT_ONE, "out-own"),
     ]
+
+
+def _add_subscription(db_session, teams_settings, account, user, subscription_id: str) -> None:
+    db_session.add(
+        TeamsSubscription(
+            account_id=account.id,
+            user_id=user.id,
+            subscription_id=subscription_id,
+            resource=f"/users/{TEAMS_USER_ID}/chats/getAllMessages",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            client_state_encrypted=_store(db_session, teams_settings).encrypt_secret("state"),
+        )
+    )
+    db_session.flush()
+
+
+def _notification(message_id: str, *, change_type: str, subscription_id: str = "sub-1") -> dict:
+    return {
+        "subscriptionId": subscription_id,
+        "clientState": "state",
+        "tenantId": TENANT_ID,
+        "changeType": change_type,
+        "resource": f"/users/{TEAMS_USER_ID}/chats('{CHAT_ONE}')/messages('{message_id}')",
+    }
+
+
+def test_created_then_updated_queues_new_job_and_updates_one_object(
+    db_session, teams_settings
+) -> None:
+    user = _user(db_session)
+    account = _connect_account(db_session, teams_settings, user.id)
+    _add_subscription(db_session, teams_settings, account, user, "sub-1")
+    fake = FakeTeamsTransport()
+    fake.me = {"id": TEAMS_USER_ID}
+    fake.chats = [{"id": CHAT_ONE, "chatType": "oneOnOne", "members": []}]
+    fake.messages_by_chat[CHAT_ONE] = [_message("M", CHAT_ONE, "other", body="original")]
+    assert enqueue_graph_notifications(
+        db_session, {"value": [_notification("M", change_type="created")]}
+    ) == 1
+    created_jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_PROCESS_TEAMS_NOTIFICATION))
+    )
+    assert len(created_jobs) == 1
+    assert created_jobs[0].payload["change_type"] == "created"
+    created_result = process_graph_notification(
+        db_session, created_jobs[0].payload, user.id, transport=fake
+    )
+    created_jobs[0].status = JOB_STATUS_DONE
+    db_session.flush()
+    assert created_result is not None
+    assert created_result.change == "created"
+    objects = list(db_session.scalars(select(Object).where(Object.user_id == user.id)))
+    assert len(objects) == 1
+    assert objects[0].external_id.endswith("|M")
+    assert objects[0].body == "original"
+    fake.messages_by_chat[CHAT_ONE] = [_message("M", CHAT_ONE, "other", body="edited later")]
+    assert enqueue_graph_notifications(
+        db_session, {"value": [_notification("M", change_type="updated")]}
+    ) == 1
+    all_jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_PROCESS_TEAMS_NOTIFICATION))
+    )
+    assert len(all_jobs) == 2
+    updated_job = next(job for job in all_jobs if job.status != JOB_STATUS_DONE)
+    assert updated_job.payload["change_type"] == "updated"
+    updated_result = process_graph_notification(
+        db_session, updated_job.payload, user.id, transport=fake
+    )
+    assert updated_result is not None
+    assert updated_result.change == "updated"
+    objects = list(db_session.scalars(select(Object).where(Object.user_id == user.id)))
+    assert len(objects) == 1
+    assert objects[0].body == "edited later"
+    assert "edited later" in objects[0].title
+
+
+def test_failed_notification_job_does_not_suppress_later_valid_notification(
+    db_session, teams_settings
+) -> None:
+    user = _user(db_session)
+    account = _connect_account(db_session, teams_settings, user.id)
+    _add_subscription(db_session, teams_settings, account, user, "sub-1")
+    notification = _notification("M", change_type="created")
+    assert enqueue_graph_notifications(db_session, {"value": [notification]}) == 1
+    first = db_session.scalar(select(Job).where(Job.type == JOB_TYPE_PROCESS_TEAMS_NOTIFICATION))
+    assert first is not None
+    first.status = JOB_STATUS_FAILED
+    db_session.flush()
+    assert enqueue_graph_notifications(db_session, {"value": [notification]}) == 1
+    jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_PROCESS_TEAMS_NOTIFICATION))
+    )
+    assert len(jobs) == 2
+    assert any(job.status != JOB_STATUS_FAILED for job in jobs)
+
+
+def test_duplicate_delivery_is_object_idempotent(db_session, teams_settings) -> None:
+    user = _user(db_session)
+    account = _connect_account(db_session, teams_settings, user.id)
+    _add_subscription(db_session, teams_settings, account, user, "sub-1")
+    fake = FakeTeamsTransport()
+    fake.me = {"id": TEAMS_USER_ID}
+    fake.chats = [{"id": CHAT_ONE, "chatType": "oneOnOne", "members": []}]
+    fake.messages_by_chat[CHAT_ONE] = [_message("M", CHAT_ONE, "other")]
+    duplicate = _notification("M", change_type="created")
+    assert enqueue_graph_notifications(db_session, {"value": [duplicate, duplicate]}) == 1
+    assert enqueue_graph_notifications(db_session, {"value": [duplicate]}) == 1
+    jobs = list(
+        db_session.scalars(select(Job).where(Job.type == JOB_TYPE_PROCESS_TEAMS_NOTIFICATION))
+    )
+    assert len(jobs) == 2
+    first = process_graph_notification(db_session, jobs[0].payload, user.id, transport=fake)
+    second = process_graph_notification(db_session, jobs[1].payload, user.id, transport=fake)
+    assert first is not None and first.change == "created"
+    assert second is not None and second.change == "unchanged"
+    objects = list(db_session.scalars(select(Object).where(Object.user_id == user.id)))
+    assert len(objects) == 1
+    assert objects[0].external_id.endswith("|M")
 
 
 def test_lifecycle_missed_triggers_reconciliation(db_session, teams_settings) -> None:
