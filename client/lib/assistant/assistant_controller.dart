@@ -186,6 +186,7 @@ class AssistantController extends ChangeNotifier {
   bool _speakingOverlay = false;
   String? _speechErrorMessage;
   bool _confirmationInFlight = false;
+  InboxReviewReceipt? _pendingInboxReviewReceipt;
 
   AssistantVoiceState get voiceState {
     if (_speechErrorMessage != null) {
@@ -338,6 +339,12 @@ class AssistantController extends ChangeNotifier {
       _pendingRetryMessage = null;
       sendState = AssistantSendState.idle;
       notifyListeners();
+      _pendingInboxReviewReceipt =
+          _autoSpeechAllowed &&
+              response.pendingActionPlan == null &&
+              response.inboxReviewReceipt != null
+          ? response.inboxReviewReceipt
+          : null;
       if (_autoSpeechAllowed) {
         await _speakLatestAssistantResult();
       }
@@ -666,6 +673,7 @@ class AssistantController extends ChangeNotifier {
   }
 
   Future<void> stopSpeaking() async {
+    _discardPendingInboxReviewCompletion();
     _planNarrationInProgress = false;
     _speakingOverlay = false;
     await _speech.stop();
@@ -754,6 +762,7 @@ class AssistantController extends ChangeNotifier {
   Future<void> _speakLatestAssistantResult() async {
     final pendingIndex = _uniquePendingPlanIndex();
     if (pendingIndex != null) {
+      _discardPendingInboxReviewCompletion();
       if (blocksExternalWrite) {
         _voiceApprovalArmed = false;
         await _speakDeterministic(voiceUnlockRequiredSpeech);
@@ -785,9 +794,11 @@ class AssistantController extends ChangeNotifier {
     _speechErrorMessage = null;
     _speakingOverlay = true;
     notifyListeners();
+    var playbackFinished = false;
     await _speech.speak(
       text,
       onFinished: () {
+        playbackFinished = true;
         _speakingOverlay = false;
         if (isPlanNarration && _planNarrationInProgress) {
           _voiceApprovalArmed = true;
@@ -796,6 +807,7 @@ class AssistantController extends ChangeNotifier {
         notifyListeners();
       },
       onError: (message) {
+        _discardPendingInboxReviewCompletion();
         _speakingOverlay = false;
         if (isPlanNarration) {
           _voiceApprovalArmed = false;
@@ -805,6 +817,26 @@ class AssistantController extends ChangeNotifier {
         notifyListeners();
       },
     );
+    if (playbackFinished && !isPlanNarration) {
+      await _completePendingInboxReviewAfterPlayback();
+    }
+  }
+
+  void _discardPendingInboxReviewCompletion() {
+    _pendingInboxReviewReceipt = null;
+  }
+
+  Future<void> _completePendingInboxReviewAfterPlayback() async {
+    final receipt = _pendingInboxReviewReceipt;
+    _pendingInboxReviewReceipt = null;
+    if (receipt == null) {
+      return;
+    }
+    try {
+      await _apiClient.completeInboxReviewMarker(receipt);
+    } catch (_) {
+      // Fail closed: interrupted/errored/conflict completion must not move the marker.
+    }
   }
 
   Future<void> cancelVoiceRecording() async {
@@ -831,6 +863,7 @@ class AssistantController extends ChangeNotifier {
   }
 
   void _beginTurn(VoiceInvocationSource source) {
+    _discardPendingInboxReviewCompletion();
     _turnSource = source;
     _voiceInputActive = source.isVoiceInput;
     _autoSpeechAllowed = _voiceOutputPolicy.policy.allowsAutoSpeech(source);
@@ -858,6 +891,7 @@ class AssistantController extends ChangeNotifier {
     _speakingOverlay = false;
     _speechErrorMessage = null;
     _confirmationInFlight = false;
+    _discardPendingInboxReviewCompletion();
     notifyListeners();
   }
 

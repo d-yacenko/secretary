@@ -251,15 +251,22 @@ class DomainToolService:
     ) -> ListInboxSinceReviewMarkerOutput:
         from app.services.recent_source_service import RecentSourceService, inbox_feed_at
 
-        page = InboxReviewMarkerService(
-            self._session, self._user_id
-        ).list_inbox_since_review_marker(limit=input.limit)
+        try:
+            page = InboxReviewMarkerService(
+                self._session, self._user_id
+            ).list_inbox_since_review_marker(limit=input.limit, cursor=input.cursor)
+        except ValidationError as exc:
+            raise ToolError(exc.message) from exc
         if page.marker is None:
             return ListInboxSinceReviewMarkerOutput(
                 marker_present=False,
                 marker_not_set=True,
+                purpose=input.purpose,
                 items=[],
                 has_more=False,
+                total_count=0,
+                returned_count=0,
+                remaining_count=0,
                 message="Inbox review marker is not set",
             )
         items = [
@@ -273,13 +280,28 @@ class DomainToolService:
             )
             for obj in page.items
         ]
+        message = None
+        if page.has_more and page.next_cursor:
+            message = (
+                f"Frozen snapshot has {page.remaining_count} more objects after this page "
+                f"(total_count={page.total_count}). Pass the exact next_cursor to continue "
+                "the same snapshot; do not reconstruct timestamps or UUIDs."
+            )
         return ListInboxSinceReviewMarkerOutput(
             marker_present=True,
             marker_not_set=False,
+            purpose=input.purpose,
             anchor_object_id=page.marker.anchor_object_id,
             anchor_feed_at=page.marker.anchor_feed_at,
+            snapshot_top_object_id=page.snapshot_top_object_id,
+            snapshot_top_feed_at=page.snapshot_top_feed_at,
+            total_count=page.total_count,
+            returned_count=page.returned_count,
+            remaining_count=page.remaining_count,
             items=items,
             has_more=page.has_more,
+            next_cursor=page.next_cursor,
+            message=message,
         )
 
     def set_inbox_review_marker(

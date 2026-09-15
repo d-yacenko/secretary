@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
@@ -131,11 +132,20 @@ class PendingActionPlanOut(BaseModel):
     actions: list[PendingActionOut]
 
 
+class InboxReviewReceiptOut(BaseModel):
+    anchor_before_object_id: UUID
+    anchor_before_feed_at: datetime
+    snapshot_top_object_id: UUID
+    snapshot_top_feed_at: datetime
+    total_count: int
+
+
 class AssistantMessageResponse(BaseModel):
     answer: str
     references: list[AssistantReferenceOut]
     affected_objects: list[AssistantAffectedObjectOut]
     pending_action_plan: PendingActionPlanOut | None = None
+    inbox_review_receipt: InboxReviewReceiptOut | None = None
 
 
 class ActionPlanResponse(BaseModel):
@@ -457,6 +467,16 @@ def assistant_message(
             ],
         )
 
+    inbox_review_receipt = None
+    if result.inbox_review_receipt is not None:
+        inbox_review_receipt = InboxReviewReceiptOut(
+            anchor_before_object_id=result.inbox_review_receipt.anchor_before_object_id,
+            anchor_before_feed_at=result.inbox_review_receipt.anchor_before_feed_at,
+            snapshot_top_object_id=result.inbox_review_receipt.snapshot_top_object_id,
+            snapshot_top_feed_at=result.inbox_review_receipt.snapshot_top_feed_at,
+            total_count=result.inbox_review_receipt.total_count,
+        )
+
     return AssistantMessageResponse(
         answer=result.answer,
         references=[
@@ -479,6 +499,7 @@ def assistant_message(
             for item in result.affected_objects
         ],
         pending_action_plan=pending_action_plan,
+        inbox_review_receipt=inbox_review_receipt,
     )
 
 

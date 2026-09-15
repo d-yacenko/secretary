@@ -1285,21 +1285,77 @@ class AssistantReference {
   String get displayLabel => '$kind: $title';
 }
 
+class InboxReviewReceipt {
+  const InboxReviewReceipt({
+    required this.anchorBeforeObjectId,
+    required this.anchorBeforeFeedAt,
+    required this.snapshotTopObjectId,
+    required this.snapshotTopFeedAt,
+    required this.totalCount,
+  });
+
+  final String anchorBeforeObjectId;
+  final String anchorBeforeFeedAt;
+  final String snapshotTopObjectId;
+  final String snapshotTopFeedAt;
+  final int totalCount;
+
+  factory InboxReviewReceipt.fromJson(Map<String, dynamic> json) {
+    return InboxReviewReceipt(
+      anchorBeforeObjectId: json['anchor_before_object_id'] as String,
+      anchorBeforeFeedAt: json['anchor_before_feed_at'] as String,
+      snapshotTopObjectId: json['snapshot_top_object_id'] as String,
+      snapshotTopFeedAt: json['snapshot_top_feed_at'] as String,
+      totalCount: json['total_count'] as int,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'anchor_before_object_id': anchorBeforeObjectId,
+      'anchor_before_feed_at': anchorBeforeFeedAt,
+      'snapshot_top_object_id': snapshotTopObjectId,
+      'snapshot_top_feed_at': snapshotTopFeedAt,
+      'total_count': totalCount,
+    };
+  }
+}
+
+class InboxReviewCompleteResult {
+  const InboxReviewCompleteResult({required this.status, this.reviewMarker});
+
+  final String status;
+  final InboxReviewMarker? reviewMarker;
+
+  factory InboxReviewCompleteResult.fromJson(Map<String, dynamic> json) {
+    final rawMarker = json['review_marker'];
+    return InboxReviewCompleteResult(
+      status: json['status'] as String,
+      reviewMarker: rawMarker is Map<String, dynamic>
+          ? InboxReviewMarker.fromJson(rawMarker)
+          : null,
+    );
+  }
+}
+
 class AssistantMessageResponse {
   AssistantMessageResponse({
     required this.answer,
     required this.references,
     required this.affectedObjects,
     this.pendingActionPlan,
+    this.inboxReviewReceipt,
   });
 
   final String answer;
   final List<AssistantReference> references;
   final List<AssistantAffectedObject> affectedObjects;
   final PendingActionPlan? pendingActionPlan;
+  final InboxReviewReceipt? inboxReviewReceipt;
 
   factory AssistantMessageResponse.fromJson(Map<String, dynamic> json) {
     final pendingRaw = json['pending_action_plan'];
+    final receiptRaw = json['inbox_review_receipt'];
     return AssistantMessageResponse(
       answer: json['answer'] as String,
       references: (json['references'] as List<dynamic>)
@@ -1313,6 +1369,9 @@ class AssistantMessageResponse {
       pendingActionPlan: pendingRaw == null
           ? null
           : PendingActionPlan.fromJson(pendingRaw as Map<String, dynamic>),
+      inboxReviewReceipt: receiptRaw is Map<String, dynamic>
+          ? InboxReviewReceipt.fromJson(receiptRaw)
+          : null,
     );
   }
 }

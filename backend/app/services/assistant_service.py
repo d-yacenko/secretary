@@ -24,6 +24,7 @@ from app.assistant.constants import (
     MAX_ASSISTANT_TOOL_CALLS_PER_TURN,
     MAX_UI_CONTEXT_CHARS,
 )
+from app.assistant.inbox_review_progress import InboxReviewReceipt
 from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_preserve_order
 from app.assistant.session import run_assistant_tool
 from app.assistant.tool_runner import BoundAssistantToolRunner, PerTurnToolBudget
@@ -100,6 +101,7 @@ class AssistantMessageResult:
     references: list[AssistantReference]
     affected_objects: list[AssistantAffectedObject]
     pending_action_plan: AssistantPendingActionPlan | None = None
+    inbox_review_receipt: InboxReviewReceipt | None = None
 
 
 @dataclass
@@ -269,6 +271,7 @@ class AssistantService:
             references=references,
             affected_objects=affected_objects,
             pending_action_plan=pending_action_plan,
+            inbox_review_receipt=tool_budget.inbox_review.verified_receipt(),
         )
 
     def finalize_executed_plan(self, plan: PendingActionPlanView) -> AssistantResumeResult:

@@ -566,6 +566,11 @@ def test_bounded_tool_output_and_has_more(db_session: Session, marker_user: UUID
     payload = model_out.model_visible_payload
     assert len(payload["items"]) == MAX_ASSISTANT_LIST_RESULTS
     assert payload["has_more"] is True
+    assert payload["total_count"] == 25
+    assert payload["returned_count"] == MAX_ASSISTANT_LIST_RESULTS
+    assert payload["remaining_count"] == 5
+    assert payload["next_cursor"]
+    assert payload["snapshot_top_object_id"] == str(newer[-1].id)
     visible_ids = [UUID(str(row["object_id"])) for row in payload["items"]]
     assert newer[-1].id in visible_ids
     assert newer[0].id not in visible_ids
@@ -635,6 +640,9 @@ def test_prompt_routes_whats_new_to_read_not_auto_mutate() -> None:
     assert "Do not guess a time window" in text
     assert "Do not call set_inbox_review_marker or clear_inbox_review_marker merely because" in text
     assert "fetched objects, summarized them, generated text, or requested speech" in text
+    assert "purpose=review" in text
+    assert "total_count" in text
+    assert "next_cursor" in text
     assert "without a Pending Action Plan" in text
     assert "not Gmail/Yandex/Mattermost/Telegram/Teams provider read/unread" in text
 
@@ -642,7 +650,9 @@ def test_prompt_routes_whats_new_to_read_not_auto_mutate() -> None:
     set_desc = ASSISTANT_FUNCTION_SCHEMAS["set_inbox_review_marker"]["description"]
     clear_desc = ASSISTANT_FUNCTION_SCHEMAS["clear_inbox_review_marker"]["description"]
     assert "что нового во входящих" in read_desc
-    assert "Fetching or summarizing does not move the marker" in read_desc
+    assert "Inspect/count/listing/summarizing does not move the marker" in read_desc
+    assert "purpose=review" in read_desc
+    assert "next_cursor" in read_desc
     assert "GLOBAL Secretary Inbox review frontier" in set_desc
     assert "without a Pending Action Plan" in set_desc
     assert "provider mail read-state" in set_desc

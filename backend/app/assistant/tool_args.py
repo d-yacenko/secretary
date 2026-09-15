@@ -112,6 +112,33 @@ def normalize_assistant_tool_arguments(tool_name: str, arguments: dict[str, Any]
             "limit": min(limit, MAX_ASSISTANT_LIST_RESULTS),
         }
 
+    if tool_name == "list_inbox_since_review_marker":
+        limit = arguments.get("limit", MAX_ASSISTANT_LIST_RESULTS)
+        if not isinstance(limit, int):
+            raise ToolError("list_inbox_since_review_marker limit must be an integer")
+        if limit < 1:
+            raise ToolError("list_inbox_since_review_marker limit must be at least 1")
+        purpose = arguments.get("purpose", "inspect")
+        if purpose is None:
+            purpose = "inspect"
+        if purpose not in ("inspect", "review"):
+            raise ToolError("list_inbox_since_review_marker purpose must be inspect or review")
+        normalized = {
+            **arguments,
+            "limit": min(limit, MAX_ASSISTANT_LIST_RESULTS),
+            "purpose": purpose,
+        }
+        cursor = arguments.get("cursor")
+        if cursor is not None:
+            if not isinstance(cursor, str):
+                raise ToolError("list_inbox_since_review_marker cursor must be a string")
+            stripped = cursor.strip()
+            if stripped:
+                normalized["cursor"] = stripped
+            else:
+                normalized.pop("cursor", None)
+        return normalized
+
     if tool_name == "list_neighbors":
         return {
             **arguments,

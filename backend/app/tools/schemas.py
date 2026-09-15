@@ -341,7 +341,17 @@ class RemoveLabelOutput(BaseModel):
 class ListInboxSinceReviewMarkerInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    purpose: Literal["inspect", "review"] = "inspect"
     limit: int = Field(default=20, ge=1, le=50)
+    cursor: str | None = None
+
+    @field_validator("cursor")
+    @classmethod
+    def _empty_cursor(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class InboxSinceReviewMarkerItemOut(BaseModel):
@@ -356,10 +366,17 @@ class InboxSinceReviewMarkerItemOut(BaseModel):
 class ListInboxSinceReviewMarkerOutput(BaseModel):
     marker_present: bool
     marker_not_set: bool
+    purpose: Literal["inspect", "review"] = "inspect"
     anchor_object_id: UUID | None = None
     anchor_feed_at: datetime | None = None
+    snapshot_top_object_id: UUID | None = None
+    snapshot_top_feed_at: datetime | None = None
+    total_count: int = 0
+    returned_count: int = 0
+    remaining_count: int = 0
     items: list[InboxSinceReviewMarkerItemOut]
     has_more: bool
+    next_cursor: str | None = None
     message: str | None = None
 
 

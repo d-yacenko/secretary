@@ -170,21 +170,43 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "name": "list_inbox_since_review_marker",
         "description": (
-            "Return a bounded snapshot of Inbox source objects STRICTLY NEWER than the "
-            "persisted Secretary Inbox review marker (the same global «Просмотрено "
-            "досюда» frontier as the Inbox UI). This is NOT Gmail/Yandex/Mattermost/"
-            "Telegram/Teams provider read/unread. The persisted anchor is already "
-            "reviewed and is not included. If the marker is not set, report that "
+            "Return a frozen, pageable snapshot of Inbox source objects STRICTLY NEWER "
+            "than the persisted Secretary Inbox review marker (the same global "
+            "«Просмотрено досюда» frontier as the Inbox UI). This is NOT Gmail/Yandex/"
+            "Mattermost/Telegram/Teams provider read/unread. The persisted anchor is "
+            "already reviewed and is not included. If the marker is not set, report that "
             "explicitly — do not treat the whole historical Inbox as new. Use this "
             "for «что нового?», «что нового во входящих?», «что пришло с прошлого "
             "раза?», «какие новые письма?», «перечисли то, что выше маркера "
-            "просмотра». Do not guess a time window. Fetching or summarizing does "
-            "not move the marker."
+            "просмотра». Do not guess a time window. "
+            "purpose=inspect for count/peek/ordinary investigation (never a review "
+            "completion). purpose=review when giving a complete Inbox review/listening "
+            "of the frozen snapshot. First page returns exact total_count; if has_more, "
+            "pass the opaque next_cursor unchanged to continue THE SAME snapshot. "
+            "Do not reconstruct timestamps or UUIDs. Inspect/count/listing/summarizing "
+            "does not move the marker. If review cannot finish every page inside this "
+            "turn, say the review is incomplete and include total_count/progress; do "
+            "not claim a complete review."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                "purpose": {
+                    "type": "string",
+                    "enum": ["inspect", "review"],
+                    "description": (
+                        "inspect: count/peek/investigation, never a completion receipt. "
+                        "review: complete listening/review of the frozen snapshot."
+                    ),
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                "cursor": {
+                    "type": "string",
+                    "description": (
+                        "Opaque continuation cursor from a previous page of THIS "
+                        "snapshot. Required to continue; do not invent it."
+                    ),
+                },
             },
             "additionalProperties": False,
         },

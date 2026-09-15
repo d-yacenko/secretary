@@ -366,6 +366,17 @@ class SecretaryApiClient {
     await _request('DELETE', '/inbox/review-marker');
   }
 
+  Future<InboxReviewCompleteResult> completeInboxReviewMarker(
+    InboxReviewReceipt receipt,
+  ) async {
+    final body = await _request(
+      'POST',
+      '/inbox/review-marker/complete',
+      jsonBody: receipt.toJson(),
+    );
+    return InboxReviewCompleteResult.fromJson(body);
+  }
+
   Future<Map<String, String>> bookmarksByObjects(List<String> objectIds) async {
     final decoded = await _requestJson(
       'POST',

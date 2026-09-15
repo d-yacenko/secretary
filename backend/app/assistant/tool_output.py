@@ -77,6 +77,81 @@ def _bounded_retrieve_excerpt(excerpt: str | None) -> str:
     return normalized[:MAX_ASSISTANT_RETRIEVE_EXCERPT] + "… [truncated]"
 
 
+def _inbox_review_list_payload(
+    raw_output: dict[str, Any],
+    items: list[dict[str, Any]],
+    *,
+    truncated: bool,
+) -> dict[str, Any]:
+    from app.services.errors import ValidationError
+    from app.services.inbox_review_snapshot_cursor import (
+        encode_inbox_review_snapshot_cursor,
+        parse_feed_at,
+        parse_object_id,
+    )
+
+    visible_items = [
+        {
+            "object_id": item.get("object_id"),
+            "kind": item.get("kind"),
+            "provider": item.get("provider"),
+            "title": item.get("title"),
+            "feed_at": item.get("feed_at"),
+            "excerpt": item.get("excerpt"),
+        }
+        for item in items
+    ]
+    has_more = bool(raw_output.get("has_more")) or truncated
+    raw_remaining = raw_output.get("remaining_count")
+    remaining = int(raw_remaining) if isinstance(raw_remaining, int) else 0
+    raw_item_count = len(raw_output.get("items") or [])
+    if truncated and raw_item_count > len(visible_items):
+        remaining += raw_item_count - len(visible_items)
+    next_cursor = raw_output.get("next_cursor")
+    if truncated and visible_items:
+        last = visible_items[-1]
+        try:
+            next_cursor = encode_inbox_review_snapshot_cursor(
+                anchor_object_id=parse_object_id(raw_output.get("anchor_object_id")),
+                anchor_feed_at=parse_feed_at(raw_output.get("anchor_feed_at")),
+                snapshot_top_object_id=parse_object_id(
+                    raw_output.get("snapshot_top_object_id")
+                ),
+                snapshot_top_feed_at=parse_feed_at(raw_output.get("snapshot_top_feed_at")),
+                last_object_id=parse_object_id(last.get("object_id")),
+                last_feed_at=parse_feed_at(last.get("feed_at")),
+            )
+        except (ValidationError, TypeError, ValueError):
+            next_cursor = None
+            has_more = True
+    elif truncated and not visible_items:
+        next_cursor = None
+        has_more = bool(raw_output.get("has_more")) or raw_item_count > 0
+    if not has_more:
+        next_cursor = None
+    payload = {
+        "marker_present": raw_output.get("marker_present"),
+        "marker_not_set": raw_output.get("marker_not_set"),
+        "purpose": raw_output.get("purpose"),
+        "anchor_object_id": raw_output.get("anchor_object_id"),
+        "anchor_feed_at": raw_output.get("anchor_feed_at"),
+        "snapshot_top_object_id": raw_output.get("snapshot_top_object_id"),
+        "snapshot_top_feed_at": raw_output.get("snapshot_top_feed_at"),
+        "total_count": raw_output.get("total_count", 0),
+        "returned_count": len(visible_items),
+        "remaining_count": remaining,
+        "items": visible_items,
+        "has_more": has_more,
+    }
+    if next_cursor:
+        payload["next_cursor"] = next_cursor
+    if raw_output.get("message"):
+        payload["message"] = raw_output.get("message")
+    if truncated:
+        payload["truncated"] = True
+    return payload
+
+
 def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "retrieve":
         hits = raw_output.get("hits", [])[:MAX_ASSISTANT_RETRIEVE_RESULTS]
@@ -235,28 +310,10 @@ def serialize_tool_output_for_model(tool_name: str, raw_output: dict[str, Any]) 
         return payload
 
     if tool_name == "list_inbox_since_review_marker":
-        items = raw_output.get("items", [])[:MAX_ASSISTANT_LIST_RESULTS]
-        truncated = len(raw_output.get("items", [])) > len(items)
-        payload = {
-            "marker_present": raw_output.get("marker_present"),
-            "marker_not_set": raw_output.get("marker_not_set"),
-            "anchor_object_id": raw_output.get("anchor_object_id"),
-            "anchor_feed_at": raw_output.get("anchor_feed_at"),
-            "items": [
-                {
-                    "object_id": item.get("object_id"),
-                    "kind": item.get("kind"),
-                    "provider": item.get("provider"),
-                    "title": item.get("title"),
-                    "feed_at": item.get("feed_at"),
-                    "excerpt": item.get("excerpt"),
-                }
-                for item in items
-            ],
-            "has_more": bool(raw_output.get("has_more")) or truncated,
-        }
-        if raw_output.get("message"):
-            payload["message"] = raw_output.get("message")
+        raw_items = list(raw_output.get("items") or [])
+        items = raw_items[:MAX_ASSISTANT_LIST_RESULTS]
+        truncated = len(raw_items) > len(items)
+        payload = _inbox_review_list_payload(raw_output, items, truncated=truncated)
         return payload
 
     if tool_name in ("create_task", "update_task", "create_scheduled_activity", "create_recurring_scheduled_activity"):
@@ -419,6 +476,44 @@ def serialize_tool_output_for_assistant(
             json.dumps(fallback, ensure_ascii=False),
             fallback,
         )
+
+    if tool_name == "list_inbox_since_review_marker":
+        items = list(bounded.get("items", []))
+        raw_items = list(raw_output.get("items") or [])
+        while True:
+            candidate = _inbox_review_list_payload(
+                raw_output,
+                items,
+                truncated=len(items) < len(raw_items),
+            )
+            text = json.dumps(candidate, ensure_ascii=False)
+            if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
+                return AssistantToolModelOutput(text, candidate)
+            if not items:
+                metadata = {
+                    key: candidate.get(key)
+                    for key in (
+                        "marker_present",
+                        "marker_not_set",
+                        "purpose",
+                        "anchor_object_id",
+                        "anchor_feed_at",
+                        "snapshot_top_object_id",
+                        "snapshot_top_feed_at",
+                        "total_count",
+                        "returned_count",
+                        "remaining_count",
+                        "has_more",
+                        "next_cursor",
+                    )
+                }
+                metadata["items"] = []
+                metadata["truncated"] = True
+                return AssistantToolModelOutput(
+                    json.dumps(metadata, ensure_ascii=False),
+                    metadata,
+                )
+            items.pop()
 
     text = json.dumps(bounded, ensure_ascii=False)
     if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:

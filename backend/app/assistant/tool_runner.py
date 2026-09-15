@@ -4,6 +4,7 @@ from uuid import UUID
 import app.assistant.session as assistant_session
 from app.assistant.action_plan_constants import MAX_ACTIONS_PER_PLAN
 from app.assistant.constants import MAX_ASSISTANT_TOOL_CALLS_PER_TURN
+from app.assistant.inbox_review_progress import InboxReviewTurnProgress
 from app.assistant.reference_ids import (
     collect_seen_edge_ids_from_bounded_tool,
     collect_seen_object_ids_from_bounded_tool,
@@ -83,6 +84,7 @@ class PerTurnToolBudget:
         self._pending_seen_edge_ids: set[UUID] = set()
         self._staged_actions: list[dict] = []
         self._plan_sealed = False
+        self.inbox_review = InboxReviewTurnProgress()
 
     @property
     def calls_made(self) -> int:
@@ -116,6 +118,8 @@ class PerTurnToolBudget:
         if self._calls >= self._max_calls:
             if self._telemetry is not None:
                 self._telemetry.tool_calls += 1
+            if tool_name == "list_inbox_since_review_marker":
+                self.inbox_review.mark_limit_reached()
             return ToolExecutionResult(
                 success=False,
                 tool_name=tool_name,
@@ -229,8 +233,23 @@ class PerTurnToolBudget:
             )
             if self._telemetry is not None:
                 self._telemetry.record_tool(tool_name, result.output)
-        elif self._telemetry is not None:
-            self._telemetry.tool_calls += 1
+        else:
+            if tool_name == "list_inbox_since_review_marker":
+                if result.limit_reached or result.status == ToolExecutionStatus.LIMIT_REACHED:
+                    self.inbox_review.mark_limit_reached()
+                else:
+                    self.inbox_review.mark_failed()
+            if self._telemetry is not None:
+                self._telemetry.tool_calls += 1
+        if (
+            tool_name == "list_inbox_since_review_marker"
+            and result.success
+            and result.model_visible_payload is not None
+        ):
+            self.inbox_review.observe(
+                arguments=result.validated_arguments or arguments,
+                payload=result.model_visible_payload,
+            )
         return result
 
     def _irreversible_staging_error(self, tool_name: str) -> ToolExecutionResult | None:

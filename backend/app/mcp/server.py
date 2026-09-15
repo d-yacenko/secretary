@@ -267,12 +267,19 @@ def create_mcp_server() -> MCPServer:
         return _run_tool("list_labels", "list_labels", {"limit": limit})
 
     @mcp.tool()
-    def list_inbox_since_review_marker(limit: int = 20) -> ListInboxSinceReviewMarkerOutput:
+    def list_inbox_since_review_marker(
+        limit: int = 20,
+        purpose: str = "inspect",
+        cursor: str | None = None,
+    ) -> ListInboxSinceReviewMarkerOutput:
         """List Inbox objects strictly newer than the Secretary review marker."""
+        arguments: dict = {"limit": limit, "purpose": purpose}
+        if cursor:
+            arguments["cursor"] = cursor
         return _run_tool(
             "list_inbox_since_review_marker",
             "list_inbox_since_review_marker",
-            {"limit": limit},
+            arguments,
         )
 
     @mcp.tool()

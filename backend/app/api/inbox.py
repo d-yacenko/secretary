@@ -1,4 +1,5 @@
-from typing import NoReturn
+from datetime import datetime
+from typing import Literal, NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,7 +19,10 @@ from app.core.current_user import CurrentUserContext
 from app.db.models import Object
 from app.notifications.constants import NOTIFICATION_FILTER_UNRESOLVED
 from app.services.errors import NotFoundError, ValidationError
-from app.services.inbox_review_marker import InboxReviewMarkerService, ReviewMarkerRecord
+from app.services.inbox_review_marker import (
+    InboxReviewMarkerService,
+    ReviewMarkerRecord,
+)
 from app.services.notification_service import NotificationService
 from app.services.object_primary_date import object_primary_search_datetime
 from app.services.recent_source_service import RecentSourceService, inbox_feed_at
@@ -31,6 +35,21 @@ class ReviewMarkerPutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     after_object_id: UUID
+
+
+class ReviewMarkerCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    anchor_before_object_id: UUID
+    anchor_before_feed_at: datetime
+    snapshot_top_object_id: UUID
+    snapshot_top_feed_at: datetime
+    total_count: int
+
+
+class ReviewMarkerCompleteOut(BaseModel):
+    status: Literal["advanced", "already_current", "conflict"]
+    review_marker: InboxReviewMarkerOut | None = None
 
 
 def _marker_out(record: ReviewMarkerRecord) -> InboxReviewMarkerOut:
@@ -145,6 +164,24 @@ def put_inbox_review_marker(
     except (NotFoundError, ValidationError) as exc:
         _raise_marker_domain(exc)
     return _marker_out(record)
+
+
+@router.post("/inbox/review-marker/complete", response_model=ReviewMarkerCompleteOut)
+def complete_inbox_review_marker(
+    payload: ReviewMarkerCompleteRequest,
+    session: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> ReviewMarkerCompleteOut:
+    result = InboxReviewMarkerService(session, current_user.user_id).complete_review(
+        expected_anchor_object_id=payload.anchor_before_object_id,
+        expected_anchor_feed_at=payload.anchor_before_feed_at,
+        snapshot_top_object_id=payload.snapshot_top_object_id,
+        snapshot_top_feed_at=payload.snapshot_top_feed_at,
+    )
+    return ReviewMarkerCompleteOut(
+        status=result.status,  # type: ignore[arg-type]
+        review_marker=_marker_out(result.marker) if result.marker is not None else None,
+    )
 
 
 @router.delete("/inbox/review-marker")

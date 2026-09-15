@@ -49,6 +49,39 @@ GMAIL_NOISE_LABELS = (
 _SOURCE_EVENT_KINDS = ("event", "calendar_event")
 
 
+def _strictly_newer_than(
+    feed_at: ColumnElement[datetime],
+    anchor_feed_at: datetime,
+    anchor_object_id: UUID,
+) -> object:
+    return or_(
+        feed_at > anchor_feed_at,
+        and_(feed_at == anchor_feed_at, Object.id > anchor_object_id),
+    )
+
+
+def _at_or_older_than(
+    feed_at: ColumnElement[datetime],
+    top_feed_at: datetime,
+    top_object_id: UUID,
+) -> object:
+    return or_(
+        feed_at < top_feed_at,
+        and_(feed_at == top_feed_at, Object.id <= top_object_id),
+    )
+
+
+def _strictly_older_than(
+    feed_at: ColumnElement[datetime],
+    last_feed_at: datetime,
+    last_object_id: UUID,
+) -> object:
+    return or_(
+        feed_at < last_feed_at,
+        and_(feed_at == last_feed_at, Object.id < last_object_id),
+    )
+
+
 def inbox_feed_at(obj: Object) -> datetime:
     if obj.origin == "source":
         if obj.kind in _SOURCE_EVENT_KINDS:
@@ -274,6 +307,79 @@ class RecentSourceService:
             )
             .order_by(feed_at.desc(), Object.id.desc())
         )
+        rows = list(self._session.scalars(stmt.limit(bounded_limit + 1)))
+        has_more = len(rows) > bounded_limit
+        items = rows[:bounded_limit]
+        return InboxFeedPage(items=items, next_cursor=None, has_more=has_more)
+
+    def count_review_window(
+        self,
+        *,
+        anchor_feed_at: datetime,
+        anchor_object_id: UUID,
+        snapshot_top_feed_at: datetime,
+        snapshot_top_object_id: UUID,
+    ) -> int:
+        feed_at = inbox_feed_at_sql()
+        stmt = (
+            select(func.count())
+            .select_from(Object)
+            .where(self._eligible_filters())
+            .where(_strictly_newer_than(feed_at, anchor_feed_at, anchor_object_id))
+            .where(
+                _at_or_older_than(feed_at, snapshot_top_feed_at, snapshot_top_object_id)
+            )
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+    def count_older_in_review_window(
+        self,
+        *,
+        anchor_feed_at: datetime,
+        anchor_object_id: UUID,
+        snapshot_top_feed_at: datetime,
+        snapshot_top_object_id: UUID,
+        last_feed_at: datetime,
+        last_object_id: UUID,
+    ) -> int:
+        feed_at = inbox_feed_at_sql()
+        stmt = (
+            select(func.count())
+            .select_from(Object)
+            .where(self._eligible_filters())
+            .where(_strictly_newer_than(feed_at, anchor_feed_at, anchor_object_id))
+            .where(
+                _at_or_older_than(feed_at, snapshot_top_feed_at, snapshot_top_object_id)
+            )
+            .where(_strictly_older_than(feed_at, last_feed_at, last_object_id))
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+    def list_review_window(
+        self,
+        *,
+        anchor_feed_at: datetime,
+        anchor_object_id: UUID,
+        snapshot_top_feed_at: datetime | None,
+        snapshot_top_object_id: UUID | None,
+        after_feed_at: datetime | None,
+        after_object_id: UUID | None,
+        limit: int,
+    ) -> InboxFeedPage:
+        bounded_limit = min(max(limit, 1), RECENT_SOURCE_MAX_LIMIT)
+        feed_at = inbox_feed_at_sql()
+        stmt = (
+            select(Object)
+            .where(self._eligible_filters())
+            .where(_strictly_newer_than(feed_at, anchor_feed_at, anchor_object_id))
+            .order_by(feed_at.desc(), Object.id.desc())
+        )
+        if snapshot_top_feed_at is not None and snapshot_top_object_id is not None:
+            stmt = stmt.where(
+                _at_or_older_than(feed_at, snapshot_top_feed_at, snapshot_top_object_id)
+            )
+        if after_feed_at is not None and after_object_id is not None:
+            stmt = stmt.where(_strictly_older_than(feed_at, after_feed_at, after_object_id))
         rows = list(self._session.scalars(stmt.limit(bounded_limit + 1)))
         has_more = len(rows) > bounded_limit
         items = rows[:bounded_limit]
