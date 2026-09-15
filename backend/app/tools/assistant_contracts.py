@@ -3,6 +3,11 @@
 Neutral contract payloads only — exposure policy lives in the tool registry.
 """
 
+from app.assistant.inbox_review_intent import (
+    format_complete_review_utterance_list,
+    format_inspect_utterance_list,
+)
+
 ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
     "retrieve": {
         "type": "function",
@@ -180,9 +185,12 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
             "раза?», «какие новые письма?», «перечисли то, что выше маркера "
             "просмотра». Do not guess a time window. "
             "purpose=inspect for count/peek/ordinary investigation (never a review "
-            "completion; newest-first peek, not a chronological full review). "
-            "purpose=review when giving a complete Inbox review/listening of the frozen "
-            "snapshot. Review items are already in chronological oldest-to-newest order; "
+            f"completion; newest-first peek), including {format_inspect_utterance_list()} "
+            "when answered only as a peek/count. "
+            "purpose=review for COMPLETE enumeration of everything new, even if you "
+            "narrate only sender/source + subject/title + optional short excerpt "
+            f"(not every full body). Exact review utterances: {format_complete_review_utterance_list()}. "
+            "Review items are already in chronological oldest-to-newest order; "
             "continue pages in that order and narrate them in the returned order — do "
             "not reverse them or restart from newest. First page returns exact "
             "total_count; if has_more, pass the opaque next_cursor unchanged and keep "
@@ -199,8 +207,10 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                     "enum": ["inspect", "review"],
                     "description": (
                         "inspect: count/peek/investigation, newest-first, never a "
-                        "completion receipt. review: complete chronological oldest-to-newest "
-                        "listening/review of the frozen snapshot."
+                        f"completion receipt ({format_inspect_utterance_list()}). "
+                        "review: complete chronological oldest-to-newest listening/review "
+                        "of the frozen snapshot, including exact "
+                        f"{format_complete_review_utterance_list()}."
                     ),
                 },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50},

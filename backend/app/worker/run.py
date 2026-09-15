@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.jobs.constants import JOB_TYPE_RUN_SCHEDULED_ACTIVITY, WORKER_IDLE_SLEEP_SECONDS
+from app.jobs.constants import (
+    JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+    WORKER_GENERAL_EXCLUDE_TYPES,
+    WORKER_IDLE_SLEEP_SECONDS,
+    source_sync_lane_job_types,
+)
 from app.jobs.worker import process_one_job
 from app.services.proactive_scheduler import ProactiveScheduler
 from app.services.source_sync_scheduler import SourceSyncScheduler
@@ -94,17 +99,28 @@ def main() -> None:
         kwargs={"stop": stop, "include_types": {JOB_TYPE_RUN_SCHEDULED_ACTIVITY}},
         daemon=True,
     )
+    source_sync_threads = [
+        threading.Thread(
+            target=_run_job_lane,
+            name=f"worker-source-{job_type}",
+            kwargs={"stop": stop, "include_types": {job_type}},
+            daemon=True,
+        )
+        for job_type in source_sync_lane_job_types()
+    ]
     general = threading.Thread(
         target=_run_job_lane,
         name="worker-general",
         kwargs={
             "stop": stop,
-            "exclude_types": {JOB_TYPE_RUN_SCHEDULED_ACTIVITY},
+            "exclude_types": WORKER_GENERAL_EXCLUDE_TYPES,
             "run_scheduler": True,
         },
         daemon=True,
     )
     scheduled.start()
+    for thread in source_sync_threads:
+        thread.start()
     general.start()
     stop.wait()
 

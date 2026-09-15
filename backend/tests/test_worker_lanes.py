@@ -22,6 +22,9 @@ from app.jobs.constants import (
     JOB_STATUS_RUNNING,
     JOB_TYPE_EMBED_OBJECT,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+    JOB_TYPE_SYNC_GOOGLE_GMAIL,
+    JOB_TYPE_SYNC_YANDEX_MAIL,
+    WORKER_GENERAL_EXCLUDE_TYPES,
 )
 from app.jobs.handlers import get_handler
 from app.jobs.worker import process_one_job
@@ -135,7 +138,7 @@ def test_scheduled_lane_fires_while_general_handler_blocked(monkeypatch) -> None
         general_thread = threading.Thread(
             target=lambda: process_one_job(
                 FakeEmbeddingService(),
-                exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY},
+                exclude_types=WORKER_GENERAL_EXCLUDE_TYPES,
             ),
             daemon=True,
         )
@@ -211,7 +214,7 @@ def test_scheduled_lane_failure_does_not_block_general_lane(monkeypatch) -> None
 
         assert process_one_job(
             FakeEmbeddingService(),
-            exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY},
+            exclude_types=WORKER_GENERAL_EXCLUDE_TYPES,
         )
         embed_job = _load(Job, embed_job_id)
         assert embed_job is not None
@@ -240,7 +243,7 @@ def test_general_lane_failure_does_not_block_scheduled_lane(monkeypatch) -> None
         activity_id, scheduled_job_id = _persist_due_once(user_id, "Surviving reminder")
         assert process_one_job(
             FakeEmbeddingService(),
-            exclude_types={JOB_TYPE_RUN_SCHEDULED_ACTIVITY},
+            exclude_types=WORKER_GENERAL_EXCLUDE_TYPES,
         )
         embed_job = _load(Job, embed_job_id)
         assert embed_job is not None
@@ -255,4 +258,72 @@ def test_general_lane_failure_does_not_block_scheduled_lane(monkeypatch) -> None
         assert activity.status == SCHEDULED_ACTIVITY_STATUS_COMPLETED
         assert activity.occurred_at is not None
     finally:
+        _cleanup_user(user_id)
+
+
+def _persist_source_sync_job(user_id: uuid.UUID, job_type: str) -> uuid.UUID:
+    account_id = uuid.uuid4()
+    with Session(engine) as session:
+        job = JobQueueService(session).ensure_recurring_source_job(
+            job_type,
+            account_id,
+            user_id,
+            run_after=datetime.now(UTC) - timedelta(minutes=1),
+        )
+        job_id = job.id
+        session.commit()
+    return job_id
+
+
+def test_gmail_source_lane_runs_while_yandex_mail_handler_blocked(monkeypatch) -> None:
+    _clear_jobs()
+    user_id = _persist_user()
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_yandex(session, embedding_service, payload, user_id_arg):
+        started.set()
+        if not release.wait(timeout=15):
+            raise TimeoutError("yandex mail handler was not released")
+
+    def ok_gmail(session, embedding_service, payload, user_id_arg):
+        return None
+
+    original = get_handler
+
+    def patched(job_type: str):
+        if job_type == JOB_TYPE_SYNC_YANDEX_MAIL:
+            return blocking_yandex
+        if job_type == JOB_TYPE_SYNC_GOOGLE_GMAIL:
+            return ok_gmail
+        return original(job_type)
+
+    monkeypatch.setattr("app.jobs.worker.get_handler", patched)
+    try:
+        yandex_job_id = _persist_source_sync_job(user_id, JOB_TYPE_SYNC_YANDEX_MAIL)
+        gmail_job_id = _persist_source_sync_job(user_id, JOB_TYPE_SYNC_GOOGLE_GMAIL)
+
+        yandex_thread = threading.Thread(
+            target=lambda: process_one_job(include_types={JOB_TYPE_SYNC_YANDEX_MAIL}),
+            daemon=True,
+        )
+        yandex_thread.start()
+        assert started.wait(timeout=5)
+
+        processed = process_one_job(include_types={JOB_TYPE_SYNC_GOOGLE_GMAIL})
+        assert processed
+        gmail_job = _load(Job, gmail_job_id)
+        assert gmail_job is not None
+        assert gmail_job.status == JOB_STATUS_PENDING
+        assert gmail_job.payload.get("last_success_at")
+
+        yandex_running = _load(Job, yandex_job_id)
+        assert yandex_running is not None
+        assert yandex_running.status == JOB_STATUS_RUNNING
+
+        release.set()
+        yandex_thread.join(timeout=5)
+        assert not yandex_thread.is_alive()
+    finally:
+        release.set()
         _cleanup_user(user_id)

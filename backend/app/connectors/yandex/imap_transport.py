@@ -7,7 +7,7 @@ from email.policy import default as email_default_policy
 from email.utils import parsedate_to_datetime
 from typing import Protocol
 
-from app.connectors.yandex.constants import DEFAULT_MAIL_FOLDER
+from app.connectors.yandex.constants import DEFAULT_IMAP_TIMEOUT_SECONDS, DEFAULT_MAIL_FOLDER
 from app.connectors.yandex.errors import YandexImapError
 from app.connectors.yandex.imap_mailboxes import (
     ImapMailbox,
@@ -197,9 +197,13 @@ class ImaplibTransport:
     def _connect(self) -> imaplib.IMAP4_SSL:
         if self._imap is None:
             try:
-                imap = imaplib.IMAP4_SSL(self._host, self._port)
+                imap = imaplib.IMAP4_SSL(
+                    self._host,
+                    self._port,
+                    timeout=DEFAULT_IMAP_TIMEOUT_SECONDS,
+                )
                 imap.login(self._email, self._password)
-            except imaplib.IMAP4.error as exc:
+            except (OSError, imaplib.IMAP4.error) as exc:
                 raise YandexImapError("failed to connect to yandex imap") from exc
             self._imap = imap
         return self._imap
