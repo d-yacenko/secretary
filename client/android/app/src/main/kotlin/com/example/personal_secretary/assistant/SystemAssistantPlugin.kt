@@ -51,10 +51,18 @@ class SystemAssistantPlugin(
                 result.success(null)
             }
             "openLockScreenLauncher" -> {
-                activity.startActivity(lockScreenLauncherIntent(activity))
+                val keyguard = activity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                activity.startActivity(
+                    lockScreenLauncherIntent(activity, keyguardLocked = keyguard.isKeyguardLocked),
+                )
+                result.success(null)
+            }
+            "clearDrivingSession" -> {
+                DrivingVoiceSessionRegistry.clear()
                 result.success(null)
             }
             "dismiss" -> {
+                DrivingVoiceSessionRegistry.clear()
                 if (activity is VoiceSessionActivity) {
                     activity.finish()
                 }
@@ -86,6 +94,11 @@ class SystemAssistantPlugin(
                 ),
             )
         }
+        val driving = if (activity is VoiceSessionActivity) {
+            validateDrivingSessionIntent(activity.intent)
+        } else {
+            DrivingSessionSnapshot.none()
+        }
         return mapOf(
             "ok" to true,
             "available" to true,
@@ -93,6 +106,8 @@ class SystemAssistantPlugin(
             "isDefaultAssistant" to isDefault,
             "roleManagerAvailable" to roleAvailable,
             "keyguardLocked" to keyguard.isKeyguardLocked,
+            "drivingSessionAuthorized" to driving.authorized,
+            "drivingSessionId" to driving.sessionId,
         )
     }
 }
@@ -172,10 +187,13 @@ fun lockedVoiceIntent(context: Context): Intent {
     }
 }
 
-fun lockScreenLauncherIntent(context: Context): Intent {
+fun lockScreenLauncherIntent(
+    context: Context,
+    keyguardLocked: Boolean = false,
+): Intent {
     return Intent(context, VoiceSessionActivity::class.java).apply {
         addFlags(SystemAssistantConstants.LOCKED_LAUNCH_FLAGS)
-        putExtra(SystemAssistantConstants.EXTRA_LAUNCH_MODE, SystemAssistantConstants.LAUNCH_MODE_LAUNCHER)
+        applyDrivingLaunch(this, keyguardLocked = keyguardLocked)
     }
 }
 

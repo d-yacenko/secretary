@@ -40,6 +40,10 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
     widget.assistant.keyguardLocked = widget.systemAssistant.keyguardLocked;
     widget.assistant.lockScreenVoiceEnabled =
         widget.systemAssistant.lockScreenVoiceEnabled;
+    widget.assistant.setDrivingSession(
+      authorized: widget.systemAssistant.drivingSessionAuthorized,
+      sessionId: widget.systemAssistant.drivingSessionId,
+    );
     if (mounted) {
       setState(() {});
     }
@@ -54,6 +58,10 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
     widget.assistant.keyguardLocked = widget.systemAssistant.keyguardLocked;
     widget.assistant.lockScreenVoiceEnabled =
         widget.systemAssistant.lockScreenVoiceEnabled;
+    widget.assistant.setDrivingSession(
+      authorized: widget.systemAssistant.drivingSessionAuthorized,
+      sessionId: widget.systemAssistant.drivingSessionId,
+    );
     widget.assistant.handleVoiceTrigger(
       source: VoiceInvocationSource.systemAssistant,
       startCueAlreadyPlayed: true,
@@ -145,7 +153,8 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
                 style: theme.textTheme.headlineSmall,
                 textAlign: TextAlign.center,
               ),
-              if (assistant.blocksExternalWrite) ...[
+              if (assistant.blocksExternalWrite &&
+                  !assistant.drivingSessionAuthorized) ...[
                 const SizedBox(height: 16),
                 Text(
                   voiceUnlockRequiredSpeech,

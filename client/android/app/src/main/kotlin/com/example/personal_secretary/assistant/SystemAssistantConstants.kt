@@ -5,6 +5,7 @@ object SystemAssistantConstants {
     const val PROTOCOL = "secretary.system_assistant.v1"
     const val EXTRA_VOICE_TRIGGER = "secretary.voice_trigger"
     const val EXTRA_LAUNCH_MODE = "secretary.voice_session_launch_mode"
+    const val EXTRA_DRIVING_SESSION_ID = "secretary.driving_voice_session_id"
     const val LAUNCH_MODE_LAUNCHER = "launcher"
     const val LAUNCH_MODE_ASSIST_INVOKE = "assistInvoke"
     const val ROUTE_VOICE_SESSION = "/voice_session"

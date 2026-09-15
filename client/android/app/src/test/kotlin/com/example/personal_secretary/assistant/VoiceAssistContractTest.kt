@@ -44,6 +44,7 @@ class VoiceAssistContractTest {
     @Test
     fun launcherModeIsDistinctFromAssistInvokeTrigger() {
         assertEquals("secretary.voice_session_launch_mode", SystemAssistantConstants.EXTRA_LAUNCH_MODE)
+        assertEquals("secretary.driving_voice_session_id", SystemAssistantConstants.EXTRA_DRIVING_SESSION_ID)
         assertEquals("launcher", SystemAssistantConstants.LAUNCH_MODE_LAUNCHER)
         assertEquals("assistInvoke", SystemAssistantConstants.LAUNCH_MODE_ASSIST_INVOKE)
         assertFalse(

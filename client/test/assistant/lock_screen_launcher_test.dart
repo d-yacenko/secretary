@@ -59,6 +59,9 @@ class _LauncherBridge implements SystemAssistantBridge {
   Future<void> dismiss() async {
     dismissCount += 1;
   }
+
+  @override
+  Future<void> clearDrivingSession() async {}
 }
 
 void main() {

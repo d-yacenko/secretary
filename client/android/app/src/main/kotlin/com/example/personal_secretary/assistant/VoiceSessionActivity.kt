@@ -74,6 +74,9 @@ class VoiceSessionActivity : FlutterActivity() {
             unregisterReceiver(unlockReceiver)
         } catch (_: Throwable) {
         }
+        if (isFinishing) {
+            DrivingVoiceSessionRegistry.clear()
+        }
         super.onDestroy()
     }
 

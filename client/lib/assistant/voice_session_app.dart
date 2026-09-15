@@ -58,6 +58,10 @@ class _VoiceSessionAppState extends State<VoiceSessionApp> {
     }
     _assistant.keyguardLocked = _systemAssistant.keyguardLocked;
     _assistant.lockScreenVoiceEnabled = _systemAssistant.lockScreenVoiceEnabled;
+    _assistant.setDrivingSession(
+      authorized: _systemAssistant.drivingSessionAuthorized,
+      sessionId: _systemAssistant.drivingSessionId,
+    );
     setState(() {
       _gateReady = true;
     });
@@ -76,8 +80,16 @@ class _VoiceSessionAppState extends State<VoiceSessionApp> {
 
   Future<void> _syncAssistantGate() async {
     await _systemAssistant.attach(widget.authController.user?.id);
+    if (widget.authController.status != AuthStatus.authenticated) {
+      await _systemAssistant.clearDrivingSession();
+      _assistant.clearDrivingAuthorization();
+    }
     _assistant.keyguardLocked = _systemAssistant.keyguardLocked;
     _assistant.lockScreenVoiceEnabled = _systemAssistant.lockScreenVoiceEnabled;
+    _assistant.setDrivingSession(
+      authorized: _systemAssistant.drivingSessionAuthorized,
+      sessionId: _systemAssistant.drivingSessionId,
+    );
   }
 
   @override

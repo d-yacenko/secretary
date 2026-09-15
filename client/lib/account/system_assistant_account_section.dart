@@ -37,10 +37,7 @@ class SystemAssistantAccountSection extends StatelessWidget {
               title: const Text(
                 'Разрешить голосовой режим на экране блокировки',
               ),
-              subtitle: const Text(
-                'Без PIN можно начать голосовой ход. Отправка писем и сообщений '
-                'по-прежнему требует разблокировки.',
-              ),
+              subtitle: const Text(lockScreenDrivingWritePolicyMessage),
               value: controller.lockScreenVoiceEnabled,
               onChanged: controller.setLockScreenVoiceEnabled,
             ),

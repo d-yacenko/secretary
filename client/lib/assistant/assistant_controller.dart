@@ -15,6 +15,7 @@ import 'fake_speech_player.dart';
 import 'speech_playback_controller.dart';
 import 'speech_player.dart';
 import 'voice_capture_diagnostics.dart';
+import 'driving_locked_voice_approval.dart';
 import 'voice_confirmation.dart';
 import 'voice_invocation_source.dart';
 import 'voice_local_feedback.dart';
@@ -157,6 +158,8 @@ class AssistantController extends ChangeNotifier {
 
   bool keyguardLocked = false;
   bool lockScreenVoiceEnabled = false;
+  bool drivingSessionAuthorized = false;
+  String? drivingSessionId;
 
   VoiceOutputPolicyController get voiceOutputPolicy => _voiceOutputPolicy;
 
@@ -167,6 +170,78 @@ class AssistantController extends ChangeNotifier {
   bool get voiceInputActive => _voiceInputActive;
 
   bool get blocksExternalWrite => lockScreenSession && keyguardLocked;
+
+  void setDrivingSession({required bool authorized, String? sessionId}) {
+    final nextId = authorized && sessionId != null && sessionId.isNotEmpty
+        ? sessionId
+        : null;
+    final nextAuthorized = nextId != null;
+    if (drivingSessionAuthorized == nextAuthorized &&
+        drivingSessionId == nextId) {
+      return;
+    }
+    drivingSessionAuthorized = nextAuthorized;
+    drivingSessionId = nextId;
+    _clearVoiceApprovalBinding();
+    _voiceApprovalArmed = false;
+    notifyListeners();
+  }
+
+  void clearDrivingAuthorization() {
+    setDrivingSession(authorized: false, sessionId: null);
+  }
+
+  void _clearVoiceApprovalBinding() {
+    _boundVoiceApprovalPlanId = null;
+    _boundVoiceApprovalSessionId = null;
+    _boundVoiceApprovalSource = null;
+  }
+
+  void _bindVoiceApprovalForPlan(PendingActionPlan? plan) {
+    if (plan == null) {
+      _clearVoiceApprovalBinding();
+      return;
+    }
+    _boundVoiceApprovalPlanId = plan.id;
+    _boundVoiceApprovalSessionId = drivingSessionAuthorized
+        ? drivingSessionId
+        : null;
+    _boundVoiceApprovalSource = _turnSource;
+  }
+
+  int _pendingPlanCount() {
+    var count = 0;
+    for (final message in _messages) {
+      final plan = message.actionPlan;
+      if (plan != null && plan.cardState == ActionPlanCardState.pending) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  bool _mayVoiceApproveLockedPendingPlanAt(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _messages.length) {
+      return false;
+    }
+    final actionPlan = _messages[messageIndex].actionPlan;
+    if (actionPlan == null ||
+        actionPlan.cardState != ActionPlanCardState.pending) {
+      return false;
+    }
+    return mayVoiceApproveLockedPendingPlan(
+      lockScreenSession: lockScreenSession,
+      keyguardLocked: keyguardLocked,
+      drivingSessionAuthorized: drivingSessionAuthorized,
+      activeDrivingSessionId: drivingSessionId,
+      boundPlanId: _boundVoiceApprovalPlanId,
+      boundSessionId: _boundVoiceApprovalSessionId,
+      boundSource: _boundVoiceApprovalSource,
+      pendingPlanId: actionPlan.plan.id,
+      pendingPlanCount: _pendingPlanCount(),
+      actions: actionPlan.plan.actions,
+    );
+  }
 
   final List<AssistantChatMessage> _messages = [];
   AssistantContextRef? _objectContext;
@@ -187,6 +262,11 @@ class AssistantController extends ChangeNotifier {
   String? _speechErrorMessage;
   bool _confirmationInFlight = false;
   InboxReviewReceipt? _pendingInboxReviewReceipt;
+  String? _boundVoiceApprovalPlanId;
+  String? _boundVoiceApprovalSessionId;
+  VoiceInvocationSource? _boundVoiceApprovalSource;
+
+  bool get voiceApprovalArmed => _voiceApprovalArmed;
 
   AssistantVoiceState get voiceState {
     if (_speechErrorMessage != null) {
@@ -336,6 +416,7 @@ class AssistantController extends ChangeNotifier {
               : MessageActionPlan(plan: response.pendingActionPlan!),
         ),
       );
+      _bindVoiceApprovalForPlan(response.pendingActionPlan);
       _pendingRetryMessage = null;
       sendState = AssistantSendState.idle;
       notifyListeners();
@@ -367,7 +448,10 @@ class AssistantController extends ChangeNotifier {
     }
   }
 
-  Future<void> approveActionPlanAt(int messageIndex) async {
+  Future<void> approveActionPlanAt(
+    int messageIndex, {
+    bool fromVoiceApproval = false,
+  }) async {
     if (_approveInFlight ||
         actionPlanOperationState != AssistantActionPlanOperationState.idle) {
       return;
@@ -382,10 +466,13 @@ class AssistantController extends ChangeNotifier {
       return;
     }
     if (blocksExternalWrite) {
-      if (_autoSpeechAllowed) {
-        await _speakDeterministic(voiceUnlockRequiredSpeech);
+      if (!fromVoiceApproval ||
+          !_mayVoiceApproveLockedPendingPlanAt(messageIndex)) {
+        if (fromVoiceApproval && _autoSpeechAllowed) {
+          await _speakDeterministic(voiceUnlockRequiredSpeech);
+        }
+        return;
       }
-      return;
     }
 
     _approveInFlight = true;
@@ -398,6 +485,8 @@ class AssistantController extends ChangeNotifier {
       if (response.status == 'failed') {
         actionPlan.cardState = ActionPlanCardState.failed;
         actionPlanOperationState = AssistantActionPlanOperationState.idle;
+        _clearVoiceApprovalBinding();
+        _voiceApprovalArmed = false;
         notifyListeners();
         if (_autoSpeechAllowed) {
           await _speakDeterministic(voiceExecutionFailedSpeech);
@@ -407,6 +496,8 @@ class AssistantController extends ChangeNotifier {
       if (response.status == 'expired') {
         actionPlan.cardState = ActionPlanCardState.expired;
         actionPlanOperationState = AssistantActionPlanOperationState.idle;
+        _clearVoiceApprovalBinding();
+        _voiceApprovalArmed = false;
         notifyListeners();
         if (_autoSpeechAllowed) {
           await _speakDeterministic(voiceExpiredSpeech);
@@ -416,6 +507,8 @@ class AssistantController extends ChangeNotifier {
       if (response.status == 'executed') {
         actionPlan.cardState = ActionPlanCardState.completed;
         actionPlan.resumeFailed = false;
+        _clearVoiceApprovalBinding();
+        _voiceApprovalArmed = false;
         notifyListeners();
         await _resumeExecutedPlan(actionPlan);
         return;
@@ -465,6 +558,7 @@ class AssistantController extends ChangeNotifier {
       } else {
         actionPlan.cardState = ActionPlanCardState.rejected;
       }
+      _clearVoiceApprovalBinding();
       _voiceApprovalArmed = false;
       actionPlanOperationState = AssistantActionPlanOperationState.idle;
       notifyListeners();
@@ -719,9 +813,22 @@ class AssistantController extends ChangeNotifier {
       }
       if (decision == VoiceConfirmation.approve) {
         if (blocksExternalWrite) {
-          if (_autoSpeechAllowed) {
-            await _speakDeterministic(voiceUnlockRequiredSpeech);
+          if (!_mayVoiceApproveLockedPendingPlanAt(pendingIndex)) {
+            if (_autoSpeechAllowed) {
+              await _speakDeterministic(voiceUnlockRequiredSpeech);
+            }
+            return;
           }
+          if (!_voiceApprovalArmed) {
+            if (_autoSpeechAllowed) {
+              await _speakDeterministic(voiceApprovalUnarmedSpeech);
+            }
+            return;
+          }
+          await approveActionPlanAt(
+            pendingIndex,
+            fromVoiceApproval: true,
+          );
           return;
         }
         final message = _messages[pendingIndex];
@@ -738,7 +845,10 @@ class AssistantController extends ChangeNotifier {
           }
           return;
         }
-        await approveActionPlanAt(pendingIndex);
+        await approveActionPlanAt(
+          pendingIndex,
+          fromVoiceApproval: true,
+        );
         return;
       }
       if (_autoSpeechAllowed) {
@@ -768,6 +878,17 @@ class AssistantController extends ChangeNotifier {
     if (pendingIndex != null) {
       _discardPendingInboxReviewCompletion();
       if (blocksExternalWrite) {
+        if (_mayVoiceApproveLockedPendingPlanAt(pendingIndex)) {
+          final preview = PendingAction.planVoicePreview(
+            _messages[pendingIndex].actionPlan!.plan.actions,
+          );
+          if (preview != null) {
+            _voiceApprovalArmed = false;
+            _planNarrationInProgress = true;
+            await _speakDeterministic(preview, isPlanNarration: true);
+            return;
+          }
+        }
         _voiceApprovalArmed = false;
         await _speakDeterministic(voiceUnlockRequiredSpeech);
         return;
@@ -897,6 +1018,7 @@ class AssistantController extends ChangeNotifier {
     _speakingOverlay = false;
     _speechErrorMessage = null;
     _confirmationInFlight = false;
+    _clearVoiceApprovalBinding();
     _discardPendingInboxReviewCompletion();
     notifyListeners();
   }

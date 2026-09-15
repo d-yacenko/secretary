@@ -11,6 +11,9 @@ const String lockScreenVoiceEnabledMessage =
     'Голос с заблокированного экрана выключен.';
 const String lockScreenSignInMessage =
     'Откройте Секретарь после разблокировки и войдите в аккаунт.';
+const String lockScreenDrivingWritePolicyMessage =
+    'В режиме вождения письма и сообщения можно подтвердить голосом после полного '
+    'прочтения. Для остальных защищённых действий потребуется разблокировка.';
 
 class SystemAssistantStatus {
   const SystemAssistantStatus({
@@ -19,6 +22,8 @@ class SystemAssistantStatus {
     required this.roleManagerAvailable,
     required this.keyguardLocked,
     this.protocol = '',
+    this.drivingSessionAuthorized = false,
+    this.drivingSessionId,
   });
 
   final bool available;
@@ -26,6 +31,8 @@ class SystemAssistantStatus {
   final bool roleManagerAvailable;
   final bool keyguardLocked;
   final String protocol;
+  final bool drivingSessionAuthorized;
+  final String? drivingSessionId;
 
   bool get isHealthy => available && protocol == systemAssistantProtocol;
 }
@@ -42,6 +49,8 @@ abstract class SystemAssistantBridge {
   Future<void> requestAssistantRole();
 
   Future<void> openLockScreenLauncher();
+
+  Future<void> clearDrivingSession();
 
   Future<void> dismiss();
 }
@@ -71,6 +80,9 @@ class NoopSystemAssistantBridge implements SystemAssistantBridge {
 
   @override
   Future<void> openLockScreenLauncher() async {}
+
+  @override
+  Future<void> clearDrivingSession() async {}
 
   @override
   Future<void> dismiss() async {}
@@ -149,6 +161,17 @@ class MethodChannelSystemAssistantBridge implements SystemAssistantBridge {
   }
 
   @override
+  Future<void> clearDrivingSession() async {
+    try {
+      await _channel.invokeMethod<void>('clearDrivingSession');
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
+  }
+
+  @override
   Future<void> dismiss() async {
     try {
       await _channel.invokeMethod<void>('dismiss');
@@ -212,6 +235,8 @@ class MethodChannelSystemAssistantBridge implements SystemAssistantBridge {
       roleManagerAvailable: map['roleManagerAvailable'] == true,
       keyguardLocked: map['keyguardLocked'] == true,
       protocol: map['protocol'] as String? ?? '',
+      drivingSessionAuthorized: map['drivingSessionAuthorized'] == true,
+      drivingSessionId: map['drivingSessionId'] as String?,
     );
   }
 }
@@ -280,6 +305,8 @@ class SystemAssistantController extends ChangeNotifier {
   bool roleManagerAvailable = false;
   bool keyguardLocked = false;
   bool lockScreenVoiceEnabled = false;
+  bool drivingSessionAuthorized = false;
+  String? drivingSessionId;
   String? _userId;
 
   Future<void> attach(String? userId) async {
@@ -288,6 +315,7 @@ class SystemAssistantController extends ChangeNotifier {
       lockScreenVoiceEnabled = await _store.load(userId);
     } else {
       lockScreenVoiceEnabled = false;
+      await clearDrivingSession();
     }
     await refresh();
   }
@@ -305,6 +333,14 @@ class SystemAssistantController extends ChangeNotifier {
       return;
     }
     await _bridge.openLockScreenLauncher();
+    await refresh();
+  }
+
+  Future<void> clearDrivingSession() async {
+    drivingSessionAuthorized = false;
+    drivingSessionId = null;
+    notifyListeners();
+    await _bridge.clearDrivingSession();
   }
 
   Future<void> setLockScreenVoiceEnabled(bool enabled) async {
@@ -316,7 +352,12 @@ class SystemAssistantController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> dismissOverlay() => _bridge.dismiss();
+  Future<void> dismissOverlay() async {
+    await _bridge.dismiss();
+    drivingSessionAuthorized = false;
+    drivingSessionId = null;
+    notifyListeners();
+  }
 
   void _deliverAssist() {
     final handler = _onAssistInvoke;
@@ -343,6 +384,12 @@ class SystemAssistantController extends ChangeNotifier {
     isDefaultAssistant = status.isDefaultAssistant;
     roleManagerAvailable = status.roleManagerAvailable;
     keyguardLocked = status.keyguardLocked;
+    final sessionId = status.drivingSessionId;
+    drivingSessionAuthorized =
+        status.drivingSessionAuthorized &&
+        sessionId != null &&
+        sessionId.isNotEmpty;
+    drivingSessionId = drivingSessionAuthorized ? sessionId : null;
     notifyListeners();
   }
 

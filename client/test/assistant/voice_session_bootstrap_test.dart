@@ -116,6 +116,9 @@ class RecordingSystemAssistantBridge implements SystemAssistantBridge {
 
   @override
   Future<void> dismiss() async {}
+
+  @override
+  Future<void> clearDrivingSession() async {}
 }
 
 void main() {

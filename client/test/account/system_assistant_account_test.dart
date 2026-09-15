@@ -21,6 +21,9 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
   bool keyguardLocked;
   int requestCount = 0;
   int openLauncherCount = 0;
+  int clearDrivingCount = 0;
+  bool drivingSessionAuthorized = false;
+  String? drivingSessionId;
   VoidCallback? onAssist;
   void Function(bool locked)? onKeyguard;
 
@@ -45,6 +48,8 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
       roleManagerAvailable: true,
       keyguardLocked: keyguardLocked,
       protocol: systemAssistantProtocol,
+      drivingSessionAuthorized: drivingSessionAuthorized,
+      drivingSessionId: drivingSessionId,
     );
   }
 
@@ -56,10 +61,24 @@ class FakeSystemAssistantBridge implements SystemAssistantBridge {
   @override
   Future<void> openLockScreenLauncher() async {
     openLauncherCount += 1;
+    if (!keyguardLocked) {
+      drivingSessionAuthorized = true;
+      drivingSessionId = 'sess-unlocked';
+    }
   }
 
   @override
-  Future<void> dismiss() async {}
+  Future<void> dismiss() async {
+    drivingSessionAuthorized = false;
+    drivingSessionId = null;
+  }
+
+  @override
+  Future<void> clearDrivingSession() async {
+    clearDrivingCount += 1;
+    drivingSessionAuthorized = false;
+    drivingSessionId = null;
+  }
 }
 
 void main() {
@@ -129,7 +148,14 @@ void main() {
       find.byKey(const Key('system_assistant_lock_screen')),
       findsOneWidget,
     );
-    expect(find.byKey(const Key('lock_screen_open_driving_mode')), findsNothing);
+    expect(
+      find.text(lockScreenDrivingWritePolicyMessage),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('по-прежнему требует разблокировки'),
+      findsNothing,
+    );
     expect(bridge.requestCount, 0);
     await tester.tap(find.byKey(const Key('system_assistant_lock_screen')));
     await tester.pump();
@@ -236,6 +262,55 @@ void main() {
     await controller.openLockScreenLauncher();
     expect(bridge.openLauncherCount, 1);
     expect(bridge.requestCount, 0);
+    expect(controller.drivingSessionAuthorized, isTrue);
+    expect(controller.drivingSessionId, 'sess-unlocked');
+    await controller.dismissOverlay();
+    expect(controller.drivingSessionAuthorized, isFalse);
+    expect(controller.drivingSessionId, isNull);
+    controller.dispose();
+  });
+
+  test('opening driving while locked does not arm authorization', () async {
+    final bridge = FakeSystemAssistantBridge(keyguardLocked: true);
+    final controller = await attachController(bridge);
+    await controller.setLockScreenVoiceEnabled(true);
+    expect(controller.drivingSessionAuthorized, isFalse);
+    await controller.openLockScreenLauncher();
+    expect(bridge.openLauncherCount, 1);
+    expect(controller.drivingSessionAuthorized, isFalse);
+    expect(controller.drivingSessionId, isNull);
+    controller.dispose();
+  });
+
+  test('assistInvoke does not arm driving authorization', () async {
+    final bridge = FakeSystemAssistantBridge();
+    final controller = await attachController(bridge);
+    expect(controller.drivingSessionAuthorized, isFalse);
+    bridge.onAssist?.call();
+    await controller.refresh();
+    expect(controller.drivingSessionAuthorized, isFalse);
+    expect(bridge.openLauncherCount, 0);
+    controller.dispose();
+  });
+
+  test('process default driving authorization is false', () async {
+    final bridge = FakeSystemAssistantBridge();
+    final controller = await attachController(bridge);
+    expect(controller.drivingSessionAuthorized, isFalse);
+    expect(controller.drivingSessionId, isNull);
+    controller.dispose();
+  });
+
+  test('auth loss clears driving authorization fail-closed', () async {
+    final bridge = FakeSystemAssistantBridge();
+    final controller = await attachController(bridge);
+    await controller.setLockScreenVoiceEnabled(true);
+    await controller.openLockScreenLauncher();
+    expect(controller.drivingSessionAuthorized, isTrue);
+    await controller.attach(null);
+    expect(controller.drivingSessionAuthorized, isFalse);
+    expect(controller.drivingSessionId, isNull);
+    expect(bridge.clearDrivingCount, greaterThanOrEqualTo(1));
     controller.dispose();
   });
 
