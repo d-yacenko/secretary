@@ -29,9 +29,9 @@ import '../ui/passive_snapshot_refresh.dart';
 import '../ui/provider_icon.dart';
 import '../voice/voice_transcription_controller.dart';
 import '../objects/object_delete_actions.dart';
+import 'inbox_conversation_groups.dart';
 import 'inbox_feed_merge.dart';
 import 'inbox_intake_url.dart';
-import 'inbox_review_marker.dart';
 import 'inbox_swipe_to_remove.dart';
 import 'notification_labels.dart';
 
@@ -107,6 +107,8 @@ class InboxScreenState extends State<InboxScreen> {
   InboxLoadState _loadState = InboxLoadState.loading;
   InboxOut? _inbox;
   List<InboxSourceObjectOut> _feedObjects = [];
+  List<InboxConversationGroup> _conversationGroups = [];
+  final Set<String> _expandedStackIds = <String>{};
   Map<String, List<LabelItem>> _labelsByObject = {};
   InboxReviewMarker? _reviewMarker;
   String? _markerError;
@@ -286,9 +288,19 @@ class InboxScreenState extends State<InboxScreen> {
         _inbox = snapshot;
         _feedObjects = mergedFeed;
         if (!preserveTail) {
+          _conversationGroups = List<InboxConversationGroup>.of(
+            snapshot.conversationGroups,
+          );
           _nextCursor = snapshot.recentNextCursor;
           _hasMore = snapshot.recentHasMore;
           _loadedContinuation = false;
+        } else {
+          _conversationGroups = [
+            ...snapshot.conversationGroups,
+            ..._conversationGroups.where(
+              (group) => group.coveredIds.every((id) => !firstPageIds.contains(id)),
+            ),
+          ];
         }
         _loadState = InboxLoadState.ready;
         _refreshStatusMessage =
@@ -365,6 +377,10 @@ class InboxScreenState extends State<InboxScreen> {
       ];
       setState(() {
         _feedObjects = [..._feedObjects, ...appended];
+        _conversationGroups = [
+          ..._conversationGroups,
+          ...page.conversationGroups,
+        ];
         _nextCursor = page.nextCursor;
         _hasMore = page.hasMore;
         _isLoadingMore = false;
@@ -620,6 +636,7 @@ class InboxScreenState extends State<InboxScreen> {
           recentNextCursor: inbox.recentNextCursor,
           recentHasMore: inbox.recentHasMore,
           reviewMarker: inbox.reviewMarker,
+          conversationGroups: inbox.conversationGroups,
         );
         _mutatingNotificationId = null;
       });
@@ -657,6 +674,7 @@ class InboxScreenState extends State<InboxScreen> {
           recentNextCursor: inbox.recentNextCursor,
           recentHasMore: inbox.recentHasMore,
           reviewMarker: inbox.reviewMarker,
+          conversationGroups: inbox.conversationGroups,
         );
         _mutatingNotificationId = null;
       });
@@ -726,10 +744,16 @@ class InboxScreenState extends State<InboxScreen> {
           recentNextCursor: inbox.recentNextCursor,
           recentHasMore: inbox.recentHasMore,
           reviewMarker: inbox.reviewMarker,
+          conversationGroups: inbox.conversationGroups
+              .where((group) => !group.coveredIds.contains(deletedObjectId))
+              .toList(),
         );
       }
       _feedObjects = _feedObjects
           .where((row) => row.id != deletedObjectId)
+          .toList();
+      _conversationGroups = _conversationGroups
+          .where((group) => !group.coveredIds.contains(deletedObjectId))
           .toList();
       _bookmarks.forget(deletedObjectId);
     });
@@ -830,98 +854,205 @@ class InboxScreenState extends State<InboxScreen> {
           );
         case InboxReviewMarkerEntry():
           widgets.add(const _InboxReviewMarkerBar(unplaced: false));
-        case InboxSourceObjectEntry(:final sourceObject):
-          final card = _sourceObjectCard(sourceObject);
-          Widget body = card;
-          if (swipe) {
-            final object = _secretaryObjectFromInboxSource(sourceObject);
-            final direct = objectSupportsDeliberateSwipeDeleteWithoutDialog(
-              object,
-            );
-            body = InboxSwipeToRemove(
-              key: ValueKey(sourceObject.id),
-              objectId: sourceObject.id,
-              directDelete: direct,
-              onConfirmRemove: () => direct
-                  ? deleteObjectFromSecretary(
-                      context,
-                      object: object,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                    )
-                  : confirmAndDeleteObject(
-                      context,
-                      object: object,
-                      apiClient: widget.apiClient,
-                      authController: widget.authController,
-                    ),
-              onRemoved: () {
-                if (!mounted) {
-                  return;
+        case InboxConversationStackEntry(:final stack, :final children):
+          final expanded = _expandedStackIds.contains(stack.stackId);
+          final collapsed = _conversationStackCard(
+            stack: stack,
+            expanded: expanded,
+            onToggle: () {
+              setState(() {
+                if (expanded) {
+                  _expandedStackIds.remove(stack.stackId);
+                } else {
+                  _expandedStackIds.add(stack.stackId);
                 }
-                _removeDeletedInboxObject(sourceObject.id);
-              },
-              child: card,
-            );
-          } else if (desktopDrag) {
-            body = _InboxMarkerCardTarget(
-              objectId: sourceObject.id,
-              onHoverChanged: (hovering) {
-                final next = hovering ? sourceObject.id : null;
-                if (_markerHoverObjectId == next) {
-                  return;
-                }
-                if (!hovering && _markerHoverObjectId != sourceObject.id) {
-                  return;
-                }
-                setState(() => _markerHoverObjectId = next);
-              },
-              onAccept: () {
-                setState(() => _markerHoverObjectId = null);
-                _persistReviewMarker(sourceObject.id);
-              },
-              child: card,
-            );
-          }
+              });
+            },
+          );
           if (reviewRail) {
             widgets.add(
               _InboxTouchRailGutter(
-                key: Key('inbox_touch_row_${sourceObject.id}'),
+                key: Key('inbox_touch_stack_${stack.stackId}'),
                 cardGap: swipe ? kInboxTouchSourceCardGap : 0,
                 rail: _InboxReviewRailSegment(
-                  segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
-                  onTap: () => _onReviewRailTap(sourceObject.id),
+                  segmentKey: Key('inbox_review_rail_stack_${stack.stackId}'),
+                  onTap: () => _onReviewRailTap(children.last.id),
                 ),
-                child: body,
+                child: collapsed,
               ),
             );
           } else {
-            widgets.add(body);
+            widgets.add(collapsed);
           }
-          if (desktopDrag) {
-            if (_markerHoverObjectId == sourceObject.id) {
-              widgets.add(
-                Container(
-                  key: Key(
-                    'inbox_review_marker_card_preview_${sourceObject.id}',
-                  ),
-                  height: 2,
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 2),
-                  color: kInboxReviewMarkerAccent,
-                ),
+          if (expanded) {
+            for (final sourceObject in children) {
+              _addInboxSourceObjectRow(
+                context,
+                widgets,
+                sourceObject,
+                reviewRail: reviewRail,
+                swipe: swipe,
+                desktopDrag: desktopDrag,
               );
             }
-            widgets.add(
-              _InboxMarkerDropGap(
-                afterObjectId: sourceObject.id,
-                onAccept: () => _persistReviewMarker(sourceObject.id),
-              ),
-            );
           }
+        case InboxSourceObjectEntry(:final sourceObject):
+          _addInboxSourceObjectRow(
+            context,
+            widgets,
+            sourceObject,
+            reviewRail: reviewRail,
+            swipe: swipe,
+            desktopDrag: desktopDrag,
+          );
       }
     }
     return widgets;
+  }
+
+  void _addInboxSourceObjectRow(
+    BuildContext context,
+    List<Widget> widgets,
+    InboxSourceObjectOut sourceObject, {
+    required bool reviewRail,
+    required bool swipe,
+    required bool desktopDrag,
+  }) {
+    final card = _sourceObjectCard(sourceObject);
+    Widget body = card;
+    if (swipe) {
+      final object = _secretaryObjectFromInboxSource(sourceObject);
+      final direct = objectSupportsDeliberateSwipeDeleteWithoutDialog(object);
+      body = InboxSwipeToRemove(
+        key: ValueKey(sourceObject.id),
+        objectId: sourceObject.id,
+        directDelete: direct,
+        onConfirmRemove: () => direct
+            ? deleteObjectFromSecretary(
+                context,
+                object: object,
+                apiClient: widget.apiClient,
+                authController: widget.authController,
+              )
+            : confirmAndDeleteObject(
+                context,
+                object: object,
+                apiClient: widget.apiClient,
+                authController: widget.authController,
+              ),
+        onRemoved: () {
+          if (!mounted) {
+            return;
+          }
+          _removeDeletedInboxObject(sourceObject.id);
+        },
+        child: card,
+      );
+    } else if (desktopDrag) {
+      body = _InboxMarkerCardTarget(
+        objectId: sourceObject.id,
+        onHoverChanged: (hovering) {
+          final next = hovering ? sourceObject.id : null;
+          if (_markerHoverObjectId == next) {
+            return;
+          }
+          if (!hovering && _markerHoverObjectId != sourceObject.id) {
+            return;
+          }
+          setState(() => _markerHoverObjectId = next);
+        },
+        onAccept: () {
+          setState(() => _markerHoverObjectId = null);
+          _persistReviewMarker(sourceObject.id);
+        },
+        child: card,
+      );
+    }
+    if (reviewRail) {
+      widgets.add(
+        _InboxTouchRailGutter(
+          key: Key('inbox_touch_row_${sourceObject.id}'),
+          cardGap: swipe ? kInboxTouchSourceCardGap : 0,
+          rail: _InboxReviewRailSegment(
+            segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
+            onTap: () => _onReviewRailTap(sourceObject.id),
+          ),
+          child: body,
+        ),
+      );
+    } else {
+      widgets.add(body);
+    }
+    if (desktopDrag) {
+      if (_markerHoverObjectId == sourceObject.id) {
+        widgets.add(
+          Container(
+            key: Key('inbox_review_marker_card_preview_${sourceObject.id}'),
+            height: 2,
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 2),
+            color: kInboxReviewMarkerAccent,
+          ),
+        );
+      }
+      widgets.add(
+        _InboxMarkerDropGap(
+          afterObjectId: sourceObject.id,
+          onAccept: () => _persistReviewMarker(sourceObject.id),
+        ),
+      );
+    }
+  }
+
+  Widget _conversationStackCard({
+    required InboxConversationStack stack,
+    required bool expanded,
+    required VoidCallback onToggle,
+  }) {
+    final range = formatConversationTimeRange(stack.startAt, stack.endAt);
+    final topic = (stack.summary != null && stack.summary!.trim().isNotEmpty)
+        ? stack.summary!.trim()
+        : stack.fallbackSummary;
+    return Card(
+      key: Key('inbox_conversation_stack_${stack.stackId}'),
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onToggle,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ObjectCompactHeaderRow(
+                title: '${stack.conversationLabel} · ${providerLabel(stack.provider)}',
+                kind: 'chat_message',
+                provider: stack.provider,
+                trailingText: expanded ? 'Свернуть' : 'Развернуть',
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '${stack.messageCount} сообщений · $range',
+                  key: Key('inbox_conversation_stack_meta_${stack.stackId}'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  topic,
+                  key: Key('inbox_conversation_stack_summary_${stack.stackId}'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1212,21 +1343,12 @@ class InboxScreenState extends State<InboxScreen> {
         if (!hasNotifications && !hasSources && syncErrorRows.isEmpty) {
           return const Center(child: Text('Входящие пусты'));
         }
-        final groupedSources = () {
-          final grouped = groupInboxSourceEntries(_feedObjects);
-          final insertAt = reviewMarkerInsertIndex(
-            objects: _feedObjects,
-            marker: _reviewMarker,
-            hasMore: _hasMore,
-          );
-          if (insertAt == null) {
-            return grouped;
-          }
-          return insertReviewMarkerEntry(
-            entries: grouped,
-            insertBeforeObjectIndex: insertAt,
-          );
-        }();
+        final groupedSources = groupInboxFeedEntries(
+          objects: _feedObjects,
+          overlay: _conversationGroups,
+          marker: _reviewMarker,
+          hasMore: _hasMore,
+        );
         return ListView(
           key: const Key('inbox_feed_list'),
           controller: _feedScrollController,

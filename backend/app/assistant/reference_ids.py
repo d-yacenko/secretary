@@ -32,6 +32,13 @@ def collect_object_ids_from_bounded_tool(
     elif tool_name == "list_inbox_since_review_marker":
         for item in bounded.get("items", []):
             _append_uuid(candidate_ids, item.get("object_id"))
+        for item in bounded.get("compact_items", []):
+            stack = item.get("stack") if isinstance(item, dict) else None
+            if stack:
+                for object_id in stack.get("object_ids") or []:
+                    _append_uuid(candidate_ids, object_id)
+            else:
+                _append_uuid(candidate_ids, item.get("object_id"))
     elif tool_name == "remove_relation":
         edge = bounded.get("edge")
         if edge and bounded.get("changed"):
@@ -104,6 +111,13 @@ def collect_seen_object_ids_from_bounded_tool(
         _append_uuid(seen_ids, bounded.get("anchor_object_id"))
         for item in bounded.get("items", []):
             _append_uuid(seen_ids, item.get("object_id"))
+        for item in bounded.get("compact_items", []):
+            stack = item.get("stack") if isinstance(item, dict) else None
+            if stack:
+                for object_id in stack.get("object_ids") or []:
+                    _append_uuid(seen_ids, object_id)
+            else:
+                _append_uuid(seen_ids, item.get("object_id"))
     elif tool_name in (
         "create_task",
         "update_task",

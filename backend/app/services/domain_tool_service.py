@@ -70,6 +70,8 @@ from app.tools.schemas import (
     GetObjectInput,
     GetObjectOutput,
     GetTodayOutput,
+    InboxReviewCompactItemOut,
+    InboxReviewStackOut,
     InboxSinceReviewMarkerItemOut,
     LabelItemOut,
     LinkObjectsInput,
@@ -265,10 +267,12 @@ class DomainToolService:
                 marker_not_set=True,
                 purpose=input.purpose,
                 items=[],
+                compact_items=[],
                 has_more=False,
                 total_count=0,
                 returned_count=0,
                 remaining_count=0,
+                conversation_count=0,
                 message="Inbox review marker is not set",
             )
         items = [
@@ -282,6 +286,7 @@ class DomainToolService:
             )
             for obj in page.items
         ]
+        compact_items, conversation_count = self._inbox_compact_items(page.items)
         message = None
         if page.has_more and page.next_cursor:
             message = (
@@ -300,11 +305,77 @@ class DomainToolService:
             total_count=page.total_count,
             returned_count=page.returned_count,
             remaining_count=page.remaining_count,
+            conversation_count=conversation_count,
             items=items,
+            compact_items=compact_items,
             has_more=page.has_more,
             next_cursor=page.next_cursor,
             message=message,
         )
+
+    def _inbox_compact_items(self, objects: list[Object]) -> tuple[list[InboxReviewCompactItemOut], int]:
+        from app.services.conversation_stack import conversation_unit_count
+        from app.services.inbox_conversation_overlay import build_inbox_conversation_groups
+        from app.services.recent_source_service import RecentSourceService, inbox_feed_at
+
+        by_id = {obj.id: obj for obj in objects}
+        groups = build_inbox_conversation_groups(
+            objects,
+            marker=None,
+            session=self._session,
+            user_id=self._user_id,
+            enqueue_summaries=True,
+        )
+        compact: list[InboxReviewCompactItemOut] = []
+        for group in groups:
+            if group.item_type == "stack" and group.stack is not None:
+                stack = group.stack
+                semantic = stack.semantic_summary
+                narration = (
+                    f"{stack.fallback_summary.rstrip('.')} {(': ' + semantic) if semantic else '.'}"
+                )
+                if semantic:
+                    provider_label = stack.fallback_summary.split(",")[0]
+                    narration = (
+                        f"{provider_label}, {stack.conversation_label}, "
+                        f"{stack.message_count} сообщений: {semantic}"
+                    )
+                else:
+                    narration = stack.fallback_summary
+                compact.append(
+                    InboxReviewCompactItemOut(
+                        type="stack",
+                        stack=InboxReviewStackOut(
+                            stack_id=stack.stack_id,
+                            fingerprint=stack.fingerprint,
+                            object_ids=list(stack.object_ids),
+                            provider=stack.provider,
+                            conversation_label=stack.conversation_label,
+                            message_count=stack.message_count,
+                            start_at=stack.start_at,
+                            end_at=stack.end_at,
+                            summary=stack.semantic_summary,
+                            fallback_summary=stack.fallback_summary,
+                            summary_status=stack.summary_status,
+                        ),
+                        narration=narration,
+                    )
+                )
+                continue
+            obj = by_id[group.object_ids[0]]
+            compact.append(
+                InboxReviewCompactItemOut(
+                    type="singleton",
+                    object_id=obj.id,
+                    kind=obj.kind,
+                    provider=obj.provider,
+                    title=obj.title,
+                    feed_at=inbox_feed_at(obj),
+                    excerpt=RecentSourceService.excerpt(obj.body),
+                    narration=obj.title,
+                )
+            )
+        return compact, conversation_unit_count(groups)
 
     def set_inbox_review_marker(
         self, input: SetInboxReviewMarkerInput

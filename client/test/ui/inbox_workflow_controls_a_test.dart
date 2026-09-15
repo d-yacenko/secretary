@@ -49,6 +49,7 @@ List<String> entryTags(List<InboxSourceListEntry> entries) {
         InboxDateSeparatorEntry() => 'sep',
         InboxSourceObjectEntry(:final sourceObject) => 'obj:${sourceObject.id}',
         InboxReviewMarkerEntry() => 'marker',
+        InboxConversationStackEntry(:final stack) => 'stack:${stack.stackId}',
       },
   ];
 }

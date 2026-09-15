@@ -1,22 +1,39 @@
-# Current task — Voice Assistant A Final Production Corrective R2 deployed
+# Current task — Unified Conversation & Inbox Compaction A
 
 ## Status
 
-Voice Assistant A is **CODE ACCEPTED / DEPLOYED / AWAITING FINAL USER MANUAL ACCEPTANCE**.
-It is **NOT PRODUCTION ACCEPTED**. Voice B is not started.
+Unified Conversation & Inbox Compaction A is **implemented / awaiting Architect review**.
+It is **NOT CODE ACCEPTED**. It is **NOT PRODUCTION ACCEPTED**. **NOT DEPLOYED**.
 
-Deployed application SHA (runtime): `7610cc1c6ce24764fae73317a6925cdce7bd27b2`.
-Previous production SHA: `b0c75eaa5e879ee108afe90f152a29914d28a2f2`.
-Production Alembic **0040 → 0041**.
+Canonical base / docs tip at phase start: `54b820d01d97c1ae44fba3d2d5831e1605e9c5d7`.
+Exact deployed application runtime tree remains: `7610cc1c6ce24764fae73317a6925cdce7bd27b2`.
+Production remains `7610cc1c6ce24764fae73317a6925cdce7bd27b2`, Alembic **0041**.
+Migration: **NONE**.
 
-## Deploy facts
+Voice B is not started. Graph Refinement A is not started.
+Do not mark Voice Assistant A PRODUCTION ACCEPTED.
 
-- Backup `/opt/secretary/backups/pre-voice-a-r2-20260915T180737Z-b0c75eaa.dump` sha256 `f11def62d051d4d8ee47e8ac9d0754eb95c21e8bd8f4b514664d05d6f3d9737e` (52895759 bytes).
-- Env (non-secret): `MICROSOFT_TEAMS_NOTIFICATION_URL=https://web-itx.duckdns.org/secretary/webhooks/teams`, `SOURCE_SYNC_TEAMS_INTERVAL_SECONDS=900`.
-- Graph v1.0 `POST /subscriptions` **201**; row `active`; resource `/users/{microsoft-user-id}/chats/getAllMessages`; webhook validation POST echoes `validationToken` as `text/plain` 200 from FastAPI (temporary nginx echo not restored).
-- First reconciliation after deploy: 19 `GET /v1.0/me/chats?$expand=lastMessagePreview`, 318 targeted `list_chat_messages` (no watermarks yet / fail-open), Graph **429 count = 0**. Cached chats after run: **319**. Next `sync_teams` `run_after` = last_success + **900s**.
-- Debug APK sha256 `e6933829d12ab3ea7f4793c92c00e5a6394c339aca24bbe618b444e1e18305c9`, aapt `sdkVersion:'23'`, installed on SM_T355 (`8430b607`).
+## Voice Assistant A factual carry-forward (do not reopen Voice A code)
 
-## Remaining user-manual gates
+- Canonical hands-free complete Inbox review was physically re-tested after R2.
+- Full review of the current 4-object window completed.
+- `POST /inbox/review-marker/complete` returned 200.
+- Marker advanced to the frozen top.
+- Canonical Inbox marker completion gate is **PASS**.
+- Wording variants such as «озвучь новые сообщения» may still lead to different tool behavior in edge cases; the user accepts current behavior for now.
+- Real Teams inbound webhook proof remains deferred until a natural incoming Teams message is available.
+- Voice A therefore remains **deployed / not formally PRODUCTION ACCEPTED**.
 
-Physical Inbox marker completion after «перечисли мне все новые сообщения»; physical Teams inbound via webhook (`process_teams_notification`). Do not mark PRODUCTION ACCEPTED. Do not start Voice B.
+## This phase (Compaction A)
+
+Turn the flat communication-heavy Inbox into a unified conversation view **without changing source acquisition**.
+
+- Conversation Stack is **presentation**, not a domain Object and not a graph identity.
+- Underlying messages remain first-class atomic Secretary Objects.
+- Optional `conversation_groups` overlay on `/inbox` and `/inbox/feed`; `recent_source_objects` and feed cursor unchanged.
+- Burst gap: **15 minutes** between adjacent messages.
+- False merge is worse than split.
+- Marker is defined only by underlying Object/`feed_at` tuples; a stack that would hide the marker is split.
+- Semantic summaries are derived `Representation(kind=conversation_stack_summary)`, fingerprint-bound, async via existing job/LLM/Cost Guard.
+- Telegram transport/group acquisition is deferred; source acquisition is unchanged.
+- Graph Refinement remains the next heavy phase after this work.

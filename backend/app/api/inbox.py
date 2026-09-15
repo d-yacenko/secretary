@@ -18,7 +18,9 @@ from app.api.schemas import (
 from app.core.current_user import CurrentUserContext
 from app.db.models import Object
 from app.notifications.constants import NOTIFICATION_FILTER_UNRESOLVED
+from app.services.conversation_stack import groups_to_overlay
 from app.services.errors import NotFoundError, ValidationError
+from app.services.inbox_conversation_overlay import build_inbox_conversation_groups
 from app.services.inbox_review_marker import (
     InboxReviewMarkerService,
     ReviewMarkerRecord,
@@ -70,6 +72,49 @@ def _raise_marker_domain(exc: Exception) -> NoReturn:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message
         ) from exc
     raise exc
+
+
+def _conversation_groups_out(objects: list[Object], marker, session, user_id):
+    from app.api.schemas import InboxConversationGroupOut, InboxConversationStackOut
+
+    groups = build_inbox_conversation_groups(
+        objects,
+        marker=marker,
+        session=session,
+        user_id=user_id,
+        enqueue_summaries=True,
+    )
+    overlay = groups_to_overlay(groups)
+    parsed: list[InboxConversationGroupOut] = []
+    for item in overlay:
+        stack_raw = item.get("stack")
+        stack = None
+        if stack_raw:
+            stack = InboxConversationStackOut(
+                stack_id=stack_raw["stack_id"],
+                fingerprint=stack_raw["fingerprint"],
+                object_ids=stack_raw["object_ids"],
+                display_object_ids=stack_raw["display_object_ids"],
+                provider=stack_raw["provider"],
+                conversation_key=stack_raw["conversation_key"],
+                conversation_label=stack_raw["conversation_label"],
+                participants=stack_raw["participants"],
+                message_count=stack_raw["message_count"],
+                start_at=stack_raw["start_at"],
+                end_at=stack_raw["end_at"],
+                summary=stack_raw.get("summary"),
+                fallback_summary=stack_raw["fallback_summary"],
+                summary_status=stack_raw["summary_status"],
+                marker_side=stack_raw.get("marker_side"),
+            )
+        parsed.append(
+            InboxConversationGroupOut(
+                type=item["type"],
+                object_id=item.get("object_id"),
+                stack=stack,
+            )
+        )
+    return parsed
 
 
 def _source_out(obj: Object) -> InboxSourceObjectOut:
@@ -124,6 +169,9 @@ def get_inbox(
         recent_next_cursor=page.next_cursor,
         recent_has_more=page.has_more,
         review_marker=_marker_out(marker) if marker is not None else None,
+        conversation_groups=_conversation_groups_out(
+            page.items, marker, session, user_id
+        ),
     )
 
 
@@ -144,10 +192,14 @@ def get_inbox_feed(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=exc.message,
         ) from exc
+    marker = InboxReviewMarkerService(session, current_user.user_id).get_marker()
     return InboxFeedOut(
         items=[_source_out(obj) for obj in page.items],
         next_cursor=page.next_cursor,
         has_more=page.has_more,
+        conversation_groups=_conversation_groups_out(
+            page.items, marker, session, current_user.user_id
+        ),
     )
 
 

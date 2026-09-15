@@ -27,6 +27,7 @@ from app.jobs.constants import (
     JOB_TYPE_PROCESS_TEAMS_NOTIFICATION,
     JOB_TYPE_RECONCILE_TEMPORAL_HINTS,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
+    JOB_TYPE_SUMMARIZE_CONVERSATION_STACK,
     JOB_TYPE_SUMMARIZE_RESOURCE,
     JOB_TYPE_SYNC_GOOGLE_CALENDAR,
     JOB_TYPE_SYNC_GOOGLE_GMAIL,
@@ -347,6 +348,40 @@ def handle_summarize_resource(
             lookup_session.close()
 
 
+def handle_summarize_conversation_stack(
+    session: Session,
+    embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    from app.llm.openai_summarizer import (
+        create_openai_conversation_stack_summarizer_from_effective,
+    )
+    from app.services.conversation_stack_summary import ConversationStackSummaryService
+
+    parent_trace_id = _parent_trace_id_from_payload(payload)
+    with ai_trace_session(
+        user_id,
+        WORKLOAD_BACKGROUND_SUMMARY,
+        object_id=None,
+        parent_trace_id=parent_trace_id,
+    ):
+        lookup_session = SessionLocal()
+        try:
+            effective = _background_effective_settings(lookup_session, user_id)
+            summarizer = OpenAIDailyBudgetGuard.build(
+                lookup_session, user_id
+            ).guard_summarizer(
+                create_openai_conversation_stack_summarizer_from_effective(effective)
+            )
+            ConversationStackSummaryService(
+                lookup_session, user_id, summarizer=summarizer
+            ).generate_for_payload(payload)
+            lookup_session.commit()
+        finally:
+            lookup_session.close()
+
+
 def handle_correlate_object(
     session: Session,
     embedding_service,
@@ -582,6 +617,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_INGEST_LOCAL_FILE: handle_ingest_local_file,
     JOB_TYPE_EXTRACT_EXPLICIT_RESOURCE_CONTENT: handle_extract_explicit_resource_content,
     JOB_TYPE_SUMMARIZE_RESOURCE: handle_summarize_resource,
+    JOB_TYPE_SUMMARIZE_CONVERSATION_STACK: handle_summarize_conversation_stack,
     JOB_TYPE_CORRELATE_OBJECT: handle_correlate_object,
     JOB_TYPE_AUTO_LABEL_OBJECT: handle_auto_label_object,
     JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL: handle_extract_temporal_signal,

@@ -787,6 +787,86 @@ class InboxSourceObjectOut {
   }
 }
 
+class InboxConversationStack {
+  const InboxConversationStack({
+    required this.stackId,
+    required this.fingerprint,
+    required this.objectIds,
+    required this.displayObjectIds,
+    required this.provider,
+    required this.conversationLabel,
+    required this.messageCount,
+    required this.startAt,
+    required this.endAt,
+    required this.fallbackSummary,
+    this.summary,
+    this.summaryStatus = 'fallback',
+  });
+
+  final String stackId;
+  final String fingerprint;
+  final List<String> objectIds;
+  final List<String> displayObjectIds;
+  final String provider;
+  final String conversationLabel;
+  final int messageCount;
+  final String startAt;
+  final String endAt;
+  final String? summary;
+  final String fallbackSummary;
+  final String summaryStatus;
+
+  factory InboxConversationStack.fromJson(Map<String, dynamic> json) {
+    return InboxConversationStack(
+      stackId: json['stack_id'] as String,
+      fingerprint: json['fingerprint'] as String? ?? json['stack_id'] as String,
+      objectIds: (json['object_ids'] as List<dynamic>).map((e) => e as String).toList(),
+      displayObjectIds: (json['display_object_ids'] as List<dynamic>? ?? json['object_ids'] as List<dynamic>)
+          .map((e) => e as String)
+          .toList(),
+      provider: json['provider'] as String,
+      conversationLabel: json['conversation_label'] as String,
+      messageCount: json['message_count'] as int,
+      startAt: json['start_at'] as String,
+      endAt: json['end_at'] as String,
+      summary: json['summary'] as String?,
+      fallbackSummary: json['fallback_summary'] as String,
+      summaryStatus: json['summary_status'] as String? ?? 'fallback',
+    );
+  }
+}
+
+class InboxConversationGroup {
+  const InboxConversationGroup({
+    required this.type,
+    this.objectId,
+    this.stack,
+  });
+
+  final String type;
+  final String? objectId;
+  final InboxConversationStack? stack;
+
+  List<String> get coveredIds {
+    if (stack != null) {
+      return stack!.displayObjectIds;
+    }
+    final id = objectId;
+    return id == null ? const [] : [id];
+  }
+
+  factory InboxConversationGroup.fromJson(Map<String, dynamic> json) {
+    final rawStack = json['stack'];
+    return InboxConversationGroup(
+      type: json['type'] as String,
+      objectId: json['object_id'] as String?,
+      stack: rawStack is Map<String, dynamic>
+          ? InboxConversationStack.fromJson(rawStack)
+          : null,
+    );
+  }
+}
+
 class SourceSyncStatusOut {
   SourceSyncStatusOut({
     required this.source,
@@ -856,6 +936,7 @@ class InboxOut {
     this.recentNextCursor,
     this.recentHasMore = false,
     this.reviewMarker,
+    this.conversationGroups = const [],
   });
 
   final List<NotificationOut> unresolvedNotifications;
@@ -864,6 +945,7 @@ class InboxOut {
   final String? recentNextCursor;
   final bool recentHasMore;
   final InboxReviewMarker? reviewMarker;
+  final List<InboxConversationGroup> conversationGroups;
 
   factory InboxOut.fromJson(Map<String, dynamic> json) {
     final rawMarker = json['review_marker'];
@@ -883,6 +965,9 @@ class InboxOut {
       reviewMarker: rawMarker is Map<String, dynamic>
           ? InboxReviewMarker.fromJson(rawMarker)
           : null,
+      conversationGroups: (json['conversation_groups'] as List<dynamic>? ?? const [])
+          .map((e) => InboxConversationGroup.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 }
@@ -892,11 +977,13 @@ class InboxFeedPage {
     required this.items,
     required this.nextCursor,
     required this.hasMore,
+    this.conversationGroups = const [],
   });
 
   final List<InboxSourceObjectOut> items;
   final String? nextCursor;
   final bool hasMore;
+  final List<InboxConversationGroup> conversationGroups;
 
   factory InboxFeedPage.fromJson(Map<String, dynamic> json) {
     return InboxFeedPage(
@@ -905,6 +992,9 @@ class InboxFeedPage {
           .toList(),
       nextCursor: json['next_cursor'] as String?,
       hasMore: json['has_more'] as bool? ?? false,
+      conversationGroups: (json['conversation_groups'] as List<dynamic>? ?? const [])
+          .map((e) => InboxConversationGroup.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 }

@@ -16,6 +16,13 @@ _SUMMARY_INSTRUCTIONS = (
     "No speculation beyond the provided text. No secrets not already in the text."
 )
 
+CONVERSATION_STACK_SUMMARY_INSTRUCTIONS = (
+    "Write one short factual Russian sentence about this conversation burst. "
+    "Ground the sentence only in the provided messages. No recommendations. "
+    "Do not infer intent beyond the messages. Do not include secrets, tokens, "
+    "or credentials even if they appear in the text."
+)
+
 
 class OpenAISummarizer:
     def __init__(
@@ -26,6 +33,7 @@ class OpenAISummarizer:
         verbosity: str = "low",
         max_output_tokens: int = 400,
         max_chars: int = 500,
+        instructions: str | None = None,
     ) -> None:
         from openai import OpenAI
 
@@ -35,6 +43,7 @@ class OpenAISummarizer:
         self._verbosity = verbosity
         self._max_output_tokens = max_output_tokens
         self._max_chars = max_chars
+        self._instructions = instructions or _SUMMARY_INSTRUCTIONS
 
     def summarize(self, text: str) -> str:
         bounded = text[:4000]
@@ -42,7 +51,7 @@ class OpenAISummarizer:
         try:
             response = self._client.responses.create(
                 model=self._model,
-                instructions=_SUMMARY_INSTRUCTIONS,
+                instructions=self._instructions,
                 input=bounded,
                 reasoning={"effort": self._reasoning_effort},
                 text={"verbosity": self._verbosity},
@@ -116,4 +125,20 @@ def create_openai_summarizer_from_effective(
         model=effective.assistant_model,
         reasoning_effort=effective.assistant_reasoning_effort,
         verbosity=effective.assistant_verbosity,
+    )
+
+
+def create_openai_conversation_stack_summarizer_from_effective(
+    effective: EffectiveUserSettings,
+) -> Summarizer:
+    if not effective.openai_api_key:
+        raise BackgroundAIConfigurationError("OpenAI API key is not configured")
+    return OpenAISummarizer(
+        api_key=effective.openai_api_key,
+        model=effective.assistant_model,
+        reasoning_effort=effective.assistant_reasoning_effort,
+        verbosity=effective.assistant_verbosity,
+        max_output_tokens=120,
+        max_chars=160,
+        instructions=CONVERSATION_STACK_SUMMARY_INSTRUCTIONS,
     )

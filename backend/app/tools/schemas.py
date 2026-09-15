@@ -363,6 +363,32 @@ class InboxSinceReviewMarkerItemOut(BaseModel):
     excerpt: str | None = None
 
 
+class InboxReviewStackOut(BaseModel):
+    stack_id: str
+    fingerprint: str
+    object_ids: list[UUID]
+    provider: str | None = None
+    conversation_label: str
+    message_count: int
+    start_at: datetime
+    end_at: datetime
+    summary: str | None = None
+    fallback_summary: str
+    summary_status: str
+
+
+class InboxReviewCompactItemOut(BaseModel):
+    type: Literal["stack", "singleton"]
+    object_id: UUID | None = None
+    kind: str | None = None
+    provider: str | None = None
+    title: str | None = None
+    feed_at: datetime | None = None
+    excerpt: str | None = None
+    stack: InboxReviewStackOut | None = None
+    narration: str | None = None
+
+
 class ListInboxSinceReviewMarkerOutput(BaseModel):
     marker_present: bool
     marker_not_set: bool
@@ -374,7 +400,9 @@ class ListInboxSinceReviewMarkerOutput(BaseModel):
     total_count: int = 0
     returned_count: int = 0
     remaining_count: int = 0
+    conversation_count: int = 0
     items: list[InboxSinceReviewMarkerItemOut]
+    compact_items: list[InboxReviewCompactItemOut] = Field(default_factory=list)
     has_more: bool
     next_cursor: str | None = None
     message: str | None = None

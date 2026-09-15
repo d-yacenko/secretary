@@ -46,6 +46,16 @@ class InboxReviewMarkerEntry extends InboxSourceListEntry {
   const InboxReviewMarkerEntry();
 }
 
+class InboxConversationStackEntry extends InboxSourceListEntry {
+  const InboxConversationStackEntry({
+    required this.stack,
+    required this.children,
+  });
+
+  final InboxConversationStack stack;
+  final List<InboxSourceObjectOut> children;
+}
+
 /// Inserts a review marker before the object at [insertBeforeObjectIndex].
 ///
 /// A date separator belongs to the first Object of its date group, so a

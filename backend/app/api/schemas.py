@@ -413,6 +413,30 @@ class InboxSourceObjectOut(BaseModel):
     excerpt: str | None
 
 
+class InboxConversationStackOut(BaseModel):
+    stack_id: str
+    fingerprint: str
+    object_ids: list[UUID]
+    display_object_ids: list[UUID]
+    provider: str
+    conversation_key: str
+    conversation_label: str
+    participants: list[str]
+    message_count: int
+    start_at: datetime
+    end_at: datetime
+    summary: str | None = None
+    fallback_summary: str
+    summary_status: str
+    marker_side: str | None = None
+
+
+class InboxConversationGroupOut(BaseModel):
+    type: Literal["stack", "singleton"]
+    object_id: UUID | None = None
+    stack: InboxConversationStackOut | None = None
+
+
 class SourceSyncStatusOut(BaseModel):
     source: str
     provider: str
@@ -439,12 +463,14 @@ class InboxOut(BaseModel):
     recent_next_cursor: str | None = None
     recent_has_more: bool = False
     review_marker: InboxReviewMarkerOut | None = None
+    conversation_groups: list[InboxConversationGroupOut] = Field(default_factory=list)
 
 
 class InboxFeedOut(BaseModel):
     items: list[InboxSourceObjectOut]
     next_cursor: str | None
     has_more: bool
+    conversation_groups: list[InboxConversationGroupOut] = Field(default_factory=list)
 
 
 class SourceStatusListOut(BaseModel):

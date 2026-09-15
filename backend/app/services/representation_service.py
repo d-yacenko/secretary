@@ -41,6 +41,8 @@ KIND_CHUNK = "chunk"
 KIND_SAMPLE = "sample"
 KIND_SCHEMA = "schema"
 KIND_STATISTICS = "statistics"
+KIND_CONVERSATION_STACK_SUMMARY = "conversation_stack_summary"
+_PRESERVED_REPRESENTATION_KINDS = frozenset({KIND_CONVERSATION_STACK_SUMMARY})
 
 
 class RepresentationService:
@@ -110,7 +112,12 @@ class RepresentationService:
     def _replace_representations(
         self, object_id: UUID, reps: list[Representation]
     ) -> list[Representation]:
-        self._session.execute(delete(Representation).where(Representation.object_id == object_id))
+        self._session.execute(
+            delete(Representation).where(
+                Representation.object_id == object_id,
+                Representation.kind.notin_(tuple(_PRESERVED_REPRESENTATION_KINDS)),
+            )
+        )
         for rep in reps:
             self._session.add(rep)
         self._session.flush()

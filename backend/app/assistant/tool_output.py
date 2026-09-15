@@ -82,6 +82,7 @@ def _inbox_review_list_payload(
     items: list[dict[str, Any]],
     *,
     truncated: bool,
+    include_compact: bool = True,
 ) -> dict[str, Any]:
     from app.services.errors import ValidationError
     from app.services.inbox_review_snapshot_cursor import (
@@ -101,6 +102,42 @@ def _inbox_review_list_payload(
         }
         for item in items
     ]
+    compact_items = list(raw_output.get("compact_items") or []) if include_compact else []
+    visible_compact = []
+    for item in compact_items:
+        if item.get("type") == "stack":
+            stack = item.get("stack") or {}
+            visible_compact.append(
+                {
+                    "type": "stack",
+                    "narration": item.get("narration"),
+                    "stack": {
+                        "stack_id": stack.get("stack_id"),
+                        "object_ids": stack.get("object_ids"),
+                        "provider": stack.get("provider"),
+                        "conversation_label": stack.get("conversation_label"),
+                        "message_count": stack.get("message_count"),
+                        "start_at": stack.get("start_at"),
+                        "end_at": stack.get("end_at"),
+                        "summary": stack.get("summary"),
+                        "fallback_summary": stack.get("fallback_summary"),
+                        "summary_status": stack.get("summary_status"),
+                    },
+                }
+            )
+        else:
+            visible_compact.append(
+                {
+                    "type": "singleton",
+                    "object_id": item.get("object_id"),
+                    "kind": item.get("kind"),
+                    "provider": item.get("provider"),
+                    "title": item.get("title"),
+                    "feed_at": item.get("feed_at"),
+                    "excerpt": item.get("excerpt"),
+                    "narration": item.get("narration"),
+                }
+            )
     has_more = bool(raw_output.get("has_more")) or truncated
     raw_remaining = raw_output.get("remaining_count")
     remaining = int(raw_remaining) if isinstance(raw_remaining, int) else 0
@@ -141,9 +178,12 @@ def _inbox_review_list_payload(
         "total_count": raw_output.get("total_count", 0),
         "returned_count": len(visible_items),
         "remaining_count": remaining,
+        "conversation_count": raw_output.get("conversation_count", 0),
         "items": visible_items,
         "has_more": has_more,
     }
+    if include_compact:
+        payload["compact_items"] = visible_compact
     if next_cursor:
         payload["next_cursor"] = next_cursor
     if raw_output.get("message"):
@@ -481,15 +521,20 @@ def serialize_tool_output_for_assistant(
     if tool_name == "list_inbox_since_review_marker":
         items = list(bounded.get("items", []))
         raw_items = list(raw_output.get("items") or [])
+        include_compact = True
         while True:
             candidate = _inbox_review_list_payload(
                 raw_output,
                 items,
                 truncated=len(items) < len(raw_items),
+                include_compact=include_compact,
             )
             text = json.dumps(candidate, ensure_ascii=False)
             if len(text) <= MAX_ASSISTANT_TOOL_OUTPUT_CHARS:
                 return AssistantToolModelOutput(text, candidate)
+            if include_compact and candidate.get("compact_items"):
+                include_compact = False
+                continue
             if not items:
                 metadata = {
                     key: candidate.get(key)
@@ -504,6 +549,7 @@ def serialize_tool_output_for_assistant(
                         "total_count",
                         "returned_count",
                         "remaining_count",
+                        "conversation_count",
                         "has_more",
                         "next_cursor",
                     )
