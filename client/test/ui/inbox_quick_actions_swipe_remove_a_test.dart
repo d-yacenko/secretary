@@ -274,6 +274,13 @@ void main() {
     expect(inboxUsesSwipeToRemove(TargetPlatform.macOS), isFalse);
   });
 
+  test('review rail is available on Android and Linux without enabling swipe', () {
+    expect(inboxUsesReviewRail(TargetPlatform.android), isTrue);
+    expect(inboxUsesReviewRail(TargetPlatform.linux), isTrue);
+    expect(inboxUsesTouchReviewRail(TargetPlatform.linux), isFalse);
+    expect(inboxUsesSwipeToRemove(TargetPlatform.linux), isFalse);
+  });
+
   test('activation threshold is usable on phone and tablet widths', () {
     expect(inboxSwipeRemoveDismissThreshold(324), closeTo(96 / 324, 0.001));
     expect(inboxSwipeRemoveDismissThreshold(764), 0.18);

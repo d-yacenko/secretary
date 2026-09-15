@@ -37,6 +37,9 @@ import 'notification_labels.dart';
 
 enum InboxLoadState { loading, ready, error }
 
+/// High-visibility Inbox review marker accent. Same color on light and dark.
+const Color kInboxReviewMarkerAccent = Color(0xFFFF4D2E);
+
 /// Touch Review Rail hit width. Visible guide is 1–2 px inside this area.
 const double kInboxReviewRailHitWidth = 36;
 
@@ -49,8 +52,20 @@ bool inboxUsesTouchReviewRail([TargetPlatform? platform]) {
   return resolved == TargetPlatform.android || resolved == TargetPlatform.iOS;
 }
 
-/// Swipe-to-Remove is gated to the same touch platforms as the Review Rail.
-/// Linux/desktop keeps the existing card-wide DragTarget and is unchanged.
+/// Click/tap review rail: phones plus desktop. Independent of Swipe-to-Remove.
+bool inboxUsesReviewRail([TargetPlatform? platform]) {
+  if (kIsWeb) {
+    return false;
+  }
+  final resolved = platform ?? defaultTargetPlatform;
+  return resolved == TargetPlatform.android ||
+      resolved == TargetPlatform.iOS ||
+      resolved == TargetPlatform.linux ||
+      resolved == TargetPlatform.windows ||
+      resolved == TargetPlatform.macOS;
+}
+
+/// Swipe-to-Remove stays touch-only. Desktop uses click-rail + optional drag.
 bool inboxUsesSwipeToRemove([TargetPlatform? platform]) {
   return inboxUsesTouchReviewRail(platform);
 }
@@ -388,10 +403,14 @@ class InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  bool get _touchReviewRail => inboxUsesTouchReviewRail();
+  bool get _reviewRail => inboxUsesReviewRail();
+
+  bool get _swipeToRemove => inboxUsesSwipeToRemove();
+
+  bool get _desktopMarkerDrag => !_swipeToRemove;
 
   Widget _touchContentInset(Widget child) {
-    if (!_touchReviewRail) {
+    if (!_reviewRail) {
       return child;
     }
     return Padding(
@@ -400,8 +419,10 @@ class InboxScreenState extends State<InboxScreen> {
     );
   }
 
-  void _onTouchRailTap(String? afterObjectId) {
-    HapticFeedback.selectionClick();
+  void _onReviewRailTap(String? afterObjectId) {
+    if (_swipeToRemove) {
+      HapticFeedback.selectionClick();
+    }
     _persistReviewMarker(afterObjectId);
   }
 
@@ -766,9 +787,11 @@ class InboxScreenState extends State<InboxScreen> {
     BuildContext context,
     List<InboxSourceListEntry> groupedSources,
   ) {
-    final touch = _touchReviewRail;
+    final reviewRail = _reviewRail;
+    final swipe = _swipeToRemove;
+    final desktopDrag = _desktopMarkerDrag;
     final widgets = <Widget>[];
-    if (touch) {
+    if (reviewRail) {
       widgets.add(
         SizedBox(
           height: kInboxReviewRailHitWidth,
@@ -779,13 +802,14 @@ class InboxScreenState extends State<InboxScreen> {
               height: kInboxReviewRailHitWidth,
               child: _InboxReviewRailSegment(
                 segmentKey: const Key('inbox_review_rail_reset'),
-                onTap: () => _onTouchRailTap(null),
+                onTap: () => _onReviewRailTap(null),
               ),
             ),
           ),
         ),
       );
-    } else {
+    }
+    if (desktopDrag) {
       widgets.add(
         _InboxMarkerDropGap(
           afterObjectId: null,
@@ -800,7 +824,7 @@ class InboxScreenState extends State<InboxScreen> {
       switch (entry) {
         case InboxDateSeparatorEntry():
           widgets.add(
-            touch
+            reviewRail
                 ? _InboxTouchRailGutter(child: InboxDateSeparator(entry: entry))
                 : InboxDateSeparator(entry: entry),
           );
@@ -808,67 +832,73 @@ class InboxScreenState extends State<InboxScreen> {
           widgets.add(const _InboxReviewMarkerBar(unplaced: false));
         case InboxSourceObjectEntry(:final sourceObject):
           final card = _sourceObjectCard(sourceObject);
-          if (touch) {
+          Widget body = card;
+          if (swipe) {
             final object = _secretaryObjectFromInboxSource(sourceObject);
             final direct = objectSupportsDeliberateSwipeDeleteWithoutDialog(
               object,
             );
+            body = InboxSwipeToRemove(
+              key: ValueKey(sourceObject.id),
+              objectId: sourceObject.id,
+              directDelete: direct,
+              onConfirmRemove: () => direct
+                  ? deleteObjectFromSecretary(
+                      context,
+                      object: object,
+                      apiClient: widget.apiClient,
+                      authController: widget.authController,
+                    )
+                  : confirmAndDeleteObject(
+                      context,
+                      object: object,
+                      apiClient: widget.apiClient,
+                      authController: widget.authController,
+                    ),
+              onRemoved: () {
+                if (!mounted) {
+                  return;
+                }
+                _removeDeletedInboxObject(sourceObject.id);
+              },
+              child: card,
+            );
+          } else if (desktopDrag) {
+            body = _InboxMarkerCardTarget(
+              objectId: sourceObject.id,
+              onHoverChanged: (hovering) {
+                final next = hovering ? sourceObject.id : null;
+                if (_markerHoverObjectId == next) {
+                  return;
+                }
+                if (!hovering && _markerHoverObjectId != sourceObject.id) {
+                  return;
+                }
+                setState(() => _markerHoverObjectId = next);
+              },
+              onAccept: () {
+                setState(() => _markerHoverObjectId = null);
+                _persistReviewMarker(sourceObject.id);
+              },
+              child: card,
+            );
+          }
+          if (reviewRail) {
             widgets.add(
               _InboxTouchRailGutter(
                 key: Key('inbox_touch_row_${sourceObject.id}'),
-                cardGap: kInboxTouchSourceCardGap,
+                cardGap: swipe ? kInboxTouchSourceCardGap : 0,
                 rail: _InboxReviewRailSegment(
                   segmentKey: Key('inbox_review_rail_${sourceObject.id}'),
-                  onTap: () => _onTouchRailTap(sourceObject.id),
+                  onTap: () => _onReviewRailTap(sourceObject.id),
                 ),
-                child: InboxSwipeToRemove(
-                  key: ValueKey(sourceObject.id),
-                  objectId: sourceObject.id,
-                  directDelete: direct,
-                  onConfirmRemove: () => direct
-                      ? deleteObjectFromSecretary(
-                          context,
-                          object: object,
-                          apiClient: widget.apiClient,
-                          authController: widget.authController,
-                        )
-                      : confirmAndDeleteObject(
-                          context,
-                          object: object,
-                          apiClient: widget.apiClient,
-                          authController: widget.authController,
-                        ),
-                  onRemoved: () {
-                    if (!mounted) {
-                      return;
-                    }
-                    _removeDeletedInboxObject(sourceObject.id);
-                  },
-                  child: card,
-                ),
+                child: body,
               ),
             );
           } else {
-            widgets.add(
-              _InboxMarkerCardTarget(
-                objectId: sourceObject.id,
-                onHoverChanged: (hovering) {
-                  final next = hovering ? sourceObject.id : null;
-                  if (_markerHoverObjectId == next) {
-                    return;
-                  }
-                  if (!hovering && _markerHoverObjectId != sourceObject.id) {
-                    return;
-                  }
-                  setState(() => _markerHoverObjectId = next);
-                },
-                onAccept: () {
-                  setState(() => _markerHoverObjectId = null);
-                  _persistReviewMarker(sourceObject.id);
-                },
-                child: card,
-              ),
-            );
+            widgets.add(body);
+          }
+          if (desktopDrag) {
             if (_markerHoverObjectId == sourceObject.id) {
               widgets.add(
                 Container(
@@ -878,7 +908,7 @@ class InboxScreenState extends State<InboxScreen> {
                   height: 2,
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 2),
-                  color: Theme.of(context).colorScheme.outline,
+                  color: kInboxReviewMarkerAccent,
                 ),
               );
             }
@@ -1202,7 +1232,7 @@ class InboxScreenState extends State<InboxScreen> {
           controller: _feedScrollController,
           cacheExtent: 1200,
           padding: EdgeInsets.fromLTRB(
-            _touchReviewRail ? 0 : AppSpacing.lg,
+            _reviewRail ? 0 : AppSpacing.lg,
             0,
             AppSpacing.lg,
             0,
@@ -1591,7 +1621,7 @@ class _InboxTouchRailGutter extends StatelessWidget {
   }
 }
 
-class _InboxReviewRailSegment extends StatelessWidget {
+class _InboxReviewRailSegment extends StatefulWidget {
   const _InboxReviewRailSegment({
     required this.segmentKey,
     required this.onTap,
@@ -1601,28 +1631,45 @@ class _InboxReviewRailSegment extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_InboxReviewRailSegment> createState() =>
+      _InboxReviewRailSegmentState();
+}
+
+class _InboxReviewRailSegmentState extends State<_InboxReviewRailSegment> {
+  var _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      key: segmentKey,
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: const _ReviewRailGuide(),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        key: widget.segmentKey,
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: _ReviewRailGuide(emphasized: _hovered),
+      ),
     );
   }
 }
 
 class _ReviewRailGuide extends StatelessWidget {
-  const _ReviewRailGuide({this.notch = false});
+  const _ReviewRailGuide({this.notch = false, this.emphasized = false});
 
   final bool notch;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final line = emphasized
+        ? kInboxReviewMarkerAccent.withValues(alpha: 0.85)
+        : scheme.outlineVariant;
     return CustomPaint(
       painter: _ReviewRailGuidePainter(
-        color: scheme.outlineVariant,
-        notchColor: scheme.outline,
+        color: line,
+        notchColor: notch ? kInboxReviewMarkerAccent : scheme.outline,
         notch: notch,
       ),
       child: const SizedBox.expand(),
@@ -1675,56 +1722,46 @@ class _InboxReviewMarkerBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final touch = inboxUsesTouchReviewRail();
+    final reviewRail = inboxUsesReviewRail();
+    final desktopDrag = !inboxUsesSwipeToRemove();
+    final accent = unplaced ? scheme.outline : kInboxReviewMarkerAccent;
     final lines = Expanded(
       child: Row(
         children: [
           Expanded(
-            child: Divider(height: 1, thickness: 1, color: scheme.outline),
+            child: Divider(
+              key: unplaced ? null : const Key('inbox_review_marker_line'),
+              height: 2,
+              thickness: unplaced ? 1 : 2,
+              color: accent,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(
               unplaced ? 'Маркер просмотра' : 'Просмотрено досюда',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
+                color: accent,
+                fontWeight: unplaced ? FontWeight.w500 : FontWeight.w600,
               ),
             ),
           ),
           Expanded(
-            child: Divider(height: 1, thickness: 1, color: scheme.outline),
+            child: Divider(height: 2, thickness: unplaced ? 1 : 2, color: accent),
           ),
         ],
       ),
     );
-    if (touch) {
-      return SizedBox(
-        key: Key(
-          unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker',
-        ),
-        height: 28,
-        child: Row(
-          children: [
-            SizedBox(
-              key: unplaced ? null : const Key('inbox_review_rail_notch'),
-              width: kInboxReviewRailHitWidth,
-              height: 28,
-              child: IgnorePointer(child: _ReviewRailGuide(notch: !unplaced)),
-            ),
-            lines,
-          ],
-        ),
-      );
-    }
-    final handle = _markerHandle(context);
-    final draggable = Draggable<String>(
-      data: 'inbox-review-marker',
-      axis: Axis.vertical,
-      feedback: _dragFeedback(context),
-      childWhenDragging: Opacity(opacity: 0.3, child: handle),
-      child: handle,
-    );
+    final handle = desktopDrag ? _markerHandle(context, accent) : null;
+    final draggable = handle == null
+        ? null
+        : Draggable<String>(
+            data: 'inbox-review-marker',
+            axis: Axis.vertical,
+            feedback: _dragFeedback(context, accent),
+            childWhenDragging: Opacity(opacity: 0.3, child: handle),
+            child: handle,
+          );
     return SizedBox(
       key: Key(
         unplaced ? 'inbox_review_marker_unplaced' : 'inbox_review_marker',
@@ -1732,16 +1769,26 @@ class _InboxReviewMarkerBar extends StatelessWidget {
       height: 28,
       child: Row(
         children: [
-          MouseRegion(cursor: SystemMouseCursors.grab, child: draggable),
-          const SizedBox(width: 6),
+          if (reviewRail)
+            SizedBox(
+              key: unplaced ? null : const Key('inbox_review_rail_notch'),
+              width: kInboxReviewRailHitWidth,
+              height: 28,
+              child: IgnorePointer(
+                child: _ReviewRailGuide(notch: !unplaced),
+              ),
+            ),
+          if (draggable != null) ...[
+            MouseRegion(cursor: SystemMouseCursors.grab, child: draggable),
+            const SizedBox(width: 6),
+          ],
           lines,
         ],
       ),
     );
   }
 
-  Widget _markerHandle(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+  Widget _markerHandle(BuildContext context, Color color) {
     return SizedBox(
       key: const Key('inbox_review_marker_handle'),
       width: 32,
@@ -1749,16 +1796,16 @@ class _InboxReviewMarkerBar extends StatelessWidget {
       child: Center(
         child: CustomPaint(
           size: const Size(12, 16),
-          painter: _ReviewMarkerGrabPainter(color: scheme.outline),
+          painter: _ReviewMarkerGrabPainter(color: color),
         ),
       ),
     );
   }
 
-  Widget _dragFeedback(BuildContext context) {
+  Widget _dragFeedback(BuildContext context, Color color) {
     return Material(
       color: Colors.transparent,
-      child: SizedBox(width: 32, height: 28, child: _markerHandle(context)),
+      child: SizedBox(width: 32, height: 28, child: _markerHandle(context, color)),
     );
   }
 }

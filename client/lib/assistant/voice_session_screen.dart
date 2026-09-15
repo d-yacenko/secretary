@@ -129,13 +129,6 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
   Widget build(BuildContext context) {
     final assistant = widget.assistant;
     final theme = Theme.of(context);
-    final recording = assistant.voiceState == AssistantVoiceState.recording;
-    final color = recording
-        ? theme.colorScheme.error
-        : theme.colorScheme.primary;
-    final onColor = recording
-        ? theme.colorScheme.onError
-        : theme.colorScheme.onPrimary;
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
@@ -164,54 +157,7 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final side = constraints.biggest.shortestSide * 0.86;
-                    return Center(
-                      child: SizedBox(
-                        width: side,
-                        height: side,
-                        child: Material(
-                          color: _preparing
-                              ? theme.colorScheme.surfaceContainerHighest
-                              : color,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            key: const Key('voice_session_launcher_button'),
-                            customBorder: const CircleBorder(),
-                            onTap: (_launcherEnabled && !_preparing)
-                                ? _onLauncherTap
-                                : null,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  recording
-                                      ? Icons.stop_rounded
-                                      : Icons.support_agent,
-                                  size: side * 0.28,
-                                  color: _preparing
-                                      ? theme.colorScheme.onSurfaceVariant
-                                      : onColor,
-                                ),
-                                const SizedBox(height: 16),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                  ),
-                                  child: Text(
-                                    _buttonLabel(),
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: _preparing
-                                          ? theme.colorScheme.onSurfaceVariant
-                                          : onColor,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
+                    return Center(child: _launcherButton(theme, side));
                   },
                 ),
               ),
@@ -219,6 +165,97 @@ class _VoiceSessionScreenState extends State<VoiceSessionScreen> {
                 key: const Key('voice_session_close'),
                 onPressed: widget.systemAssistant.dismissOverlay,
                 child: const Text('Завершить режим вождения'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _launcherAccent(ThemeData theme) {
+    switch (widget.assistant.voiceState) {
+      case AssistantVoiceState.recording:
+        return const Color(0xFFE53935);
+      case AssistantVoiceState.speaking:
+        return theme.colorScheme.tertiary;
+      case AssistantVoiceState.error:
+        return theme.colorScheme.error;
+      case AssistantVoiceState.starting:
+      case AssistantVoiceState.transcribing:
+      case AssistantVoiceState.thinking:
+        return theme.colorScheme.surfaceContainerHighest;
+      case AssistantVoiceState.idle:
+        return theme.colorScheme.primary;
+    }
+  }
+
+  Color _launcherOnAccent(ThemeData theme) {
+    switch (widget.assistant.voiceState) {
+      case AssistantVoiceState.recording:
+        return Colors.white;
+      case AssistantVoiceState.starting:
+      case AssistantVoiceState.transcribing:
+      case AssistantVoiceState.thinking:
+        return theme.colorScheme.onSurfaceVariant;
+      case AssistantVoiceState.error:
+        return theme.colorScheme.onError;
+      case AssistantVoiceState.speaking:
+        return theme.colorScheme.onTertiary;
+      case AssistantVoiceState.idle:
+        return theme.colorScheme.onPrimary;
+    }
+  }
+
+  Widget _launcherButton(ThemeData theme, double side) {
+    final recording =
+        widget.assistant.voiceState == AssistantVoiceState.recording;
+    final accent = _launcherAccent(theme);
+    final onAccent = _launcherOnAccent(theme);
+    final halo = _preparing ? 0.10 : 0.32;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      width: side,
+      height: side,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: halo),
+            blurRadius: _preparing ? 16 : 34,
+            spreadRadius: _preparing ? 2 : 8,
+          ),
+          BoxShadow(
+            color: accent.withValues(alpha: halo * 0.45),
+            blurRadius: _preparing ? 8 : 18,
+            spreadRadius: _preparing ? 10 : 20,
+          ),
+        ],
+      ),
+      child: Material(
+        color: accent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          key: const Key('voice_session_launcher_button'),
+          customBorder: const CircleBorder(),
+          onTap: (_launcherEnabled && !_preparing) ? _onLauncherTap : null,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                recording ? Icons.stop_rounded : Icons.support_agent,
+                size: side * 0.28,
+                color: onAccent,
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  _buttonLabel(),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge?.copyWith(color: onAccent),
+                ),
               ),
             ],
           ),

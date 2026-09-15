@@ -14,6 +14,7 @@ import 'package:personal_secretary/auth/token_store.dart';
 import 'package:personal_secretary/capture/capture_controller.dart';
 import 'package:personal_secretary/inbox/inbox_review_marker.dart';
 import 'package:personal_secretary/inbox/inbox_screen.dart';
+import 'package:personal_secretary/inbox/inbox_swipe_to_remove.dart';
 import 'package:personal_secretary/search/search_screen.dart';
 import 'package:personal_secretary/today/today_screen.dart';
 import 'package:personal_secretary/ui/inbox_date_groups.dart';
@@ -2159,6 +2160,165 @@ void main() {
     await tester.tap(find.text('Card A'));
     await tester.pumpAndSettle();
     expect(find.text('Card A'), findsWidgets);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('linux rail click persists marker without swipe-to-remove', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var putCalls = 0;
+    var objectGets = 0;
+    var feedCalls = 0;
+    String? putAfter;
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes(
+            inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+              hasMore: true,
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/inbox/feed')) {
+          feedCalls++;
+          return jsonRes({}, 404);
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          putCalls++;
+          putAfter =
+              (jsonDecode(request.body) as Map)['after_object_id'] as String;
+          return jsonRes({
+            'anchor_feed_at':
+                putAfter == 'b' ? '2026-09-08T12:00:00Z' : '2026-09-09T12:00:00Z',
+            'anchor_object_id': putAfter,
+            'updated_at': '2026-09-09T13:00:00Z',
+          });
+        }
+        if (request.method == 'DELETE' &&
+            request.url.path == '/inbox/review-marker') {
+          return jsonRes({});
+        }
+        if (request.url.path.startsWith('/objects/')) {
+          objectGets++;
+          return jsonRes({}, 404);
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.byType(InboxSwipeToRemove), findsNothing);
+    expect(find.byKey(const Key('inbox_review_rail_b')), findsOneWidget);
+    expect(find.byKey(const Key('inbox_review_marker_handle')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('inbox_review_rail_b')));
+    await tester.pumpAndSettle();
+    expect(putCalls, 1);
+    expect(putAfter, 'b');
+    expect(objectGets, 0);
+    expect(feedCalls, 0);
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
+    final label = tester.widget<Text>(find.text('Просмотрено досюда'));
+    expect(label.style?.color, kInboxReviewMarkerAccent);
+    expect(label.style?.fontWeight, FontWeight.w600);
+    final line = tester.widget<Divider>(
+      find.byKey(const Key('inbox_review_marker_line')),
+    );
+    expect(line.thickness, 2);
+    expect(line.color, kInboxReviewMarkerAccent);
+
+    await tester.tap(find.byKey(const Key('inbox_review_rail_reset')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inbox_review_marker')), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('linux rail persistence failure restores previous marker', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/inbox' &&
+            !request.url.path.endsWith('/inbox/feed')) {
+          return jsonRes({
+            ...inboxPayload(
+              sources: [
+                sourceRow(
+                  id: 'a',
+                  title: 'Card A',
+                  feedAt: '2026-09-09T12:00:00Z',
+                ),
+                sourceRow(
+                  id: 'b',
+                  title: 'Card B',
+                  feedAt: '2026-09-08T12:00:00Z',
+                ),
+              ],
+            ),
+            'review_marker': {
+              'anchor_feed_at': '2026-09-09T12:00:00Z',
+              'anchor_object_id': 'a',
+              'updated_at': '2026-09-09T13:00:00Z',
+            },
+          });
+        }
+        if (request.url.path == '/labels/by-objects' ||
+            request.url.path == '/object-bookmarks/by-objects') {
+          return jsonRes({'objects': {}});
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/inbox/review-marker') {
+          return jsonRes({'detail': 'boom'}, 500);
+        }
+        return jsonRes({}, 404);
+      }),
+    );
+    apiClient.configure(baseUrl: 'https://secretary.example', token: 't');
+    await tester.pumpWidget(pumpInbox(apiClient));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('inbox_review_rail_b')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inbox_review_marker')), findsOneWidget);
+    expect(find.text('Просмотрено досюда'), findsOneWidget);
     debugDefaultTargetPlatformOverride = null;
   });
 }

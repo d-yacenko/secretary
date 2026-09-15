@@ -830,6 +830,16 @@ class _AccountScreenState extends State<AccountScreen>
                   ),
                 ],
               ),
+              if (widget.systemAssistantController != null &&
+                  systemAssistantSettingsVisible(
+                    platform: widget.systemAssistantPlatform,
+                  )) ...[
+                const SizedBox(height: 16),
+                SystemAssistantAccountSection(
+                  controller: widget.systemAssistantController!,
+                  platform: widget.systemAssistantPlatform,
+                ),
+              ],
               const SizedBox(height: 16),
               _InterfaceScaleCard(),
               const SizedBox(height: 16),
@@ -1141,16 +1151,6 @@ class _AccountScreenState extends State<AccountScreen>
                 HardwareVoiceAccountSection(
                   controller: widget.hardwareVoiceController!,
                   platform: widget.hardwareVoicePlatform,
-                ),
-              ],
-              if (widget.systemAssistantController != null &&
-                  systemAssistantSettingsVisible(
-                    platform: widget.systemAssistantPlatform,
-                  )) ...[
-                const SizedBox(height: 16),
-                SystemAssistantAccountSection(
-                  controller: widget.systemAssistantController!,
-                  platform: widget.systemAssistantPlatform,
                 ),
               ],
               if (widget.voiceOutputPolicyController != null &&
@@ -2211,7 +2211,7 @@ class _InterfaceScaleCard extends StatelessWidget {
               value: controller.factor,
               min: kUiTextScaleMin,
               max: kUiTextScaleMax,
-              divisions: 8,
+              divisions: kUiTextScaleDivisions,
               label: '${controller.percent}%',
               onChanged: controller.setFactor,
             ),

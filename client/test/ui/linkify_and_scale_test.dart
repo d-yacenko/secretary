@@ -15,8 +15,11 @@ void main() {
   test('invalid stored text scale clamps', () {
     expect(clampUiTextScale(null), 1.0);
     expect(clampUiTextScale(double.nan), 1.0);
-    expect(clampUiTextScale(0.5), 0.9);
+    expect(clampUiTextScale(0.5), 0.5);
+    expect(clampUiTextScale(0.4), 0.5);
     expect(clampUiTextScale(2.0), 1.3);
+    expect(clampUiTextScale(0.90), 0.90);
     expect(clampUiTextScale(1.1), 1.1);
+    expect(clampUiTextScale(1.0), 1.0);
   });
 }

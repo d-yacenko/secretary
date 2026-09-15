@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const double kUiTextScaleMin = 0.90;
+const double kUiTextScaleMin = 0.50;
 const double kUiTextScaleMax = 1.30;
 const double kUiTextScaleDefault = 1.0;
+const double kUiTextScaleStep = 0.05;
 const String kUiTextScalePrefsKey = 'ui_text_scale_factor';
+
+/// Slider ticks from 50% to 130% in 5% steps: 50, 55, …, 130.
+const int kUiTextScaleDivisions = 16;
 
 double clampUiTextScale(double? value) {
   if (value == null || value.isNaN || value.isInfinite) {

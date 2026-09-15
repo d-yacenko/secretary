@@ -421,6 +421,20 @@ void main() {
     expect(find.byKey(const Key('shell_clock')), findsNothing);
   });
 
+  test('text scale 0.50 persists and 0.90 remains 0.90', () async {
+    SharedPreferences.setMockInitialValues({kUiTextScalePrefsKey: 0.90});
+    final loaded = UiTextScaleController();
+    await loaded.load();
+    expect(loaded.factor, 0.90);
+    await loaded.setFactor(0.50);
+    expect(loaded.factor, 0.50);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getDouble(kUiTextScalePrefsKey), 0.50);
+    final reloaded = UiTextScaleController();
+    await reloaded.load();
+    expect(reloaded.factor, 0.50);
+  });
+
   testWidgets('text scale persists clamp and reset', (tester) async {
     SharedPreferences.setMockInitialValues({kUiTextScalePrefsKey: 9.9});
     final controller = UiTextScaleController();

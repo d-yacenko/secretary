@@ -6,6 +6,7 @@ import 'package:personal_secretary/assistant/system_assistant_bridge.dart';
 import 'package:personal_secretary/auth/auth_controller.dart';
 import 'package:personal_secretary/auth/server_url_store.dart';
 import 'package:personal_secretary/auth/token_store.dart';
+import 'package:personal_secretary/ui/ui_text_scale.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'account_test_helpers.dart';
@@ -138,6 +139,89 @@ void main() {
     await tester.pump();
     expect(bridge.openLauncherCount, 1);
     expect(bridge.requestCount, 0);
+    controller.dispose();
+  });
+
+  testWidgets('Android driving section sits immediately after Profile', (
+    tester,
+  ) async {
+    final client = buildAccountApiClient();
+    final auth = AuthController(
+      apiClient: client,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    auth.user = UserMe(
+      id: 'user-1',
+      displayName: 'Alice',
+      createdAt: '2026-01-01T00:00:00Z',
+    );
+    final bridge = FakeSystemAssistantBridge();
+    final controller = await attachController(bridge);
+    final scale = UiTextScaleController();
+    await pumpAccountReady(
+      tester,
+      UiTextScaleScope(
+        controller: scale,
+        child: screen(auth: auth, controller: controller),
+      ),
+    );
+    final profileY = tester.getTopLeft(find.text('Профиль')).dy;
+    final drivingY = tester
+        .getTopLeft(find.text('Голос с экрана блокировки'))
+        .dy;
+    final scaleY = tester.getTopLeft(find.textContaining('Масштаб текста')).dy;
+    expect(profileY, lessThan(drivingY));
+    expect(drivingY, lessThan(scaleY));
+    final slider = tester.widget<Slider>(
+      find.byKey(const Key('ui_text_scale_slider')),
+    );
+    expect(slider.min, kUiTextScaleMin);
+    expect(slider.max, kUiTextScaleMax);
+    expect(slider.divisions, kUiTextScaleDivisions);
+    expect(slider.min, 0.50);
+    expect(slider.max, 1.30);
+    controller.dispose();
+  });
+
+  testWidgets('Linux account hides lock-screen driving section', (
+    tester,
+  ) async {
+    final client = buildAccountApiClient();
+    final auth = AuthController(
+      apiClient: client,
+      tokenStore: FakeTokenStore(),
+      serverUrlStore: FakeServerUrlStore(),
+    );
+    auth.status = AuthStatus.authenticated;
+    auth.user = UserMe(
+      id: 'user-1',
+      displayName: 'Alice',
+      createdAt: '2026-01-01T00:00:00Z',
+    );
+    final bridge = FakeSystemAssistantBridge();
+    final controller = await attachController(bridge);
+    await pumpAccountReady(
+      tester,
+      AccountScreen(
+        apiClient: auth.apiClient,
+        authController: auth,
+        initialConnections: Connections.fromJson(accountConnectionsJson()),
+        initialSettings: UserSettings.fromJson(accountSettingsJson()),
+        initialSourcePreferences: SourcePreferenceList.fromJson(
+          accountSourcePreferencesJson(),
+        ).preferences,
+        initialIdentity: UserIdentity.fromJson(accountIdentityJson()),
+        initialSemanticContext: UserSemanticContext.fromJson(
+          accountSemanticContextJson(),
+        ),
+        systemAssistantController: controller,
+        systemAssistantPlatform: TargetPlatform.linux,
+      ),
+    );
+    expect(find.text('Голос с экрана блокировки'), findsNothing);
+    expect(find.byKey(const Key('system_assistant_section')), findsNothing);
     controller.dispose();
   });
 
