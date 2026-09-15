@@ -355,6 +355,29 @@ class RecentSourceService:
         )
         return int(self._session.scalar(stmt) or 0)
 
+    def count_newer_in_review_window(
+        self,
+        *,
+        anchor_feed_at: datetime,
+        anchor_object_id: UUID,
+        snapshot_top_feed_at: datetime,
+        snapshot_top_object_id: UUID,
+        last_feed_at: datetime,
+        last_object_id: UUID,
+    ) -> int:
+        feed_at = inbox_feed_at_sql()
+        stmt = (
+            select(func.count())
+            .select_from(Object)
+            .where(self._eligible_filters())
+            .where(_strictly_newer_than(feed_at, anchor_feed_at, anchor_object_id))
+            .where(
+                _at_or_older_than(feed_at, snapshot_top_feed_at, snapshot_top_object_id)
+            )
+            .where(_strictly_newer_than(feed_at, last_feed_at, last_object_id))
+        )
+        return int(self._session.scalar(stmt) or 0)
+
     def list_review_window(
         self,
         *,
@@ -365,6 +388,7 @@ class RecentSourceService:
         after_feed_at: datetime | None,
         after_object_id: UUID | None,
         limit: int,
+        direction: str = "desc",
     ) -> InboxFeedPage:
         bounded_limit = min(max(limit, 1), RECENT_SOURCE_MAX_LIMIT)
         feed_at = inbox_feed_at_sql()
@@ -372,14 +396,24 @@ class RecentSourceService:
             select(Object)
             .where(self._eligible_filters())
             .where(_strictly_newer_than(feed_at, anchor_feed_at, anchor_object_id))
-            .order_by(feed_at.desc(), Object.id.desc())
         )
         if snapshot_top_feed_at is not None and snapshot_top_object_id is not None:
             stmt = stmt.where(
                 _at_or_older_than(feed_at, snapshot_top_feed_at, snapshot_top_object_id)
             )
         if after_feed_at is not None and after_object_id is not None:
-            stmt = stmt.where(_strictly_older_than(feed_at, after_feed_at, after_object_id))
+            if direction == "asc":
+                stmt = stmt.where(
+                    _strictly_newer_than(feed_at, after_feed_at, after_object_id)
+                )
+            else:
+                stmt = stmt.where(
+                    _strictly_older_than(feed_at, after_feed_at, after_object_id)
+                )
+        if direction == "asc":
+            stmt = stmt.order_by(feed_at.asc(), Object.id.asc())
+        else:
+            stmt = stmt.order_by(feed_at.desc(), Object.id.desc())
         rows = list(self._session.scalars(stmt.limit(bounded_limit + 1)))
         has_more = len(rows) > bounded_limit
         items = rows[:bounded_limit]

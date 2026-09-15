@@ -254,7 +254,9 @@ class DomainToolService:
         try:
             page = InboxReviewMarkerService(
                 self._session, self._user_id
-            ).list_inbox_since_review_marker(limit=input.limit, cursor=input.cursor)
+            ).list_inbox_since_review_marker(
+                limit=input.limit, cursor=input.cursor, purpose=input.purpose
+            )
         except ValidationError as exc:
             raise ToolError(exc.message) from exc
         if page.marker is None:

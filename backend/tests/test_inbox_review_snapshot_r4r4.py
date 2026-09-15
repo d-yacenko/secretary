@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -31,7 +33,7 @@ from app.services.inbox_review_snapshot_cursor import (
     decode_inbox_review_snapshot_cursor,
     encode_inbox_review_snapshot_cursor,
 )
-from app.services.recent_source_service import inbox_feed_at
+from app.services.recent_source_service import RecentSourceService, inbox_feed_at
 from app.tools.schemas import ListInboxSinceReviewMarkerInput, ToolError
 from app.users.bootstrap import BOOTSTRAP_USER_ID
 from tests.conftest import AuthTestClient
@@ -184,7 +186,7 @@ def test_paginate_more_than_twenty_no_skip_or_dup(db_session: Session, marker_us
     anchor = _email(db_session, "A", created_at=t0, user_id=marker_user)
     newer = [
         _email(db_session, f"N{i:02d}", created_at=t0 + timedelta(minutes=i + 1), user_id=marker_user)
-        for i in range(25)
+        for i in range(37)
     ]
     _marker(db_session, marker_user).set_marker(anchor.id)
     db_session.flush()
@@ -192,27 +194,62 @@ def test_paginate_more_than_twenty_no_skip_or_dup(db_session: Session, marker_us
     first = _tools(db_session, marker_user).list_inbox_since_review_marker(
         ListInboxSinceReviewMarkerInput(purpose="review", limit=20)
     )
-    assert first.total_count == 25
+    assert first.total_count == 37
     assert first.returned_count == 20
-    assert first.remaining_count == 5
+    assert first.remaining_count == 17
     assert first.has_more is True
     assert first.next_cursor
     assert first.snapshot_top_object_id == newer[-1].id
+    assert first.snapshot_top_object_id != first.items[0].object_id
     first_ids = [item.object_id for item in first.items]
-    assert first_ids == [item.id for item in reversed(newer[-20:])]
+    assert first_ids == [item.id for item in newer[:20]]
 
     second = _tools(db_session, marker_user).list_inbox_since_review_marker(
         ListInboxSinceReviewMarkerInput(purpose="review", limit=20, cursor=first.next_cursor)
     )
-    assert second.total_count == 25
+    assert second.total_count == 37
     assert second.snapshot_top_object_id == newer[-1].id
+    assert second.returned_count == 17
+    assert second.remaining_count == 0
     assert second.has_more is False
     assert second.next_cursor is None
     second_ids = [item.object_id for item in second.items]
     combined = first_ids + second_ids
-    expected = [item.id for item in reversed(newer)]
+    expected = [item.id for item in newer]
     assert combined == expected
-    assert len(combined) == len(set(combined)) == 25
+    assert len(combined) == len(set(combined)) == 37
+    assert combined[-1] == first.snapshot_top_object_id
+
+
+def test_review_five_items_oldest_to_newest(db_session: Session, marker_user: UUID) -> None:
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(db_session, "A", created_at=t0, user_id=marker_user)
+    items = [
+        _email(db_session, f"N{i}", created_at=t0 + timedelta(hours=i + 1), user_id=marker_user)
+        for i in range(5)
+    ]
+    _marker(db_session, marker_user).set_marker(anchor.id)
+    db_session.flush()
+    page = _tools(db_session, marker_user).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=20)
+    )
+    assert [item.object_id for item in page.items] == [item.id for item in items]
+    assert [item.title for item in page.items] == ["N0", "N1", "N2", "N3", "N4"]
+    assert page.snapshot_top_object_id == items[-1].id
+    assert page.items[-1].object_id == page.snapshot_top_object_id
+    inspect_page = _tools(db_session, marker_user).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="inspect", limit=20)
+    )
+    assert [item.object_id for item in inspect_page.items] == [item.id for item in reversed(items)]
+    feed = RecentSourceService(db_session, marker_user).list_page(limit=10)
+    assert [obj.id for obj in feed.items[:6]] == [
+        items[-1].id,
+        items[-2].id,
+        items[-3].id,
+        items[-4].id,
+        items[-5].id,
+        anchor.id,
+    ]
 
 
 def test_equal_feed_at_uuid_order_across_pages(db_session: Session, marker_user: UUID) -> None:
@@ -229,13 +266,15 @@ def test_equal_feed_at_uuid_order_across_pages(db_session: Session, marker_user:
     first = _tools(db_session, marker_user).list_inbox_since_review_marker(
         ListInboxSinceReviewMarkerInput(limit=1, purpose="review")
     )
-    assert [item.object_id for item in first.items] == [high]
+    assert [item.object_id for item in first.items] == [mid]
     assert first.total_count == 2
+    assert first.snapshot_top_object_id == high
     second = _tools(db_session, marker_user).list_inbox_since_review_marker(
         ListInboxSinceReviewMarkerInput(limit=1, purpose="review", cursor=first.next_cursor)
     )
-    assert [item.object_id for item in second.items] == [mid]
+    assert [item.object_id for item in second.items] == [high]
     assert second.has_more is False
+    assert second.items[-1].object_id == first.snapshot_top_object_id
 
 
 def test_exact_count_without_full_enumeration(db_session: Session, marker_user: UUID) -> None:
@@ -267,14 +306,16 @@ def test_continuation_excludes_arrival_above_snapshot_top(
     first = _tools(db_session, marker_user).list_inbox_since_review_marker(
         ListInboxSinceReviewMarkerInput(purpose="review", limit=2)
     )
-    assert [item.object_id for item in first.items] == [n3.id, n2.id]
+    assert [item.object_id for item in first.items] == [n1.id, n2.id]
+    assert first.snapshot_top_object_id == n3.id
+    assert first.remaining_count == 1
     n4 = _email(db_session, "N4", created_at=t0 + timedelta(hours=4), user_id=marker_user)
     db_session.flush()
     second = _tools(db_session, marker_user).list_inbox_since_review_marker(
         ListInboxSinceReviewMarkerInput(purpose="review", limit=2, cursor=first.next_cursor)
     )
     ids = [item.object_id for item in second.items]
-    assert n1.id in ids
+    assert ids == [n3.id]
     assert n4.id not in ids
     assert first.snapshot_top_object_id == n3.id
 
@@ -297,10 +338,48 @@ def test_malformed_and_foreign_cursor_fail_closed(db_session: Session, marker_us
         snapshot_top_feed_at=inbox_feed_at(top),
         last_object_id=uuid.uuid4(),
         last_feed_at=other_top_time,
+        direction="asc",
     )
     with pytest.raises(ToolError, match="invalid inbox review cursor"):
         _tools(db_session, marker_user).list_inbox_since_review_marker(
-            ListInboxSinceReviewMarkerInput(cursor=bad)
+            ListInboxSinceReviewMarkerInput(cursor=bad, purpose="review")
+        )
+    extra = _email(db_session, "N2", created_at=t0 + timedelta(hours=2), user_id=marker_user)
+    db_session.flush()
+    inspect_page = _tools(db_session, marker_user).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="inspect", limit=1)
+    )
+    assert inspect_page.next_cursor
+    assert inspect_page.items[0].object_id == extra.id
+    with pytest.raises(ToolError, match="invalid inbox review cursor"):
+        _tools(db_session, marker_user).list_inbox_since_review_marker(
+            ListInboxSinceReviewMarkerInput(purpose="review", cursor=inspect_page.next_cursor)
+        )
+    review_page = _tools(db_session, marker_user).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=1)
+    )
+    assert review_page.next_cursor
+    assert review_page.items[0].object_id == top.id
+    with pytest.raises(ToolError, match="invalid inbox review cursor"):
+        _tools(db_session, marker_user).list_inbox_since_review_marker(
+            ListInboxSinceReviewMarkerInput(
+                purpose="inspect", cursor=review_page.next_cursor
+            )
+        )
+    v1 = {
+        "v": 1,
+        "a_id": str(anchor.id),
+        "a_at": inbox_feed_at(anchor).isoformat().replace("+00:00", "Z"),
+        "t_id": str(top.id),
+        "t_at": inbox_feed_at(top).isoformat().replace("+00:00", "Z"),
+        "l_id": str(top.id),
+        "l_at": inbox_feed_at(top).isoformat().replace("+00:00", "Z"),
+    }
+    raw = json.dumps(v1, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    v1_cursor = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    with pytest.raises(ToolError, match="invalid inbox review cursor"):
+        _tools(db_session, marker_user).list_inbox_since_review_marker(
+            ListInboxSinceReviewMarkerInput(purpose="review", cursor=v1_cursor)
         )
 
 
@@ -409,6 +488,7 @@ def test_mixed_snapshot_cursor_yields_no_receipt(interactive_session, marker_use
         snapshot_top_feed_at=inbox_feed_at(newer[-2]),
         last_object_id=newer[-2].id,
         last_feed_at=inbox_feed_at(newer[-2]),
+        direction="asc",
     )
     decode_inbox_review_snapshot_cursor(foreign)
 
@@ -547,6 +627,37 @@ def test_complete_endpoint_cas(wf_client, db_session: Session) -> None:
     current = db_session.get(InboxReviewMarker, BOOTSTRAP_USER_ID)
     assert current is not None
     assert current.anchor_object_id == top.id
+
+
+def test_full_review_completion_moves_marker_to_newest_top(
+    db_session: Session, marker_user: UUID
+) -> None:
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(db_session, "A", created_at=t0, user_id=marker_user)
+    items = [
+        _email(db_session, f"N{i}", created_at=t0 + timedelta(hours=i + 1), user_id=marker_user)
+        for i in range(5)
+    ]
+    svc = _marker(db_session, marker_user)
+    svc.set_marker(anchor.id)
+    db_session.flush()
+    page = _tools(db_session, marker_user).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review", limit=20)
+    )
+    assert page.items[-1].object_id == page.snapshot_top_object_id == items[-1].id
+    result = svc.complete_review(
+        expected_anchor_object_id=anchor.id,
+        expected_anchor_feed_at=inbox_feed_at(anchor),
+        snapshot_top_object_id=page.snapshot_top_object_id,
+        snapshot_top_feed_at=inbox_feed_at(items[-1]),
+    )
+    assert result.status == "advanced"
+    assert result.marker.anchor_object_id == items[-1].id
+    leftover = _tools(db_session, marker_user).list_inbox_since_review_marker(
+        ListInboxSinceReviewMarkerInput(purpose="review")
+    )
+    assert leftover.items == []
+    assert leftover.total_count == 0
 
 
 def test_char_bound_keeps_cursor_metadata(db_session: Session, marker_user: UUID, monkeypatch) -> None:

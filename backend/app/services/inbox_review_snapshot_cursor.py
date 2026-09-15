@@ -8,7 +8,8 @@ from uuid import UUID
 
 from app.services.errors import ValidationError
 
-CURSOR_VERSION = 1
+CURSOR_VERSION = 2
+VALID_DIRECTIONS = frozenset({"asc", "desc"})
 
 
 def canonical_feed_at(value: datetime) -> datetime:
@@ -47,10 +48,12 @@ class InboxReviewSnapshotCursor:
     snapshot_top_feed_at: datetime
     last_object_id: UUID
     last_feed_at: datetime
+    direction: str
 
     def encode(self) -> str:
         payload = {
             "v": CURSOR_VERSION,
+            "dir": self.direction,
             "a_id": str(self.anchor_object_id),
             "a_at": feed_at_iso(self.anchor_feed_at),
             "t_id": str(self.snapshot_top_object_id),
@@ -111,7 +114,10 @@ def encode_inbox_review_snapshot_cursor(
     snapshot_top_feed_at: datetime,
     last_object_id: UUID,
     last_feed_at: datetime,
+    direction: str,
 ) -> str:
+    if direction not in VALID_DIRECTIONS:
+        raise ValidationError("invalid inbox review cursor")
     return InboxReviewSnapshotCursor(
         anchor_object_id=anchor_object_id,
         anchor_feed_at=canonical_feed_at(anchor_feed_at),
@@ -119,6 +125,7 @@ def encode_inbox_review_snapshot_cursor(
         snapshot_top_feed_at=canonical_feed_at(snapshot_top_feed_at),
         last_object_id=last_object_id,
         last_feed_at=canonical_feed_at(last_feed_at),
+        direction=direction,
     ).encode()
 
 
@@ -133,6 +140,9 @@ def decode_inbox_review_snapshot_cursor(value: str) -> InboxReviewSnapshotCursor
         raise ValidationError("invalid inbox review cursor") from exc
     if not isinstance(payload, dict) or payload.get("v") != CURSOR_VERSION:
         raise ValidationError("invalid inbox review cursor")
+    direction = payload.get("dir")
+    if direction not in VALID_DIRECTIONS:
+        raise ValidationError("invalid inbox review cursor")
     try:
         cursor = InboxReviewSnapshotCursor(
             anchor_object_id=parse_object_id(payload.get("a_id")),
@@ -141,6 +151,7 @@ def decode_inbox_review_snapshot_cursor(value: str) -> InboxReviewSnapshotCursor
             snapshot_top_feed_at=parse_feed_at(payload.get("t_at")),
             last_object_id=parse_object_id(payload.get("l_id")),
             last_feed_at=parse_feed_at(payload.get("l_at")),
+            direction=direction,
         )
     except ValidationError:
         raise

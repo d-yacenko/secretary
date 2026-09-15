@@ -653,6 +653,8 @@ def test_prompt_routes_whats_new_to_read_not_auto_mutate() -> None:
     assert "Inspect/count/listing/summarizing does not move the marker" in read_desc
     assert "purpose=review" in read_desc
     assert "next_cursor" in read_desc
+    assert "oldest-to-newest" in read_desc
+    assert "oldest-to-newest" in text
     assert "GLOBAL Secretary Inbox review frontier" in set_desc
     assert "without a Pending Action Plan" in set_desc
     assert "provider mail read-state" in set_desc

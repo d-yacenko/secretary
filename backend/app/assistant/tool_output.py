@@ -120,6 +120,7 @@ def _inbox_review_list_payload(
                 snapshot_top_feed_at=parse_feed_at(raw_output.get("snapshot_top_feed_at")),
                 last_object_id=parse_object_id(last.get("object_id")),
                 last_feed_at=parse_feed_at(last.get("feed_at")),
+                direction="asc" if raw_output.get("purpose") == "review" else "desc",
             )
         except (ValidationError, TypeError, ValueError):
             next_cursor = None

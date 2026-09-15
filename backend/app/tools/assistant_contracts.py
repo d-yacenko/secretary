@@ -180,13 +180,16 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
             "раза?», «какие новые письма?», «перечисли то, что выше маркера "
             "просмотра». Do not guess a time window. "
             "purpose=inspect for count/peek/ordinary investigation (never a review "
-            "completion). purpose=review when giving a complete Inbox review/listening "
-            "of the frozen snapshot. First page returns exact total_count; if has_more, "
-            "pass the opaque next_cursor unchanged to continue THE SAME snapshot. "
-            "Do not reconstruct timestamps or UUIDs. Inspect/count/listing/summarizing "
-            "does not move the marker. If review cannot finish every page inside this "
-            "turn, say the review is incomplete and include total_count/progress; do "
-            "not claim a complete review."
+            "completion; newest-first peek, not a chronological full review). "
+            "purpose=review when giving a complete Inbox review/listening of the frozen "
+            "snapshot. Review items are already in chronological oldest-to-newest order; "
+            "continue pages in that order and narrate them in the returned order — do "
+            "not reverse them or restart from newest. First page returns exact "
+            "total_count; if has_more, pass the opaque next_cursor unchanged and keep "
+            "purpose=review to continue THE SAME snapshot. Do not reconstruct timestamps "
+            "or UUIDs. Inspect/count/listing/summarizing does not move the marker. If "
+            "review cannot finish every page inside this turn, say the review is "
+            "incomplete and include total_count/progress; do not claim a complete review."
         ),
         "parameters": {
             "type": "object",
@@ -195,8 +198,9 @@ ASSISTANT_FUNCTION_SCHEMAS: dict[str, dict] = {
                     "type": "string",
                     "enum": ["inspect", "review"],
                     "description": (
-                        "inspect: count/peek/investigation, never a completion receipt. "
-                        "review: complete listening/review of the frozen snapshot."
+                        "inspect: count/peek/investigation, newest-first, never a "
+                        "completion receipt. review: complete chronological oldest-to-newest "
+                        "listening/review of the frozen snapshot."
                     ),
                 },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50},

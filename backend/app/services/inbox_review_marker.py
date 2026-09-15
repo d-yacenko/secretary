@@ -15,7 +15,7 @@ from app.services.inbox_review_snapshot_cursor import (
     decode_inbox_review_snapshot_cursor,
     encode_inbox_review_snapshot_cursor,
 )
-from app.services.recent_source_service import RecentSourceService, inbox_feed_at
+from app.services.recent_source_service import InboxFeedPage, RecentSourceService, inbox_feed_at
 
 
 def feed_tuple_is_newer(
@@ -133,22 +133,18 @@ class InboxReviewMarkerService:
         self,
         limit: int,
         cursor: str | None = None,
+        purpose: str = "inspect",
     ) -> InboxSinceReviewMarkerPage:
+        direction = _direction_for_purpose(purpose)
         if cursor:
-            return self._list_continuation(limit=limit, cursor=cursor)
+            return self._list_continuation(
+                limit=limit, cursor=cursor, direction=direction
+            )
         marker = self.get_marker()
         if marker is None:
             return InboxSinceReviewMarkerPage(marker=None, items=[], has_more=False)
-        page = self._feed.list_review_window(
-            anchor_feed_at=marker.anchor_feed_at,
-            anchor_object_id=marker.anchor_object_id,
-            snapshot_top_feed_at=None,
-            snapshot_top_object_id=None,
-            after_feed_at=None,
-            after_object_id=None,
-            limit=limit,
-        )
-        if not page.items:
+        frozen_top = self._freeze_snapshot_top(marker)
+        if frozen_top is None:
             return InboxSinceReviewMarkerPage(
                 marker=marker,
                 items=[],
@@ -157,43 +153,23 @@ class InboxReviewMarkerService:
                 returned_count=0,
                 remaining_count=0,
             )
-        snapshot_top = page.items[0]
-        snapshot_top_feed_at = inbox_feed_at(snapshot_top)
-        total_count = self._feed.count_review_window(
+        snapshot_top, snapshot_top_feed_at = frozen_top
+        page = self._feed.list_review_window(
             anchor_feed_at=marker.anchor_feed_at,
             anchor_object_id=marker.anchor_object_id,
             snapshot_top_feed_at=snapshot_top_feed_at,
             snapshot_top_object_id=snapshot_top.id,
+            after_feed_at=None,
+            after_object_id=None,
+            limit=limit,
+            direction=direction,
         )
-        last = page.items[-1]
-        remaining_count = self._feed.count_older_in_review_window(
-            anchor_feed_at=marker.anchor_feed_at,
-            anchor_object_id=marker.anchor_object_id,
-            snapshot_top_feed_at=snapshot_top_feed_at,
-            snapshot_top_object_id=snapshot_top.id,
-            last_feed_at=inbox_feed_at(last),
-            last_object_id=last.id,
-        )
-        next_cursor = None
-        if page.has_more:
-            next_cursor = encode_inbox_review_snapshot_cursor(
-                anchor_object_id=marker.anchor_object_id,
-                anchor_feed_at=marker.anchor_feed_at,
-                snapshot_top_object_id=snapshot_top.id,
-                snapshot_top_feed_at=snapshot_top_feed_at,
-                last_object_id=last.id,
-                last_feed_at=inbox_feed_at(last),
-            )
-        return InboxSinceReviewMarkerPage(
+        return self._page_from_window(
             marker=marker,
-            items=page.items,
-            has_more=page.has_more,
             snapshot_top_object_id=snapshot_top.id,
             snapshot_top_feed_at=snapshot_top_feed_at,
-            total_count=total_count,
-            returned_count=len(page.items),
-            remaining_count=remaining_count,
-            next_cursor=next_cursor,
+            page=page,
+            direction=direction,
         )
 
     def complete_review(
@@ -230,8 +206,94 @@ class InboxReviewMarkerService:
             return ReviewMarkerCompletion(status="already_current", marker=current)
         return ReviewMarkerCompletion(status="conflict", marker=current)
 
-    def _list_continuation(self, *, limit: int, cursor: str) -> InboxSinceReviewMarkerPage:
+    def _freeze_snapshot_top(
+        self, marker: ReviewMarkerRecord
+    ) -> tuple[Object, datetime] | None:
+        newest = self._feed.list_strictly_newer_than(
+            marker.anchor_feed_at,
+            marker.anchor_object_id,
+            limit=1,
+        )
+        if not newest.items:
+            return None
+        top = newest.items[0]
+        return top, inbox_feed_at(top)
+
+    def _page_from_window(
+        self,
+        *,
+        marker: ReviewMarkerRecord,
+        snapshot_top_object_id: UUID,
+        snapshot_top_feed_at: datetime,
+        page: InboxFeedPage,
+        direction: str,
+    ) -> InboxSinceReviewMarkerPage:
+        total_count = self._feed.count_review_window(
+            anchor_feed_at=marker.anchor_feed_at,
+            anchor_object_id=marker.anchor_object_id,
+            snapshot_top_feed_at=snapshot_top_feed_at,
+            snapshot_top_object_id=snapshot_top_object_id,
+        )
+        if not page.items:
+            return InboxSinceReviewMarkerPage(
+                marker=marker,
+                items=[],
+                has_more=False,
+                snapshot_top_object_id=snapshot_top_object_id,
+                snapshot_top_feed_at=snapshot_top_feed_at,
+                total_count=total_count,
+                returned_count=0,
+                remaining_count=0,
+            )
+        last = page.items[-1]
+        last_feed_at = inbox_feed_at(last)
+        if direction == "asc":
+            remaining_count = self._feed.count_newer_in_review_window(
+                anchor_feed_at=marker.anchor_feed_at,
+                anchor_object_id=marker.anchor_object_id,
+                snapshot_top_feed_at=snapshot_top_feed_at,
+                snapshot_top_object_id=snapshot_top_object_id,
+                last_feed_at=last_feed_at,
+                last_object_id=last.id,
+            )
+        else:
+            remaining_count = self._feed.count_older_in_review_window(
+                anchor_feed_at=marker.anchor_feed_at,
+                anchor_object_id=marker.anchor_object_id,
+                snapshot_top_feed_at=snapshot_top_feed_at,
+                snapshot_top_object_id=snapshot_top_object_id,
+                last_feed_at=last_feed_at,
+                last_object_id=last.id,
+            )
+        next_cursor = None
+        if page.has_more:
+            next_cursor = encode_inbox_review_snapshot_cursor(
+                anchor_object_id=marker.anchor_object_id,
+                anchor_feed_at=marker.anchor_feed_at,
+                snapshot_top_object_id=snapshot_top_object_id,
+                snapshot_top_feed_at=snapshot_top_feed_at,
+                last_object_id=last.id,
+                last_feed_at=last_feed_at,
+                direction=direction,
+            )
+        return InboxSinceReviewMarkerPage(
+            marker=marker,
+            items=page.items,
+            has_more=page.has_more,
+            snapshot_top_object_id=snapshot_top_object_id,
+            snapshot_top_feed_at=snapshot_top_feed_at,
+            total_count=total_count,
+            returned_count=len(page.items),
+            remaining_count=remaining_count,
+            next_cursor=next_cursor,
+        )
+
+    def _list_continuation(
+        self, *, limit: int, cursor: str, direction: str
+    ) -> InboxSinceReviewMarkerPage:
         frozen = decode_inbox_review_snapshot_cursor(cursor)
+        if frozen.direction != direction:
+            raise ValidationError("invalid inbox review cursor")
         frozen_marker = ReviewMarkerRecord(
             anchor_feed_at=frozen.anchor_feed_at,
             anchor_object_id=frozen.anchor_object_id,
@@ -245,51 +307,18 @@ class InboxReviewMarkerService:
             after_feed_at=frozen.last_feed_at,
             after_object_id=frozen.last_object_id,
             limit=limit,
+            direction=direction,
         )
-        total_count = self._feed.count_review_window(
-            anchor_feed_at=frozen.anchor_feed_at,
-            anchor_object_id=frozen.anchor_object_id,
-            snapshot_top_feed_at=frozen.snapshot_top_feed_at,
-            snapshot_top_object_id=frozen.snapshot_top_object_id,
-        )
-        if not page.items:
-            return InboxSinceReviewMarkerPage(
-                marker=frozen_marker,
-                items=[],
-                has_more=False,
-                snapshot_top_object_id=frozen.snapshot_top_object_id,
-                snapshot_top_feed_at=frozen.snapshot_top_feed_at,
-                total_count=total_count,
-                returned_count=0,
-                remaining_count=0,
-            )
-        last = page.items[-1]
-        remaining_count = self._feed.count_older_in_review_window(
-            anchor_feed_at=frozen.anchor_feed_at,
-            anchor_object_id=frozen.anchor_object_id,
-            snapshot_top_feed_at=frozen.snapshot_top_feed_at,
-            snapshot_top_object_id=frozen.snapshot_top_object_id,
-            last_feed_at=inbox_feed_at(last),
-            last_object_id=last.id,
-        )
-        next_cursor = None
-        if page.has_more:
-            next_cursor = encode_inbox_review_snapshot_cursor(
-                anchor_object_id=frozen.anchor_object_id,
-                anchor_feed_at=frozen.anchor_feed_at,
-                snapshot_top_object_id=frozen.snapshot_top_object_id,
-                snapshot_top_feed_at=frozen.snapshot_top_feed_at,
-                last_object_id=last.id,
-                last_feed_at=inbox_feed_at(last),
-            )
-        return InboxSinceReviewMarkerPage(
+        return self._page_from_window(
             marker=frozen_marker,
-            items=page.items,
-            has_more=page.has_more,
             snapshot_top_object_id=frozen.snapshot_top_object_id,
             snapshot_top_feed_at=frozen.snapshot_top_feed_at,
-            total_count=total_count,
-            returned_count=len(page.items),
-            remaining_count=remaining_count,
-            next_cursor=next_cursor,
+            page=page,
+            direction=direction,
         )
+
+
+def _direction_for_purpose(purpose: str) -> str:
+    if purpose == "review":
+        return "asc"
+    return "desc"
