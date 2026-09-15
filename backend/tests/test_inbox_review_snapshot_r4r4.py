@@ -446,6 +446,29 @@ def test_explicit_complete_enumeration_forces_review_purpose(
     assert result.inbox_review_receipt.snapshot_top_object_id == newer[-1].id
 
 
+def test_natural_complete_enumeration_with_pronoun_forces_review_purpose(
+    interactive_session, marker_user: UUID
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(session, "A", created_at=t0, user_id=marker_user)
+    newer = [
+        _email(session, f"N{i}", created_at=t0 + timedelta(hours=i + 1), user_id=marker_user)
+        for i in range(3)
+    ]
+    _marker(session, marker_user).set_marker(anchor.id)
+    session.flush()
+
+    provider = _PagingReviewProvider(purpose="inspect")
+    result = AssistantService(marker_user, provider).send_message(
+        "Перечисли мне все новые сообщения.", []
+    )
+
+    assert provider.validated_arguments == [{"purpose": "review", "limit": 20}]
+    assert result.inbox_review_receipt is not None
+    assert result.inbox_review_receipt.snapshot_top_object_id == newer[-1].id
+
+
 def test_explicit_count_remains_inspect_purpose(
     interactive_session, marker_user: UUID
 ) -> None:
@@ -459,6 +482,25 @@ def test_explicit_count_remains_inspect_purpose(
     provider = _PagingReviewProvider(purpose="review")
     result = AssistantService(marker_user, provider).send_message(
         "Сколько новых сообщений?", []
+    )
+
+    assert provider.validated_arguments == [{"purpose": "inspect", "limit": 20}]
+    assert result.inbox_review_receipt is None
+
+
+def test_natural_count_with_possessive_remains_inspect_purpose(
+    interactive_session, marker_user: UUID
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(session, "A", created_at=t0, user_id=marker_user)
+    _email(session, "N1", created_at=t0 + timedelta(hours=1), user_id=marker_user)
+    _marker(session, marker_user).set_marker(anchor.id)
+    session.flush()
+
+    provider = _PagingReviewProvider(purpose="review")
+    result = AssistantService(marker_user, provider).send_message(
+        "Сколько у меня новых сообщений?", []
     )
 
     assert provider.validated_arguments == [{"purpose": "inspect", "limit": 20}]

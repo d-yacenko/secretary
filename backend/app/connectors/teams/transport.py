@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Protocol, Self
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
@@ -103,7 +103,12 @@ class TeamsHttpTransport:
         return payload
 
     def list_chats(self, url: str | None = None) -> dict[str, Any]:
-        payload = self._request_json("GET", "/me/chats", absolute_url=url)
+        payload = self._request_json(
+            "GET",
+            "/me/chats",
+            params=None if url else {"$expand": "lastMessagePreview"},
+            absolute_url=url,
+        )
         if not isinstance(payload, dict):
             raise TeamsConfigurationError("Microsoft Graph chats response malformed")
         return payload
@@ -287,11 +292,13 @@ class FakeTeamsTransport:
         self.subscription_create_calls: list[dict[str, Any]] = []
         self.subscription_renew_calls: list[tuple[str, dict[str, Any]]] = []
         self.subscription_delete_calls: list[str] = []
+        self.subscription_renew_error: Exception | None = None
         self.subscription_response: dict[str, Any] = {
             "id": "subscription-1",
             "resource": "/users/user-1/chats/getAllMessages",
             "expirationDateTime": "2026-09-15T15:00:00Z",
         }
+        self.list_chats_page_size: int | None = None
         self.mark_read_calls: list[str] = []
 
     def get_me(self) -> dict[str, Any]:
@@ -299,7 +306,20 @@ class FakeTeamsTransport:
 
     def list_chats(self, url: str | None = None) -> dict[str, Any]:
         self.list_chats_calls += 1
-        return {"value": [dict(chat) for chat in self.chats]}
+        chats = [dict(chat) for chat in self.chats]
+        page_size = self.list_chats_page_size
+        if page_size is None:
+            return {"value": chats}
+        start = 0
+        if url:
+            token = parse_qs(urlparse(url).query).get("$skiptoken", ["0"])[0]
+            start = int(token)
+        chunk = chats[start : start + page_size]
+        payload: dict[str, Any] = {"value": chunk}
+        nxt = start + page_size
+        if nxt < len(chats):
+            payload["@odata.nextLink"] = f"{GRAPH_API_BASE}/me/chats?$skiptoken={nxt}"
+        return payload
 
     def get_chat(self, chat_id: str) -> dict[str, Any]:
         self.get_chat_calls.append(chat_id)
@@ -328,6 +348,8 @@ class FakeTeamsTransport:
 
     def renew_subscription(self, subscription_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         self.subscription_renew_calls.append((subscription_id, dict(payload)))
+        if self.subscription_renew_error is not None:
+            raise self.subscription_renew_error
         return dict(self.subscription_response, id=subscription_id)
 
     def delete_subscription(self, subscription_id: str) -> None:

@@ -24,6 +24,13 @@ INSPECT_INBOX_REVIEW_UTTERANCES: tuple[str, ...] = (
 
 _PUNCT_RE = re.compile(r"[?!.,;:]+")
 _DASH_RE = re.compile(r"[—–−-]+")
+_REVIEW_VERB = r"(?:перечисли|назови|прочти|прочитай)"
+_HARMLESS_FILLER = r"(?:мне|пожалуйста|давай|ну)"
+_REVIEW_ALL_NEW_RE = re.compile(
+    rf"{_REVIEW_VERB}(?: {_HARMLESS_FILLER})* все новые сообщения"
+)
+_WHAT_NEW_ENUMERATE_RE = re.compile(r"что нового перечисли все")
+_COUNT_NEW_RE = re.compile(r"сколько(?: (?:у меня|сейчас))* новых сообщений")
 
 
 def normalize_inbox_review_utterance(text: str) -> str:
@@ -38,21 +45,25 @@ def inbox_review_purpose_for_utterance(text: str) -> str | None:
     normalized = normalize_inbox_review_utterance(text)
     if not normalized:
         return None
-    review_forms = tuple(
-        normalize_inbox_review_utterance(phrase) for phrase in COMPLETE_INBOX_REVIEW_UTTERANCES
-    )
     inspect_forms = tuple(
         normalize_inbox_review_utterance(phrase) for phrase in INSPECT_INBOX_REVIEW_UTTERANCES
     )
-    if normalized in review_forms:
+    if _requests_complete_review(normalized):
         return "review"
-    if any(form and form in normalized for form in review_forms):
-        return "review"
+    if _COUNT_NEW_RE.search(normalized):
+        return "inspect"
     if normalized in inspect_forms:
         return "inspect"
     if any(form and form in normalized for form in inspect_forms):
         return "inspect"
     return None
+
+
+def _requests_complete_review(normalized: str) -> bool:
+    return (
+        _REVIEW_ALL_NEW_RE.search(normalized) is not None
+        or _WHAT_NEW_ENUMERATE_RE.search(normalized) is not None
+    )
 
 
 def format_complete_review_utterance_list() -> str:

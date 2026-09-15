@@ -34,7 +34,6 @@ from app.core.config import settings
 from app.db.models import TeamsAccount
 from app.services.job_queue_service import JobQueueService
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -135,12 +134,7 @@ class TeamsSyncService:
                 chat, self_user_id=account.microsoft_user_id
             )
             watermark = parse_graph_datetime(chat_entry.get("last_created_at"))
-            chat_updated = parse_graph_datetime(chat.get("lastUpdatedDateTime"))
-            if (
-                watermark is not None
-                and chat_updated is not None
-                and chat_updated <= watermark
-            ):
+            if _can_skip_chat_message_list(watermark, chat):
                 chat_entry["chat_type"] = chat_type
                 chat_entry["display_title"] = title
                 chats_state[chat_id] = chat_entry
@@ -279,6 +273,22 @@ class TeamsSyncService:
             return self._transport, False
         token = self._token_service.acquire_access_token(account)
         return TeamsHttpTransport(token), True
+
+
+def last_message_preview_created_at(chat: dict[str, Any]) -> datetime | None:
+    preview = chat.get("lastMessagePreview")
+    if not isinstance(preview, dict):
+        return None
+    return parse_graph_datetime(preview.get("createdDateTime"))
+
+
+def _can_skip_chat_message_list(watermark: datetime | None, chat: dict[str, Any]) -> bool:
+    if watermark is None:
+        return False
+    preview_created = last_message_preview_created_at(chat)
+    if preview_created is None:
+        return False
+    return preview_created <= watermark
 
 
 def build_teams_sync_service(

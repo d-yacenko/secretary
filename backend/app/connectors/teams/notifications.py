@@ -12,7 +12,11 @@ from app.connectors.teams.constants import AUTH_STATUS_RECONNECT_REQUIRED
 from app.connectors.teams.errors import TeamsSecurityError
 from app.connectors.teams.materialize import TeamsObjectMaterializer
 from app.connectors.teams.normalize import accepted_chat_type, display_title_for_chat
-from app.connectors.teams.subscriptions import TeamsSubscriptionService
+from app.connectors.teams.subscriptions import (
+    STATUS_REAUTHORIZATION_REQUIRED,
+    STATUS_REMOVED,
+    TeamsSubscriptionService,
+)
 from app.connectors.teams.token_service import TeamsTokenService
 from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
 from app.core.config import settings
@@ -61,7 +65,9 @@ def enqueue_graph_notifications(session: Session, payload: object) -> int:
         lifecycle = str(notification.get("lifecycleEvent") or "").strip()
         if lifecycle in {"missed", "reauthorizationRequired", "subscriptionRemoved"}:
             if lifecycle == "subscriptionRemoved":
-                row.status = "removed"
+                row.status = STATUS_REMOVED
+            elif lifecycle == "reauthorizationRequired":
+                row.status = STATUS_REAUTHORIZATION_REQUIRED
             JobQueueService(session).trigger_recurring_source_job(
                 account.user_id,
                 JOB_TYPE_SYNC_TEAMS,

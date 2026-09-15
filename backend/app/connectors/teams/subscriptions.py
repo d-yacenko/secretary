@@ -19,6 +19,9 @@ from app.db.models import TeamsAccount, TeamsSubscription
 SUBSCRIPTION_RESOURCE_TEMPLATE = "/users/{user_id}/chats/getAllMessages"
 SUBSCRIPTION_LIFETIME = timedelta(minutes=55)
 SUBSCRIPTION_RENEWAL_WINDOW = timedelta(minutes=15)
+STATUS_ACTIVE = "active"
+STATUS_REAUTHORIZATION_REQUIRED = "reauthorization_required"
+STATUS_REMOVED = "removed"
 logger = logging.getLogger(__name__)
 
 
@@ -47,17 +50,20 @@ class TeamsSubscriptionService:
             return None
         now = now or utcnow()
         existing = self.get_for_account(account.id)
-        if existing is not None and existing.status == "active":
-            if existing.expires_at > now + SUBSCRIPTION_RENEWAL_WINDOW:
+        if existing is None:
+            return self._create(account, transport, notification_url, now)
+        force_renew = existing.status == STATUS_REAUTHORIZATION_REQUIRED
+        if existing.status == STATUS_ACTIVE or force_renew:
+            if not force_renew and existing.expires_at > now + SUBSCRIPTION_RENEWAL_WINDOW:
                 return existing
             try:
                 return self._renew(account, existing, transport, notification_url, now)
             except TeamsSubscriptionNotFoundError:
                 self._session.delete(existing)
                 self._session.flush()
-        elif existing is not None:
-            self._session.delete(existing)
-            self._session.flush()
+                return self._create(account, transport, notification_url, now)
+        self._session.delete(existing)
+        self._session.flush()
         return self._create(account, transport, notification_url, now)
 
     def _create(
@@ -92,7 +98,7 @@ class TeamsSubscriptionService:
             resource=resource,
             expires_at=remote_expiry,
             client_state_encrypted=self._account_store.encrypt_secret(client_state),
-            status="active",
+            status=STATUS_ACTIVE,
             last_renewed_at=now,
         )
         self._session.add(row)
@@ -116,7 +122,7 @@ class TeamsSubscriptionService:
             },
         )
         row.expires_at = parse_graph_datetime(remote.get("expirationDateTime")) or expires_at
-        row.status = "active"
+        row.status = STATUS_ACTIVE
         row.last_renewed_at = now
         self._session.flush()
         return row
@@ -133,7 +139,7 @@ class TeamsSubscriptionService:
         if row is None:
             return None
         account = self._session.get(TeamsAccount, row.account_id)
-        if account is None or row.status != "active":
+        if account is None or row.status not in {STATUS_ACTIVE, STATUS_REAUTHORIZATION_REQUIRED}:
             return None
         return row, account
 
