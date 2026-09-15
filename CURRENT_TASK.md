@@ -1,4 +1,4 @@
-# Current task — Voice Assistant A R4-R3
+# Current task — Voice Assistant A R4-R4
 
 ## Status
 
@@ -8,11 +8,13 @@ Accepted / exact deployed application SHA: `5ef2a2db117dc5a1c0ac54bad3d0e897ebcf
 
 Previous production SHA: `eb3af922f804e6faf1d895fd14c0973981ce515e`
 
-**R4-R3 (Android recorder truncation / audio-session corrective): implemented / awaiting Architect review and user physical gates. NOT CODE ACCEPTED. NOT PRODUCTION ACCEPTED.**
+**R4-R4 (complete Inbox review snapshots + completion-based review marker): implemented / awaiting Architect review and user physical smoke. NOT CODE ACCEPTED. NOT PRODUCTION ACCEPTED.**
 
-R4-R3 application SHA: `d121cf90e351612275663c6845a76e9dd80ed587`
+R4-R4 application SHA: `dc3568d2cb2e4808f4a736933b0ce615553a11eb`
 
-R4-R3 parent / R4-R2 docs tip: `5d3e173d9c5ba9cd99927f2ecdcaf3fa3151f3d5`
+R4-R4 parent / R4-R3 docs tip / BASE: `cfab062f22f6fca9acb1d0f33b580c901f42ed3c`
+
+R4-R3 application SHA (capture corrective physically validated by Architect): `d121cf90e351612275663c6845a76e9dd80ed587`
 
 R4-R2 application SHA: `f8c9a256af9d07b77b088e94fc1110e69479343f`
 
@@ -20,7 +22,7 @@ R4-R1 application SHA: `e097069dad8bcb0066e531a63f5f668e786e62ab`
 
 R4 application SHA (rejected): `a4bb618c69ff170f223bef13dd5303d8b5961b67`
 
-**R4-R2 / R4-R1 / R4 / R3 / R3-R1: not CODE ACCEPTED.**
+**R4-R4 / R4-R3 / R4-R2 / R4-R1 / R4 / R3 / R3-R1: not CODE ACCEPTED.**
 
 R3-R1 application SHA: `f20c0e4bcc55bbb9e6a4b79cf052d17f8daf637b`
 
@@ -30,55 +32,43 @@ R2 application SHA: `244cdd28b81e7d8b33b6f78938fa062c03a82b3a`
 
 R1 application SHA: `89c7e0bf9fc74dbfcc8a02f9a6795b4f3deae82e`
 
-R1 PASS. R2 marker architecture/semantics PASS. R2-R1 reference hygiene PASS. R4-R2 voice-output policy preserved.
+R1 PASS. R2 marker architecture/semantics PASS (R2 no-auto-move rule refined in R4-R4, not deleted). R2-R1 reference hygiene PASS. R4-R2 voice-output policy preserved. R4-R3 capture/hardware/STT/TTS physically validated; Inbox review product defects remain until R4-R4 user smoke.
 
-Linux user physical launch + Voice: PASS (Architect). Android transcription physical gate: FAIL before this corrective.
+Linux user physical launch + Voice: PASS (Architect, prior). Not PRODUCTION ACCEPTED. Do not start Voice B. Do not deploy production. Do not mark R3–R4-R4 CODE ACCEPTED.
 
-Not PRODUCTION ACCEPTED. Do not start Voice B. Do not redeploy production. Do not mark R3, R4, R4-R1, R4-R2, or R4-R3 CODE ACCEPTED.
+## R4-R4 facts
 
-## R4-R3 facts
+Hands-free Inbox review listed a first page of 20, then claimed a 20-item limit while more Telegram messages existed. After spoken review, «Просмотрено досюда» did not move.
 
-OpenAI rejecting <500 ms is a downstream consequence. The recorder was allowed to overlap `audioplayers` / native STREAM_MUSIC cues with an active microphone.
+`list_inbox_since_review_marker` now paginates a frozen snapshot (`old_marker < item <= snapshot_top`, `feed_at DESC, object_id DESC`) with an opaque continuation cursor. First page returns exact `total_count`. Typed tool `purpose`: `inspect` never yields a completion receipt; `review` may, only after the per-turn tool trace proves contiguous pagination to `has_more=false`. Receipt is server-derived, not LLM prose.
 
-Sequencing now:
+Client advances the marker only after: verified `inbox_review_receipt` + frozen turn auto-speech allowed + all TTS chunks finished without interrupt/error. Completion uses `POST /inbox/review-marker/complete` CAS (advance if current == expected anchor; already_current no-op; incompatible conflict). Arrivals above snapshot top stay new. No provider read-state mutation. No DB migration.
 
-START: ACK → prepare mic/permissions → hands-free ready tone **completes and releases** → start recorder. Screen mic: UI/haptic only, no audible ready.
+Inbox Conversation Compaction A is recorded as factual backlog in `DECISIONS.md` and is out of scope for this corrective.
 
-STOP: stop recorder first → optional bounded file-stabilize if the file grew → then stop/processing cue.
-
-Zero `audioplayers` media between successful recorder start and successful recorder stop. Native hardware no longer plays a stop tone while capture is active.
-
-500 ms WAV floor remains defensive. Debug/user-test copy includes duration: «Запись неожиданно получилась 0,32 с. Повторите попытку.»
-
-File finalization: one 50 ms growth sample; extra wait only if the file grew; timeout 500 ms. No global trigger debounce (starting-state already ignores a second start; no duplicate-trigger proof).
-
-R4-R2 output policy unchanged: default `handsFreeOnly`; frozen invocation source; Pending Action Plan safety.
-
-Backend (still **not deployed**): `transcription_audio_invalid` only for locally proven short/malformed WAV; empty provider text → `transcription_unrecognized`; generic OpenAI 400 → `transcription_provider_failed`. No provider bodies.
-
-No DB migration. Production was not mutated and not redeployed.
+Production was not mutated and not redeployed.
 
 ## Checks
 
-- Flutter Voice / repeated-turn / cue sequencing / output-policy / hardware / lock-screen / system-assistant / short-WAV tests: **117 passed**.
-- `tests/test_assistant_transcribe.py`: **16 passed**.
-- `flutter analyze` on touched Dart: no new errors (pre-existing infos/warnings elsewhere).
-- Android `testDebugUnitTest`: BUILD SUCCESSFUL.
-- `flutter build apk --debug`; `aapt dump badging` → `sdkVersion:'23'`.
-- Linux: no plugin/RUNPATH change in this corrective; host `gstreamer-devel` still missing (classification C for host rebuild). Prior R4-R2 relocatable bundle remains the Linux launch evidence.
+- Backend `test_inbox_review_snapshot_r4r4.py` + `test_inbox_review_marker_assistant.py`: **34 passed**.
+- Additional Voice A backend (workflow / gateway / transcribe / speech / relevance_c): **137 passed**.
+- Flutter inbox-review completion + Voice capture / hardware / output-policy / lock-screen / recorder / inbox UI: **passed** (focused completion/hardware/WAV **25**; combined Voice/inbox run **89**; one crowded-run timeout flake on interrupted-preview arming reran isolated and passed).
+- `flutter analyze` on touched Dart: no issues.
+- Android `flutter build apk --debug`; `aapt dump badging` → `sdkVersion:'23'`.
+- Linux host rebuild: `gstreamer-1.0` / `gstreamer-devel` missing (classification C). Prior R4-R1/R4-R2 relocatable bundle remains the Linux launch evidence. Shared client API changed; this host cannot compile a Linux bundle without `gstreamer-devel`.
 
-## Remaining USER physical gates
+## Remaining USER physical smoke
 
-First smoke (not the full Samsung checklist):
-
-1. Screen mic: speak 3–5 s; reported duration ~3–5 s; transcription succeeds.
-2. Repeat screen mic three times consecutively.
-3. Hardware button: speak 3–5 s; duration and transcription.
-4. Two consecutive hardware turns.
-5. First Assistant reply → follow-up must transcribe and be answered.
-
-Only after these: latency / Bluetooth / full production acceptance. Prior R4-R1 Samsung / Volume Up / lock-screen items still user-run.
+1. Arrange / observe >20 new Inbox items.
+2. Ask hands-free for all fresh Inbox items.
+3. Secretary must know the exact total, not just page size.
+4. It must continue beyond item 20.
+5. Let the complete review finish speaking.
+6. Inbox «Просмотрено досюда» must move to the frozen newest reviewed item.
+7. Ask «что нового?» immediately: old reviewed items must not repeat.
+8. Send/receive one new item after the frozen snapshot: it must still appear as new.
+9. Repeat once but interrupt TTS halfway: marker must NOT move for that incomplete review.
 
 ## Stop
 
-Wait for **Architect review of R4-R3** and **user physical gates**. Do not mark R3, R4, R4-R1, R4-R2, or R4-R3 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
+Wait for **Architect review of R4-R4** and **user physical smoke**. Do not mark R3, R4, R4-R1, R4-R2, R4-R3, or R4-R4 CODE ACCEPTED. Do not mark PRODUCTION ACCEPTED. Do not deploy. Do not start Voice B.
