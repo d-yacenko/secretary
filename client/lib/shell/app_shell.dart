@@ -17,6 +17,7 @@ import '../search/search_screen.dart';
 import '../today/temporal_area.dart';
 import '../ui/object_bookmark_controller.dart';
 import '../ui/shell_clock.dart';
+import 'driving_mode_shortcut.dart';
 
 const double kShellWideBreakpoint = 600;
 
@@ -41,6 +42,7 @@ class AppShell extends StatefulWidget {
     this.bookmarkController,
     this.hardwareVoiceController,
     this.systemAssistantController,
+    this.platform,
   });
 
   final AuthController authController;
@@ -50,6 +52,7 @@ class AppShell extends StatefulWidget {
   final ObjectBookmarkController? bookmarkController;
   final HardwareVoiceController? hardwareVoiceController;
   final SystemAssistantController? systemAssistantController;
+  final TargetPlatform? platform;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -281,6 +284,15 @@ class _AppShellState extends State<AppShell> {
       tooltip: 'Аккаунт',
       onPressed: _openAccount,
     );
+    final systemAssistant = widget.systemAssistantController;
+    final drivingShortcut =
+        systemAssistant != null &&
+            drivingModeShortcutVisible(
+              controller: systemAssistant,
+              platform: widget.platform,
+            )
+        ? DrivingModeShortcutButton(controller: systemAssistant)
+        : null;
 
     if (isWide) {
       return Scaffold(
@@ -300,7 +312,12 @@ class _AppShellState extends State<AppShell> {
                   if (showRailClock) const ShellClock(key: Key('shell_clock')),
                 ],
               ),
-              trailing: accountAction,
+              trailing: drivingShortcut == null
+                  ? accountAction
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [drivingShortcut, accountAction],
+                    ),
               destinations: ShellDestination.values
                   .map(
                     (d) => NavigationRailDestination(
@@ -329,6 +346,7 @@ class _AppShellState extends State<AppShell> {
               tooltip: 'Задача',
               onPressed: _openCapture,
             ),
+          if (drivingShortcut != null) drivingShortcut,
           accountAction,
         ],
       ),
