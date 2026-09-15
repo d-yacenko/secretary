@@ -96,7 +96,8 @@ void main() {
   AssistantController buildAssistant({
     required SecretaryApiClient apiClient,
     required AuthController auth,
-    VoiceOutputPolicy policy = VoiceOutputPolicy.handsFreeOnly,
+    VoiceOutputPolicy policy = VoiceOutputPolicy.handsFreeEnabled,
+    VoiceOutputPolicyController? voiceOutputPolicy,
     FakeSpeechPlayer? speechPlayer,
   }) {
     return AssistantController(
@@ -105,11 +106,13 @@ void main() {
       voiceRecorder: FakeVoiceRecorder(),
       voiceTempFiles: VoiceTempFiles(directory: tempDir),
       speechPlayer: speechPlayer ?? FakeSpeechPlayer(),
-      voiceOutputPolicy: VoiceOutputPolicyController(
-        authController: auth,
-        store: VoiceOutputPolicyStore.memory(),
-        initialPolicy: policy,
-      ),
+      voiceOutputPolicy:
+          voiceOutputPolicy ??
+          VoiceOutputPolicyController(
+            authController: auth,
+            store: VoiceOutputPolicyStore.memory(),
+            initialPolicy: policy,
+          ),
     );
   }
 
@@ -268,7 +271,7 @@ void main() {
     assistant.dispose();
   });
 
-  test('screen mic with default handsFreeOnly does not complete', () async {
+  test('screen mic with default handsFreeEnabled does not complete', () async {
     var completeCalls = 0;
     var speechCalls = 0;
     final mock = MockClient((request) async {
@@ -301,14 +304,16 @@ void main() {
   });
 
   test(
-    'allVoiceInput plus completed screen-mic narration may complete',
+    'legacy all_voice_input screenMic review does not complete the marker',
     () async {
       var completeCalls = 0;
+      var speechCalls = 0;
       final mock = MockClient((request) async {
         if (request.url.path == '/assistant/message') {
           return jsonResponse(assistantAnswer(receipt: receiptJson()));
         }
         if (request.url.path == '/assistant/speech') {
+          speechCalls += 1;
           return speechOk();
         }
         if (request.url.path == '/inbox/review-marker/complete') {
@@ -319,16 +324,35 @@ void main() {
       });
       final apiClient = SecretaryApiClient(httpClient: mock);
       apiClient.configure(baseUrl: baseUrl, token: token);
+      final auth = buildAuth(apiClient);
+      auth.user = UserMe(
+        id: 'user-legacy',
+        displayName: 'legacy',
+        createdAt: '2026-01-01T00:00:00Z',
+      );
+      final store = VoiceOutputPolicyStore.memory(
+        initial: {
+          VoiceOutputPolicyStore.prefKeyForUser('user-legacy'):
+              VoiceOutputPolicyStore.legacyAllVoiceInput,
+        },
+      );
+      final policy = VoiceOutputPolicyController(
+        authController: auth,
+        store: store,
+      );
+      await policy.attach();
+      expect(policy.policy, VoiceOutputPolicy.handsFreeEnabled);
       final assistant = buildAssistant(
         apiClient: apiClient,
-        auth: buildAuth(apiClient),
-        policy: VoiceOutputPolicy.allVoiceInput,
+        auth: auth,
+        voiceOutputPolicy: policy,
       );
       await assistant.sendMessage(
         'что нового?',
         source: VoiceInvocationSource.screenMic,
       );
-      expect(completeCalls, 1);
+      expect(speechCalls, 0);
+      expect(completeCalls, 0);
       assistant.dispose();
     },
   );

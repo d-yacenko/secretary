@@ -866,7 +866,9 @@ class AssistantController extends ChangeNotifier {
     _discardPendingInboxReviewCompletion();
     _turnSource = source;
     _voiceInputActive = source.isVoiceInput;
-    _autoSpeechAllowed = _voiceOutputPolicy.policy.allowsAutoSpeech(source);
+    _autoSpeechAllowed =
+        source.isHandsFree &&
+        _voiceOutputPolicy.policy.allowsAutoSpeech(source);
     _voiceApprovalArmed = false;
     _planNarrationInProgress = false;
   }

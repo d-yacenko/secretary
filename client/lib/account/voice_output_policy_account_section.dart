@@ -28,54 +28,26 @@ class VoiceOutputPolicyAccountSection extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
+        final enabled = controller.policy == VoiceOutputPolicy.handsFreeEnabled;
         return AccountSectionCard(
           key: const Key('voice_output_policy_section'),
           title: 'Автоозвучивание ответов',
           children: [
-            RadioListTile<VoiceOutputPolicy>(
-              key: const Key('voice_output_policy_hands_free_only'),
+            SwitchListTile(
+              key: const Key('voice_output_policy_hands_free_enabled'),
               contentPadding: EdgeInsets.zero,
-              title: const Text('Только hands-free'),
+              title: const Text('Озвучивать ответы в hands-free режиме'),
               subtitle: const Text(
-                'Кнопка и системный помощник. Экранный микрофон остаётся '
-                'текстом — удобно в офисе.',
+                'Экранный микрофон используется только для диктовки и не '
+                'включает автоозвучивание.',
               ),
-              value: VoiceOutputPolicy.handsFreeOnly,
-              groupValue: controller.policy,
+              value: enabled,
               onChanged: (value) {
-                if (value != null) {
-                  controller.setPolicy(value);
-                }
-              },
-            ),
-            RadioListTile<VoiceOutputPolicy>(
-              key: const Key('voice_output_policy_all_voice_input'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('После любого голосового ввода'),
-              subtitle: const Text(
-                'Озвучивать ответы и после экранного микрофона.',
-              ),
-              value: VoiceOutputPolicy.allVoiceInput,
-              groupValue: controller.policy,
-              onChanged: (value) {
-                if (value != null) {
-                  controller.setPolicy(value);
-                }
-              },
-            ),
-            RadioListTile<VoiceOutputPolicy>(
-              key: const Key('voice_output_policy_never'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Никогда'),
-              subtitle: const Text(
-                'Голосовой ввод остаётся, ответы только текстом.',
-              ),
-              value: VoiceOutputPolicy.never,
-              groupValue: controller.policy,
-              onChanged: (value) {
-                if (value != null) {
-                  controller.setPolicy(value);
-                }
+                controller.setPolicy(
+                  value
+                      ? VoiceOutputPolicy.handsFreeEnabled
+                      : VoiceOutputPolicy.never,
+                );
               },
             ),
           ],

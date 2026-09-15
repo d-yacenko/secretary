@@ -13,7 +13,6 @@ class FakeSpeechPlayer implements SpeechPlayer {
   int stopCount = 0;
   int disposeCount = 0;
   Completer<void>? _held;
-  bool _releaseNextPlay = false;
 
   @override
   Future<void> playFile(String path) async {
@@ -23,8 +22,7 @@ class FakeSpeechPlayer implements SpeechPlayer {
       failNextPlay = false;
       throw StateError('speech playback failed');
     }
-    if (completeImmediately || _releaseNextPlay) {
-      _releaseNextPlay = false;
+    if (completeImmediately) {
       return;
     }
     _held = Completer<void>();
@@ -35,9 +33,7 @@ class FakeSpeechPlayer implements SpeechPlayer {
     final held = _held;
     if (held != null && !held.isCompleted) {
       held.complete();
-      return;
     }
-    _releaseNextPlay = true;
   }
 
   @override

@@ -63,7 +63,7 @@ void main() {
       voiceOutputPolicy: VoiceOutputPolicyController(
         authController: auth,
         store: VoiceOutputPolicyStore.memory(),
-        initialPolicy: VoiceOutputPolicy.allVoiceInput,
+        initialPolicy: VoiceOutputPolicy.handsFreeEnabled,
       ),
     );
   }

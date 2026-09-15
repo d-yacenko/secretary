@@ -8,7 +8,7 @@ class VoiceOutputPolicyController extends ChangeNotifier {
   VoiceOutputPolicyController({
     required AuthController authController,
     VoiceOutputPolicyStore? store,
-    VoiceOutputPolicy initialPolicy = VoiceOutputPolicy.handsFreeOnly,
+    VoiceOutputPolicy initialPolicy = VoiceOutputPolicy.handsFreeEnabled,
   }) : _authController = authController,
        _store = store ?? VoiceOutputPolicyStore(),
        _policy = initialPolicy {
@@ -44,7 +44,7 @@ class VoiceOutputPolicyController extends ChangeNotifier {
   Future<void> _loadFor(String? userId) async {
     if (userId == null || userId.isEmpty) {
       _userId = null;
-      _policy = VoiceOutputPolicy.handsFreeOnly;
+      _policy = VoiceOutputPolicy.handsFreeEnabled;
       notifyListeners();
       return;
     }

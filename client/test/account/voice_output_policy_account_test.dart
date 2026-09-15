@@ -70,9 +70,20 @@ void main() {
     final policy = await buildPolicy(auth);
     await pumpAccountReady(tester, screen(auth: auth, policy: policy));
     expect(find.text('Автоозвучивание ответов'), findsOneWidget);
-    expect(find.text('Только hands-free'), findsOneWidget);
-    expect(policy.policy, VoiceOutputPolicy.handsFreeOnly);
-    await tester.tap(find.byKey(const Key('voice_output_policy_never')));
+    expect(find.text('Озвучивать ответы в hands-free режиме'), findsOneWidget);
+    expect(
+      find.text(
+        'Экранный микрофон используется только для диктовки и не '
+        'включает автоозвучивание.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('После любого голосового ввода'), findsNothing);
+    expect(find.text('Только hands-free'), findsNothing);
+    expect(policy.policy, VoiceOutputPolicy.handsFreeEnabled);
+    await tester.tap(
+      find.byKey(const Key('voice_output_policy_hands_free_enabled')),
+    );
     await tester.pump();
     expect(policy.policy, VoiceOutputPolicy.never);
     policy.dispose();

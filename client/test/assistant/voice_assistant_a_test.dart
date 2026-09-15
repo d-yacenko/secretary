@@ -11,6 +11,7 @@ import 'package:personal_secretary/assistant/fake_speech_player.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/speech_text.dart';
 import 'package:personal_secretary/assistant/voice_confirmation.dart';
+import 'package:personal_secretary/assistant/voice_invocation_source.dart';
 import 'package:personal_secretary/assistant/voice_recorder_exceptions.dart';
 import 'package:personal_secretary/assistant/voice_output_policy.dart';
 import 'package:personal_secretary/assistant/voice_output_policy_controller.dart';
@@ -85,7 +86,7 @@ void main() {
       voiceOutputPolicy: VoiceOutputPolicyController(
         authController: auth,
         store: VoiceOutputPolicyStore.memory(),
-        initialPolicy: VoiceOutputPolicy.allVoiceInput,
+        initialPolicy: VoiceOutputPolicy.handsFreeEnabled,
       ),
     );
   }
@@ -98,6 +99,27 @@ void main() {
     );
     auth.status = AuthStatus.authenticated;
     return auth;
+  }
+
+  Future<void> runHandsFreeUtterance(AssistantController assistant) async {
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
+  }
+
+  Future<void> startHandsFree(AssistantController assistant) {
+    return assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
+  }
+
+  Future<void> stopHandsFree(AssistantController assistant) {
+    return assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
   }
 
   http.Response speechOk() {
@@ -214,9 +236,9 @@ void main() {
     );
 
     expect(assistant.voiceState, AssistantVoiceState.idle);
-    await assistant.startVoiceRecording();
+    await startHandsFree(assistant);
     expect(assistant.voiceState, AssistantVoiceState.recording);
-    final turn = assistant.stopVoiceRecordingAndTranscribe();
+    final turn = stopHandsFree(assistant);
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(
       assistant.voiceState == AssistantVoiceState.transcribing ||
@@ -289,8 +311,7 @@ void main() {
     );
     await assistant.sendMessage('Напечатанный вопрос');
     expect(speechBodies, isEmpty);
-    await assistant.startVoiceRecording();
-    await assistant.stopVoiceRecordingAndTranscribe();
+    await runHandsFreeUtterance(assistant);
     expect(speechBodies, isNotEmpty);
     expect(speechBodies.first, contains('Свежих писем нет.'));
     assistant.dispose();
@@ -321,8 +342,7 @@ void main() {
       apiClient: apiClient,
       auth: buildAuth(apiClient),
     );
-    await assistant.startVoiceRecording();
-    await assistant.stopVoiceRecordingAndTranscribe();
+    await runHandsFreeUtterance(assistant);
     expect(speechTexts.length, greaterThan(1));
     expect(
       speechTexts.every((text) => text.length <= maxSpeechInputChars),
@@ -361,8 +381,7 @@ void main() {
         speechPlayer: speechPlayer,
       );
       final turn = () async {
-        await assistant.startVoiceRecording();
-        await assistant.stopVoiceRecordingAndTranscribe();
+        await runHandsFreeUtterance(assistant);
       }();
       await waitUntil(
         () => assistant.voiceState == AssistantVoiceState.speaking,
@@ -401,8 +420,7 @@ void main() {
       speechPlayer: speechPlayer,
     );
     final turn = () async {
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
     }();
     await waitUntil(() => assistant.voiceState == AssistantVoiceState.speaking);
     await assistant.stopSpeaking();
@@ -435,8 +453,7 @@ void main() {
       speechPlayer: speechPlayer,
     );
     final turn = () async {
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
     }();
     await waitUntil(() => assistant.voiceState == AssistantVoiceState.speaking);
     await waitUntil(() => speechPlayer.playCount > 0);
@@ -490,8 +507,7 @@ void main() {
         apiClient: apiClient,
         auth: buildAuth(apiClient),
       );
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
       expect(assistant.hasPendingActionPlan, isTrue);
       expect(approveCalls, 0);
       expect(speechTexts.join('\n'), contains('Кому: ivan@example.com'));
@@ -530,8 +546,7 @@ void main() {
       speechPlayer: speechPlayer,
     );
     final first = () async {
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
     }();
     await waitUntil(() => assistant.voiceState == AssistantVoiceState.speaking);
     await assistant.startVoiceRecording();
@@ -583,15 +598,13 @@ void main() {
         apiClient: apiClient,
         auth: buildAuth(apiClient),
       );
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
       expect(assistant.hasPendingActionPlan, isTrue);
       final pendingIndex = assistant.messages.lastIndexWhere(
         (message) =>
             message.actionPlan?.cardState == ActionPlanCardState.pending,
       );
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
       expect(approveCalls, 1);
       await Future.wait([
         assistant.approveActionPlanAt(pendingIndex),
@@ -743,13 +756,11 @@ void main() {
       apiClient: apiClient,
       auth: buildAuth(apiClient),
     );
-    await assistant.startVoiceRecording();
-    await assistant.stopVoiceRecordingAndTranscribe();
+    await runHandsFreeUtterance(assistant);
     expect(speechTexts.join('\n'), contains('Telegram'));
     expect(speechTexts.join('\n'), contains('Ivan'));
     expect(speechTexts.join('\n'), contains('Точное исходящее тело'));
-    await assistant.startVoiceRecording();
-    await assistant.stopVoiceRecordingAndTranscribe();
+    await runHandsFreeUtterance(assistant);
     expect(approveCalls, 1);
     assistant.dispose();
   });
@@ -841,10 +852,8 @@ void main() {
         apiClient: apiClient,
         auth: buildAuth(apiClient),
       );
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
+      await runHandsFreeUtterance(assistant);
       expect(speechTexts, contains(voiceRejectedSpeech));
       assistant.dispose();
     },
@@ -888,10 +897,8 @@ void main() {
         apiClient: apiClient,
         auth: buildAuth(apiClient),
       );
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
-      await assistant.startVoiceRecording();
-      await assistant.stopVoiceRecordingAndTranscribe();
+      await runHandsFreeUtterance(assistant);
+      await runHandsFreeUtterance(assistant);
       expect(
         assistant.messages.last.actionPlan?.cardState,
         ActionPlanCardState.completed,
@@ -920,8 +927,7 @@ void main() {
       apiClient: apiClient,
       auth: buildAuth(apiClient),
     );
-    await assistant.startVoiceRecording();
-    await assistant.stopVoiceRecordingAndTranscribe();
+    await runHandsFreeUtterance(assistant);
     expect(assistant.messages.length, 2);
     expect(assistant.hasPendingActionPlan, isTrue);
     expect(assistant.voiceState, AssistantVoiceState.error);

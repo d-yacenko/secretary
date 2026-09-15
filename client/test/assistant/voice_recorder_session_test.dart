@@ -85,7 +85,7 @@ void main() {
     FakeVoiceRecorder? recorder,
     FakeSpeechPlayer? speechPlayer,
     VoiceLocalFeedback? voiceFeedback,
-    VoiceOutputPolicy policy = VoiceOutputPolicy.handsFreeOnly,
+    VoiceOutputPolicy policy = VoiceOutputPolicy.handsFreeEnabled,
     VoiceTranscriptionController? voiceController,
   }) {
     final auth = buildAuth(apiClient);

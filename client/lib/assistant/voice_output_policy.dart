@@ -2,11 +2,9 @@ import 'voice_invocation_source.dart';
 
 /// Device-local auto-speech preference. Not synced to UserSettings.
 enum VoiceOutputPolicy {
-  /// Speak only hands-free invocations (hardware / system assistant).
-  handsFreeOnly,
-
-  /// Speak after any microphone input, including the on-screen mic.
-  allVoiceInput,
+  /// Speak hands-free invocations only (hardware / system / lock-screen assistant).
+  /// The on-screen microphone is dictation and never auto-speaks.
+  handsFreeEnabled,
 
   /// Never auto-speak Assistant answers.
   never,
@@ -14,12 +12,14 @@ enum VoiceOutputPolicy {
 
 extension VoiceOutputPolicySpeech on VoiceOutputPolicy {
   bool allowsAutoSpeech(VoiceInvocationSource source) {
+    if (source == VoiceInvocationSource.screenMic ||
+        source == VoiceInvocationSource.typed) {
+      return false;
+    }
     switch (this) {
       case VoiceOutputPolicy.never:
         return false;
-      case VoiceOutputPolicy.allVoiceInput:
-        return source.isVoiceInput;
-      case VoiceOutputPolicy.handsFreeOnly:
+      case VoiceOutputPolicy.handsFreeEnabled:
         return source.isHandsFree;
     }
   }

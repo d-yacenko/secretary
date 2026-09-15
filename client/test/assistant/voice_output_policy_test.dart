@@ -94,7 +94,7 @@ void main() {
   AssistantController buildAssistant({
     required SecretaryApiClient apiClient,
     required AuthController auth,
-    VoiceOutputPolicy policy = VoiceOutputPolicy.handsFreeOnly,
+    VoiceOutputPolicy policy = VoiceOutputPolicy.handsFreeEnabled,
     VoiceOutputPolicyController? voiceOutputPolicy,
     FakeVoiceRecorder? voiceRecorder,
     FakeSpeechPlayer? speechPlayer,
@@ -127,14 +127,68 @@ void main() {
     }
   }
 
-  test('default preference is handsFreeOnly', () {
-    expect(VoiceOutputPolicy.handsFreeOnly, VoiceOutputPolicy.values.first);
+  test('default preference is handsFreeEnabled', () {
+    expect(VoiceOutputPolicy.handsFreeEnabled, VoiceOutputPolicy.values.first);
     final store = VoiceOutputPolicyStore.memory();
     expect(
       VoiceOutputPolicyStore.decode(null),
-      VoiceOutputPolicy.handsFreeOnly,
+      VoiceOutputPolicy.handsFreeEnabled,
     );
     expect(store.runtimeType, VoiceOutputPolicyStore);
+  });
+
+  test('legacy stored values decode and rewrite to handsFreeEnabled', () async {
+    expect(
+      VoiceOutputPolicyStore.decode(VoiceOutputPolicyStore.legacyAllVoiceInput),
+      VoiceOutputPolicy.handsFreeEnabled,
+    );
+    expect(
+      VoiceOutputPolicyStore.decode(VoiceOutputPolicyStore.legacyHandsFreeOnly),
+      VoiceOutputPolicy.handsFreeEnabled,
+    );
+    expect(
+      VoiceOutputPolicyStore.decode('unknown'),
+      VoiceOutputPolicy.handsFreeEnabled,
+    );
+    expect(
+      VoiceOutputPolicyStore.decode(null),
+      VoiceOutputPolicy.handsFreeEnabled,
+    );
+    expect(
+      VoiceOutputPolicyStore.decode(VoiceOutputPolicyStore.storedNever),
+      VoiceOutputPolicy.never,
+    );
+    final key = VoiceOutputPolicyStore.prefKeyForUser('user-legacy');
+    final allVoiceStore = VoiceOutputPolicyStore.memory(
+      initial: {key: VoiceOutputPolicyStore.legacyAllVoiceInput},
+    );
+    expect(
+      await allVoiceStore.load('user-legacy'),
+      VoiceOutputPolicy.handsFreeEnabled,
+    );
+    expect(
+      await allVoiceStore.storedRaw('user-legacy'),
+      VoiceOutputPolicyStore.storedHandsFreeEnabled,
+    );
+    final handsFreeOnlyStore = VoiceOutputPolicyStore.memory(
+      initial: {key: VoiceOutputPolicyStore.legacyHandsFreeOnly},
+    );
+    expect(
+      await handsFreeOnlyStore.load('user-legacy'),
+      VoiceOutputPolicy.handsFreeEnabled,
+    );
+    expect(
+      await handsFreeOnlyStore.storedRaw('user-legacy'),
+      VoiceOutputPolicyStore.storedHandsFreeEnabled,
+    );
+    final neverStore = VoiceOutputPolicyStore.memory(
+      initial: {key: VoiceOutputPolicyStore.storedNever},
+    );
+    expect(await neverStore.load('user-legacy'), VoiceOutputPolicy.never);
+    expect(
+      await neverStore.storedRaw('user-legacy'),
+      VoiceOutputPolicyStore.storedNever,
+    );
   });
 
   test('preference is per authenticated user on this device', () async {
@@ -149,18 +203,18 @@ void main() {
       store: store,
     );
     await policy.attach();
-    expect(policy.policy, VoiceOutputPolicy.handsFreeOnly);
+    expect(policy.policy, VoiceOutputPolicy.handsFreeEnabled);
     await policy.setPolicy(VoiceOutputPolicy.never);
 
     auth.user = userMe('user-b');
     await policy.attach();
-    expect(policy.policy, VoiceOutputPolicy.handsFreeOnly);
-    await policy.setPolicy(VoiceOutputPolicy.allVoiceInput);
+    expect(policy.policy, VoiceOutputPolicy.handsFreeEnabled);
+    await policy.setPolicy(VoiceOutputPolicy.never);
 
     auth.user = userMe('user-a');
     await policy.attach();
     expect(policy.policy, VoiceOutputPolicy.never);
-    expect(await store.load('user-b'), VoiceOutputPolicy.allVoiceInput);
+    expect(await store.load('user-b'), VoiceOutputPolicy.never);
     policy.dispose();
   });
 
@@ -185,7 +239,7 @@ void main() {
     final assistant = buildAssistant(
       apiClient: apiClient,
       auth: buildAuth(apiClient),
-      policy: VoiceOutputPolicy.allVoiceInput,
+      policy: VoiceOutputPolicy.handsFreeEnabled,
     );
     await assistant.sendMessage('Напечатанный вопрос');
     expect(speechCalls, 0);
@@ -198,6 +252,7 @@ void main() {
     required VoiceOutputPolicy policy,
     required VoiceInvocationSource source,
     VoiceOutputPolicyController? controller,
+    bool lockScreenSession = false,
   }) async {
     var speechCalls = 0;
     final mock = MockClient((request) async {
@@ -224,7 +279,11 @@ void main() {
       auth: buildAuth(apiClient),
       policy: policy,
       voiceOutputPolicy: controller,
+      lockScreenSession: lockScreenSession,
     );
+    if (lockScreenSession) {
+      assistant.lockScreenVoiceEnabled = true;
+    }
     if (source == VoiceInvocationSource.screenMic) {
       await assistant.startVoiceRecording();
       await assistant.stopVoiceRecordingAndTranscribe();
@@ -244,20 +303,38 @@ void main() {
   test('screen mic + default => no TTS', () async {
     expect(
       await runVoiceTurn(
-        policy: VoiceOutputPolicy.handsFreeOnly,
+        policy: VoiceOutputPolicy.handsFreeEnabled,
         source: VoiceInvocationSource.screenMic,
       ),
       0,
     );
   });
 
-  test('screen mic + allVoiceInput => TTS', () async {
+  test('screen mic + legacy persisted all_voice_input => no TTS', () async {
+    final store = VoiceOutputPolicyStore.memory(
+      initial: {
+        VoiceOutputPolicyStore.prefKeyForUser('user-legacy'):
+            VoiceOutputPolicyStore.legacyAllVoiceInput,
+      },
+    );
+    final apiClient = SecretaryApiClient(
+      httpClient: MockClient((_) async => http.Response('{}', 404)),
+    );
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = buildAuth(apiClient, userId: 'user-legacy');
+    final controller = VoiceOutputPolicyController(
+      authController: auth,
+      store: store,
+    );
+    await controller.attach();
+    expect(controller.policy, VoiceOutputPolicy.handsFreeEnabled);
     expect(
       await runVoiceTurn(
-        policy: VoiceOutputPolicy.allVoiceInput,
+        policy: VoiceOutputPolicy.handsFreeEnabled,
         source: VoiceInvocationSource.screenMic,
+        controller: controller,
       ),
-      greaterThan(0),
+      0,
     );
   });
 
@@ -274,7 +351,7 @@ void main() {
   test('hardware + default => TTS', () async {
     expect(
       await runVoiceTurn(
-        policy: VoiceOutputPolicy.handsFreeOnly,
+        policy: VoiceOutputPolicy.handsFreeEnabled,
         source: VoiceInvocationSource.hardwareButton,
       ),
       greaterThan(0),
@@ -284,8 +361,19 @@ void main() {
   test('system assistant + default => TTS', () async {
     expect(
       await runVoiceTurn(
-        policy: VoiceOutputPolicy.handsFreeOnly,
+        policy: VoiceOutputPolicy.handsFreeEnabled,
         source: VoiceInvocationSource.systemAssistant,
+      ),
+      greaterThan(0),
+    );
+  });
+
+  test('lock-screen assistant + default => TTS', () async {
+    expect(
+      await runVoiceTurn(
+        policy: VoiceOutputPolicy.handsFreeEnabled,
+        source: VoiceInvocationSource.systemAssistant,
+        lockScreenSession: true,
       ),
       greaterThan(0),
     );
@@ -342,7 +430,7 @@ void main() {
     await assistant.startVoiceRecording();
     expect(assistant.turnSource, VoiceInvocationSource.screenMic);
     expect(assistant.autoSpeechAllowed, isFalse);
-    await policy.setPolicy(VoiceOutputPolicy.allVoiceInput);
+    await policy.setPolicy(VoiceOutputPolicy.never);
     await assistant.stopVoiceRecordingAndTranscribe();
     expect(assistant.autoSpeechAllowed, isFalse);
     expect(speechCalls, 0);
@@ -560,6 +648,7 @@ void main() {
   test('interrupted preview leaves affirmative unarmed', () async {
     var transcripts = <String>['Ответь Иванову', 'Да'];
     var approveCalls = 0;
+    var releaseMessage = false;
     final speechPlayer = FakeSpeechPlayer(completeImmediately: false);
     final mock = MockClient((request) async {
       if (request.url.path == '/assistant/transcribe') {
@@ -567,6 +656,9 @@ void main() {
         return jsonResponse({'text': text});
       }
       if (request.url.path == '/assistant/message') {
+        while (!releaseMessage) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
         return jsonResponse(pendingCommunicationPlan());
       }
       if (request.url.path.contains('/approve')) {
@@ -593,7 +685,8 @@ void main() {
         source: VoiceInvocationSource.hardwareButton,
       );
     }();
-    await waitUntil(() => assistant.voiceState == AssistantVoiceState.speaking);
+    releaseMessage = true;
+    await waitUntil(() => speechPlayer.playCount > 0);
     await assistant.handleVoiceTrigger(
       source: VoiceInvocationSource.hardwareButton,
     );
@@ -603,6 +696,7 @@ void main() {
     );
     expect(approveCalls, 0);
     expect(assistant.hasPendingActionPlan, isTrue);
+    speechPlayer.completeHeldPlay();
     await first;
     assistant.dispose();
   });
@@ -650,6 +744,52 @@ void main() {
     assistant.dispose();
   });
 
+  test('changing never during a hands-free turn does not silence it', () async {
+    var speechCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/transcribe') {
+        return jsonResponse({'text': 'Какая свежая почта?'});
+      }
+      if (request.url.path == '/assistant/message') {
+        return jsonResponse({
+          'answer': 'Свежих писем нет.',
+          'references': [],
+          'affected_objects': [],
+        });
+      }
+      if (request.url.path == '/assistant/speech') {
+        speechCalls += 1;
+        return speechOk();
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final auth = buildAuth(apiClient);
+    final policy = VoiceOutputPolicyController(
+      authController: auth,
+      store: VoiceOutputPolicyStore.memory(),
+    );
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: auth,
+      voiceOutputPolicy: policy,
+    );
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.hardwareButton,
+    );
+    expect(assistant.turnSource, VoiceInvocationSource.hardwareButton);
+    expect(assistant.autoSpeechAllowed, isTrue);
+    await policy.setPolicy(VoiceOutputPolicy.never);
+    await assistant.handleVoiceTrigger(
+      source: VoiceInvocationSource.screenMic,
+    );
+    expect(assistant.turnSource, VoiceInvocationSource.hardwareButton);
+    expect(assistant.autoSpeechAllowed, isTrue);
+    expect(speechCalls, greaterThan(0));
+    assistant.dispose();
+  });
+
   test('matrix matches VoiceOutputPolicy.allowsAutoSpeech', () {
     const policies = VoiceOutputPolicy.values;
     const sources = VoiceInvocationSource.values;
@@ -657,10 +797,9 @@ void main() {
       for (final source in sources) {
         final allowed = policy.allowsAutoSpeech(source);
         if (policy == VoiceOutputPolicy.never ||
-            source == VoiceInvocationSource.typed) {
+            source == VoiceInvocationSource.typed ||
+            source == VoiceInvocationSource.screenMic) {
           expect(allowed, isFalse, reason: '$policy $source');
-        } else if (policy == VoiceOutputPolicy.allVoiceInput) {
-          expect(allowed, source.isVoiceInput, reason: '$policy $source');
         } else {
           expect(allowed, source.isHandsFree, reason: '$policy $source');
         }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'voice_output_policy.dart';
@@ -16,25 +17,31 @@ class VoiceOutputPolicyStore {
                 ? null
                 : SharedPreferences.getInstance());
 
-  VoiceOutputPolicyStore.memory()
-    : _memory = <String, String>{},
+  VoiceOutputPolicyStore.memory({Map<String, String>? initial})
+    : _memory = {...?initial},
       _preferencesFuture = null;
 
   final Map<String, String>? _memory;
   final Future<SharedPreferences>? _preferencesFuture;
 
+  static const storedHandsFreeEnabled = 'hands_free_enabled';
+  static const storedNever = 'never';
+  static const legacyHandsFreeOnly = 'hands_free_only';
+  static const legacyAllVoiceInput = 'all_voice_input';
+
   static String prefKeyForUser(String userId) => 'voice_output_policy.$userId';
 
   Future<VoiceOutputPolicy> load(String userId) async {
     if (userId.isEmpty) {
-      return VoiceOutputPolicy.handsFreeOnly;
+      return VoiceOutputPolicy.handsFreeEnabled;
     }
-    final memory = _memory;
-    if (memory != null) {
-      return decode(memory[prefKeyForUser(userId)]);
+    final raw = await _readRaw(userId);
+    final policy = decode(raw);
+    final canonical = encode(policy);
+    if (raw != null && raw != canonical) {
+      await save(userId, policy);
     }
-    final prefs = await _preferencesFuture!;
-    return decode(prefs.getString(prefKeyForUser(userId)));
+    return policy;
   }
 
   Future<void> save(String userId, VoiceOutputPolicy policy) async {
@@ -50,26 +57,36 @@ class VoiceOutputPolicyStore {
     await prefs.setString(prefKeyForUser(userId), encode(policy));
   }
 
+  @visibleForTesting
+  Future<String?> storedRaw(String userId) => _readRaw(userId);
+
+  Future<String?> _readRaw(String userId) async {
+    final memory = _memory;
+    if (memory != null) {
+      return memory[prefKeyForUser(userId)];
+    }
+    final prefs = await _preferencesFuture!;
+    return prefs.getString(prefKeyForUser(userId));
+  }
+
   static String encode(VoiceOutputPolicy policy) {
     switch (policy) {
-      case VoiceOutputPolicy.handsFreeOnly:
-        return 'hands_free_only';
-      case VoiceOutputPolicy.allVoiceInput:
-        return 'all_voice_input';
+      case VoiceOutputPolicy.handsFreeEnabled:
+        return storedHandsFreeEnabled;
       case VoiceOutputPolicy.never:
-        return 'never';
+        return storedNever;
     }
   }
 
   static VoiceOutputPolicy decode(String? raw) {
     switch (raw) {
-      case 'all_voice_input':
-        return VoiceOutputPolicy.allVoiceInput;
-      case 'never':
+      case storedNever:
         return VoiceOutputPolicy.never;
-      case 'hands_free_only':
+      case storedHandsFreeEnabled:
+      case legacyHandsFreeOnly:
+      case legacyAllVoiceInput:
       default:
-        return VoiceOutputPolicy.handsFreeOnly;
+        return VoiceOutputPolicy.handsFreeEnabled;
     }
   }
 }
