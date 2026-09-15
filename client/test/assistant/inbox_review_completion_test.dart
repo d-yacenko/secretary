@@ -10,6 +10,7 @@ import 'package:personal_secretary/assistant/assistant_controller.dart';
 import 'package:personal_secretary/assistant/fake_speech_player.dart';
 import 'package:personal_secretary/assistant/fake_voice_recorder.dart';
 import 'package:personal_secretary/assistant/voice_invocation_source.dart';
+import 'package:personal_secretary/assistant/voice_capture_diagnostics.dart';
 import 'package:personal_secretary/assistant/voice_output_policy.dart';
 import 'package:personal_secretary/assistant/voice_output_policy_controller.dart';
 import 'package:personal_secretary/assistant/voice_output_policy_store.dart';
@@ -25,6 +26,7 @@ void main() {
   late Directory tempDir;
 
   setUp(() {
+    VoiceCaptureDiagnostics.resetForTest();
     tempDir = Directory.systemTemp.createTempSync(
       'secretary_inbox_review_r4r4',
     );
@@ -173,6 +175,17 @@ void main() {
         'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       );
       expect(putCalls, isEmpty);
+      expect(
+        VoiceCaptureDiagnostics.events.map((event) => event['event']),
+        containsAll(<String>[
+          'assistant_response_review_receipt_received',
+          'inbox_review_receipt_stored',
+          'playback_started',
+          'playback_completed',
+          'inbox_review_completion_started',
+          'inbox_review_completion_result',
+        ]),
+      );
       assistant.dispose();
     },
   );
@@ -618,4 +631,49 @@ void main() {
       expect(saved.anchorObjectId, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
     },
   );
+
+  test('complete API failure stays fail-closed and records a safe diagnostic', () async {
+    var completeCalls = 0;
+    final mock = MockClient((request) async {
+      if (request.url.path == '/assistant/message') {
+        return jsonResponse(assistantAnswer(receipt: receiptJson()));
+      }
+      if (request.url.path == '/assistant/speech') {
+        return speechOk();
+      }
+      if (request.url.path == '/inbox/review-marker/complete') {
+        completeCalls += 1;
+        return http.Response('nope', 502);
+      }
+      return http.Response('{}', 404);
+    });
+    final apiClient = SecretaryApiClient(httpClient: mock);
+    apiClient.configure(baseUrl: baseUrl, token: token);
+    final assistant = buildAssistant(
+      apiClient: apiClient,
+      auth: buildAuth(apiClient),
+    );
+    await assistant.sendMessage(
+      'перечисли все новые сообщения',
+      source: VoiceInvocationSource.hardwareButton,
+    );
+    expect(completeCalls, 1);
+    expect(
+      VoiceCaptureDiagnostics.events.map((event) => event['event']),
+      containsAll(<String>[
+        'assistant_response_review_receipt_received',
+        'inbox_review_receipt_stored',
+        'playback_completed',
+        'inbox_review_completion_started',
+        'inbox_review_completion_failed',
+      ]),
+    );
+    expect(
+      VoiceCaptureDiagnostics.events
+          .where((event) => event['event'] == 'inbox_review_completion_failed')
+          .single['failure'],
+      'api',
+    );
+    assistant.dispose();
+  });
 }

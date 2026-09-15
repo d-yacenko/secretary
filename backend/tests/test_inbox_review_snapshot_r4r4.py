@@ -150,6 +150,7 @@ class _PagingReviewProvider:
         self.follow = follow
         self.inject_cursor = inject_cursor
         self.calls: list[tuple[str, dict]] = []
+        self.validated_arguments: list[dict] = []
 
     def run(
         self,
@@ -168,6 +169,8 @@ class _PagingReviewProvider:
                 args["cursor"] = cursor
             result = tool_runner("list_inbox_since_review_marker", args)
             self.calls.append(("list_inbox_since_review_marker", args))
+            if result.validated_arguments is not None:
+                self.validated_arguments.append(dict(result.validated_arguments))
             if not self.follow:
                 break
             payload = result.model_visible_payload or {}
@@ -418,6 +421,48 @@ def test_inspect_never_yields_receipt(interactive_session, marker_user: UUID) ->
     result = AssistantService(marker_user, provider).send_message("сколько нового?", [])
     assert result.inbox_review_receipt is None
     assert _marker(session, marker_user).get_marker().anchor_object_id == anchor.id
+
+
+def test_explicit_complete_enumeration_forces_review_purpose(
+    interactive_session, marker_user: UUID
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(session, "A", created_at=t0, user_id=marker_user)
+    newer = [
+        _email(session, f"N{i}", created_at=t0 + timedelta(hours=i + 1), user_id=marker_user)
+        for i in range(3)
+    ]
+    _marker(session, marker_user).set_marker(anchor.id)
+    session.flush()
+
+    provider = _PagingReviewProvider(purpose="inspect")
+    result = AssistantService(marker_user, provider).send_message(
+        "Перечисли все новые сообщения.", []
+    )
+
+    assert provider.validated_arguments == [{"purpose": "review", "limit": 20}]
+    assert result.inbox_review_receipt is not None
+    assert result.inbox_review_receipt.snapshot_top_object_id == newer[-1].id
+
+
+def test_explicit_count_remains_inspect_purpose(
+    interactive_session, marker_user: UUID
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(session, "A", created_at=t0, user_id=marker_user)
+    _email(session, "N1", created_at=t0 + timedelta(hours=1), user_id=marker_user)
+    _marker(session, marker_user).set_marker(anchor.id)
+    session.flush()
+
+    provider = _PagingReviewProvider(purpose="review")
+    result = AssistantService(marker_user, provider).send_message(
+        "Сколько новых сообщений?", []
+    )
+
+    assert provider.validated_arguments == [{"purpose": "inspect", "limit": 20}]
+    assert result.inbox_review_receipt is None
 
 
 def test_review_final_page_yields_verified_receipt(interactive_session, marker_user: UUID) -> None:
@@ -685,6 +730,35 @@ def test_char_bound_keeps_cursor_metadata(db_session: Session, marker_user: UUID
     assert payload.get("has_more") is True
     assert payload.get("next_cursor")
     assert len(payload.get("items") or []) < 8
+
+
+def test_char_bound_model_view_does_not_drop_verified_receipt(
+    interactive_session, marker_user: UUID, monkeypatch
+) -> None:
+    session = interactive_session
+    t0 = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    anchor = _email(session, "A", created_at=t0, user_id=marker_user)
+    newer = [
+        _email(
+            session,
+            f"N{i}",
+            created_at=t0 + timedelta(minutes=i + 1),
+            user_id=marker_user,
+            body="word " * 400,
+        )
+        for i in range(8)
+    ]
+    _marker(session, marker_user).set_marker(anchor.id)
+    session.flush()
+    monkeypatch.setattr("app.assistant.tool_output.MAX_ASSISTANT_TOOL_OUTPUT_CHARS", 1800)
+    provider = _PagingReviewProvider(purpose="inspect", follow=True)
+    result = AssistantService(marker_user, provider).send_message(
+        "Перечисли все новые сообщения.",
+        [],
+    )
+    assert result.inbox_review_receipt is not None
+    assert result.inbox_review_receipt.snapshot_top_object_id == newer[-1].id
+    assert result.inbox_review_receipt.total_count == 8
 
 
 def test_progress_inspect_never_completes() -> None:

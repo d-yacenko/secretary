@@ -19,6 +19,9 @@ from app.connectors.teams.errors import (
 )
 from app.connectors.teams.oauth_service import TeamsOAuthService
 from app.connectors.teams.oauth_state import TeamsOAuthStateService
+from app.connectors.teams.subscriptions import TeamsSubscriptionService
+from app.connectors.teams.token_service import TeamsTokenService
+from app.connectors.teams.transport import TeamsHttpTransport
 from app.core.config import settings
 from app.core.current_user import CurrentUserContext
 from app.jobs.constants import JOB_TYPE_SYNC_TEAMS
@@ -81,6 +84,21 @@ def _disable_teams_sync(session: Session, user_id: UUID, account_id: UUID) -> No
         JobQueueService(session).retire_recurring_source_job(job)
 
 
+def _delete_teams_subscription(session: Session, account) -> None:
+    store = _account_store(session)
+    service = TeamsSubscriptionService(session, store)
+    transport = None
+    try:
+        token = TeamsTokenService(session, store).acquire_access_token(account)
+        transport = TeamsHttpTransport(token)
+        service.delete_for_account(account, transport)
+    except Exception:
+        service.delete_for_account(account)
+    finally:
+        if transport is not None:
+            transport.close()
+
+
 @router.post("/auth/teams/authorization-url")
 def teams_oauth_authorization_url(
     session: Session = Depends(get_db),
@@ -108,6 +126,7 @@ def teams_disconnect(
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Microsoft Teams is not connected")
     _disable_teams_sync(session, current_user.user_id, account.id)
+    _delete_teams_subscription(session, account)
     store.disconnect(current_user.user_id)
     return TeamsDisconnectOut(status="disconnected")
 

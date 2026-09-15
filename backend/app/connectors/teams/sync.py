@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -18,7 +19,7 @@ from app.connectors.teams.constants import (
     MAX_SYNC_OVERLAP_SECONDS,
     SYNC_START_AT_KEY,
 )
-from app.connectors.teams.errors import TeamsConfigurationError, TeamsSyncError
+from app.connectors.teams.errors import TeamsConfigurationError, TeamsConnectorError, TeamsSyncError
 from app.connectors.teams.materialize import TeamsObjectMaterializer
 from app.connectors.teams.normalize import (
     accepted_chat_type,
@@ -26,10 +27,15 @@ from app.connectors.teams.normalize import (
     parse_graph_datetime,
 )
 from app.connectors.teams.oauth_service import TeamsOAuthService
+from app.connectors.teams.subscriptions import TeamsSubscriptionService
 from app.connectors.teams.token_service import TeamsTokenService
 from app.connectors.teams.transport import TeamsHttpTransport, TeamsTransport
+from app.core.config import settings
 from app.db.models import TeamsAccount
 from app.services.job_queue_service import JobQueueService
+
+
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -77,6 +83,7 @@ class TeamsSyncService:
             oauth_service,
             now_factory=self._now_factory,
         )
+        self._subscription_service = TeamsSubscriptionService(session, account_store)
 
     def sync_account(self, account_id: UUID, user_id: UUID) -> dict[str, Any]:
         account = self._account_store.get_by_id_for_user(account_id, user_id)
@@ -92,6 +99,17 @@ class TeamsSyncService:
             }
         transport, owns = self._open_transport(account)
         try:
+            try:
+                self._subscription_service.ensure(
+                    account,
+                    transport,
+                    notification_url=settings.microsoft_teams_notification_url,
+                    now=self._now_factory(),
+                )
+                self._session.commit()
+            except TeamsConnectorError:
+                logger.info("Teams Graph subscription ensure failed; continuing with reconciliation")
+                self._session.rollback()
             return self._sync_with_transport(account, transport)
         finally:
             if owns:
@@ -104,15 +122,29 @@ class TeamsSyncService:
             raise TeamsSyncError("Teams sync start boundary is missing")
         chats_state = dict(state.get(CHATS_STATE_KEY) or {})
         totals = _SyncTotals()
-        chats = self._list_accepted_chats(transport, account.microsoft_user_id)
+        chats = self._list_accepted_chats(
+            transport, account.microsoft_user_id, chats_state=chats_state
+        )
         for chat in chats:
             chat_id = str(chat.get("id") or "").strip()
             chat_type = accepted_chat_type(chat)
             if not chat_id or chat_type is None:
                 continue
-            title = display_title_for_chat(chat, self_user_id=account.microsoft_user_id)
             chat_entry = dict(chats_state.get(chat_id) or {})
+            title = str(chat.get("_cached_display_title") or "").strip() or display_title_for_chat(
+                chat, self_user_id=account.microsoft_user_id
+            )
             watermark = parse_graph_datetime(chat_entry.get("last_created_at"))
+            chat_updated = parse_graph_datetime(chat.get("lastUpdatedDateTime"))
+            if (
+                watermark is not None
+                and chat_updated is not None
+                and chat_updated <= watermark
+            ):
+                chat_entry["chat_type"] = chat_type
+                chat_entry["display_title"] = title
+                chats_state[chat_id] = chat_entry
+                continue
             floor = watermark - timedelta(seconds=self._overlap_seconds) if watermark else sync_start
             created, pages_exhausted = self._sync_chat_messages(
                 account=account,
@@ -142,7 +174,13 @@ class TeamsSyncService:
             "jobs_enqueued": totals.jobs_enqueued,
         }
 
-    def _list_accepted_chats(self, transport: TeamsTransport, self_user_id: str) -> list[dict[str, Any]]:
+    def _list_accepted_chats(
+        self,
+        transport: TeamsTransport,
+        self_user_id: str,
+        *,
+        chats_state: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         chats: list[dict[str, Any]] = []
         next_url: str | None = None
         for _ in range(self._max_chat_pages):
@@ -160,7 +198,18 @@ class TeamsSyncService:
                 if not chat_id:
                     continue
                 if "members" not in raw:
-                    raw = transport.get_chat(chat_id)
+                    cached = chats_state.get(chat_id)
+                    if isinstance(cached, dict) and accepted_chat_type(
+                        {"chatType": cached.get("chat_type")}
+                    ) is not None:
+                        raw = {
+                            **raw,
+                            "chatType": cached["chat_type"],
+                            "_cached_display_title": cached.get("display_title"),
+                            "members": [],
+                        }
+                    else:
+                        raw = transport.get_chat(chat_id)
                 chats.append(raw)
             next_link = payload.get("@odata.nextLink") if isinstance(payload, dict) else None
             if not next_link:

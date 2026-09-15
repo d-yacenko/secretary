@@ -77,7 +77,8 @@ class Settings(BaseSettings):
     microsoft_oauth_client_id: str = ""
     microsoft_oauth_client_secret: str = ""
     microsoft_redirect_uri: str = "http://localhost:18080/auth/teams/callback"
-    source_sync_teams_interval_seconds: int = 60
+    microsoft_teams_notification_url: str = ""
+    source_sync_teams_interval_seconds: int = 900
     source_sync_gmail_interval_seconds: int = 120
     source_sync_yandex_mail_interval_seconds: int = 120
     source_sync_google_calendar_interval_seconds: int = 300

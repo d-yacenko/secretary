@@ -11,6 +11,7 @@ from app.connectors.teams.errors import (
     TeamsConfigurationError,
     TeamsRateLimitedError,
     TeamsSecurityError,
+    TeamsSubscriptionNotFoundError,
     TeamsWriteDefiniteError,
     TeamsWriteUncertainError,
 )
@@ -53,6 +54,18 @@ class TeamsTransport(Protocol):
         ...
 
     def reply_with_quote(self, chat_id: str, quoted_message_id: str, body: str) -> dict[str, Any]:
+        ...
+
+    def get_chat_message(self, chat_id: str, message_id: str) -> dict[str, Any]:
+        ...
+
+    def create_subscription(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    def renew_subscription(self, subscription_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    def delete_subscription(self, subscription_id: str) -> None:
         ...
 
     def close(self) -> None:
@@ -144,6 +157,33 @@ class TeamsHttpTransport:
             raise TeamsWriteUncertainError("Teams replyWithQuote response malformed")
         return payload
 
+    def get_chat_message(self, chat_id: str, message_id: str) -> dict[str, Any]:
+        chat_path = quote(chat_id, safe="")
+        message_path = quote(message_id, safe="")
+        payload = self._request_json("GET", f"/chats/{chat_path}/messages/{message_path}")
+        if not isinstance(payload, dict):
+            raise TeamsConfigurationError("Microsoft Graph chat message response malformed")
+        return payload
+
+    def create_subscription(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self._request_json("POST", "/subscriptions", json_body=payload)
+        if not isinstance(result, dict):
+            raise TeamsConfigurationError("Microsoft Graph subscription response malformed")
+        return result
+
+    def renew_subscription(self, subscription_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        encoded = quote(subscription_id, safe="")
+        result = self._request_json(
+            "PATCH", f"/subscriptions/{encoded}", json_body=payload, subscription=True
+        )
+        if not isinstance(result, dict):
+            raise TeamsConfigurationError("Microsoft Graph subscription response malformed")
+        return result
+
+    def delete_subscription(self, subscription_id: str) -> None:
+        encoded = quote(subscription_id, safe="")
+        self._request_json("DELETE", f"/subscriptions/{encoded}", subscription=True)
+
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._access_token}"}
 
@@ -159,15 +199,17 @@ class TeamsHttpTransport:
         *,
         params: dict[str, str] | None = None,
         absolute_url: str | None = None,
+        json_body: dict[str, Any] | None = None,
+        subscription: bool = False,
     ) -> Any:
         url = self._absolute_or_relative(path, absolute_url)
         try:
             response = self._http_client.request(
-                method, url, headers=self._headers(), params=params
+                method, url, headers=self._headers(), params=params, json=json_body
             )
         except httpx.RequestError as exc:
             raise TeamsConfigurationError("Microsoft Graph request failed") from exc
-        return self._parse_json(response, write=False)
+        return self._parse_json(response, write=False, subscription=subscription)
 
     def _request_write_json(self, method: str, path: str, json_body: dict[str, Any]) -> Any:
         url = self._build_url(path)
@@ -186,7 +228,9 @@ class TeamsHttpTransport:
             return absolute_url
         return self._build_url(path)
 
-    def _parse_json(self, response: httpx.Response, *, write: bool) -> Any:
+    def _parse_json(
+        self, response: httpx.Response, *, write: bool, subscription: bool = False
+    ) -> Any:
         if 300 <= response.status_code < 400:
             if write:
                 raise TeamsWriteDefiniteError("Teams redirect rejected")
@@ -200,6 +244,8 @@ class TeamsHttpTransport:
                 retry_after_seconds=retry_after,
             )
         if 400 <= response.status_code < 500:
+            if subscription and response.status_code == 404:
+                raise TeamsSubscriptionNotFoundError("Microsoft Graph subscription not found")
             if write:
                 raise TeamsWriteDefiniteError("Teams write rejected")
             raise TeamsConfigurationError("Microsoft Graph request rejected")
@@ -235,7 +281,17 @@ class FakeTeamsTransport:
         self.send_message_error: Exception | None = None
         self.reply_with_quote_error: Exception | None = None
         self.list_chats_calls = 0
+        self.get_chat_calls: list[str] = []
         self.list_messages_calls: list[str] = []
+        self.get_chat_message_calls: list[tuple[str, str]] = []
+        self.subscription_create_calls: list[dict[str, Any]] = []
+        self.subscription_renew_calls: list[tuple[str, dict[str, Any]]] = []
+        self.subscription_delete_calls: list[str] = []
+        self.subscription_response: dict[str, Any] = {
+            "id": "subscription-1",
+            "resource": "/users/user-1/chats/getAllMessages",
+            "expirationDateTime": "2026-09-15T15:00:00Z",
+        }
         self.mark_read_calls: list[str] = []
 
     def get_me(self) -> dict[str, Any]:
@@ -246,6 +302,7 @@ class FakeTeamsTransport:
         return {"value": [dict(chat) for chat in self.chats]}
 
     def get_chat(self, chat_id: str) -> dict[str, Any]:
+        self.get_chat_calls.append(chat_id)
         for chat in self.chats:
             if chat.get("id") == chat_id:
                 return dict(chat)
@@ -254,6 +311,27 @@ class FakeTeamsTransport:
     def list_chat_messages(self, chat_id: str, url: str | None = None) -> dict[str, Any]:
         self.list_messages_calls.append(chat_id)
         return {"value": [dict(item) for item in self.messages_by_chat.get(chat_id, [])]}
+
+    def get_chat_message(self, chat_id: str, message_id: str) -> dict[str, Any]:
+        self.get_chat_message_calls.append((chat_id, message_id))
+        for message in self.messages_by_chat.get(chat_id, []):
+            if str(message.get("id")) == message_id:
+                return dict(message)
+        return {"id": message_id, "chatId": chat_id}
+
+    def create_subscription(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.subscription_create_calls.append(dict(payload))
+        echoed = dict(self.subscription_response)
+        if payload.get("resource"):
+            echoed["resource"] = payload["resource"]
+        return echoed
+
+    def renew_subscription(self, subscription_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.subscription_renew_calls.append((subscription_id, dict(payload)))
+        return dict(self.subscription_response, id=subscription_id)
+
+    def delete_subscription(self, subscription_id: str) -> None:
+        self.subscription_delete_calls.append(subscription_id)
 
     def send_message(self, chat_id: str, body: str) -> dict[str, Any]:
         payload = {"chat_id": chat_id, "body": body}

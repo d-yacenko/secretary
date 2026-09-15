@@ -13,6 +13,7 @@ from app.jobs.constants import (
     WORKER_GENERAL_EXCLUDE_TYPES,
     WORKER_IDLE_SLEEP_SECONDS,
     source_sync_lane_job_types,
+    teams_notification_lane_job_types,
 )
 from app.jobs.worker import process_one_job
 from app.services.proactive_scheduler import ProactiveScheduler
@@ -108,6 +109,15 @@ def main() -> None:
         )
         for job_type in source_sync_lane_job_types()
     ]
+    notification_threads = [
+        threading.Thread(
+            target=_run_job_lane,
+            name=f"worker-teams-notification-{job_type}",
+            kwargs={"stop": stop, "include_types": {job_type}},
+            daemon=True,
+        )
+        for job_type in teams_notification_lane_job_types()
+    ]
     general = threading.Thread(
         target=_run_job_lane,
         name="worker-general",
@@ -120,6 +130,8 @@ def main() -> None:
     )
     scheduled.start()
     for thread in source_sync_threads:
+        thread.start()
+    for thread in notification_threads:
         thread.start()
     general.start()
     stop.wait()

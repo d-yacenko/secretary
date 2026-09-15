@@ -125,6 +125,22 @@ class JobQueueService:
         self._session.flush()
         return job
 
+    def enqueue_once(
+        self,
+        job_type: str,
+        payload: dict,
+        user_id: UUID,
+        *,
+        dedupe_key: str,
+        run_after: datetime | None = None,
+    ) -> Job:
+        for existing in self._session.scalars(
+            select(Job).where(Job.user_id == user_id, Job.type == job_type)
+        ):
+            if existing.payload.get("dedupe_key") == dedupe_key:
+                return existing
+        return self.enqueue(job_type, {**payload, "dedupe_key": dedupe_key}, user_id, run_after)
+
     def claim_next(
         self,
         *,

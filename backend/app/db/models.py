@@ -788,6 +788,38 @@ class TeamsAccount(Base):
     )
 
 
+class TeamsSubscription(Base):
+    __tablename__ = "teams_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("teams_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    subscription_id: Mapped[str] = mapped_column(nullable=False)
+    resource: Mapped[str] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    client_state_encrypted: Mapped[str] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(nullable=False, server_default=text("'active'"))
+    last_renewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("account_id", name="uq_teams_subscriptions_account_id"),
+        sa.UniqueConstraint("subscription_id", name="uq_teams_subscriptions_subscription_id"),
+        Index("ix_teams_subscriptions_user_id", "user_id"),
+    )
+
+
 class TeamsOAuthState(Base):
     __tablename__ = "teams_oauth_states"
 

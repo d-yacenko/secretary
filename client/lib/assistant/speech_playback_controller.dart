@@ -38,22 +38,30 @@ class SpeechPlaybackController {
     String text, {
     required void Function() onFinished,
     required SpeechPlaybackError onError,
+    void Function()? onPlaybackStarted,
   }) async {
     final chunks = chunkSpeechText(text);
     if (chunks.isEmpty) {
       onFinished();
       return;
     }
-    await speakChunks(chunks, onFinished: onFinished, onError: onError);
+    await speakChunks(
+      chunks,
+      onFinished: onFinished,
+      onError: onError,
+      onPlaybackStarted: onPlaybackStarted,
+    );
   }
 
   Future<void> speakChunks(
     List<String> chunks, {
     required void Function() onFinished,
     required SpeechPlaybackError onError,
+    void Function()? onPlaybackStarted,
   }) async {
     final generation = ++_generation;
     _speaking = true;
+    var playbackStarted = false;
     try {
       for (final chunk in chunks) {
         if (generation != _generation) {
@@ -73,6 +81,10 @@ class SpeechPlaybackController {
         }
         _activePath = path;
         try {
+          if (!playbackStarted) {
+            playbackStarted = true;
+            onPlaybackStarted?.call();
+          }
           VoiceTurnTiming.mark('playback_start');
           await _player.playFile(path);
         } finally {

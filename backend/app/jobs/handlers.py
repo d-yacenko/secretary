@@ -24,6 +24,7 @@ from app.jobs.constants import (
     JOB_TYPE_EXTRACT_TEMPORAL_SIGNAL,
     JOB_TYPE_INGEST_LOCAL_FILE,
     JOB_TYPE_PROACTIVE_REVIEW,
+    JOB_TYPE_PROCESS_TEAMS_NOTIFICATION,
     JOB_TYPE_RECONCILE_TEMPORAL_HINTS,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY,
     JOB_TYPE_SUMMARIZE_RESOURCE,
@@ -36,6 +37,7 @@ from app.jobs.constants import (
 )
 from app.jobs.scheduled_activity_handler import handle_run_scheduled_activity
 from app.jobs.source_sync_handlers import (
+    handle_process_teams_notification,
     handle_sync_google_calendar,
     handle_sync_google_gmail,
     handle_sync_mattermost,
@@ -590,6 +592,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_TYPE_SYNC_YANDEX_CALENDAR: handle_sync_yandex_calendar,
     JOB_TYPE_SYNC_MATTERMOST: handle_sync_mattermost,
     JOB_TYPE_SYNC_TEAMS: handle_sync_teams,
+    JOB_TYPE_PROCESS_TEAMS_NOTIFICATION: handle_process_teams_notification,
     JOB_TYPE_RUN_SCHEDULED_ACTIVITY: handle_run_scheduled_activity,
     JOB_TYPE_PROACTIVE_REVIEW: handle_proactive_review,
 }

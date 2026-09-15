@@ -157,6 +157,12 @@ class TeamsAccountStore:
             raise TeamsConfigurationError("Teams account is missing access token")
         return self._encryption.decrypt(account.access_token_encrypted)
 
+    def encrypt_secret(self, value: str) -> str:
+        return self._encryption.encrypt(value)
+
+    def decrypt_secret(self, value: str) -> str:
+        return self._encryption.decrypt(value)
+
     def get_refresh_token(self, account: TeamsAccount) -> str:
         if not account.refresh_token_encrypted:
             raise TeamsOAuthError("Teams account is missing refresh token")

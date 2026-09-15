@@ -7,6 +7,7 @@ from app.connectors.google.gmail_sync import build_gmail_sync_service
 from app.connectors.mattermost.sync import build_mattermost_sync_service
 from app.connectors.teams.account_store import TeamsAccountStore
 from app.connectors.teams.constants import AUTH_STATUS_RECONNECT_REQUIRED
+from app.connectors.teams.notifications import process_graph_notification
 from app.connectors.teams.sync import build_teams_sync_service
 from app.connectors.yandex.calendar_sync import build_yandex_calendar_sync_service
 from app.connectors.yandex.mail_sync import build_yandex_mail_sync_service
@@ -195,3 +196,12 @@ def handle_sync_teams(
     if account is None or account.auth_status == AUTH_STATUS_RECONNECT_REQUIRED:
         return
     _teams_sync_service(session, user_id).sync_account(account_id, user_id=user_id)
+
+
+def handle_process_teams_notification(
+    session: Session,
+    _embedding_service,
+    payload: dict,
+    user_id: UUID,
+) -> None:
+    process_graph_notification(session, payload, user_id)

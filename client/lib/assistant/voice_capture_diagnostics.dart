@@ -48,9 +48,6 @@ class VoiceCaptureDiagnostics {
       ...fields,
     };
     events.add(Map<String, Object?>.from(payload));
-    if (!kDebugMode) {
-      return;
-    }
     final rendered = payload.entries
         .map((entry) => '${entry.key}=${entry.value}')
         .join(' ');

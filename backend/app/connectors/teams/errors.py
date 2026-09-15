@@ -40,6 +40,10 @@ class TeamsSyncError(TeamsConnectorError):
     """Visible sync failure; correctness state must not advance."""
 
 
+class TeamsSubscriptionNotFoundError(TeamsConnectorError):
+    """The remote Graph subscription no longer exists."""
+
+
 class TeamsWriteDefiniteError(TeamsConnectorError):
     """Provider rejected a write; delivery did not occur."""
 

@@ -57,6 +57,12 @@ class InboxReviewTurnProgress:
             self._invalid = True
             self._complete = False
             return
+        if self._complete:
+            if self._same_frozen_snapshot(payload):
+                return
+            self._invalid = True
+            self._complete = False
+            return
         if payload.get("marker_not_set") or not payload.get("marker_present"):
             self._invalid = True
             self._complete = False
@@ -148,6 +154,24 @@ class InboxReviewTurnProgress:
             snapshot_top_object_id=self._snapshot_top_object_id,
             snapshot_top_feed_at=self._snapshot_top_feed_at,
             total_count=self._total_count,
+        )
+
+    def _same_frozen_snapshot(self, payload: dict[str, Any]) -> bool:
+        try:
+            snapshot_top_object_id = UUID(str(payload.get("snapshot_top_object_id")))
+            snapshot_top_feed_at = canonical_feed_at(parse_feed_at(payload.get("snapshot_top_feed_at")))
+            anchor_object_id = UUID(str(payload.get("anchor_object_id")))
+            anchor_feed_at = canonical_feed_at(parse_feed_at(payload.get("anchor_feed_at")))
+            total_count = payload.get("total_count")
+        except (TypeError, ValueError, ValidationError):
+            return False
+        return (
+            self._purpose == "review"
+            and self._anchor_object_id == anchor_object_id
+            and self._anchor_feed_at == anchor_feed_at
+            and self._snapshot_top_object_id == snapshot_top_object_id
+            and self._snapshot_top_feed_at == snapshot_top_feed_at
+            and self._total_count == total_count
         )
 
 

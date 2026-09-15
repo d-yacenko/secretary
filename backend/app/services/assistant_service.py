@@ -25,6 +25,7 @@ from app.assistant.constants import (
     MAX_UI_CONTEXT_CHARS,
 )
 from app.assistant.inbox_review_progress import InboxReviewReceipt
+from app.assistant.inbox_review_intent import inbox_review_purpose_for_utterance
 from app.assistant.reference_ids import cap_reference_candidate_ids, dedupe_preserve_order
 from app.assistant.session import run_assistant_tool
 from app.assistant.tool_runner import BoundAssistantToolRunner, PerTurnToolBudget
@@ -226,6 +227,7 @@ class AssistantService:
             max_calls=MAX_ASSISTANT_TOOL_CALLS_PER_TURN,
             telemetry=telemetry,
             initial_seen_object_ids=seen_seed_ids,
+            inbox_review_purpose=inbox_review_purpose_for_utterance(normalized_message),
         )
         tool_runner = BoundAssistantToolRunner(tool_budget, self._user_id)
         identity_facts = self._resolve_identity_facts()

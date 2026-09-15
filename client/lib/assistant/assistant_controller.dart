@@ -426,6 +426,20 @@ class AssistantController extends ChangeNotifier {
               response.inboxReviewReceipt != null
           ? response.inboxReviewReceipt
           : null;
+      VoiceCaptureDiagnostics.event(
+        response.inboxReviewReceipt == null
+            ? 'assistant_response_review_receipt_missing'
+            : 'assistant_response_review_receipt_received',
+        {
+          'auto_speech_allowed': _autoSpeechAllowed,
+          'pending_action_plan': response.pendingActionPlan != null,
+        },
+      );
+      if (_pendingInboxReviewReceipt != null) {
+        VoiceCaptureDiagnostics.event('inbox_review_receipt_stored', {
+          'total_count': _pendingInboxReviewReceipt!.totalCount,
+        });
+      }
       if (_autoSpeechAllowed) {
         await _speakLatestAssistantResult();
       }
@@ -771,6 +785,9 @@ class AssistantController extends ChangeNotifier {
   }
 
   Future<void> stopSpeaking() async {
+    if (_speakingOverlay || _speech.isSpeaking) {
+      VoiceCaptureDiagnostics.event('playback_interrupted');
+    }
     _discardPendingInboxReviewCompletion();
     _planNarrationInProgress = false;
     _speakingOverlay = false;
@@ -922,8 +939,12 @@ class AssistantController extends ChangeNotifier {
     var playbackFinished = false;
     await _speech.speak(
       text,
+      onPlaybackStarted: () {
+        VoiceCaptureDiagnostics.event('playback_started');
+      },
       onFinished: () {
         playbackFinished = true;
+        VoiceCaptureDiagnostics.event('playback_completed');
         _speakingOverlay = false;
         if (isPlanNarration && _planNarrationInProgress) {
           _voiceApprovalArmed = true;
@@ -932,6 +953,7 @@ class AssistantController extends ChangeNotifier {
         notifyListeners();
       },
       onError: (message) {
+        VoiceCaptureDiagnostics.event('playback_error');
         _discardPendingInboxReviewCompletion();
         _speakingOverlay = false;
         if (isPlanNarration) {
@@ -957,9 +979,30 @@ class AssistantController extends ChangeNotifier {
     if (receipt == null) {
       return;
     }
+    VoiceCaptureDiagnostics.event('inbox_review_completion_started', {
+      'total_count': receipt.totalCount,
+    });
     try {
-      await _apiClient.completeInboxReviewMarker(receipt);
+      final result = await _apiClient.completeInboxReviewMarker(receipt);
+      VoiceCaptureDiagnostics.event('inbox_review_completion_result', {
+        'status': result.status,
+      });
+    } on AuthenticationException {
+      VoiceCaptureDiagnostics.event('inbox_review_completion_failed', {
+        'failure': 'authentication',
+      });
+    } on NetworkException {
+      VoiceCaptureDiagnostics.event('inbox_review_completion_failed', {
+        'failure': 'network',
+      });
+    } on ApiException {
+      VoiceCaptureDiagnostics.event('inbox_review_completion_failed', {
+        'failure': 'api',
+      });
     } catch (_) {
+      VoiceCaptureDiagnostics.event('inbox_review_completion_failed', {
+        'failure': 'unexpected',
+      });
       // Fail closed: interrupted/errored/conflict completion must not move the marker.
     }
   }
